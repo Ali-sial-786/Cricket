@@ -32,8 +32,10 @@ export class MRPlacer {
     g.env.pitchGroup.visible = false;
     this.reticle.visible = false;
     g.ui.setHudPose('mr');
-    g.ui.hud.mesh.position.set(0, 1.5, -1.6);
-    g.ui.hud.mesh.lookAt(0, 1.5, 0);
+    const h = g.input.headPose, f = headForward(h.q);
+    g.ui.hud.mesh.position.set(h.p.x + f.x * 1.6, Math.max(1.2, h.p.y - 0.1), h.p.z + f.z * 1.6);
+    g.ui.hud.mesh.lookAt(h.p.x, Math.max(1.2, h.p.y - 0.1), h.p.z);
+    g.ui.hud.mesh.scale.setScalar(1);
     g.ui.setHud({ title: 'Mixed reality nets', score: '', sub: 'Point the LEFT controller at your floor', big: 'Place stumps', bigColor: '#5cf2a6', last: 'Pull the trigger where the stumps should go.', detail: 'The pitch will run the way you are facing.', footer: 'Make sure 2 m around you is clear.' });
   }
 

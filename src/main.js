@@ -29,6 +29,8 @@ const xr = new XRSessionManager(renderer, {
   onStart: (mode) => { document.body.classList.add('in-xr'); game.onXRStart(mode); },
   onEnd: () => { document.body.classList.remove('in-xr'); game.onXREnd(); },
   onStatus: setStatus,
+  onReset: () => game.onReferenceReset(),
+  onVisibility: (state) => game.onVisibilityChange(state),
 });
 game.requestXR = (kind) => xr.start(kind);
 game.xrManager = xr;
@@ -47,6 +49,7 @@ renderer.domElement.addEventListener('pointerdown', () => game.sfx.init());
 document.getElementById('toggle-help')?.addEventListener('click', () => document.body.classList.toggle('help-hidden'));
 
 window.addEventListener('resize', () => {
+  if (renderer.xr.isPresenting) return;   // the XR runtime owns the framebuffer size
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);

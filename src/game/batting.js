@@ -61,7 +61,7 @@ export class BattingSession {
   }
 
   handleInput(input) {
-    if (input.left.buttons.a.down) this.requestNext();
+    if (input.left.buttons.a.down || (input.xr && !input.left.connected && input.right.buttons.a.down)) this.requestNext();
   }
 
   requestNext() {

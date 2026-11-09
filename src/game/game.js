@@ -16,6 +16,7 @@ import { loadSettings, saveSettings, loadCalibration, saveCalibration } from './
 import { computeBatOffset, defaultBatOffset, computeRig, headForward } from './calibration.js';
 import { LENGTH_PRESETS, LINE_PRESETS } from '../physics/bowlingMachine.js';
 import { createSession } from './modes.js';
+import { MRPlacer } from '../xr/mr.js';
 import { AIBatter } from './aiBatter.js';
 import { BatterView, BowlerView, FieldView, buildNonStriker } from '../render/people.js';
 import { FIELD } from './fielding.js';
@@ -157,7 +158,11 @@ export class Game {
     this.rig.updateMatrixWorld(true);
     this.input.right.resetMotion();
     this.input.left.resetMotion();
+    // The world head pose was computed this frame with the old rig.
+    this.input.refreshHeadWorld();
     this.snapBat = true;
+    // Keep an open menu in front of the player after the world moves.
+    if (this.ui && this.ui.menuOpen && this.input.xr) this.ui.placeMenu();
   }
 
   placeDesktopCamera() {
@@ -194,9 +199,26 @@ export class Game {
     }
   }
 
+  // System recenter (long-press Meta button) moved the reference space origin.
+  onReferenceReset() {
+    if (this.mr) { if (this.mrPlacer) { this.endSession(); this.ui.closeMenu(); this.mrPlacer.restart(); } return; }
+    this.pendingRecenter = 2;
+  }
+
+  // Headset taken off / system menu open: pause play.
+  onVisibilityChange(state) {
+    if (state !== 'visible' && this.state === 'play' && this.session && !this.ui.menuOpen) this.ui.openMenu('main');
+  }
+
   onXREnd() {
     this.xrMode = null;
     this.mr = false;
+    this.input.mode = 'desktop';
+    this.pendingRecenter = null;
+    // three copied the XR projection onto the user camera: restore it.
+    this.camera.fov = 70;
+    this.camera.aspect = window.innerWidth / Math.max(1, window.innerHeight);
+    this.camera.updateProjectionMatrix();
     this.env.stadium.visible = true;
     this.ui.board.mesh.visible = true;
     if (this.mrPlacer) { this.mrPlacer.dispose(); this.mrPlacer = null; }
@@ -208,9 +230,14 @@ export class Game {
   }
 
   startMRPlacement() {
-    import('../xr/mr.js').then(({ MRPlacer }) => {
-      this.mrPlacer = new MRPlacer(this);
-    }).catch((e) => console.warn('MR unavailable', e));
+    try {
+      if (this.mrPlacer) this.mrPlacer.restart();
+      else this.mrPlacer = new MRPlacer(this);
+    } catch (e) {
+      console.warn('MR placement unavailable', e);
+      this.state = 'menu';
+      this.ui.openMenu('main');
+    }
   }
 
   onMenuChanged(open) {
@@ -257,7 +284,10 @@ export class Game {
     this.lastNow = now;
     dt = clamp(dt, 0, CONFIG.physics.maxFrameDt);
     this.stats.fpsAccum += dt; this.stats.frames++;
-    if (this.stats.fpsAccum > 1) { this.stats.fps = this.stats.frames / this.stats.fpsAccum; this.stats.frames = 0; this.stats.fpsAccum = 0; }
+    if (this.stats.fpsAccum > 1) {
+      this.stats.fps = this.stats.frames / this.stats.fpsAccum; this.stats.frames = 0; this.stats.fpsAccum = 0;
+      if (this.xrManager && this.input.xr) this.xrManager.checkPerformance(this.stats.fps);
+    }
 
     const paused = this.ui.menuOpen && this.state === 'play';
     if (!paused) this.simTime += dt;
@@ -290,20 +320,25 @@ export class Game {
   afterXRSettled() {
     this.footerRefresh();
     if (this.state === 'safety') this.ui.openMenu('safety');
+    if (this.state === 'mrplace' && this.mrPlacer) this.mrPlacer.restart();   // re-place its prompt at the real head pose
   }
 
   footerRefresh() { this.ui.setHud({ footer: this.session ? this.session.footer() : this.footerText() }); }
 
-  handleGlobalInput() {
+  handleGlobalInput(dt) {
     const L = this.input.left, R = this.input.right, D = this.input.desktop;
-    // Menu toggle: Y (left B) in XR, Esc / M on desktop.
-    if (L.buttons.b.down && (this.state === 'play' || this.state === 'menu')) {
-      if (this.ui.menuOpen) { if (this.session) this.ui.closeMenu(); }
-      else this.ui.openMenu('main');
+    // Menu toggle: Y (left B) in XR, Esc / M on desktop. Without a left
+    // controller, the right thumbstick click does it.
+    const menuBtn = L.buttons.b.down || (this.input.xr && !L.connected && R.buttons.stick.down);
+    if (menuBtn && (this.state === 'play' || this.state === 'menu')) {
+      if (this.ui.menuOpen) {
+        if (this.session) this.ui.closeMenu();
+        else this.ui.openMenu(this.ui.page);   // re-place it in front of you
+      } else this.ui.openMenu('main');
     }
     // Hold left grip ~1 s to recenter (XR).
     if (this.input.xr && L.buttons.squeeze.pressed) {
-      this.gripHold = (this.gripHold || 0) + 1 / 72;
+      this.gripHold = (this.gripHold || 0) + dt;
       if (this.gripHold > 1.0 && !this.gripRecentered) { this.recenter(); this.gripRecentered = true; L.pulse(0.4, 40); }
     } else { this.gripHold = 0; this.gripRecentered = false; }
     if (!this.input.xr) {
@@ -318,8 +353,8 @@ export class Game {
     const batting = this.session ? !this.session.isBowling : this.state === 'calibrate' || this.state === 'menu';
     const show = batting && R.connected && !(this.state === 'calibrate' && this.calib.step === 'capture' && this.input.xr && !this.calibration);
     this.batMesh.visible = show && !(this.ui.menuOpen && this.input.xr && this.state !== 'calibrate' && !this.session);
-    this.playerBat.enabled = batting && !!this.session && !paused;
-    if (!R.connected) return;
+    this.playerBat.enabled = batting && !!this.session && !paused && R.connected && R.tracked;
+    if (!R.connected || !R.tracked) { this.snapBat = true; return; }
     const off = this.batOffset();
     _batPose.p.copy(R.gripPose.p);
     _batPose.q.multiplyQuats(R.gripPose.q, off).normalize();

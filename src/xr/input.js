@@ -22,6 +22,7 @@ export class Controller {
   constructor(hand) {
     this.hand = hand;
     this.connected = false;
+    this.tracked = true;           // false while the runtime has no pose (e.g. blurred session)
     this.source = null;            // XRInputSource
     this.gripPose = new Pose();    // world
     this.gripRef = new Pose();     // reference space (before rig)
@@ -75,6 +76,7 @@ export class Controller {
   }
 
   resetMotion() { this._prevT = -1; this.history.length = 0; this.linVel.set(0, 0, 0); this.angVel.set(0, 0, 0); }
+  releaseButtons() { for (const b of Object.values(this.buttons)) b.set(false); this.stick.x = 0; this.stick.y = 0; }
 
   // Peak-speed sample in the last windowSec.
   peak(now, windowSec) {
@@ -115,6 +117,17 @@ export class InputManager {
   }
 
   get xr() { return this.mode === 'xr'; }
+
+  // Recompute the world head pose from the reference-space one (after the rig moved).
+  refreshHeadWorld() {
+    if (this.mode !== 'xr') return;
+    this.rig.updateMatrixWorld(true);
+    _p.set(this.headRef.p.x, this.headRef.p.y, this.headRef.p.z).applyMatrix4(this.rig.matrixWorld);
+    this.rig.getWorldQuaternion(_rq);
+    _q.set(this.headRef.q.x, this.headRef.q.y, this.headRef.q.z, this.headRef.q.w).premultiply(_rq);
+    this.headPose.p.set(_p.x, _p.y, _p.z);
+    this.headPose.q.set(_q.x, _q.y, _q.z, _q.w);
+  }
 
   update(t, frame) {
     this.mode = this.renderer.xr.isPresenting ? 'xr' : 'desktop';
@@ -161,10 +174,17 @@ export class InputManager {
     const useXR = CONFIG.bat.velocitySource !== 'pose';
     for (const c of [this.left, this.right]) {
       const slot = this.slots.find((s) => s.source && s.source.handedness === c.hand);
-      if (!slot) { c.connected = false; c.source = null; continue; }
+      if (!slot) {
+        if (c.connected) c.releaseButtons();
+        c.connected = false; c.source = null;
+        continue;
+      }
       if (!c.connected) c.resetMotion();
       c.connected = true;
       c.source = slot.source;
+      // three hides the grip group when the runtime has no grip pose.
+      c.tracked = slot.grip.visible !== false;
+      if (!c.tracked) { c.linVel.set(0, 0, 0); c.angVel.set(0, 0, 0); c.hasXRVel = false; c.resetMotion(); c.releaseButtons(); continue; }
       slot.grip.matrixWorld.decompose(_p, _q, _s);
       c.gripPose.p.set(_p.x, _p.y, _p.z);
       c.gripPose.q.set(_q.x, _q.y, _q.z, _q.w);

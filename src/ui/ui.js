@@ -29,7 +29,8 @@ export class UI {
     this.boardData = { lines: ['CREASE VR', 'Nets'] };
 
     // Laser pointer.
-    const lg = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -1)]);
+    // Along +Z: Object3D.lookAt() aims an object's +Z axis at the target.
+    const lg = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, 1)]);
     this.laser = new THREE.Line(lg, new THREE.LineBasicMaterial({ color: 0x7fd3ff, transparent: true, opacity: 0.8 }));
     this.laser.frustumCulled = false;
     this.laser.visible = false;
@@ -65,6 +66,14 @@ export class UI {
 
   openMenu(page = 'main') {
     this.page = page;
+    this.placeMenu();
+    this.menu.mesh.visible = true;
+    this.buildPage();
+    this.game.onMenuChanged(true);
+  }
+
+  // Put the menu 1.1 m in front of the player's current head pose.
+  placeMenu() {
     const m = this.menu.mesh;
     if (this.game.input.xr) {
       const head = this.game.input.headPose;
@@ -84,9 +93,6 @@ export class UI {
       m.position.copy(p).addScaledVector(fwd, 1.0);
       m.quaternion.copy(cam.getWorldQuaternion(new THREE.Quaternion()));
     }
-    m.visible = true;
-    this.buildPage();
-    this.game.onMenuChanged(true);
   }
 
   closeMenu() {

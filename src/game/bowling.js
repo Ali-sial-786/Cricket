@@ -88,6 +88,7 @@ export class BowlingSession {
       if (!input.xr && D.took('KeyB')) this.autoBowl();
     }
     if (L.buttons.a.down && this.state === 'settle') this.timer = 0;
+    if (!R.connected || R.tracked === false) this.holding = false;
   }
 
   attemptRelease() {

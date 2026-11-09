@@ -42,6 +42,14 @@ _Last updated by the overnight build._
 5. A replay of the last ball from a broadcast camera.
 6. Wide/no-ball umpire signals; a third-man/fine-leg rotation for left-handers.
 
+## Robustness pass (after an independent review of headset-only code paths)
+- Menus re-placed from the fresh head pose after every rig move. Y re-summons the menu if you lose it.
+- The laser now points forwards. The Quest system recenter (Meta button) triggers a game recenter (VR)
+  or stump re-placement (MR).
+- The game pauses when the session loses focus. The right thumbstick click opens the menu if the left controller is off.
+- Exit VR restores the desktop camera. A failed session start ends the session.
+- Automatic frame-rate step-down if 120 Hz can't be held.
+
 ## Known issues / not verified
 - **Not tested on a real headset.** All XR paths ran only under Meta's IWER emulator in headless Chromium
   (no pose velocities, haptics, hit-test or passthrough there). Haptics, `updateTargetFrameRate`, pose velocities
