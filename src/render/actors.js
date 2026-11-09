@@ -379,7 +379,7 @@ export class BatterActor extends Actor {
     const yaw = clamp(Math.atan2(lx, Math.max(0.05, lz)), -1.2, 1.4);
     h.rot('hips', 0, yaw * 0.35, 0);
     h.rot('spine', lean, yaw * 0.25, 0);
-    h.rot('chest', 0.08, yaw * 0.45, 0);
+    h.rot('chest', 0.08 + 0.018 * Math.sin(t * 1.6), yaw * 0.45, 0);
     plantFeet(h, this.footL, this.footR, this.forward(_d).multiplyScalar(0.7));
     this.gripBat(batPos, batQuat);
     if (opts.ball) h.lookAt(opts.ball, 1, 1.7);

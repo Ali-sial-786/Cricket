@@ -311,7 +311,7 @@ export class DesktopControls {
     L.rayPose.p.set(0, 0, 0);
 
     if (this.mode === 'bowl') this.bowlPose(R);
-    else this.batPose(R);
+    else this.batPose(R, t);
     R.gripRef.copy(R.gripPose);
     R._record(t, false);
     // Desktop wrist roll for spin (Q = off-spin, E = leg-spin).
@@ -324,9 +324,16 @@ export class DesktopControls {
   }
 
   // Bat swing from the mouse. Pose is the BAT pose directly (offset = identity).
-  batPose(R) {
-    const alpha = clamp(-this.ny, -1, 1) * 2.15;          // up = backlift, down = follow-through
-    const beta = clamp(this.nx, -1, 1) * 0.6;             // right = off side
+  // Light exponential smoothing (~15 ms) removes mouse-event jitter without
+  // adding noticeable lag to a flick.
+  batPose(R, t) {
+    const dt = this._lastT != null ? Math.max(0, t - this._lastT) : 0;
+    this._lastT = t;
+    const k = dt > 0 ? 1 - Math.exp(-dt / 0.015) : 1;
+    this.sx = this.sx == null ? this.nx : this.sx + (this.nx - this.sx) * k;
+    this.sy = this.sy == null ? this.ny : this.sy + (this.ny - this.sy) * k;
+    const alpha = clamp(-this.sy, -1, 1) * 2.15;          // up = backlift, down = follow-through
+    const beta = clamp(this.sx, -1, 1) * 0.6;             // right = off side
     // face toward the bowler: 180° about Y; then swing about X; then plane yaw.
     this._q.set(0, 1, 0, 0);
     this._qa.setFromAxisAngle(_X, alpha);
@@ -334,7 +341,7 @@ export class DesktopControls {
     R.gripPose.q.multiplyQuats(this._qa, this._q).premultiply(this._qb).normalize();
     // Hands move forward slightly through the swing.
     const fwd = Math.sin(clamp(alpha, -1.2, 1.2)) * 0.18;
-    const across = clamp(this.nx, -1, 1) * 0.3;         // hands move across the crease too
+    const across = clamp(this.sx, -1, 1) * 0.3;         // hands move across the crease too
     R.gripPose.p.set(this.batHand.x + across + Math.sin(beta) * fwd, this.batHand.y + Math.abs(Math.sin(alpha)) * 0.06, this.batHand.z - Math.cos(beta) * fwd);
   }
 

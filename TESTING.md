@@ -12,7 +12,13 @@ Setup: open the GitHub Pages URL in the Quest Browser. Wear the wrist straps and
   - **Report:** frame rate (Hz) and controller velocity (`XR` or `pose`).
 - [ ] Look around the stadium and play a few nets balls.
   - **Report:** any judder, stutter when the ball is released or hit, or flicker at the edges (foveation).
-    Knobs: `xr.maxFrameRate`, `xr.foveation`, `xr.framebufferScale`.
+    Knobs: `xr.maxFrameRate`, `xr.foveation`, `xr.framebufferScale`. If the frame rate sags with the full stadium,
+    lower `render.crowdMax` (3000 spectators) or `render.animLodDistance`. The game also steps 120 → 90 Hz by
+    itself if it can't hold 120.
+- [ ] Watch a few deliveries from the AI bowler (Run Chase). The bowler runs in, bounds and lands side-on, and the ball
+      should leave his hand. Fielders walk in and crouch, chase, pick up and throw. Batters run between the wickets.
+  - **Report:** anything that looks wrong: sliding feet, arms in odd places, the ball appearing away from the hand,
+    or a fielder that gets stuck.
 
 ## 2. Bat calibration and feel (5 min)
 - [ ] Follow the calibration prompt: stance, look at the bowler, bat hanging straight down with the face

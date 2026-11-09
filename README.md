@@ -8,6 +8,7 @@ tested without a headset.
 
 * **Static site, no build step:** `index.html` + ES modules in `src/`; three.js r180 comes from
   cdn.jsdelivr.net through an import map.
+* **Animated players:** procedural skinned athletes with IK hands and feet. The bowler's arm passes exactly through the physics release point, and fielders walk in, chase, dive, pick up and throw.
 * **Physics** (`src/physics/`) is pure JS at a fixed 480 Hz, independent of the render rate.
   It covers gravity, quadratic drag, swing, Magnus, a spin-coupled bounce and seam movement,
   and swept bat collision that cannot tunnel. Unit tests use `node:test`.
@@ -53,7 +54,7 @@ Open the page in any WebGL2 browser without a headset. The page starts on the me
 | `Z` / `X` | — | Out-swing / in-swing toggle |
 | Arrow keys | — | Move the aim marker |
 | `Esc` or `M` | Menu (click buttons with the mouse) | Menu |
-| `C` | Cycle cameras: batter's eye, side-on, behind the bowler, overhead | Cycle cameras |
+| `C` | Cycle cameras: broadcast view behind the stumps (default, shows your animated batter), batter's eye, side-on, from the bowler's end, overhead | Cycle cameras |
 | `T` | Toggle ball trail | |
 
 `window.__game` exposes the game object in the console, for example `__game.world.ball`,
