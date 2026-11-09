@@ -36,6 +36,7 @@ export class BattingSession {
     g.aimMarker.visible = false;
     if (this.bowler === 'ai' && g.figures) this.bowlerFig = g.figures.bowler;
     if (this.bowlerFig) this.bowlerFig.show(true);
+    g.nonStriker.visible = !!this.innings;
     if (this.field) this.field.enter();
     this.resetEnds();
     this.updateHud();
@@ -46,6 +47,7 @@ export class BattingSession {
     g.machine.setCue(0);
     if (this.bowlerFig) this.bowlerFig.show(false);
     if (this.field) this.field.exit();
+    g.nonStriker.visible = false;
   }
 
   footer() {

@@ -38,6 +38,7 @@ export class BowlingSession {
     g.aiBatter.reset();
     g.aiBat.enabled = true;
     g.batterView.show(true);
+    g.nonStriker.visible = !!this.innings;
     if (this.field) this.field.enter();
     this.resetEnds();
     this.updateAim();
@@ -51,6 +52,7 @@ export class BowlingSession {
     g.batterView.show(false);
     g.aimMarker.visible = false;
     if (this.field) this.field.exit();
+    g.nonStriker.visible = false;
   }
 
   howTo() {

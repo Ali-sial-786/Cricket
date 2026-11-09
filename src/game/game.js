@@ -17,7 +17,7 @@ import { computeBatOffset, defaultBatOffset, computeRig, headForward } from './c
 import { LENGTH_PRESETS, LINE_PRESETS } from '../physics/bowlingMachine.js';
 import { createSession } from './modes.js';
 import { AIBatter } from './aiBatter.js';
-import { BatterView, BowlerView, FieldView } from '../render/people.js';
+import { BatterView, BowlerView, FieldView, buildNonStriker } from '../render/people.js';
 import { FIELD } from './fielding.js';
 
 export const BAT_HEAD = { z: -1.05, legOffset: -0.35 };      // head relative to guard (hand) x
@@ -67,6 +67,8 @@ export class Game {
     this.batterView = new BatterView(scene, this.aiBatter);
     this.figures = { bowler: new BowlerView(scene) };
     this.fieldView = new FieldView(scene, FIELD.length);
+    this.nonStriker = buildNonStriker(scene);
+    this.nonStriker.position.set(-1.35, 0, -18.7);
     this.ballOverride = null;   // fielding drives the ball view after a catch / pick-up
 
     this.input = new InputManager(renderer, rig, camera, dom);
