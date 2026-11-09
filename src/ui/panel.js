@@ -108,7 +108,9 @@ export class CanvasPanel {
       g.fill();
       if (active) { g.strokeStyle = '#7dff8a'; g.lineWidth = 4; g.stroke(); }
       g.fillStyle = w.disabled ? '#999' : '#ffffff';
-      g.font = `600 ${w.size || Math.round(w.h * 0.42)}px system-ui, sans-serif`;
+      let fs = w.size || Math.round(w.h * 0.42);
+      g.font = `600 ${fs}px system-ui, sans-serif`;
+      while (fs > 12 && g.measureText(w.text).width > w.w - 20) { fs = Math.round(fs * 0.92); g.font = `600 ${fs}px system-ui, sans-serif`; }
       g.textAlign = 'center';
       g.fillText(w.text, w.x + w.w / 2, w.y + w.h / 2 + 1);
       return;

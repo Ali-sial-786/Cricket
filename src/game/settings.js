@@ -29,6 +29,7 @@ export function defaultSettings() {
     aimAssist: true,
     aimMarker: true,
     trail: true,
+    ballBoost: true,               // draw the ball at a minimum angular size far away
     sound: true,
     overs: 2,
     paceMultiplier: CONFIG.bowling.paceMultiplier,

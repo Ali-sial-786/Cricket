@@ -121,6 +121,10 @@ export const CONFIG = {
     ballHoldOffset: [0, -0.02, -0.06], // ball position in grip space while held
   },
 
+  render: {
+    ballMinAngleDeg: 0.34,   // visibility assist: ball is drawn at least this big (physics unchanged)
+  },
+
   xr: {
     maxFrameRate: 120,       // highest rate we will ask for (Quest 3S: 72/80/90/120)
     foveation: 0.5,          // fixed foveation 0..1

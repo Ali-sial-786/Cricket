@@ -183,11 +183,13 @@ export class UI {
       step('hap', L(1, 2), 'Haptics', `${Math.round(s.hapticsScale * 100)}%`, () => g.actions.setting('hapticsScale', -0.25, 0, 1), () => g.actions.setting('hapticsScale', 0.25, 0, 1));
       btn('assist', L(0, 3), `Bowling aim assist: ${s.aimAssist ? 'ON' : 'OFF'}`, () => g.actions.toggle('aimAssist'), { active: s.aimAssist });
       btn('marker', L(1, 3), `Aim marker: ${s.aimMarker ? 'ON' : 'OFF'}`, () => g.actions.toggle('aimMarker'), { active: s.aimMarker });
-      btn('trail', L(0, 4), `Ball trail: ${s.trail ? 'ON' : 'OFF'}`, () => g.actions.toggle('trail'), { active: s.trail });
+      const hw = (L(0, 4).w - 12) / 2, r4 = L(0, 4);
+      btn('trail', { x: r4.x, y: r4.y, w: hw, h: r4.h }, `Trail: ${s.trail ? 'ON' : 'OFF'}`, () => g.actions.toggle('trail'), { active: s.trail });
+      btn('boost', { x: r4.x + hw + 12, y: r4.y, w: hw, h: r4.h }, `Ball boost: ${s.ballBoost ? 'ON' : 'OFF'}`, () => g.actions.toggle('ballBoost'), { active: s.ballBoost });
       btn('sound', L(1, 4), `Sound: ${s.sound ? 'ON' : 'OFF'}`, () => g.actions.toggle('sound'), { active: s.sound });
       btn('relcal', L(0, 5), 'Calibrate bowling release', () => g.actions.bowlCalib());
       const gx = s.guardX;
-      const guardName = gx < -0.08 ? 'leg' : gx < -0.02 ? 'middle-leg' : gx < 0.03 ? 'middle' : 'middle-off';
+      const guardName = gx < -0.08 ? 'leg' : gx < -0.02 ? 'mid-leg' : gx < 0.03 ? 'middle' : 'mid-off';
       step('guard', L(1, 5), 'Guard', `${guardName} ${gx >= 0 ? '+' : ''}${Math.round(gx * 100)}cm`, () => g.actions.setting('guardX', -0.03, -0.2, 0.15), () => g.actions.setting('guardX', 0.03, -0.2, 0.15));
       label(P.W * 0.5, P.H * 0.975, 'Y / Esc: back to the game', { align: 'center', size: 20, color: '#7f8fa0' });
       btn('back', { x: P.W - 150, y: 14, w: 130, h: 56 }, 'Back', () => this.go('main'));

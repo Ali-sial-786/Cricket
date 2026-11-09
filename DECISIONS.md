@@ -117,3 +117,12 @@ Tuning numbers live in `src/config.js`; this file explains *why* they are what t
 | MR1 | `immersive-ar` with `hit-test` optional; reticle from the left controller's hit-test source, falling back to intersecting the controller ray with the local-floor plane (y = 0). Trigger places the **stumps**; the pitch runs the way you're facing. Stadium/sky hidden, clear alpha 0. | Spec. Fallback keeps it usable if hit-test isn't granted. |
 | MR2 | In MR the batting end stays anchored to the placed stumps (no recenter); bowling re-anchors the bowler's end at your feet (you can't walk 20 m indoors). | Practical. |
 | MR3 | Entering MR needs the page button (a new XR session needs a DOM user gesture); the in-VR menu explains this instead of trying. | Browsers reject `requestSession` without user activation. |
+
+## Later additions
+
+| # | Decision | Why |
+|---|----------|-----|
+| L1 | **Ball visibility boost** (Settings, default on): the ball is *drawn* at least 0.34° across (up to 2.2× size at 19 m), shrinking to true size as it approaches. Physics radius unchanged. | A real 7.2 cm ball at the bowler's end is ~4 px on Quest 3S optics — too hard to pick up at release. |
+| L2 | Head pose read from `XRFrame.getViewerPose()` each frame, not the XR camera matrix. | three updates the XR camera inside `render()`, so it is a frame late (and wrong for a frame after a rig move). |
+| L3 | No multiview: three r180's `WebGLRenderer` has no multiview stereo path (only the WebGPU renderer does), so draw calls are ×2 per frame (~60). | Still within Quest 3S budget; switching renderers wasn't worth the risk overnight. |
+| L4 | "Guard" stepper in Settings shifts where recentering puts you (leg / middle-leg / middle / middle-off), applied on the next recenter/mode start. | Stance position preferences vary. |

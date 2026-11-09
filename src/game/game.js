@@ -359,6 +359,15 @@ export class Game {
       if (_render.y < CONFIG.ball.radius) _render.y = CONFIG.ball.radius;
       this.ballView.update(_render, paused ? 0 : dt, b.spin, this.settings.trail && b.batted);
     }
+    // Visibility assist: keep the ball at a minimum angular size (render only).
+    let k = 1;
+    if (this.settings.ballBoost && this.ballView.visible) {
+      const hp = this.input.headPose.p, bp = this.ballView.mesh.position;
+      const d = Math.hypot(bp.x - hp.x, bp.y - hp.y, bp.z - hp.z);
+      const want = d * Math.tan((CONFIG.render.ballMinAngleDeg * Math.PI) / 360);
+      k = Math.max(1, Math.min(2.2, want / CONFIG.ball.radius));
+    }
+    this.ballView.mesh.scale.setScalar(k);
     if (!paused) {
       this.stumps.batting.update(dt);
       this.stumps.bowling.update(dt);
