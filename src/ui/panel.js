@@ -127,12 +127,23 @@ export class CanvasPanel {
         g.textAlign = 'center';
         g.fillText(t, x + bw / 2, w.y + w.h / 2 + 2);
       }
+      // Fit label + value into the space between the − and + buttons.
+      const avail = w.w - 2 * bw - 40;
+      let k = 1;
+      for (let i = 0; i < 8; i++) {
+        g.font = `500 ${Math.round(w.h * 0.34 * k)}px system-ui, sans-serif`;
+        const lw = g.measureText(w.label).width;
+        g.font = `700 ${Math.round(w.h * 0.38 * k)}px system-ui, sans-serif`;
+        const vw = g.measureText(w.value).width;
+        if (lw + vw + 14 <= avail) break;
+        k *= 0.9;
+      }
       g.fillStyle = '#c9d6e3';
-      g.font = `500 ${Math.round(w.h * 0.36)}px system-ui, sans-serif`;
+      g.font = `500 ${Math.round(w.h * 0.34 * k)}px system-ui, sans-serif`;
       g.textAlign = 'left';
       g.fillText(w.label, w.x + bw + 16, w.y + w.h / 2);
       g.fillStyle = '#ffffff';
-      g.font = `700 ${Math.round(w.h * 0.4)}px system-ui, sans-serif`;
+      g.font = `700 ${Math.round(w.h * 0.38 * k)}px system-ui, sans-serif`;
       g.textAlign = 'right';
       g.fillText(w.value, w.x + w.w - bw - 16, w.y + w.h / 2);
     }

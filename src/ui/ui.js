@@ -165,10 +165,13 @@ export class UI {
       step('rel', L(0, 4), 'Release', m.release === 'over' ? 'over wkt' : 'around', () => g.actions.machineRelease(), () => g.actions.machineRelease());
       step('var', L(1, 4), 'Variation', `${Math.round(m.variation * 100)}%`, () => g.actions.machine('variation', -0.1), () => g.actions.machine('variation', 0.1));
       btn('auto', L(0, 5), `Auto-feed: ${s.autoFeed ? 'ON' : 'OFF'}`, () => g.actions.toggle('autoFeed'), { active: s.autoFeed });
-      btn('back', L(1, 5), 'Back', () => this.go('main'));
+      const r = L(1, 5), half = (r.w - 12) / 2;
+      const inNets = g.session && g.session.kind === 'nets';
+      btn('go', { x: r.x, y: r.y, w: half, h: r.h }, inNets ? 'Resume' : 'Nets now', () => (inNets ? this.closeMenu() : g.actions.start('nets')), { active: true });
+      btn('back', { x: r.x + half + 12, y: r.y, w: half, h: r.h }, 'Back', () => this.go('main'));
       P.set(W, 'Bowling machine');
     } else if (this.page === 'settings') {
-      const L = grid(P, { top: 0.15, bottom: 0.04, cols: 2, rows: 6 });
+      const L = grid(P, { top: 0.165, bottom: 0.05, cols: 2, rows: 6 });
       const xrRate = g.xrManager && g.xrManager.frameRate ? `${g.xrManager.frameRate} Hz target` : 'no target';
       const vel = g.input.xr ? (g.input.right.hasXRVel ? 'XR' : 'pose') : 'desktop';
       label(P.W / 2, P.H * 0.122, `Frame ${Math.round(g.stats.fps)} Hz (${xrRate}) · controller velocity: ${vel} · v${g.version}`, { align: 'center', size: 22, color: '#8fb3d1' });
@@ -176,14 +179,18 @@ export class UI {
       step('overs', L(1, 0), 'Overs', String(s.overs), () => g.actions.setting('overs', -1, 1, 5), () => g.actions.setting('overs', 1, 1, 5));
       step('batAngle', L(0, 1), 'Bat angle', `${signed(s.batAngleDeg, 0)}°`, () => g.actions.setting('batAngleDeg', -2, -30, 30), () => g.actions.setting('batAngleDeg', 2, -30, 30));
       step('batSpeed', L(1, 1), 'Bat power', `×${s.batSpeedMultiplier.toFixed(2)}`, () => g.actions.setting('batSpeedMultiplier', -0.05, 0.7, 2.5), () => g.actions.setting('batSpeedMultiplier', 0.05, 0.7, 2.5));
-      step('pace', L(0, 2), 'Bowling pace ×', s.paceMultiplier.toFixed(2), () => g.actions.setting('paceMultiplier', -0.1, 1.0, 5), () => g.actions.setting('paceMultiplier', 0.1, 1.0, 5));
+      step('pace', L(0, 2), 'Bowl pace', `×${s.paceMultiplier.toFixed(2)}`, () => g.actions.setting('paceMultiplier', -0.1, 1.0, 5), () => g.actions.setting('paceMultiplier', 0.1, 1.0, 5));
       step('hap', L(1, 2), 'Haptics', `${Math.round(s.hapticsScale * 100)}%`, () => g.actions.setting('hapticsScale', -0.25, 0, 1), () => g.actions.setting('hapticsScale', 0.25, 0, 1));
       btn('assist', L(0, 3), `Bowling aim assist: ${s.aimAssist ? 'ON' : 'OFF'}`, () => g.actions.toggle('aimAssist'), { active: s.aimAssist });
       btn('marker', L(1, 3), `Aim marker: ${s.aimMarker ? 'ON' : 'OFF'}`, () => g.actions.toggle('aimMarker'), { active: s.aimMarker });
       btn('trail', L(0, 4), `Ball trail: ${s.trail ? 'ON' : 'OFF'}`, () => g.actions.toggle('trail'), { active: s.trail });
       btn('sound', L(1, 4), `Sound: ${s.sound ? 'ON' : 'OFF'}`, () => g.actions.toggle('sound'), { active: s.sound });
       btn('relcal', L(0, 5), 'Calibrate bowling release', () => g.actions.bowlCalib());
-      btn('back', L(1, 5), 'Back', () => this.go('main'));
+      const gx = s.guardX;
+      const guardName = gx < -0.08 ? 'leg' : gx < -0.02 ? 'middle-leg' : gx < 0.03 ? 'middle' : 'middle-off';
+      step('guard', L(1, 5), 'Guard', `${guardName} ${gx >= 0 ? '+' : ''}${Math.round(gx * 100)}cm`, () => g.actions.setting('guardX', -0.03, -0.2, 0.15), () => g.actions.setting('guardX', 0.03, -0.2, 0.15));
+      label(P.W * 0.5, P.H * 0.975, 'Y / Esc: back to the game', { align: 'center', size: 20, color: '#7f8fa0' });
+      btn('back', { x: P.W - 150, y: 14, w: 130, h: 56 }, 'Back', () => this.go('main'));
       P.set(W, 'Settings');
     } else if (this.page === 'result') {
       const r = g.resultInfo || { title: 'Done', lines: [] };
