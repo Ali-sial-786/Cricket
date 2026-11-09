@@ -36,6 +36,8 @@ tested without a headset.
    * **Left hand:** laser pointer. **Trigger** selects, **X** bowls the next ball (nets), **Y** opens or closes the menu,
      the **thumbstick** moves the bowling aim marker, and **holding grip for 1 s** recenters.
    * There is no artificial locomotion. The game moves you between the batting and bowling ends.
+   * If the left controller is off or asleep, **right thumbstick click** opens the menu and **A** bowls the next ball.
+   * The Quest system recenter (hold the Meta button) works too. The game re-anchors the pitch in front of you.
 
 ## Desktop debug mode
 
