@@ -1,0 +1,61 @@
+// Persistent settings + calibration (localStorage, every access wrapped in
+// try/catch: Quest private browsing or storage quota must never break play).
+import { DEFAULT_MACHINE } from '../physics/bowlingMachine.js';
+import { CONFIG } from '../config.js';
+
+const KEY_SETTINGS = 'creasevr.settings.v1';
+const KEY_CAL = 'creasevr.calibration.v1';
+
+export function loadJSON(key) {
+  try {
+    const s = globalThis.localStorage?.getItem(key);
+    return s ? JSON.parse(s) : null;
+  } catch { return null; }
+}
+export function saveJSON(key, value) {
+  try { globalThis.localStorage?.setItem(key, JSON.stringify(value)); return true; } catch { return false; }
+}
+export function removeKey(key) {
+  try { globalThis.localStorage?.removeItem(key); } catch { /* ignore */ }
+}
+
+export function defaultSettings() {
+  return {
+    difficulty: 'medium',          // easy | medium | hard
+    machine: { ...DEFAULT_MACHINE },
+    autoFeed: true,
+    batAngleDeg: 0,                // extra tilt of the bat relative to calibration
+    guardX: -0.05,                 // where your hand sits in stance (x, m): middle-and-leg
+    aimAssist: true,
+    aimMarker: true,
+    trail: true,
+    sound: true,
+    overs: 2,
+    paceMultiplier: CONFIG.bowling.paceMultiplier,
+    batSpeedMultiplier: CONFIG.bat.speedMultiplier,
+    hapticsScale: 1.0,
+    seenSafety: false,
+  };
+}
+
+export function loadSettings() {
+  const s = defaultSettings();
+  const saved = loadJSON(KEY_SETTINGS);
+  if (saved && typeof saved === 'object') {
+    for (const k of Object.keys(s)) {
+      if (k === 'machine' && saved.machine) s.machine = { ...s.machine, ...saved.machine };
+      else if (saved[k] !== undefined && typeof saved[k] === typeof s[k]) s[k] = saved[k];
+    }
+  }
+  return s;
+}
+export function saveSettings(s) { return saveJSON(KEY_SETTINGS, s); }
+
+// Calibration: { offset: {x,y,z,w} (grip-local bat rotation), when }
+export function loadCalibration() {
+  const c = loadJSON(KEY_CAL);
+  if (!c || !c.offset || typeof c.offset.w !== 'number') return null;
+  return c;
+}
+export function saveCalibration(cal) { return saveJSON(KEY_CAL, cal); }
+export function clearCalibration() { removeKey(KEY_CAL); }

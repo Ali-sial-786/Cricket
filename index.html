@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Crease VR — cricket for Quest</title>
+  <meta name="description" content="Original WebXR cricket game for Meta Quest: nets, bowling, run chases and matches.">
+  <style>
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #0d1520; font-family: system-ui, sans-serif; color: #e8eef5; }
+    #app { position: fixed; inset: 0; }
+    #overlay { position: fixed; left: 16px; top: 16px; max-width: 380px; background: rgba(10, 16, 26, 0.86); border: 1px solid rgba(255,255,255,0.15); border-radius: 14px; padding: 14px 16px; z-index: 2; }
+    #overlay h1 { margin: 0 0 4px; font-size: 22px; color: #ffd34d; letter-spacing: 0.5px; }
+    #overlay p { margin: 6px 0; font-size: 13px; line-height: 1.4; color: #c9d6e3; }
+    .btns { display: flex; gap: 8px; margin: 10px 0 6px; flex-wrap: wrap; }
+    button { font: inherit; font-weight: 600; font-size: 15px; padding: 10px 14px; border-radius: 10px; border: 0; background: #2e7d32; color: #fff; cursor: pointer; }
+    button:disabled { background: #444; color: #999; cursor: default; }
+    button.secondary { background: #24476e; }
+    #help { font-size: 12.5px; line-height: 1.5; color: #aab8c6; margin-top: 6px; }
+    #help kbd { background: #24313f; border-radius: 4px; padding: 0 5px; font-family: inherit; color: #fff; }
+    #status { font-size: 12px; color: #7fd3ff; min-height: 1em; }
+    body.help-hidden #help { display: none; }
+    body.in-xr #overlay { display: none; }
+  </style>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <div id="app"></div>
+  <div id="overlay">
+    <h1>CREASE VR</h1>
+    <p>Original cricket for Meta Quest 3 / 3S. Hold the right controller like a bat handle.</p>
+    <div class="btns">
+      <button id="enter-vr" disabled>Checking VR…</button>
+      <button id="enter-mr" class="secondary" disabled>Checking MR…</button>
+      <button id="toggle-help" class="secondary">Help</button>
+    </div>
+    <div id="status"></div>
+    <div id="help">
+      <b>Desktop debug mode</b> (no headset):<br>
+      Batting — move the <kbd>mouse</kbd> up to lift the bat, flick down to swing; left/right aims the swing (off / leg side).
+      <kbd>Space</kbd> next ball · <kbd>Esc</kbd>/<kbd>M</kbd> menu (click to select) · <kbd>C</kbd> camera · <kbd>T</kbd> ball trail.<br>
+      Bowling — hold the <kbd>left button</kbd>, sweep the mouse top→bottom (overarm), release to let go.
+      <kbd>Q</kbd>/<kbd>E</kbd> wrist roll (off/leg spin) · <kbd>Z</kbd> outswing · <kbd>X</kbd> inswing ·
+      <kbd>←↑↓→</kbd> move aim marker · <kbd>B</kbd> auto-bowl at the marker.
+    </div>
+  </div>
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>

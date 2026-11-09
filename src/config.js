@@ -108,10 +108,11 @@ export const CONFIG = {
     paceFloorKmh: 50,
     minReleaseHandSpeed: 3.0,// m/s: slower trigger releases are treated as drops
     peakWindowMs: 90,        // look back this far for the peak hand speed at release
-    neutralElevationDeg: -4, // release elevation that maps to a good length
+    neutralElevationDeg: -8, // release elevation (at peak hand speed) that maps to a good length
     neutralLength: 6.5,      // m from batter's stumps at the neutral elevation
-    lengthPerDeg: 0.30,      // m of length change per degree of elevation error
-    lineGain: 1.0,           // 1 = geometric line from your release direction
+    lengthPerDeg: 0.15,      // m of length change per degree of elevation error
+    lineGain: 0.6,           // 1 = fully geometric line from your release direction
+    lengthRange: [0.3, 13],  // clamp (no beamers / full tosses)
     assistStrength: 0.65,    // 0..1, how strongly the aim marker pulls deliveries
     spinMultiplier: 4.0,     // wrist roll rad/s × this = ball spin rad/s
     spinDeadzone: 2.5,       // rad/s of wrist roll ignored
