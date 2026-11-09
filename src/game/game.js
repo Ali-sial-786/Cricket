@@ -18,7 +18,7 @@ import { LENGTH_PRESETS, LINE_PRESETS } from '../physics/bowlingMachine.js';
 import { createSession } from './modes.js';
 import { MRPlacer } from '../xr/mr.js';
 import { AIBatter } from './aiBatter.js';
-import { BatterView, BowlerView, FieldView, buildNonStriker } from '../render/people.js';
+import { BatterView, BowlerView, FieldView, NonStrikerView, RunningController, PlayerBodyView } from '../render/people.js';
 import { FIELD } from './fielding.js';
 
 export const BAT_HEAD = { z: -1.05, legOffset: -0.35 };      // head relative to guard (hand) x
@@ -67,9 +67,10 @@ export class Game {
     scene.add(this.aimMarker);
     this.batterView = new BatterView(scene, this.aiBatter);
     this.figures = { bowler: new BowlerView(scene) };
-    this.fieldView = new FieldView(scene, FIELD.length);
-    this.nonStriker = buildNonStriker(scene);
-    this.nonStriker.position.set(-1.35, 0, -18.7);
+    this.fieldView = new FieldView(scene, FIELD);
+    this.nonStrikerView = new NonStrikerView(scene);
+    this.runners = new RunningController();
+    this.playerBody = new PlayerBodyView(scene);
     this.ballOverride = null;   // fielding drives the ball view after a catch / pick-up
 
     this.input = new InputManager(renderer, rig, camera, dom);
@@ -171,7 +172,7 @@ export class Game {
     const c = this.camera;
     const views = this.end === 'bowling'
       ? [[[0.75, 1.72, -20.3], [0.0, 0.9, 0.0]], [[9, 3.5, -14], [0, 0.8, -6]], [[0.4, 2.6, 6.0], [0, 0.8, -12]]]
-      : [[[-0.42, 1.62, -0.85], [0.25, 1.35, -19]], [[6.5, 1.6, -1.6], [-0.2, 0.9, -1.4]], [[0.4, 2.6, -24], [0, 0.8, -2]], [[0, 55, -10], [0, 0, -10.01]]];
+      : [[[0.15, 2.05, 3.1], [0.1, 0.9, -12]], [[-0.42, 1.62, -0.85], [0.25, 1.35, -19]], [[6.5, 1.6, -1.6], [-0.2, 0.9, -1.4]], [[0.4, 2.6, -24], [0, 0.8, -2]], [[0, 55, -10], [0, 0, -10.01]]];
     const v = views[this.desktopView % views.length];
     c.position.set(...v[0]);
     c.lookAt(new THREE.Vector3(...v[1]));
@@ -411,6 +412,35 @@ export class Game {
       this.pitchMark.update(dt);
     }
     if (this.session && this.session.updateViews) this.session.updateViews(dt, paused);
+    // People.
+    const lookBall = b.active ? _look.set(b.pos.x, b.pos.y, b.pos.z) : (this.ballOverride ? _look.set(this.ballOverride.pos.x, this.ballOverride.pos.y, this.ballOverride.pos.z) : null);
+    const pdt = paused ? 0 : dt;
+    this.batterView.update(this.simTime, pdt || 1e-4, lookBall);
+    this.nonStrikerView.update(pdt || 1e-4, this.simTime, { backingUp: !!(this.session && this.session.backingUp && this.session.backingUp()), ball: lookBall });
+    if (!this.session || !this.session.field) {
+      if (!this.session || this.session.isBowling || this.session.bowler !== 'ai') this.figures.bowler.show(false);
+    }
+    const thirdPerson = !this.input.xr && (this.desktopView % 5) !== 1 && !(this.session && this.session.isBowling) && this.end === 'batting';
+    this.playerBody.show(thirdPerson);
+    if (thirdPerson) this.playerBody.update(pdt || 1e-4, this.simTime, this.batMesh.position, this.batMesh.quaternion, lookBall);
+  }
+
+  // Kit colours: the player's team is 'home'.
+  setTeams(playerBatting) {
+    const bat = playerBatting ? 'home' : 'away', bowl = playerBatting ? 'away' : 'home';
+    this.fieldView.setTeam(bowl);
+    this.figures.bowler.setTeam(bowl);
+    this.batterView.setTeam(bat);
+    this.nonStrikerView.setTeam(bat);
+  }
+
+  // After an odd number of runs the batters have changed ends.
+  swapBatters() {
+    const a = this.batterView.actor;
+    this.batterView.actor = this.nonStrikerView.actor;
+    this.nonStrikerView.actor = a;
+    this.nonStrikerView.actor.visible = this.nonStrikerView.visible;
+    this.batterView.actor.visible = !!this.batterView.shown;
   }
 
   cheer(intensity) {
@@ -473,6 +503,7 @@ const _identity = new Quat();
 const _off = new Quat(), _tilt = new Quat(), _xAxis = new Vec3(1, 0, 0);
 const _batPose = new Pose();
 const _render = new Vec3();
+const _look = new THREE.Vector3();
 
 // UI callbacks.
 function makeActions(game) {

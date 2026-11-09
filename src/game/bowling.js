@@ -37,8 +37,12 @@ export class BowlingSession {
     g.aiBatter.setDifficulty(g.settings.difficulty);
     g.aiBatter.reset();
     g.aiBat.enabled = true;
+    g.setTeams(false);
+    g.batterView.runnerOnly = false;
+    g.batterView.running = null;
     g.batterView.show(true);
-    g.nonStriker.visible = !!this.innings;
+    g.nonStrikerView.show(!!this.innings);
+    g.nonStrikerView.reset();
     if (this.field) this.field.enter();
     this.resetEnds();
     this.updateAim();
@@ -52,7 +56,8 @@ export class BowlingSession {
     g.batterView.show(false);
     g.aimMarker.visible = false;
     if (this.field) this.field.exit();
-    g.nonStriker.visible = false;
+    g.nonStrikerView.show(false);
+    g.ballOverride = null;
   }
 
   howTo() {
@@ -146,7 +151,7 @@ export class BowlingSession {
     // AI reads the ball.
     g.aiBatter.aggression = this.aggressionNow();
     g.aiBatter.planDelivery(g.world.ball.clone(), g.world.time, g.rng);
-    if (this.field) this.field.reset();
+    if (this.field) { if (!this.field.delivering) this.field.beginDelivery(); this.field.released(); }
     g.aimMarker.visible = false;
     const spinTxt = d.spinType !== 'none' ? ` · ${d.spinType}-spin ${Math.round(d.spinAmount * 100)}%` : d.swing ? (d.swing > 0 ? ' · out-swing' : ' · in-swing') : '';
     g.ui.setHud({ big: `${Math.round(d.paceKmh)} km/h`, bigColor: '#ffffff', last: `Released${spinTxt}`, detail: `hand ${d.handSpeed.toFixed(1)} m/s · elev ${d.elevDeg.toFixed(0)}° · az ${d.azDeg.toFixed(1)}° · roll ${d.roll.toFixed(0)} rad/s` });
@@ -175,7 +180,9 @@ export class BowlingSession {
       this.aim.z = clamp(this.aim.z - L.stick.y * 3.0 * dt, -13, -0.3);
       this.updateAim();
     }
+    if (this.field) this.field.update(dt, t);
     if (this.state === 'ready') {
+      if (this.field && this.holding && !this.field.delivering) this.field.beginDelivery();
       // Ball sits in the hand.
       const R = g.input.right;
       if (R.connected) {
@@ -185,12 +192,11 @@ export class BowlingSession {
       }
     } else if (this.state === 'live') {
       this.checkLive(t);
-      if (this.field) this.field.update(dt, t);
     } else if (this.state === 'settle') {
-      if (this.field) this.field.update(dt, t);
       this.timer -= dt;
       if (this.timer <= 0) {
         if (this.innings && this.innings.complete) { this.complete(); return; }
+        if (this.field) this.field.reset();
         this.state = 'ready';
         g.world.removeBall();
         g.aiBatter.reset();
@@ -259,6 +265,7 @@ export class BowlingSession {
   finish(res) {
     const g = this.game;
     if (this.state === 'settle') return;
+    if (this.field) this.field.endDelivery();
     this.state = 'settle';
     this.timer = this.kind === 'bowlnets' ? 2.4 : 3.0;
     const outcome = { runs: 0, wide: false, wicket: null, boundary: 0 };
@@ -321,8 +328,7 @@ export class BowlingSession {
     if (this.onDone) this.onDone(this.innings);
   }
 
-  updateViews(dt, paused) {
-    const g = this.game;
-    g.batterView.update(paused ? g.simTime : g.simTime);
-  }
+  backingUp() { return this.holding || (this.state === 'live' && !this.game.world.ball.batted); }
+
+  updateViews() { /* batters are updated by the game */ }
 }

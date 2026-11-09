@@ -1,139 +1,194 @@
-// Animated people: AI batter (with bat + arms tied to the handle), AI bowler
-// (run-up + delivery stride + arm whirl), non-striker, fielders.
+// Scene-level people: wires the animated actors to game state.
 import * as THREE from 'three';
-import { Vec3, Pose, clamp, smoothstep } from '../physics/math.js';
-import { buildFigure, reachArm, animateRun } from './figures.js';
-import { buildBatMesh } from './objects.js';
+import { Pose } from '../physics/math.js';
+import { FielderActor, BowlerActor, BatterActor } from './actors.js';
 import { toV3, toQ } from './util.js';
+import { sstep, clamp } from './anim.js';
+import { CONFIG } from '../config.js';
 
-// AI batter: figure + its own bat mesh posed from the AIBatter provider.
+const _p = new THREE.Vector3(), _q = new THREE.Quaternion(), _look = new THREE.Vector3();
+
+// AI striker: posed around the AIBatter's analytic bat; runs when runs are taken.
 export class BatterView {
   constructor(scene, ai) {
     this.ai = ai;
-    this.fig = buildFigure({ shirt: 0x1c3f8f, trousers: 0xf0f0f0, head: 'helmet', pads: true, gloves: true });
-    this.fig.userData.body.material.color = new THREE.Color(1, 1, 1);
-    this.bat = buildBatMesh();
-    scene.add(this.fig, this.bat);
+    this.actor = new BatterActor(scene, { team: 'away', seed: 11 });
     this.pose = new Pose();
-    this._top = new THREE.Vector3();
-    this._bot = new THREE.Vector3();
     this.show(false);
+    this.running = null;   // {x, z, speed, heading} supplied by RunningController
   }
-  show(v) { this.fig.visible = v; this.bat.visible = v; }
-  update(t) {
-    if (!this.fig.visible) return;
+  show(v) { this.shown = v; this.actor.visible = v; }
+  setTeam(team) { this.actor.h.setTeam(team); }
+  update(t, dt = 1 / 72, ball = null) {
+    if (!this.actor.visible) return;
+    const a = this.actor;
+    if (this.running) {
+      a.pos.set(this.running.x, 0, this.running.z);
+      a.speed = this.running.speed;
+      a.turnToward(this.running.heading, dt, 9);
+      a.updateMoving(dt, t, ball);
+      return;
+    }
     this.ai.poseAt(t, this.pose);
-    toV3(this.bat.position, this.pose.p);
-    toQ(this.bat.quaternion, this.pose.q);
-    const b = this.ai.bodyAt(t);
-    this.fig.position.set(b.x, 0, b.z);
-    this.fig.rotation.set(0, Math.PI / 2, 0);
-    this.fig.userData.body.rotation.x = b.lean;
-    // Bottom hand at the grip point, top hand ~10 cm up the handle.
-    toV3(this._bot, this.pose.p);
-    const up = new Vec3(0, 0.1, 0).applyQuat(this.pose.q);
-    this._top.set(this.pose.p.x + up.x, this.pose.p.y + up.y, this.pose.p.z + up.z);
-    reachArm(this.fig, this.fig.userData.armR, this._bot);
-    reachArm(this.fig, this.fig.userData.armL, this._top);
+    toV3(_p, this.pose.p);
+    toQ(_q, this.pose.q);
+    const plan = this.ai.plan;
+    a.updateBatting(dt, _p, _q, { t, plan: plan ? { ...plan, t0: plan.t0, Tc: plan.TcTo ?? plan.Tc } : null, ball });
   }
 }
 
-// AI bowler: runs in from behind the bowler's stumps, bowls from the release
-// point. update() returns true at the release instant during a run-up.
+// AI bowler wrapper (keeps the session API).
 export class BowlerView {
   constructor(scene) {
-    this.fig = buildFigure({ shirt: 0xb3261e, trousers: 0xb3261e, head: 'cap', capColor: 0x7a1712 });
-    scene.add(this.fig);
-    this.runup = null;
-    this.home = new THREE.Vector3(0.9, 0, -30.5);
-    this.fig.position.copy(this.home);
+    this.actor = new BowlerActor(scene, { team: 'away', seed: 5, headgear: 'bare' });
+    this.fig = this.actor.h.root;      // for visibility toggling elsewhere
     this.show(false);
   }
-  show(v) { this.fig.visible = v; }
-  startRunup(t, releasePos) {
-    const dur = 2.3;
-    this.runup = { t0: t, tRel: t + dur, rel: releasePos.clone ? releasePos.clone() : new Vec3(releasePos.x, releasePos.y, releasePos.z) };
-    this.fig.position.copy(this.home);
-  }
-  // Returns true on the frame the ball should be released.
-  update(dt, t) {
-    const f = this.fig, u = f.userData;
-    if (!this.runup) { animateRun(f, dt, 0); return false; }
-    const r = this.runup;
-    const relX = r.rel.x + 0.28;     // body is to the left of the bowling hand
-    const endZ = r.rel.z - 0.25;
-    if (t < r.tRel) {
-      const k = (t - r.t0) / (r.tRel - r.t0);
-      const e = smoothstep(0, 1, k) * 0.6 + k * 0.4;
-      const z = this.home.z + (endZ - this.home.z) * e;
-      const x = this.home.x + (relX - this.home.x) * e;
-      const speed = 7.5 * (1 - Math.abs(0.75 - k) * 0.6);
-      f.position.set(x, 0, z);
-      f.rotation.set(0, 0, 0);
-      if (k < 0.82) animateRun(f, dt, speed);
-      else {
-        // Delivery stride: bowling arm whirls over.
-        const a = (k - 0.82) / 0.18;
-        u.armR.rotation.set(Math.PI * (0.3 + 1.2 * a), 0, 0);
-        u.armL.rotation.set(-Math.PI * 0.9 * (1 - a), 0, 0);
-        u.body.rotation.x = 0.15 * a;
-      }
-      return false;
-    }
-    if (t - r.tRel < dt + 1e-6) {
-      u.armR.rotation.set(Math.PI * 1.55, 0, 0);
-      return true;
-    }
-    // Follow-through then walk back.
-    const k = clamp((t - r.tRel) / 0.6, 0, 1);
-    u.armR.rotation.set(Math.PI * (1.55 + 0.35 * k), 0, 0);
-    f.position.z = endZ + 1.4 * smoothstep(0, 1, k);
-    if (t - r.tRel > 1.5) { this.runup = null; f.position.copy(this.home); u.armR.rotation.set(0, 0, 0); u.body.rotation.x = 0; }
-    return false;
-  }
+  show(v) { this.actor.visible = v; }
+  setTeam(team) { this.actor.h.setTeam(team); }
+  startRunup(t, releasePos) { this.actor.startRunup(t, releasePos); }
+  update(dt, t) { return this.actor.visible ? this.actor.update(dt, t) : false; }
+  holdingBall() { return this.actor.visible && this.actor.holdingBall(); }
+  handPos(out) { return this.actor.handPos(out, 'R'); }
 }
 
-// Fielders (+ keeper) — positions driven by the fielding logic.
+// Fielders (+ keeper + bowler-fielder).
 export class FieldView {
-  constructor(scene, n) {
-    this.figs = [];
-    for (let i = 0; i < n; i++) {
-      const keeper = i === 0;
-      const f = buildFigure({ shirt: 0xb3261e, trousers: 0xb3261e, head: keeper ? 'helmet' : 'hat', pads: keeper, gloves: keeper });
-      scene.add(f);
-      this.figs.push(f);
-    }
+  constructor(scene, field) {
+    this.actors = field.map((f, i) => new FielderActor(scene, {
+      team: 'away', seed: 100 + i * 7, keeper: !!f.keeper,
+      headgear: f.keeper ? 'cap' : f.bowler ? 'bare' : (i % 3 === 0 ? 'hat' : 'cap'),
+      pads: !!f.keeper, gloves: !!f.keeper, longSleeve: i % 4 === 1,
+    }));
+    for (let i = 0; i < field.length; i++) this.actors[i].place(field[i].x, field[i].z, Math.atan2(-field[i].x, -1 - field[i].z));
     this.show(false);
   }
-  show(v) { this.visible = v; for (const f of this.figs) f.visible = v; }
-  // states: [{x, z, face (yaw), speed, crouch, armsUp}]
-  update(dt, states) {
-    for (let i = 0; i < this.figs.length && i < states.length; i++) {
-      const f = this.figs[i], s = states[i];
-      f.visible = this.visible && !s.hidden;
-      f.position.set(s.x, 0, s.z);
-      f.rotation.set(0, s.face, 0);
-      animateRun(f, dt, s.speed);
-      if (s.armsUp) {
-        f.userData.armL.rotation.set(-2.6, 0, 0.2);
-        f.userData.armR.rotation.set(-2.6, 0, -0.2);
-      } else if (s.speed < 0.3 && s.crouch) {
-        f.userData.armL.rotation.set(-0.7, 0, 0.3);
-        f.userData.armR.rotation.set(-0.7, 0, -0.3);
-        f.userData.body.position.y = -0.18;
-      }
+  show(v) { this.visible = v; for (const a of this.actors) a.visible = v; }
+  setTeam(team) { for (const a of this.actors) a.h.setTeam(team); }
+  // states from Fielding.states(); ctx = {t, ball (THREE.Vector3|null), delivering}
+  update(dt, states, ctx) {
+    if (!this.visible) return;
+    for (let i = 0; i < this.actors.length && i < states.length; i++) {
+      const a = this.actors[i], s = states[i];
+      a.visible = !s.hidden;
+      if (!a.visible) { a.place(s.x, s.z, s.face); continue; }
+      a.update(dt, s, ctx);
     }
+  }
+  handPos(i, out) { return this.actors[i].handPos(out, 'R'); }
+  glovesPos(i, out) {
+    const a = this.actors[i];
+    a.h.update();
+    a.h.worldPos('handL', out);
+    a.h.worldPos('handR', _p);
+    return out.add(_p).multiplyScalar(0.5);
   }
 }
 
-// Non-striker: stands at the bowler's end, backs up.
-export function buildNonStriker(scene) {
-  const f = buildFigure({ shirt: 0x1c3f8f, trousers: 0xf0f0f0, head: 'helmet', pads: true, gloves: true });
-  const bat = buildBatMesh();
-  bat.position.set(0.25, 1.0, 0.1);
-  bat.rotation.set(0.3, 0, 0);
-  f.add(bat);
-  scene.add(f);
-  f.visible = false;
-  return f;
+// Non-striker at the bowler's end: leans on the bat, backs up as the ball is
+// bowled, runs when runs are taken.
+export class NonStrikerView {
+  constructor(scene) {
+    this.actor = new BatterActor(scene, { team: 'home', seed: 23 });
+    this.home = new THREE.Vector3(-1.35, 0, -18.75);
+    this.actor.place(this.home.x, this.home.z, 0);
+    this.running = null;
+    this.backing = 0;
+    this.visible = false;
+    this.show(false);
+  }
+  show(v) { this.visible = v; this.actor.visible = v; }
+  setTeam(team) { this.actor.h.setTeam(team); }
+  update(dt, t, opts = {}) {
+    if (!this.visible) return;
+    const a = this.actor;
+    const ball = opts.ball || null;
+    if (this.running) {
+      a.pos.set(this.running.x, 0, this.running.z);
+      a.speed = this.running.speed;
+      a.turnToward(this.running.heading, dt, 9);
+      a.updateMoving(dt, t, ball);
+      return;
+    }
+    // Back up during the run-up, drift back afterwards.
+    const target = opts.backingUp ? 1.6 : 0;
+    this.backing += clamp(target - this.backing, -dt * 1.2, dt * 1.3);
+    const dz = this.home.z + this.backing - a.pos.z;
+    a.speed = Math.abs(dz) > 0.02 ? Math.min(1.5, Math.abs(dz) / Math.max(dt, 1e-3)) : 0;
+    a.pos.set(this.home.x, 0, this.home.z + this.backing);
+    a.turnToward(0, dt, 4);
+    if (a.speed > 0.3) a.updateMoving(dt, t, ball);
+    else a.updateLeaning(dt, t, ball || _look.set(0, 1.0, -1));
+  }
+  reset() { this.running = null; this.backing = 0; this.actor.place(this.home.x, this.home.z, 0); }
+}
+
+// Both batters running between the wickets. Progress p counts runs (1.0 =
+// one completed run); the striker runs batting end → bowling end on even runs.
+export class RunningController {
+  constructor() { this.active = false; }
+  start(hitT, strikerStart, nonStrikerStart) {
+    const F = CONFIG.field;
+    this.active = true;
+    this.hitT = hitT;
+    this.final = null;          // runs they will complete (once known)
+    this.stopped = false;       // caught / boundary: they ease up
+    this.p = 0;
+    this.tStart = hitT + 0.35;
+    this.firstDur = F.runFirst - 0.35;
+    this.nextDur = F.runNext;
+    this.sStart = strikerStart.clone();
+    this.nStart = nonStrikerStart.clone();
+    this.zBat = -0.85; this.zBowl = -19.25;
+  }
+  setFinal(runs) { if (this.final == null) this.final = runs; }
+  stop() { this.stopped = true; }
+  update(dt, t) {
+    if (!this.active) return;
+    let target;
+    const el = t - this.tStart;
+    if (el <= 0) target = 0;
+    else if (el < this.firstDur) target = el / this.firstDur;
+    else target = 1 + (el - this.firstDur) / this.nextDur;
+    if (this.final != null) target = Math.min(target, this.final);
+    if (this.stopped) target = (this.p % 1) >= 0.5 ? Math.ceil(this.p) : Math.floor(this.p);
+    const prevP = this.p;
+    // Turning back from an aborted run happens at running speed.
+    const maxRate = 1 / this.nextDur;
+    this.p += clamp(target - this.p, -maxRate * dt, maxRate * 1.25 * dt);
+    this.rate = (this.p - prevP) / Math.max(dt, 1e-4);
+  }
+  // Position/heading for one batter. striker: started at the batting end.
+  state(striker) {
+    const p = Math.max(0, this.p);
+    const leg = Math.floor(p), f = p - leg;
+    const fromBat = striker ? leg % 2 === 0 : leg % 2 === 1;
+    const z0 = fromBat ? this.zBat : this.zBowl, z1 = fromBat ? this.zBowl : this.zBat;
+    const x = striker ? -0.85 : 0.85;
+    const start = striker ? this.sStart : this.nStart;
+    // First run starts from where they stood.
+    let z = z0 + (z1 - z0) * sstep(0, 1, f) * 0.15 + (z1 - z0) * f * 0.85;
+    let xx = x;
+    if (leg === 0) { xx = start.x + (x - start.x) * sstep(0, 0.2, f); z = start.z + (z1 - start.z) * (sstep(0, 1, f) * 0.15 + f * 0.85); }
+    const dirZ = Math.sign(z1 - z0) * Math.sign(this.rate || 1);
+    const speed = Math.abs(this.rate || 0) * 18.4;
+    return { x: xx, z, speed, heading: dirZ >= 0 ? 0 : Math.PI };
+  }
+  get settled() { return !this.active || (Math.abs(this.rate || 0) < 1e-3 && (this.final != null || this.stopped)); }
+}
+
+// The player's own body in desktop third-person views (hidden in VR).
+export class PlayerBodyView {
+  constructor(scene) {
+    this.actor = new BatterActor(scene, { team: 'home', seed: 3 });
+    this.actor.bat.visible = false;     // the real player bat mesh is drawn by the game
+    this.visible = false;
+    this.actor.visible = false;
+  }
+  show(v) { this.visible = v; this.actor.visible = v; this.actor.bat.visible = false; }
+  update(dt, t, batPos, batQuat, ball) {
+    if (!this.visible) return;
+    this.actor.updateBatting(dt, batPos, batQuat, { t, plan: null, ball });
+    this.actor.bat.visible = false;
+  }
 }

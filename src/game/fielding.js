@@ -66,10 +66,47 @@ export class Fielding {
     this.ballOverride = null;
     this.message = '';
     this.dropped = false;
+    this.keeperHold = false;
     for (const f of this.fielders) {
       f.pos.copy(f.home); f.vel.set(0, 0, 0); f.state = 'set'; f.target = null; f.speed = 0; f.prevDist = Infinity;
+      f.action = null;
       f.face = Math.atan2(0 - f.home.x, -1.0 - f.home.z); // look at the batter
     }
+  }
+
+  // Next delivery: clear the ball's outcome but let fielders jog back to
+  // their marks instead of teleporting.
+  newBall() {
+    this.hitT = null; this.plan = null; this.outcome = null; this.fielded = false; this.caught = false;
+    this.boundary = null; this.throw = null; this.ballOverride = null; this.message = ''; this.dropped = false;
+    this.keeperHold = false;
+    for (const f of this.fielders) {
+      f.prevDist = Infinity; f.action = null;
+      const far = Math.hypot(f.pos.x - f.home.x, f.pos.z - f.home.z);
+      if (far > 40) { f.pos.copy(f.home); f.state = 'set'; f.speed = 0; }   // never visible marathon walks
+      else if (far > 0.4) { f.state = 'return'; f.target = null; }
+      else { f.state = 'set'; f.target = null; }
+    }
+  }
+
+  // Everyone within this distance of their mark?
+  inPosition(tol = 2.5) {
+    return this.fielders.every((f) => Math.hypot(f.pos.x - f.home.x, f.pos.z - f.home.z) < tol);
+  }
+
+  // Ring fielders walk in a few paces as the bowler runs up.
+  walkIn() {
+    for (const f of this.fielders) {
+      if (f.keeper || f.name === 'slip' || f.bowler || f.state !== 'set') continue;
+      const dx = 0 - f.home.x, dz = -1.0 - f.home.z;
+      const d = Math.hypot(dx, dz);
+      const step = d > 45 ? 2.2 : 3.2;
+      f.state = 'walkin';
+      f.target = new Vec3(f.home.x + (dx / d) * step, 0, f.home.z + (dz / d) * step);
+    }
+  }
+  onRelease() {
+    for (const f of this.fielders) if (f.state === 'walkin') f.state = 'set';
   }
 
   // Time for a fielder to cover `dist` metres from standing (with accel).
@@ -97,7 +134,7 @@ export class Fielding {
         const airborne = s.bouncesSinceBat === 0;
         const reachable = airborne ? s.y <= F.catchHeightMax && s.y >= 0.05 : s.y <= 1.2;
         if (!reachable) continue;
-        const d = Math.hypot(s.x - f.home.x, s.z - f.home.z);
+        const d = Math.hypot(s.x - f.pos.x, s.z - f.pos.z);
         const reach = airborne ? F.diveReach : F.reach;
         const need = this.runTime(Math.max(0, d - reach), react);
         if (need <= s.t) {
@@ -149,6 +186,15 @@ export class Fielding {
     k.state = 'gather';
   }
 
+  // Keeper gathers an unhit delivery (no runs; the ball is held).
+  keeperCollect(ball, t) {
+    const k = this.fielders[0];
+    this.keeperHold = true;
+    k.action = { type: 'keep', t0: t, target: new Vec3(ball.pos.x, ball.pos.y, ball.pos.z) };
+    k.state = 'set';
+    this.ballOverride = { pos: new Vec3(ball.pos.x, ball.pos.y, ball.pos.z), holder: 0 };
+  }
+
   result() { return this.outcome; }
 
   // dt step. ball = live BallState (physics), world provides removeBall().
@@ -157,10 +203,11 @@ export class Fielding {
     // Move fielders.
     for (const f of this.fielders) {
       let goal = null, maxV = F.fielderSpeed;
-      if (f.state === 'chase' || f.state === 'backup' || f.state === 'stumps' || f.state === 'gather') goal = f.target;
+      if (f.state === 'chase' || f.state === 'backup' || f.state === 'stumps' || f.state === 'gather' || f.state === 'walkin') goal = f.target;
       else if (f.state === 'return') goal = f.home;
       if (f.state === 'backup') maxV *= 0.7;
-      if (f.state === 'return') maxV = 2.2;
+      if (f.state === 'return') maxV = 3.4;
+      if (f.state === 'walkin') maxV = 1.6;
       if (goal) {
         const dx = goal.x - f.pos.x, dz = goal.z - f.pos.z;
         const d = Math.hypot(dx, dz);
@@ -173,7 +220,10 @@ export class Fielding {
           f.face = Math.atan2(dx, dz);
         } else {
           f.speed = Math.max(0, f.speed - F.fielderAccel * 2 * dt);
-          if (f.state === 'return' && d <= 0.05) { f.state = 'set'; f.face = Math.atan2(-f.home.x, -1 - f.home.z); }
+          if ((f.state === 'return' || f.state === 'walkin') && d <= 0.05) {
+            if (f.state === 'return') f.state = 'set';
+            f.face += Math.atan2(Math.sin(Math.atan2(-f.pos.x, -1 - f.pos.z) - f.face), Math.cos(Math.atan2(-f.pos.x, -1 - f.pos.z) - f.face)) * 0.2;
+          }
         }
       }
     }
@@ -186,7 +236,7 @@ export class Fielding {
     for (let i = 0; i < this.fielders.length; i++) {
       const f = this.fielders[i];
       if (f.bowler && !this.bowlerFields) continue;
-      if (f.state !== 'chase' && f.state !== 'backup' && f.state !== 'gather' && f.state !== 'set' && f.state !== 'stumps') continue;
+      if (f.state !== 'chase' && f.state !== 'backup' && f.state !== 'gather' && f.state !== 'set' && f.state !== 'stumps' && f.state !== 'walkin' && f.state !== 'return') continue;
       const dxz = Math.hypot(ball.pos.x - f.pos.x, ball.pos.z - f.pos.z);
       const airborne = ball.batted && ball.bouncesSinceBat === 0;
       if (airborne) {
@@ -197,7 +247,9 @@ export class Fielding {
         f.prevDist = dxz;
         const arriving = dxz < F.reach || (dxz < reach && dxz > prev);
         if (arriving && ball.pos.y < F.catchHeightMax && ball.pos.y > 0.05) {
-          if (this.tryCatch(f, ball, dxz, p, t)) {
+          const success = this.tryCatch(f, ball, dxz, p, t);
+          f.action = this.catchAction(f, ball, dxz, t, success);
+          if (success) {
             this.caught = true;
             this.fielded = true;
             this.outcome = { kind: 'caught', by: pretty(f.name) };
@@ -227,10 +279,23 @@ export class Fielding {
       for (const f of this.fielders) { if (f.bowler && !this.bowlerFields) continue; const d = Math.hypot(ball.pos.x - f.pos.x, ball.pos.z - f.pos.z); if (d < nd) { nd = d; n = f; } }
       if (n) { n.state = 'gather'; n.target = new Vec3(ball.pos.x, 0, ball.pos.z); }
     }
-    // Keep the chaser heading at the live ball once it is rolling.
+    // Keep the chaser attacking a ball on the ground once they have cut off
+    // its line (rather than waiting for it to roll up to them).
     if (p && !airborne(ball)) {
       const f = this.fielders[p.fi];
-      if (f.state === 'chase' && t - this.hitT > p.t) f.target = new Vec3(ball.pos.x + ball.vel.x * 0.3, 0, ball.pos.z + ball.vel.z * 0.3);
+      const atTarget = f.target && Math.hypot(f.target.x - f.pos.x, f.target.z - f.pos.z) < 0.6;
+      if (f.state === 'chase' && (t - this.hitT > p.t || atTarget)) f.target = new Vec3(ball.pos.x + ball.vel.x * 0.3, 0, ball.pos.z + ball.vel.z * 0.3);
+    }
+    // When the player is the bowler, a ball that dies near the bowler's end
+    // is theirs to field.
+    if (!this.bowlerFields && ball.pos.z < -12.5 && Math.abs(ball.pos.x) < 4 && Math.hypot(ball.vel.x, ball.vel.z) < 2.5 && ball.pos.y < 0.3) {
+      const b = this.fielders[this.fielders.length - 1];
+      b.pos.set(ball.pos.x, 0, ball.pos.z - 0.6);
+      this.gather(b, ball, t, world);
+      b.action = null;
+      this.ballOverride = { pos: new Vec3(ball.pos.x, 0.04, ball.pos.z) };
+      this.message = 'Fielded by you';
+      return;
     }
   }
 
@@ -267,10 +332,23 @@ export class Fielding {
       if (tRun + F.runSafetyMargin <= tArrive) runs++;
       else break;
     }
-    this.throw = { from, to, tStart, tArrive, f };
+    this.throw = { from, to, tStart, tArrive, f, anim: false };
     this.ballOverride = { pos: from.clone() };
     this.pendingRuns = runs;
+    f.action = { type: 'pickup', t0: t, dur: Math.max(0.3, tStart - t - 0.47), ball: new Vec3(ball.pos.x, 0.04, ball.pos.z) };
+    f.face = Math.atan2(to.x - f.pos.x, to.z - f.pos.z);
     if (world) world.removeBall();
+  }
+
+  catchAction(f, ball, dist, t, success) {
+    const dx = ball.pos.x - f.pos.x, dz = ball.pos.z - f.pos.z;
+    const lx = dx * Math.cos(f.face) - dz * Math.sin(f.face);
+    const d = Math.max(1e-3, Math.hypot(dx, dz));
+    return {
+      type: 'catch', t0: t, success, dive: dist > this.cfg.field.reach,
+      side: lx >= 0 ? 1 : -1, dir: { x: dx / d, z: dz / d }, lunge: Math.max(0, dist - 0.35),
+      target: new Vec3(ball.pos.x, ball.pos.y, ball.pos.z),
+    };
   }
 
   updateThrow(dt, t) {
@@ -280,6 +358,7 @@ export class Fielding {
       this.ballOverride.pos.set(th.f.pos.x, 0.9, th.f.pos.z);
       return;
     }
+    if (!th.anim && t >= th.tStart - 0.47) { th.anim = true; th.f.action = { type: 'throw', t0: th.tStart - 0.47 }; }
     const k = clamp((t - th.tStart) / (th.tArrive - th.tStart), 0, 1);
     const p = this.ballOverride.pos;
     p.x = th.from.x + (th.to.x - th.from.x) * k;
@@ -305,6 +384,7 @@ export class Fielding {
     return this.fielders.map((f) => ({
       x: f.pos.x, z: f.pos.z, face: f.face, speed: f.speed,
       hidden: f.bowler && (!this.bowlerFields || f.state === 'set'),
+      state: f.state, action: f.action,
       crouch: f.state === 'set' && (f.keeper || f.name === 'slip'),
       armsUp: f.state === 'celebrate',
     }));

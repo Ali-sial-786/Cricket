@@ -142,7 +142,7 @@ export const CONFIG = {
     diveReach: 1.8,
     catchHeightMax: 2.6,
     throwSpeed: 27,          // m/s
-    pickupTime: 0.5,
+    pickupTime: 0.78,         // gather + wind-up before the throw leaves the hand
     stretchPickupExtra: 0.45,// s extra when the stop was a stretch/dive
     runFirst: 3.4,           // s to complete the first run
     runNext: 2.9,            // s for each additional run

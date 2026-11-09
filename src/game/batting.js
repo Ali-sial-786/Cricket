@@ -1,5 +1,6 @@
 // Batting session: the player bats against the bowling machine (nets) or the
 // AI bowler (run chase / match), optionally with fielders and an innings.
+import * as THREE from 'three';
 import { CONFIG } from '../config.js';
 import { Vec3, msToKmh, clamp } from '../physics/math.js';
 import { PITCH, lengthName, lineName, groundDistance, battingPoppingZ } from '../physics/pitch.js';
@@ -7,6 +8,7 @@ import { machineDelivery } from '../physics/bowlingMachine.js';
 import { predict } from '../physics/trajectory.js';
 
 const KMH = (v) => Math.round(msToKmh(v));
+const _hand = new THREE.Vector3();
 
 export class BattingSession {
   constructor(game, { kind = 'nets', title = 'Nets · Batting', innings = null, bowler = 'machine', fielders = null, aiBowler = null, onDone = null } = {}) {
@@ -36,7 +38,11 @@ export class BattingSession {
     g.aimMarker.visible = false;
     if (this.bowler === 'ai' && g.figures) this.bowlerFig = g.figures.bowler;
     if (this.bowlerFig) this.bowlerFig.show(true);
-    g.nonStriker.visible = !!this.innings;
+    g.setTeams(true);
+    g.batterView.runnerOnly = true;
+    g.batterView.show(false);
+    g.nonStrikerView.show(!!this.innings);
+    g.nonStrikerView.reset();
     if (this.field) this.field.enter();
     this.resetEnds();
     this.updateHud();
@@ -47,7 +53,8 @@ export class BattingSession {
     g.machine.setCue(0);
     if (this.bowlerFig) this.bowlerFig.show(false);
     if (this.field) this.field.exit();
-    g.nonStriker.visible = false;
+    g.nonStrikerView.show(false);
+    g.ballOverride = null;
   }
 
   footer() {
@@ -76,7 +83,10 @@ export class BattingSession {
     if (this.done) return;
     if (this.state === 'idle') {
       if (this.autoNext() || this.timer <= 0) this.timer -= dt;
-      if (this.timer <= 0) this.prepare(t);
+      // Let the fielders get back to their marks first (max ~4 s).
+      this.waitField = (this.waitField || 0) + dt;
+      const fieldReady = !this.field || this.field.inPosition() || this.waitField > 4;
+      if (this.timer <= 0 && fieldReady) { this.waitField = 0; this.prepare(t); }
     } else if (this.state === 'cue') {
       const el = t - this.cueStart, cd = CONFIG.machine.countdownSec;
       const stage = el < cd / 2 ? 1 : el < cd ? 2 : 3;
@@ -84,11 +94,11 @@ export class BattingSession {
       if (el >= cd) this.release(t);
     } else if (this.state === 'runup') {
       if (this.bowlerFig.update(dt, t)) this.release(t);
+      else if (this.bowlerFig.holdingBall()) { g.ballOverride = { pos: this.bowlerFig.handPos(_hand) }; g.ballView.setVisible(true); }
     } else if (this.state === 'live') {
       this.checkLive(t);
     } else if (this.state === 'settle') {
       this.timer -= dt;
-      if (this.field) this.field.update(dt, t);
       if (this.timer <= 0) {
         g.machine.setCue(0);
         if (this.innings && this.innings.complete) { this.complete(); return; }
@@ -97,7 +107,7 @@ export class BattingSession {
         if (!this.autoNext()) this.timer = 1e9;
       }
     }
-    if (this.state === 'live' && this.field) this.field.update(dt, t);
+    if (this.field) this.field.update(dt, t);
     if (this.bowlerFig && this.state !== 'runup') this.bowlerFig.update(dt, t);
   }
 
@@ -111,7 +121,8 @@ export class BattingSession {
     this.delivery = machineDelivery(settings, g.rng);
     this.hit = null; this.firstBounce = null; this.wide = false; this.crossedCrease = false;
     this.maxBatSpeedNear = 0;
-    if (this.field) this.field.reset();
+    if (this.field) { this.field.reset(); this.field.beginDelivery(); }
+    if (this.bowlerFig) this.bowlerFig.show(true);
     if (this.bowler === 'machine') {
       g.machine.setRelease(settings.release || 'over');
       this.state = 'cue';
@@ -127,6 +138,8 @@ export class BattingSession {
   release(t) {
     const g = this.game, d = this.delivery;
     g.world.launch({ pos: d.releasePos, vel: d.vel, spin: d.spin, swing: d.swing, seamDeg: d.seamDeg });
+    g.ballOverride = null;
+    if (this.field) this.field.released();
     g.ballView.setVisible(true);
     g.ballView.mesh.quaternion.identity();
     this.launchT = t;
@@ -211,9 +224,13 @@ export class BattingSession {
   }
 
   // ------------------------------------------------------------- results
+  // Non-striker backs up while the ball is being bowled.
+  backingUp() { return this.state === 'runup' || this.state === 'cue' || (this.state === 'live' && !this.game.world.ball.batted); }
+
   finish(res) {
     const g = this.game;
     if (this.state === 'settle') return;
+    if (this.field) this.field.endDelivery();
     this.state = 'settle';
     this.timer = this.kind === 'nets' ? CONFIG.machine.autoFeedDelay : 2.6;
     const d = this.delivery;
