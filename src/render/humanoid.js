@@ -70,14 +70,14 @@ function addPart(list, geom, bone, color, pos = [0, 0, 0], rot = null, scale = n
   list.push(g);
 }
 
-const capsule = (r, len, rs = 8) => new THREE.CapsuleGeometry(r, len, 3, rs);
-const sphere = (r, w = 10, h = 7) => new THREE.SphereGeometry(r, w, h);
+const capsule = (r, len, rs = 7) => new THREE.CapsuleGeometry(r, len, 2, rs);
+const sphere = (r, w = 8, h = 6) => new THREE.SphereGeometry(r, w, h);
 const box = (x, y, z) => new THREE.BoxGeometry(x, y, z);
 const cyl = (rt, rb, h, rs = 10) => new THREE.CylinderGeometry(rt, rb, h, rs);
 
 // Rounded box via a scaled sphere-capsule hybrid (soft torso shapes).
 function softBox(w, h, d) {
-  const g = new THREE.CapsuleGeometry(0.5, 0.6, 4, 10);
+  const g = new THREE.CapsuleGeometry(0.5, 0.6, 3, 9);
   g.scale(w, h / 1.6, d);
   return g;
 }
@@ -98,7 +98,7 @@ function buildGeometry(o) {
   addPart(P, cyl(0.17, 0.172, 0.035, 14), 'hips', KIT2, [0, 0.085, 0], null, [1, 1, 0.68]); // waistband
   // --- Neck + head ---
   addPart(P, cyl(0.054, 0.06, 0.11, 8), 'neck', skin, [0, 0.03, 0]);
-  addPart(P, sphere(0.104, 12, 9), 'head', skin, [0, 0.105, 0.008], null, [0.95, 1.1, 1.04]);
+  addPart(P, sphere(0.104, 10, 8), 'head', skin, [0, 0.105, 0.008], null, [0.95, 1.1, 1.04]);
   addPart(P, sphere(0.022, 6, 4), 'head', skin, [0.1, 0.1, -0.005]);                  // ears
   addPart(P, sphere(0.022, 6, 4), 'head', skin, [-0.1, 0.1, -0.005]);
   addPart(P, box(0.026, 0.04, 0.03), 'head', skin, [0, 0.085, 0.108]);                // nose
@@ -224,12 +224,8 @@ export class Humanoid {
     this.root.scale.setScalar(scale);
     this.hipsRest = this.bones.hips.position.clone();
     this.setTeam(team);
-    // Contact shadow.
-    this.shadow = new THREE.Mesh(_shadowGeo, _shadowMat);
-    this.shadow.rotation.x = -Math.PI / 2;
-    this.shadow.renderOrder = 1;
-    this.root.add(this.shadow);
-    this.shadow.position.y = 0.012;
+    // Contact shadow: a slot in the shared instanced shadow mesh.
+    this.shadowSlot = ShadowPool.alloc();
   }
 
   setTeam(team) {
@@ -240,7 +236,14 @@ export class Humanoid {
   }
 
   get visible() { return this.root.visible; }
-  set visible(v) { this.root.visible = v; }
+  set visible(v) { this.root.visible = v; if (!v) ShadowPool.set(this.shadowSlot, 0, 0, false); }
+
+  // Called after the root is placed for the frame.
+  syncShadow() {
+    if (!this.root.visible) return;
+    this.bones.hips.getWorldPosition(_v);
+    ShadowPool.set(this.shadowSlot, _v.x, _v.z, true, this.root.scale.x * (0.8 + 0.4 * Math.min(1, (_v.y - this.root.position.y) / 1.0)));
+  }
 
   reset() {
     for (const b of Object.values(this.bones)) b.quaternion.identity();
@@ -307,7 +310,30 @@ export class Humanoid {
   }
 }
 
-const _shadowGeo = new THREE.CircleGeometry(0.42, 16);
+// All actor contact shadows in one InstancedMesh (one draw call).
+export const ShadowPool = {
+  mesh: null, n: 0, max: 24,
+  init(scene) {
+    if (this.mesh) return;
+    const g = new THREE.PlaneGeometry(0.84, 0.84);
+    g.rotateX(-Math.PI / 2);
+    this.mesh = new THREE.InstancedMesh(g, _shadowMat, this.max);
+    this.mesh.count = this.max;
+    this.mesh.frustumCulled = false;
+    this.mesh.renderOrder = 1;
+    const m = new THREE.Matrix4().makeScale(0, 0, 0);
+    for (let i = 0; i < this.max; i++) this.mesh.setMatrixAt(i, m);
+    scene.add(this.mesh);
+  },
+  alloc() { return this.n < this.max ? this.n++ : -1; },
+  set(slot, x, z, visible, scale = 1) {
+    if (!this.mesh || slot < 0) return;
+    _sm.makeScale(visible ? scale : 0, 1, visible ? scale : 0).setPosition(x, 0.012, z);
+    this.mesh.setMatrixAt(slot, _sm);
+    this.mesh.instanceMatrix.needsUpdate = true;
+  },
+};
+const _sm = new THREE.Matrix4();
 const _shadowMat = (() => {
   const c = document.createElement('canvas');
   c.width = c.height = 64;

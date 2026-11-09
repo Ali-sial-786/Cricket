@@ -42,6 +42,15 @@ _Last updated by the overnight build._
 5. A replay of the last ball from a broadcast camera.
 6. Wide/no-ball umpire signals; a third-man/fine-leg rotation for left-handers.
 
+## Visual & animation upgrade
+- Articulated skinned athletes (IK hands and feet, ball-tracking heads, team kits), with a full bowling action
+  (run-up, bound, braced front leg, IK arm through the release point, follow-through).
+- Batting footwork and torso rotation. Fielders walk in, crouch, chase, dive, pick up, throw and celebrate;
+  the keeper gathers; batters run between the wickets.
+- Rebuilt stadium: tiers, roofs, pavilion, LED boards, cloud sky, skyline, floodlight halos, tone mapping.
+  Shaped bat, leather ball, dust and fireworks particles.
+- Desktop broadcast camera with the player's own animated body.
+
 ## Robustness pass (after an independent review of headset-only code paths)
 - Menus re-placed from the fresh head pose after every rig move. Y re-summons the menu if you lose it.
 - The laser now points forwards. The Quest system recenter (Meta button) triggers a game recenter (VR)
@@ -57,7 +66,7 @@ _Last updated by the overnight build._
 - The uncalibrated default bat orientation is a guess about the Quest grip-space axes. Calibrate on first use
   (the game prompts you).
 - The AI batter has no body collider, so there is no LBW.
-- Fielders are figures with simple arm/bob animation (no leg animation). The ball can pass through bodies.
+- The ball can pass through bodies (no body colliders).
 - Desktop bowling with the mouse is awkward by nature. Use **B** (auto-bowl at the marker) for quick tests.
 - Headless test renders run at about 20 fps (software GL), so in-browser timings were checked with
   frame-synchronised scripts, not by feel.

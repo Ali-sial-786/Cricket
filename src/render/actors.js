@@ -119,10 +119,12 @@ export class FielderActor extends Actor {
       this.apply();
       this.plant(this.keeper ? 0.24 : 0.15, true);
     }
-    // Eyes on the ball while it is live.
-    if (ctx.ball) h.lookAt(ctx.ball, 0.9);
+    // Eyes on the ball while it is live (skipped for distant fielders).
+    if (ctx.ball && !this.far) h.lookAt(ctx.ball, 0.9);
+    h.syncShadow();
   }
   plant(halfWidth, flat) {
+    if (this.far) return;                       // animation LOD: no foot IK far away
     this.footWorld(_a, halfWidth, 0.03);
     this.footWorld(_b, -halfWidth, -0.01);
     plantFeet(this.h, _a, _b, this.forward(_c).multiplyScalar(0.6));
@@ -280,6 +282,7 @@ export class BowlerActor extends Actor {
         this.bowlingArmIK(u);
       }
       if (u > 0.9) { this.state = 'walkback'; }
+      h.syncShadow();
       return released;
     }
     // Walk back to the top of the mark (or idle there).
@@ -304,6 +307,7 @@ export class BowlerActor extends Actor {
       this.footWorld(_a, 0.13, 0.03); this.footWorld(_b, -0.13, 0);
       plantFeet(h, _a, _b, this.forward(_c).multiplyScalar(0.6));
     }
+    h.syncShadow();
     return false;
   }
 
@@ -380,6 +384,7 @@ export class BatterActor extends Actor {
     this.gripBat(batPos, batQuat);
     if (opts.ball) h.lookAt(opts.ball, 1, 1.7);
     else h.lookAt(_c.set(0.4, 1.9, -18.8), 1, 1.7);
+    h.syncShadow();
   }
 
   gripBat(batPos, batQuat) {
@@ -416,6 +421,7 @@ export class BatterActor extends Actor {
     }
     if (look) h.lookAt(look, 0.8);
     this.carry();
+    h.syncShadow();
   }
 
   // Bat held in the right hand while running / standing.
@@ -453,6 +459,7 @@ export class BatterActor extends Actor {
     const poleR = h.worldPos('shoulderR', new THREE.Vector3()).add(new THREE.Vector3(0, -0.5, 0)).addScaledVector(_left, -0.4);
     h.ikArm('R', this.bat.position, poleR);
     if (look) h.lookAt(look, 0.8);
+    h.syncShadow();
   }
 }
 const _e = new THREE.Vector3(), _up = new THREE.Vector3(0, 1, 0);

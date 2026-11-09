@@ -4,33 +4,72 @@ import * as THREE from 'three';
 import { CONFIG } from '../config.js';
 import { PITCH, STUMP_X } from '../physics/pitch.js';
 import { BatGeometry } from '../physics/bat.js';
-import { part, merge, vertexColorMat, radialTexture, toV3 } from './util.js';
+import { part, merge, vertexColorMat, radialTexture, toV3, colorize } from './util.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 // ---------------------------------------------------------------- Bat
 // Mesh origin = grip point; axes match the physics bat frame
 // (+Y to handle top, +Z = hitting face, +X across).
+// Shaped willow blade: flat face, curved back with a central spine, rounded
+// edges and toe; turned shoulders; ribbed rubber grip; face + back stickers.
+let _stickerTex = null;
+function stickerTexture() {
+  if (_stickerTex) return _stickerTex;
+  const c = document.createElement('canvas');
+  c.width = 128; c.height = 512;
+  const g = c.getContext('2d');
+  g.clearRect(0, 0, 128, 512);
+  // Top sticker (logo), mid band, toe band.
+  g.fillStyle = '#b3221c'; g.fillRect(6, 10, 116, 150);
+  g.fillStyle = '#ffffff'; g.font = '900 34px system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.save(); g.translate(64, 85); g.rotate(-Math.PI / 2); g.fillText('CREASE', 0, 0); g.restore();
+  g.fillStyle = '#f2c12e'; g.fillRect(6, 150, 116, 10);
+  g.fillStyle = '#1f3a93'; g.fillRect(14, 420, 100, 26);
+  g.fillStyle = '#ffffff'; g.font = '800 16px system-ui, sans-serif'; g.fillText('PRO', 64, 433);
+  _stickerTex = new THREE.CanvasTexture(c);
+  _stickerTex.colorSpace = THREE.SRGBColorSpace;
+  return _stickerTex;
+}
+
 export function buildBatMesh(cfg = CONFIG.bat) {
   const g = new BatGeometry(cfg);
-  const parts = [];
-  const bl = cfg.bladeLength, bw = cfg.bladeWidth, bt = cfg.bladeThickness;
-  const cy = g.bladeCenter.y;
-  // Flat face (front half) + spine (rounded back).
-  parts.push(part(new THREE.BoxGeometry(bw, bl, bt * 0.5), 0xe8d2a0, [0, cy, bt * 0.25]));
-  const spine = new THREE.CylinderGeometry(bw / 2, bw / 2, bl, 10, 1, false, Math.PI / 2, Math.PI);
-  parts.push(part(spine, 0xdcc48f, [0, cy, 0], null, [1, 1, (bt * 0.5) / (bw / 2)]));
-  // Toe rounding and shoulders.
-  parts.push(part(new THREE.BoxGeometry(bw * 0.92, 0.02, bt * 0.9), 0xd4bb85, [0, g.toeY + 0.01, 0]));
-  parts.push(part(new THREE.ConeGeometry(bw * 0.5, 0.05, 8), 0xdcc48f, [0, g.shoulderY + 0.02, 0], null, [1, 1, 0.5]));
-  // Handle with grip.
-  parts.push(part(new THREE.CylinderGeometry(cfg.handleRadius, cfg.handleRadius, cfg.handleLength * 0.85, 8), 0x1d1d1d,
-    [0, g.shoulderY + cfg.handleLength * 0.5 + 0.02, 0]));
-  parts.push(part(new THREE.CylinderGeometry(cfg.handleRadius * 0.9, cfg.handleRadius * 0.9, 0.06, 8), 0xb08a52,
-    [0, g.shoulderY + 0.03, 0]));
-  // Sticker band on the face so you can read the face direction in VR.
-  parts.push(part(new THREE.BoxGeometry(bw * 0.8, 0.07, 0.002), 0xc0392b, [0, g.shoulderY - 0.11, bt * 0.5 + 0.001]));
-  parts.push(part(new THREE.BoxGeometry(bw * 0.8, 0.03, 0.002), 0x1f3a93, [0, g.toeY + 0.12, bt * 0.5 + 0.001]));
+  const bl = cfg.bladeLength, w = cfg.bladeWidth, face = cfg.bladeThickness / 2;
+  const edgeBack = face - 0.038, spineBack = face - 0.064;
+  const shape = new THREE.Shape();
+  shape.moveTo(-w / 2, face);
+  shape.lineTo(w / 2, face);
+  shape.quadraticCurveTo(w / 2 + 0.006, (face + edgeBack) / 2, w / 2, edgeBack);
+  shape.bezierCurveTo(w * 0.28, edgeBack - 0.012, w * 0.12, spineBack, 0, spineBack);
+  shape.bezierCurveTo(-w * 0.12, spineBack, -w * 0.28, edgeBack - 0.012, -w / 2, edgeBack);
+  shape.quadraticCurveTo(-w / 2 - 0.006, (face + edgeBack) / 2, -w / 2, face);
+  const blade = new THREE.ExtrudeGeometry(shape, { depth: bl - 0.012, bevelEnabled: true, bevelThickness: 0.006, bevelSize: 0.003, bevelSegments: 2, curveSegments: 6 });
+  blade.rotateX(Math.PI / 2);                       // extrusion → -Y, face → +Z
+  blade.translate(0, g.shoulderY - 0.006, 0);
+  const parts = [colorize(blade, 0xe9d4a2)];
+  // Shoulders: half-ellipsoid cap blending into the handle.
+  const sh = new THREE.SphereGeometry(w / 2, 14, 6, 0, Math.PI * 2, 0, Math.PI / 2);
+  parts.push(part(sh, 0xdec58f, [0, g.shoulderY - 0.008, (face + spineBack) / 2 * 0.4], null, [1, 0.75, 0.42]));
+  // Handle: splice + ribbed grip + cap.
+  const hl = cfg.handleLength, hr = cfg.handleRadius;
+  parts.push(part(new THREE.CylinderGeometry(hr * 0.95, hr * 1.05, 0.06, 10), 0xc9a466, [0, g.shoulderY + 0.03, 0]));
+  const gripLen = hl - 0.07, rings = 14;
+  for (let i = 0; i < rings; i++) {
+    const y0 = g.shoulderY + 0.06 + (i / rings) * gripLen;
+    parts.push(part(new THREE.CylinderGeometry(hr * 1.08, hr * 1.08, gripLen / rings * 0.62, 10), i % 2 ? 0x1b1b1b : 0x2b2f36, [0, y0 + gripLen / rings * 0.31, 0]));
+    parts.push(part(new THREE.CylinderGeometry(hr, hr, gripLen / rings * 0.4, 10), 0x111111, [0, y0 + gripLen / rings * 0.8, 0]));
+  }
+  parts.push(part(new THREE.CylinderGeometry(hr * 1.12, hr * 0.9, 0.02, 10), 0x111111, [0, g.handleTopY - 0.005, 0]));
   const mesh = new THREE.Mesh(merge(parts), vertexColorMat());
   mesh.name = 'bat';
+  // Stickers (face and back) — a second, textured mesh.
+  const tex = stickerTexture();
+  const stMat = new THREE.MeshLambertMaterial({ map: tex, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 });
+  const fg = new THREE.PlaneGeometry(w * 0.86, bl * 0.86);
+  fg.translate(0, (g.shoulderY + g.toeY) / 2 + 0.01, face + 0.0012);
+  const bg = new THREE.PlaneGeometry(w * 0.5, bl * 0.4);
+  bg.rotateY(Math.PI);
+  bg.translate(0, g.shoulderY - bl * 0.25, spineBack - 0.0015);
+  mesh.add(new THREE.Mesh(mergeGeometries([fg, bg], false), stMat));
   return mesh;
 }
 
@@ -38,11 +77,8 @@ export function buildBatMesh(cfg = CONFIG.bat) {
 export class BallView {
   constructor(scene) {
     const r = CONFIG.ball.radius;
-    const geo = new THREE.IcosahedronGeometry(r, 2);
-    this.mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color: 0xf7f7f2, emissive: 0x333333 }));
-    // Seam: thin dark torus.
-    const seam = new THREE.Mesh(new THREE.TorusGeometry(r * 1.002, r * 0.06, 4, 24), new THREE.MeshBasicMaterial({ color: 0x5a6a7a }));
-    this.mesh.add(seam);
+    const geo = new THREE.SphereGeometry(r, 20, 14);
+    this.mesh = new THREE.Mesh(geo, new THREE.MeshPhongMaterial({ map: ballTexture(), color: 0xffffff, emissive: 0x2a2a2a, shininess: 38, specular: 0x555555 }));
     this.mesh.name = 'ball';
     scene.add(this.mesh);
 
@@ -107,6 +143,24 @@ export class BallView {
 }
 const _axis = new THREE.Vector3(), _q = new THREE.Quaternion();
 
+// White leather with a raised stitched seam around the equator.
+function ballTexture() {
+  const c = document.createElement('canvas');
+  c.width = 512; c.height = 256;
+  const g = c.getContext('2d');
+  g.fillStyle = '#f6f4ee'; g.fillRect(0, 0, 512, 256);
+  for (let i = 0; i < 4000; i++) { g.fillStyle = `rgba(120,110,95,${Math.random() * 0.08})`; g.fillRect(Math.random() * 512, Math.random() * 256, 2, 2); }
+  // Quarter seam (faint) and main seam.
+  g.strokeStyle = 'rgba(150,145,135,0.6)'; g.lineWidth = 2;
+  g.beginPath(); g.moveTo(128, 0); g.lineTo(128, 256); g.moveTo(384, 0); g.lineTo(384, 256); g.stroke();
+  g.fillStyle = '#d9d4c8'; g.fillRect(0, 120, 512, 16);
+  g.strokeStyle = '#6b7b8c'; g.lineWidth = 2;
+  for (const yy of [118, 138]) for (let x = 0; x < 512; x += 7) { g.beginPath(); g.moveTo(x, yy); g.lineTo(x + 4, yy + (yy < 128 ? 4 : -4)); g.stroke(); }
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
 // ---------------------------------------------------------------- Stumps
 export class StumpsView {
   constructor(parent, z) {
@@ -117,13 +171,15 @@ export class StumpsView {
     const tipMat = new THREE.MeshLambertMaterial({ color: 0xc0392b });
     this.pieces = [];
     const h = PITCH.stumpHeight, r = PITCH.stumpRadius;
-    const stumpGeo = new THREE.CylinderGeometry(r, r, h, 8);
-    stumpGeo.translate(0, h / 2, 0);
-    const bandGeo = new THREE.CylinderGeometry(r * 1.02, r * 1.02, 0.06, 8);
-    bandGeo.translate(0, h - 0.12, 0);
+    const stumpGeo = merge([
+      part(new THREE.CylinderGeometry(r, r * 0.92, h, 8), 0xf1e6c8, [0, h / 2, 0]),
+      part(new THREE.CylinderGeometry(r * 1.03, r * 1.03, 0.07, 8), 0xc0392b, [0, h - 0.13, 0]),
+      part(new THREE.CylinderGeometry(r * 1.03, r * 1.03, 0.02, 8), 0x1f3a93, [0, h - 0.2, 0]),
+    ]);
+    const stumpMat = vertexColorMat();
+    void tipMat;
     for (const x of STUMP_X) {
-      const m = new THREE.Mesh(stumpGeo, mat);
-      m.add(new THREE.Mesh(bandGeo, tipMat));
+      const m = new THREE.Mesh(stumpGeo, stumpMat);
       m.position.set(x, 0, 0);
       this.group.add(m);
       this.pieces.push({ mesh: m, home: m.position.clone(), vel: new THREE.Vector3(), ang: new THREE.Vector3(), kind: 'stump' });

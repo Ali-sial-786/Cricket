@@ -20,6 +20,8 @@ import { MRPlacer } from '../xr/mr.js';
 import { AIBatter } from './aiBatter.js';
 import { BatterView, BowlerView, FieldView, NonStrikerView, RunningController, PlayerBodyView } from '../render/people.js';
 import { FIELD } from './fielding.js';
+import { Particles } from '../render/particles.js';
+import { ShadowPool } from '../render/humanoid.js';
 
 export const BAT_HEAD = { z: -1.05, legOffset: -0.35 };      // head relative to guard (hand) x
 export const BOWL_HEAD = { x: 0.75, z: -19.6 };
@@ -44,6 +46,7 @@ export class Game {
     this.calib = { step: 'capture' };
 
     this.env = buildEnvironment(scene);
+    ShadowPool.init(scene);
     this.world = new PhysicsWorld(CONFIG, (Date.now() & 0xffff) + 7);
     this.playerBatProvider = new InterpolatedBatProvider();
     this.playerBat = this.world.addBat('player', this.playerBatProvider);
@@ -71,6 +74,7 @@ export class Game {
     this.nonStrikerView = new NonStrikerView(scene);
     this.runners = new RunningController();
     this.playerBody = new PlayerBodyView(scene);
+    this.particles = new Particles(scene);
     this.ballOverride = null;   // fielding drives the ball view after a catch / pick-up
 
     this.input = new InputManager(renderer, rig, camera, dom);
@@ -172,7 +176,7 @@ export class Game {
     const c = this.camera;
     const views = this.end === 'bowling'
       ? [[[0.75, 1.72, -20.3], [0.0, 0.9, 0.0]], [[9, 3.5, -14], [0, 0.8, -6]], [[0.4, 2.6, 6.0], [0, 0.8, -12]]]
-      : [[[0.15, 2.05, 3.1], [0.1, 0.9, -12]], [[-0.42, 1.62, -0.85], [0.25, 1.35, -19]], [[6.5, 1.6, -1.6], [-0.2, 0.9, -1.4]], [[0.4, 2.6, -24], [0, 0.8, -2]], [[0, 55, -10], [0, 0, -10.01]]];
+      : [[[0.55, 2.45, 3.9], [0.0, 1.0, -12]], [[-0.42, 1.62, -0.85], [0.25, 1.35, -19]], [[6.5, 1.6, -1.6], [-0.2, 0.9, -1.4]], [[0.4, 2.6, -24], [0, 0.8, -2]], [[0, 55, -10], [0, 0, -10.01]]];
     const v = views[this.desktopView % views.length];
     c.position.set(...v[0]);
     c.lookAt(new THREE.Vector3(...v[1]));
@@ -312,6 +316,7 @@ export class Game {
     this.updateViews(dt, paused);
     this.ui.updatePointer(this.input);
     this.ui.update();
+    this.env.update(dt, now);
     const cu = this.env.crowd.userData.uniforms;
     cu.uTime.value = now;
     cu.uCheer.value = Math.max(0, cu.uCheer.value - dt * 0.35);
@@ -370,6 +375,7 @@ export class Game {
     const s = this.sfx;
     if (e.type === 'bounce') {
       if (e.speedIn > 1.5) s.bounce(e.speedIn, e.surface);
+      if (e.speedIn > 3) this.particles.dust(e.pos, e.speedIn, e.surface !== 'pitch');
       if (!e.batted && e.surface === 'pitch' && e.index === 1) this.pitchMark.show(e.pos);
     } else if (e.type === 'bat') {
       s.batCrack(e.quality, e.speedIn + e.batSpeed, e.isEdge);
@@ -382,6 +388,9 @@ export class Game {
     } else if (e.type === 'wicket') {
       s.stumps();
       this.stumps[e.end].break({ x: 0, y: 0, z: (e.end === 'batting' ? 1 : -1) * e.speed }, e.stump);
+      this.particles.splinters({ x: 0, z: e.end === 'batting' ? 0 : -20.12 });
+    } else if (e.type === 'boundary' && e.onFull && e.batted) {
+      this.particles.fireworks(e.pos);
     }
     if (this.session) this.session.onEvent(e);
   }
@@ -412,6 +421,8 @@ export class Game {
       this.pitchMark.update(dt);
     }
     if (this.session && this.session.updateViews) this.session.updateViews(dt, paused);
+    // Particles (point size needs the per-eye half height).
+    this.particles.update(pdtFx(paused, dt), this.input.xr ? 900 : this.renderer.getDrawingBufferSize(_dbs).y / 2);
     // People.
     const lookBall = b.active ? _look.set(b.pos.x, b.pos.y, b.pos.z) : (this.ballOverride ? _look.set(this.ballOverride.pos.x, this.ballOverride.pos.y, this.ballOverride.pos.z) : null);
     const pdt = paused ? 0 : dt;
@@ -504,6 +515,8 @@ const _off = new Quat(), _tilt = new Quat(), _xAxis = new Vec3(1, 0, 0);
 const _batPose = new Pose();
 const _render = new Vec3();
 const _look = new THREE.Vector3();
+const _dbs = new THREE.Vector2();
+const pdtFx = (paused, dt) => (paused ? 0 : dt);
 
 // UI callbacks.
 function makeActions(game) {

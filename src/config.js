@@ -123,6 +123,8 @@ export const CONFIG = {
 
   render: {
     ballMinAngleDeg: 0.34,   // visibility assist: ball is drawn at least this big (physics unchanged)
+    crowdMax: 3000,          // instanced spectators (36 triangles each)
+    animLodDistance: 32,     // fielders farther than this skip foot IK / head tracking
   },
 
   xr: {

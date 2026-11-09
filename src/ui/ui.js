@@ -23,8 +23,8 @@ export class UI {
 
     // Big stadium scoreboard.
     this.board = new CanvasPanel({ width: 24, height: 9, ppm: 42, name: 'scoreboard', bg: 'rgba(6,10,18,1)', interactive: false });
-    this.board.mesh.position.set(-58, 18, -42);
-    this.board.mesh.lookAt(0, 12, -10);
+    this.board.mesh.position.copy(game.env.screen.pos);
+    this.board.mesh.lookAt(game.env.screen.look);
     game.env.stadium.add(this.board.mesh);
     this.boardData = { lines: ['CREASE VR', 'Nets'] };
 

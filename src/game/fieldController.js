@@ -80,7 +80,7 @@ export class FieldController {
     }
 
     const ballPos = b.active ? _v.set(b.pos.x, b.pos.y, b.pos.z) : (g.ballOverride ? _v.copy(g.ballOverride.pos) : null);
-    g.fieldView.update(dt, L.states(), { t, ball: ballPos, delivering: this.delivering });
+    g.fieldView.update(dt, L.states(), { t, ball: ballPos, delivering: this.delivering, cam: g.input.headPose.p });
 
     // Ball in a fielder's hands.
     if (L.ballOverride) {

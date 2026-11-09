@@ -70,6 +70,7 @@ export class FieldView {
     if (!this.visible) return;
     for (let i = 0; i < this.actors.length && i < states.length; i++) {
       const a = this.actors[i], s = states[i];
+      a.far = ctx.cam ? Math.hypot(s.x - ctx.cam.x, s.z - ctx.cam.z) > CONFIG.render.animLodDistance && !s.action : false;
       a.visible = !s.hidden;
       if (!a.visible) { a.place(s.x, s.z, s.face); continue; }
       a.update(dt, s, ctx);
