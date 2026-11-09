@@ -78,8 +78,9 @@ export class PhysicsWorld {
     this.h = 1 / this.cfg.physics.substepHz;
   }
 
-  addBat(id, provider, geom = new BatGeometry(this.cfg.bat)) {
-    const bat = { id, provider, geom, enabled: true, cooldownUntil: -Infinity };
+  // speedScale: null = use CONFIG.bat.speedMultiplier (player); AI bats pass 1.
+  addBat(id, provider, geom = new BatGeometry(this.cfg.bat), speedScale = null) {
+    const bat = { id, provider, geom, enabled: true, cooldownUntil: -Infinity, speedScale };
     this.bats.push(bat);
     return bat;
   }
@@ -145,7 +146,7 @@ export class PhysicsWorld {
       _lc.lerpVectors(_l0, _l1, s);
       _poseC.toWorld(b.pos, _lc);
       bat.provider.velAt(tc, _lin, _ang, _grip);
-      const res = resolveBatContact(bat.geom, b, _poseC, _lc, _lin, _ang, _grip, R, this.cfg);
+      const res = resolveBatContact(bat.geom, b, _poseC, _lc, _lin, _ang, _grip, R, this.cfg, bat.speedScale ?? this.cfg.bat.speedMultiplier);
       if (res) {
         bat.cooldownUntil = tc + this.cfg.bat.cooldown;
         b.batted = true;

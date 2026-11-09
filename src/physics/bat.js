@@ -141,7 +141,7 @@ const _n = new Vec3(), _nw = new Vec3(), _cw = new Vec3(), _r = new Vec3(), _vb 
 //  batLinVel, batAngVel: controller (grip) velocities at contact (world)
 //  gripPos:   world position the angular velocity is about
 // Returns contact info or null if the bodies were separating.
-export function resolveBatContact(geom, ball, pose, cLocal, batLinVel, batAngVel, gripPos, R, cfg = CONFIG) {
+export function resolveBatContact(geom, ball, pose, cLocal, batLinVel, batAngVel, gripPos, R, cfg = CONFIG, speedScale = cfg.bat.speedMultiplier) {
   const c = cfg.bat;
   const part = geom.normalAt(_n, cLocal);
   const q = contactQuality(geom, cLocal, _n, part);
@@ -162,7 +162,7 @@ export function resolveBatContact(geom, ball, pose, cLocal, batLinVel, batAngVel
   pose.toWorld(_cw, cLocal).addScaled(_nw, -R);
   // Bat surface velocity at the contact point.
   _r.subVectors(_cw, gripPos);
-  _vb.crossVectors(batAngVel, _r).add(batLinVel).scale(c.speedMultiplier);
+  _vb.crossVectors(batAngVel, _r).add(batLinVel).scale(speedScale);
 
   _vrel.subVectors(ball.vel, _vb);
   const vn = _vrel.dot(_nw);

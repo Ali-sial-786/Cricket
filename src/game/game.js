@@ -16,6 +16,8 @@ import { loadSettings, saveSettings, loadCalibration, saveCalibration } from './
 import { computeBatOffset, defaultBatOffset, computeRig, headForward } from './calibration.js';
 import { LENGTH_PRESETS, LINE_PRESETS } from '../physics/bowlingMachine.js';
 import { createSession } from './modes.js';
+import { AIBatter } from './aiBatter.js';
+import { BatterView, BowlerView } from '../render/people.js';
 
 export const BAT_HEAD = { z: -1.05, legOffset: -0.35 };      // head relative to guard (hand) x
 export const BOWL_HEAD = { x: 0.75, z: -19.6 };
@@ -41,6 +43,9 @@ export class Game {
     this.world = new PhysicsWorld(CONFIG, (Date.now() & 0xffff) + 7);
     this.playerBatProvider = new InterpolatedBatProvider();
     this.playerBat = this.world.addBat('player', this.playerBatProvider);
+    this.aiBatter = new AIBatter(CONFIG);
+    this.aiBat = this.world.addBat('ai', this.aiBatter, undefined, 1);
+    this.aiBat.enabled = false;
 
     // Views.
     this.batMesh = buildBatMesh();
@@ -56,6 +61,8 @@ export class Game {
     this.aimMarker = buildRingMarker(0xffe14d, 0.25);
     this.aimMarker.visible = false;
     scene.add(this.aimMarker);
+    this.batterView = new BatterView(scene, this.aiBatter);
+    this.figures = { bowler: new BowlerView(scene) };
 
     this.input = new InputManager(renderer, rig, camera, dom);
     this.sfx = new Sfx();

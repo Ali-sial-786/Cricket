@@ -35,6 +35,7 @@ export function defaultSettings() {
     batSpeedMultiplier: CONFIG.bat.speedMultiplier,
     hapticsScale: 1.0,
     seenSafety: false,
+    bowlNeutralElevDeg: null,      // set by "Calibrate bowling release"
   };
 }
 
@@ -44,7 +45,7 @@ export function loadSettings() {
   if (saved && typeof saved === 'object') {
     for (const k of Object.keys(s)) {
       if (k === 'machine' && saved.machine) s.machine = { ...s.machine, ...saved.machine };
-      else if (saved[k] !== undefined && typeof saved[k] === typeof s[k]) s[k] = saved[k];
+      else if (saved[k] !== undefined && (s[k] === null || typeof saved[k] === typeof s[k])) s[k] = saved[k];
     }
   }
   return s;
