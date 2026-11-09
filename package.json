@@ -1,0 +1,12 @@
+{
+  "name": "cricket-vr",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Original WebXR cricket game for Meta Quest 3/3S. Static site, no build step.",
+  "type": "module",
+  "scripts": {
+    "test": "node --test \"tests/**/*.test.js\"",
+    "serve": "python3 -m http.server 8080"
+  },
+  "license": "MIT"
+}
