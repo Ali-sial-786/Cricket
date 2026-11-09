@@ -17,7 +17,8 @@ import { computeBatOffset, defaultBatOffset, computeRig, headForward } from './c
 import { LENGTH_PRESETS, LINE_PRESETS } from '../physics/bowlingMachine.js';
 import { createSession } from './modes.js';
 import { AIBatter } from './aiBatter.js';
-import { BatterView, BowlerView } from '../render/people.js';
+import { BatterView, BowlerView, FieldView } from '../render/people.js';
+import { FIELD } from './fielding.js';
 
 export const BAT_HEAD = { z: -1.05, legOffset: -0.35 };      // head relative to guard (hand) x
 export const BOWL_HEAD = { x: 0.75, z: -19.6 };
@@ -63,6 +64,8 @@ export class Game {
     scene.add(this.aimMarker);
     this.batterView = new BatterView(scene, this.aiBatter);
     this.figures = { bowler: new BowlerView(scene) };
+    this.fieldView = new FieldView(scene, FIELD.length);
+    this.ballOverride = null;   // fielding drives the ball view after a catch / pick-up
 
     this.input = new InputManager(renderer, rig, camera, dom);
     this.sfx = new Sfx();
@@ -209,8 +212,14 @@ export class Game {
   startSession(kind) {
     if (this.session) this.endSession();
     this.lastMode = kind;
+    this.startSessionObj(createSession(this, kind));
+  }
+
+  startSessionObj(session) {
+    if (this.session) this.endSession();
     this.resultInfo = null;
-    this.session = createSession(this, kind);
+    this.ballOverride = null;
+    this.session = session;
     this.state = 'play';
     this.ui.closeMenu();
     this.session.enter();
@@ -223,6 +232,7 @@ export class Game {
     this.session = null;
     this.world.removeBall();
     this.ballView.setVisible(false);
+    this.ballOverride = null;
   }
 
   showResult(info) {
@@ -332,7 +342,9 @@ export class Game {
 
   updateViews(dt, paused) {
     const b = this.world.ball;
-    if (b.active && this.ballView.visible) {
+    if (this.ballOverride) {
+      this.ballView.update(this.ballOverride.pos, 0, null, false);
+    } else if (b.active && this.ballView.visible) {
       // Extrapolate the sub-step remainder so the ball is drawn at frame time.
       const lag = paused ? 0 : clamp(this.simTime - this.world.time, 0, 0.01);
       _render.copy(b.pos).addScaled(b.vel, b.stopped ? 0 : lag);

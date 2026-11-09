@@ -130,17 +130,18 @@ export const CONFIG = {
   field: {
     boundaryRadius: 65,      // m from the centre of the pitch
     groundRadius: 80,
-    fielderSpeed: 6.8,       // m/s top speed
-    fielderAccel: 9.0,
-    fielderReaction: 0.32,   // s
+    fielderSpeed: 6.5,       // m/s top speed
+    fielderAccel: 7.5,
+    fielderReaction: 0.40,   // s
     keeperReaction: 0.15,
-    reach: 1.1,              // m: pick up radius
-    diveReach: 1.9,
+    reach: 1.0,              // m: pick up radius
+    diveReach: 1.8,
     catchHeightMax: 2.6,
-    throwSpeed: 28,          // m/s
-    pickupTime: 0.45,
-    runFirst: 3.7,           // s to complete the first run
-    runNext: 3.1,            // s for each additional run
+    throwSpeed: 27,          // m/s
+    pickupTime: 0.5,
+    stretchPickupExtra: 0.45,// s extra when the stop was a stretch/dive
+    runFirst: 3.4,           // s to complete the first run
+    runNext: 2.9,            // s for each additional run
     runSafetyMargin: 0.35,
   },
 

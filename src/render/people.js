@@ -105,11 +105,12 @@ export class FieldView {
     }
     this.show(false);
   }
-  show(v) { for (const f of this.figs) f.visible = v; }
+  show(v) { this.visible = v; for (const f of this.figs) f.visible = v; }
   // states: [{x, z, face (yaw), speed, crouch, armsUp}]
   update(dt, states) {
     for (let i = 0; i < this.figs.length && i < states.length; i++) {
       const f = this.figs[i], s = states[i];
+      f.visible = this.visible && !s.hidden;
       f.position.set(s.x, 0, s.z);
       f.rotation.set(0, s.face, 0);
       animateRun(f, dt, s.speed);
