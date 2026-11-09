@@ -125,10 +125,30 @@ export class InputManager {
     this.headPose.p.set(_p.x, _p.y, _p.z);
     this.headPose.q.set(_q.x, _q.y, _q.z, _q.w);
     if (this.mode === 'xr') {
-      // head in ref space = rig^-1 * world
-      _m.copy(this.rig.matrixWorld).invert().multiply(cam.matrixWorld).decompose(_p, _q, _s);
-      this.headRef.p.set(_p.x, _p.y, _p.z);
-      this.headRef.q.set(_q.x, _q.y, _q.z, _q.w);
+      // Prefer this frame's viewer pose (the XR camera matrix is only updated
+      // inside render(), i.e. one frame late).
+      let got = false;
+      try {
+        const ref = this.renderer.xr.getReferenceSpace();
+        const vp = frame && ref ? frame.getViewerPose(ref) : null;
+        if (vp) {
+          const tp = vp.transform.position, to = vp.transform.orientation;
+          this.headRef.p.set(tp.x, tp.y, tp.z);
+          this.headRef.q.set(to.x, to.y, to.z, to.w);
+          _p.set(tp.x, tp.y, tp.z).applyMatrix4(this.rig.matrixWorld);
+          this.rig.getWorldQuaternion(_rq);
+          _q.set(to.x, to.y, to.z, to.w).premultiply(_rq);
+          this.headPose.p.set(_p.x, _p.y, _p.z);
+          this.headPose.q.set(_q.x, _q.y, _q.z, _q.w);
+          got = true;
+        }
+      } catch { /* fall back below */ }
+      if (!got) {
+        // head in ref space = rig^-1 * world
+        _m.copy(this.rig.matrixWorld).invert().multiply(cam.matrixWorld).decompose(_p, _q, _s);
+        this.headRef.p.set(_p.x, _p.y, _p.z);
+        this.headRef.q.set(_q.x, _q.y, _q.z, _q.w);
+      }
       this.updateXR(t);
     } else {
       this.headRef.copy(this.headPose);

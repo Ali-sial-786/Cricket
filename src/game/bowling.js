@@ -240,7 +240,7 @@ export class BowlingSession {
       g.ui.setHud({ last: `Pitched: ${lengthName(-e.pos.z)} (${(-e.pos.z).toFixed(1)} m) · ${lineName(e.pos.x)} · moved ${e.deviationDeg.toFixed(1)}°` });
     }
     if (e.type === 'bat' && e.batId === 'ai' && !this.hit) {
-      const pred = predict(g.world.ball, { maxTime: 8 });
+      const pred = predict(g.world.ball, { maxTime: 8, h: 1 / 240 });
       this.hit = { t: e.t, quality: e.quality, edge: e.isEdge, exit: e.speedOut, sixOnFull: !!(pred.boundary && pred.boundary.onFull), pred };
       if (e.isEdge) { this.stats.edges++; g.ui.setHud({ big: 'Edged!', bigColor: '#ff9f43' }); }
       if (this.field) this.field.onHit(g.world.ball, e.t, pred);

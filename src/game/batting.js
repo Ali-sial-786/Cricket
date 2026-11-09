@@ -176,7 +176,7 @@ export class BattingSession {
     if (e.type === 'bounce' && !e.batted && !this.firstBounce) this.firstBounce = e.pos.clone();
     if (e.type === 'bat' && e.batId === 'player' && !this.hit) {
       const b = g.world.ball;
-      const pred = predict(b, { maxTime: 8 });
+      const pred = predict(b, { maxTime: 8, h: 1 / 240 });
       const land = pred.bounces[0];
       const carry = land ? Math.hypot(land.pos.x - b.pos.x, land.pos.z - b.pos.z) : 0;
       const v = e.vel;
