@@ -31,6 +31,7 @@ const xr = new XRSessionManager(renderer, {
   onStatus: setStatus,
 });
 game.requestXR = (kind) => xr.start(kind);
+game.xrManager = xr;
 
 const vrBtn = document.getElementById('enter-vr');
 const arBtn = document.getElementById('enter-mr');

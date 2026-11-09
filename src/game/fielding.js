@@ -9,7 +9,7 @@
 // batters completed before the throw arrived.
 
 import { Vec3, clamp, makeRng } from '../physics/math.js';
-import { groundDistance, PITCH } from '../physics/pitch.js';
+import { PITCH } from '../physics/pitch.js';
 import { CONFIG } from '../config.js';
 
 // Standard field for a right-handed batter (off side = +X). Keeper first.
@@ -322,4 +322,3 @@ export class Fielding {
 
 function airborne(ball) { return ball.batted && ball.bouncesSinceBat === 0; }
 
-void groundDistance;

@@ -174,7 +174,6 @@ export class AIBatter {
     if (!p || p.shot.type === 'leave' || p.adjusted || t > p.Tc - 0.02) return;
     p.adjusted = true;
     const info = analyzeDelivery(state, 1, this.cfg);
-    const T = SHOTS[p.shot.type];
     const c = crossingAtZ(info.pred, p.C.z);
     if (!c) return;
     const k = this.skill.adjust;
@@ -184,9 +183,6 @@ export class AIBatter {
     p.TcFrom = this.currentTc(t);
     p.TcTo = p.TcFrom + ((tState + c.t) - p.TcFrom) * k;
     p.blendStart = t;
-    // Also let a batter who misread a leave-able ball (now heading for the
-    // stumps) panic-jab: stay with the same shot, the blend moves the bat.
-    void T;
   }
 
   blendK(t) {

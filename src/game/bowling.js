@@ -1,7 +1,9 @@
 // Bowling session: the player bowls from the bowler's end to the AI batter.
 // Hold trigger (ball in hand), swing overarm, release trigger.
 import { CONFIG } from '../config.js';
-import { Vec3, Quat, clamp, msToKmh, DEG } from '../physics/math.js';
+import { Vec3, clamp, DEG } from '../physics/math.js';
+
+const _hold = new Vec3();
 import { PITCH, lengthName, lineName, groundDistance, battingPoppingZ } from '../physics/pitch.js';
 import { predict } from '../physics/trajectory.js';
 import { playerDelivery } from './bowlingInput.js';
@@ -174,9 +176,9 @@ export class BowlingSession {
       // Ball sits in the hand.
       const R = g.input.right;
       if (R.connected) {
-        const p = R.gripPose.p.clone().add(new Vec3(...CONFIG.bowling.ballHoldOffset).applyQuat(R.gripPose.q));
+        _hold.set(...CONFIG.bowling.ballHoldOffset).applyQuat(R.gripPose.q).add(R.gripPose.p);
         g.ballView.setVisible(true);
-        g.ballView.update(p, 0, null, false);
+        g.ballView.update(_hold, 0, null, false);
       }
     } else if (this.state === 'live') {
       this.checkLive(t);

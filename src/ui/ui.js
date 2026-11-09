@@ -145,7 +145,7 @@ export class UI {
         btn('resume', L(0, 4), 'Resume', () => this.closeMenu(), { active: true });
         btn('recenter', L(1, 4), 'Recenter here', () => g.actions.recenter());
       } else {
-        btn('mr', L(0, 4), g.mr ? 'MR: place stumps' : (g.xrSupported.ar ? 'Mixed reality nets' : 'MR (needs headset)'), () => g.actions.mr(), { disabled: !g.mr && !g.xrSupported.ar });
+        btn('mr', L(0, 4), g.mr ? 'MR: re-place stumps' : 'Mixed reality nets…', () => g.actions.mr());
         btn('recenter', L(1, 4), 'Recenter here', () => g.actions.recenter());
       }
       P.set(W, 'CREASE VR');
@@ -169,6 +169,9 @@ export class UI {
       P.set(W, 'Bowling machine');
     } else if (this.page === 'settings') {
       const L = grid(P, { top: 0.15, bottom: 0.04, cols: 2, rows: 6 });
+      const xrRate = g.xrManager && g.xrManager.frameRate ? `${g.xrManager.frameRate} Hz target` : 'no target';
+      const vel = g.input.xr ? (g.input.right.hasXRVel ? 'XR' : 'pose') : 'desktop';
+      label(P.W / 2, P.H * 0.122, `Frame ${Math.round(g.stats.fps)} Hz (${xrRate}) · controller velocity: ${vel} · v${g.version}`, { align: 'center', size: 22, color: '#8fb3d1' });
       step('diff', L(0, 0), 'Difficulty', s.difficulty, () => g.actions.difficulty(-1), () => g.actions.difficulty(1));
       step('overs', L(1, 0), 'Overs', String(s.overs), () => g.actions.setting('overs', -1, 1, 5), () => g.actions.setting('overs', 1, 1, 5));
       step('batAngle', L(0, 1), 'Bat angle', `${signed(s.batAngleDeg, 0)}°`, () => g.actions.setting('batAngleDeg', -2, -30, 30), () => g.actions.setting('batAngleDeg', 2, -30, 30));

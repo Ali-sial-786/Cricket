@@ -33,6 +33,8 @@ export class Game {
     this.rig = rig;
     this.dom = dom;
     this.rng = makeRng((Date.now() & 0xffff) + 1);
+    this.version = '0.1.0';
+    this.xrManager = null;
 
     this.settings = loadSettings();
     this.applySettingsToConfig();
@@ -122,15 +124,21 @@ export class Game {
   // ------------------------------------------------------------- rig / ends
   setEnd(end) {
     this.end = end;
-    this.ui.setHudPose(this.mr ? 'mr' : end);
-    if (this.mr) return;
+    this.ui.setHudPose(this.mr && end !== 'bowling' ? 'mr' : end);
+    if (this.mr) {
+      // MR: batting end stays anchored to the stumps you placed on the floor;
+      // bowling re-anchors the bowler's end at your feet.
+      if (end === 'bowling') this.recenter();
+      else if (this.mrPlacer && this.mrPlacer.placedRig) this.setRig(this.mrPlacer.placedRig);
+      return;
+    }
     if (this.input.xr) this.recenter();
     else this.placeDesktopCamera();
   }
 
   // Re-anchor the world around the player's current head pose.
   recenter() {
-    if (this.mr) return;
+    if (this.mr && this.end !== 'bowling') return;
     if (!this.input.xr) { this.placeDesktopCamera(); return; }
     const head = this.input.headRef;
     const f = headForward(head.q);
@@ -438,7 +446,11 @@ function makeActions(game) {
     calibSave: () => g.finishCalibration(),
     calibSkip: () => { g.state = 'menu'; g.ui.openMenu('main'); },
     recenter: () => g.recenter(),
-    mr: () => { if (g.mr) { g.endSession(); g.state = 'mrplace'; g.ui.closeMenu(); if (g.mrPlacer) g.mrPlacer.restart(); } else g.requestXR && g.requestXR('ar'); },
+    mr: () => {
+      if (g.mr) { g.endSession(); g.ui.closeMenu(); if (g.mrPlacer) g.mrPlacer.restart(); return; }
+      // A new XR session needs a page gesture: point the player at the page button.
+      g.ui.setHud({ big: 'Mixed reality', bigColor: '#5cf2a6', last: g.input.xr ? 'Exit VR, then press "Enter MR nets" on the page.' : 'Press "Enter MR nets" on the page (needs a headset).', detail: '' });
+    },
     machine: (key, d) => {
       const m = g.settings.machine;
       const lim = { paceKmh: [CONFIG.machine.paceMinKmh, CONFIG.machine.paceMaxKmh], line: [-0.6, 0.8], swing: [-1, 1], seam: [-1, 1], spinAmount: [0, 1], variation: [0, 1] }[key];
