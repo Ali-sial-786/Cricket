@@ -327,69 +327,115 @@ export class BatterActor extends Actor {
     this.batPose = { p: new THREE.Vector3(), q: new THREE.Quaternion() };
     this.footL = new THREE.Vector3(); this.footR = new THREE.Vector3();
     this.mode = 'bat';        // 'bat' (driven by a bat pose) | 'run' | 'idle'
+    this.h.update();
+    this.armLen = this.h.worldPos('shoulderR', new THREE.Vector3()).distanceTo(this.h.worldPos('elbowR', new THREE.Vector3()))
+      + this.h.worldPos('elbowR', new THREE.Vector3()).distanceTo(this.h.worldPos('handR', new THREE.Vector3()));
     this.carryBat = false;
   }
   set visible(v) { this._vis = v; if (this.h) this.h.visible = v; if (this.bat) this.bat.visible = v; }
   get visible() { return this._vis; }
 
-  // Batting: pose the body around a bat pose. opts: {plan, t, ball, crouch}
+  // Batting: pose the body around a bat pose.
+  // opts: { t, plan (AIBatter plan or null), adv (m down the pitch), ball }
   updateBatting(dt, batPos, batQuat, opts) {
     const h = this.h, t = opts.t;
     this.mode = 'bat';
     this.bat.position.copy(batPos);
     this.bat.quaternion.copy(batQuat);
-    // Footwork.
     const fl = _a.set(STANCE.footL[0], 0, STANCE.footL[1]);
     const fr = _b.set(STANCE.footR[0], 0, STANCE.footR[1]);
-    let hipsDrop = 0.08, lean = 0.22;
+    let hipsDrop = 0.09, lean = 0.24, weight = 0.5, heel = 0, elbowUp = 0;
     const p = opts.plan;
+    const adv = opts.adv || 0;
     if (p && t >= p.t0) {
-      const trig = sstep(p.t0 + 0.05, p.t0 + 0.25, t);
-      fr.x += 0.06 * trig; fr.z += 0.04 * trig;       // trigger: back and across
       const type = p.shot.type;
-      if (p.C && type !== 'leave') {
-        const k = sstep(p.tCommit, (p.Tc ?? p.tCommit + 0.3) - 0.05, t);
-        if (p.foot === 'front') {
-          fl.x = mix(fl.x, clamp(p.C.x - 0.17, -0.55, 0.45), k);
-          fl.z = mix(fl.z, clamp(p.C.z + 0.38, -2.15, -1.35), k);
-          fr.z = mix(fr.z, fr.z - 0.08, k);
-          lean += 0.18 * k; hipsDrop += 0.06 * k;
-        } else {
-          fr.x = mix(fr.x, fr.x + 0.24, k);
-          fr.z = mix(fr.z, -0.72, k);
-          fl.x = mix(fl.x, fl.x + 0.12, k);
-          fl.z = mix(fl.z, -1.2, k);
-          lean -= 0.08 * k;
+      const trig = sstep(p.t0 + 0.04, p.t0 + 0.2, t);
+      fr.x += 0.06 * trig; fr.z += 0.04 * trig;       // trigger movement: back and across
+      if (p.feet && type !== 'leave') {
+        const Tc = p.Tc ?? p.tCommit + 0.3;
+        const tLand = Math.max(p.tCommit + 0.12, Tc - 0.06);
+        const front = p.foot === 'front';
+        // The leading foot goes first; the other one follows.
+        const k1 = sstep(p.tCommit, front ? tLand : mix(p.tCommit, tLand, 0.62), t);
+        const k2 = sstep(mix(p.tCommit, tLand, front ? 0.55 : 0.3), tLand + (front ? 0.12 : 0), t);
+        const kL = front ? k1 : k2, kR = front ? k2 : k1;
+        const dL = Math.hypot(p.feet.L[0] - fl.x, p.feet.L[1] - fl.z), dR = Math.hypot(p.feet.R[0] - fr.x, p.feet.R[1] - fr.z);
+        fl.x = mix(fl.x, p.feet.L[0], kL); fl.z = mix(fl.z, p.feet.L[1], kL);
+        fr.x = mix(fr.x, p.feet.R[0], kR); fr.z = mix(fr.z, p.feet.R[1], kR);
+        fl.y = 0.085 * Math.sin(Math.PI * kL) * Math.min(1, dL / 0.3);       // feet are picked up, not slid
+        fr.y = 0.07 * Math.sin(Math.PI * kR) * Math.min(1, dR / 0.3);
+        const kw = sstep(p.tCommit + 0.04, Tc, t);
+        const kf = sstep(Tc - 0.03, Tc + (p.Tf || 0.2), t);                  // through the ball
+        const big = p.th && p.th[1] > 1 ? 1 : 0;
+        weight = mix(0.5, p.weight ?? 0.5, kw) + (front ? 0.07 : 0.06) * kf * big;
+        hipsDrop = mix(hipsDrop, p.drop ?? 0.08, kw) - 0.05 * kf * big;
+        lean = mix(lean, front ? 0.44 : type === 'cut' ? 0.34 : 0.1, kw) - (front ? 0.22 : 0.02) * kf * big;
+        if (front) { heel = kf * big; elbowUp = sstep(p.tCommit, Tc - 0.05, t) * (1 - 0.6 * kf); }
+        // Relax once the shot is played.
+        const tRest = Tc + (p.Tf || 0.2) + 0.5;
+        if (t > tRest) {
+          const kr = sstep(tRest, tRest + 0.8, t);
+          hipsDrop = mix(hipsDrop, 0.03, kr); lean = mix(lean, 0.08, kr); heel *= 1 - kr;
+          weight = mix(weight, 0.5, kr);
         }
       } else if (p.shot.duck) {
         const k = sstep(p.tCommit, p.tCommit + 0.2, t);
-        hipsDrop += 0.38 * k; lean += 0.55 * k;
+        hipsDrop += 0.4 * k; lean += 0.55 * k;
+      } else if (type === 'leave') {
+        const k = sstep(p.tCommit, p.tCommit + 0.25, t);           // front pad across, bat out of the way
+        fl.x += 0.05 * k; fl.z -= 0.14 * k; fl.y = 0.05 * Math.sin(Math.PI * k);
+        hipsDrop -= 0.04 * k; lean -= 0.12 * k; weight = 0.5 + 0.08 * k;
       }
     }
+    if (adv > 0.001) {                               // skipping down the pitch (and scrambling back)
+      const ph = adv / 0.55 * Math.PI * 2;
+      fl.z -= adv + 0.1 * Math.max(0, Math.sin(ph)); fr.z -= adv - 0.1 * Math.max(0, Math.sin(ph));
+      fl.y += 0.06 * Math.max(0, Math.sin(ph)); fr.y += 0.06 * Math.max(0, -Math.sin(ph));
+    }
     this.footL.copy(fl); this.footR.copy(fr);
-    this.pos.set((fl.x + fr.x) / 2, 0, (fl.z + fr.z) / 2);
+    this.pos.set(mix(fr.x, fl.x, weight), 0, mix(fr.z, fl.z, weight));
     this.heading = Math.PI / 2;
     h.reset();
     h.bones.hips.position.y = h.hipsRest.y - hipsDrop;
     this.apply();
-    // Rotate the torso toward where the hands are.
+    // Turn the hips, trunk and shoulders with the hands (coil in the backlift,
+    // open up through the ball).
     h.update();
-    const hipsW = h.worldPos('chest', _c);
-    const dxw = batPos.x - hipsW.x, dzw = batPos.z - hipsW.z;
     const s = Math.sin(this.heading), c = Math.cos(this.heading);
-    const lx = dxw * c - dzw * s, lz = dxw * s + dzw * c;      // into root local
-    const yaw = clamp(Math.atan2(lx, Math.max(0.05, lz)), -1.2, 1.4);
-    h.rot('hips', 0, yaw * 0.35, 0);
-    h.rot('spine', lean, yaw * 0.25, 0);
-    h.rot('chest', 0.08 + 0.018 * Math.sin(t * 1.6), yaw * 0.45, 0);
+    const torso = (push) => {
+      const chest = h.worldPos('chest', _c);
+      const dxw = batPos.x - chest.x, dzw = batPos.z - chest.z;
+      const lx = dxw * c - dzw * s, lz = dxw * s + dzw * c;      // into root local
+      const yaw = clamp(Math.atan2(lx, Math.max(0.05, lz)), -1.25, 1.45);
+      h.rot('hips', 0, yaw * 0.34, 0);
+      h.rot('spine', lean + push, yaw * 0.27, 0);
+      h.rot('chest', 0.08 + 0.018 * Math.sin(t * 1.6), yaw * 0.45, 0);
+    };
+    torso(0);
+    // If the bat is out of reach, go with it: bend further and let the hips follow.
+    h.update();
+    const top = _d.copy(batPos).addScaledVector(_e.set(0, 1, 0).applyQuaternion(batQuat), 0.105);
+    const reach = this.armLen * 0.97;
+    const over = Math.max(h.worldPos('shoulderR', _fwd).distanceTo(batPos), h.worldPos('shoulderL', _left).distanceTo(top)) - reach;
+    if (over > 0) {
+      const sh = h.worldPos('chest', _c);
+      const dx = batPos.x - sh.x, dz = batPos.z - sh.z, dh = Math.hypot(dx, dz) || 1;
+      const low = batPos.y < sh.y - 0.25;
+      const move = Math.min(0.3, over * 0.8);
+      this.pos.x += dx / dh * move; this.pos.z += dz / dh * move;
+      if (low) h.bones.hips.position.y -= Math.min(0.14, over * 0.6);
+      this.apply();
+      torso(low ? Math.min(0.35, over * 1.2) : 0);
+    }
     plantFeet(h, this.footL, this.footR, this.forward(_d).multiplyScalar(0.7));
-    this.gripBat(batPos, batQuat);
+    if (heel > 0.01) h.addRot('ankleR', 0.75 * heel, 0, 0);       // up on the back toe
+    this.gripBat(batPos, batQuat, elbowUp);
     if (opts.ball) h.lookAt(opts.ball, 1, 1.7);
     else h.lookAt(_c.set(0.4, 1.9, -18.8), 1, 1.7);
     h.syncShadow();
   }
 
-  gripBat(batPos, batQuat) {
+  gripBat(batPos, batQuat, elbowUp = 0) {
     const h = this.h;
     h.update();
     const up = _a.set(0, 1, 0).applyQuaternion(batQuat);
@@ -399,7 +445,8 @@ export class BatterActor extends Actor {
     this.forward(_fwd);
     _left.set(_fwd.z, 0, -_fwd.x);
     const poleR = h.worldPos('shoulderR', new THREE.Vector3()).addScaledVector(_fwd, -0.35).add(new THREE.Vector3(0, -0.55, 0)).addScaledVector(face, -0.2);
-    const poleL = h.worldPos('shoulderL', new THREE.Vector3()).addScaledVector(_left, 0.5).add(new THREE.Vector3(0, -0.45, 0));
+    // Front elbow: out toward the bowler, and high through a straight-bat shot.
+    const poleL = h.worldPos('shoulderL', new THREE.Vector3()).addScaledVector(_left, 0.5).add(new THREE.Vector3(0, -0.45 + 0.6 * elbowUp, 0));
     h.ikArm('R', bottom, poleR);
     h.ikArm('L', top, poleL);
     // Fists wrapped around the handle.

@@ -33,7 +33,8 @@ export class BatterView {
     toV3(_p, this.pose.p);
     toQ(_q, this.pose.q);
     const plan = this.ai.plan;
-    a.updateBatting(dt, _p, _q, { t, plan: plan ? { ...plan, t0: plan.t0, Tc: plan.TcTo ?? plan.Tc } : null, ball });
+    if (plan) { this._plan = this._plan || {}; Object.assign(this._plan, plan); this._plan.Tc = plan.TcTo ?? plan.Tc; }
+    a.updateBatting(dt, _p, _q, { t, plan: plan ? this._plan : null, adv: this.ai.advanceAt(t), ball });
   }
 }
 
