@@ -54,6 +54,7 @@ export class LbwFlow {
     _head.set(hp.x, hp.y, hp.z);
     g.drs.startLbw({ track: this.track, deliveryPath: this.path, onFieldOut: this.onFieldOut, outcome: this.outcome, viewerPos: _head });
     if (!this.playerIsBatter) g.drs.placeBoard(_head, { distance: 9, scale: 2.2, height: 3.4 });
+    g.ui.hud.mesh.visible = false;          // the review board takes its place
     g.umpires.signal('review', g.clock);
     g.say('review');
     g.ui.prompt(byPlayer ? 'You review the decision' : 'The batter reviews', 2.5, '#7fd3ff');
@@ -63,6 +64,7 @@ export class LbwFlow {
   finish(out) {
     this.out = out; this.done = true; this.active = false;
     this.g.drs.hide();
+    this.g.ui.hud.mesh.visible = true;
   }
 
   // dt = real seconds.
@@ -83,7 +85,7 @@ export class LbwFlow {
       const R = g.input.right, L = g.input.left;
       if (this.canPlayer) {
         if (this.t > 0.9) g.ui.prompt(`Press A to REVIEW (${this.reviews.player} left)`, 0.5, '#7fd3ff');
-        if (this.t > 0.4 && (R.buttons.a.down || L.buttons.a.down)) { this.startReview(true); return; }
+        if (this.t > 0.15 && (R.buttons.a.down || L.buttons.a.down)) { this.startReview(true); return; }
       } else if (this.aiWill && this.t > 1.4) { this.startReview(false); return; }
       if (this.t > (this.canPlayer ? 4.5 : this.aiWill ? 2 : 1.8)) this.finish(this.onFieldOut);
     } else if (this.phase === 'review') {

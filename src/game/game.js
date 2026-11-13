@@ -424,7 +424,7 @@ export class Game {
       for (const e of this.world.drainEvents()) this.onPhysicsEvent(e);
     }
     this.updateViews(sdt, paused);
-    this.umpires.update(paused ? 0 : realDt, now);
+    this.umpires.update(paused ? 0 : realDt, this.clock);
     this.ui.updatePointer(this.input);
     this.ui.update();
     this.env.update(dt, now);

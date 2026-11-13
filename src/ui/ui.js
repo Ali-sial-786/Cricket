@@ -67,8 +67,13 @@ export class UI {
   drawPrompt() {
     const P = this.promptPanel, W = [];
     const p = this.clock < this.promptUntil ? this.promptText : '', c = this.clock < this.captionUntil ? this.captionText : '';
-    if (p) W.push({ type: 'label', x: P.W / 2, y: c ? 52 : 82, text: p, size: p.length > 46 ? 30 : 40, bold: true, align: 'center', color: this.promptColor });
-    if (c) W.push({ type: 'label', x: P.W / 2, y: p ? 118 : 82, text: c.length > 74 ? c.slice(0, 72) + '…' : c, size: 25, align: 'center', color: '#cfe3f5' });
+    if (p) W.push({ type: 'label', x: P.W / 2, y: c ? 44 : 82, text: p, size: p.length > 46 ? 30 : 40, bold: true, align: 'center', color: this.promptColor });
+    if (c) {
+      // Wrap the subtitle onto up to two lines.
+      let l1 = c, l2 = '';
+      if (c.length > 56) { const cut = c.lastIndexOf(' ', 56); l1 = c.slice(0, cut > 20 ? cut : 56); l2 = c.slice(l1.length).trim(); if (l2.length > 58) l2 = l2.slice(0, 56) + '…'; }
+      W.push({ type: 'label', x: P.W / 2, y: p ? 104 : (l2 ? 66 : 82), text: l2 ? l1 + '\n' + l2 : l1, size: 23, align: 'center', color: '#cfe3f5' });
+    }
     P.set(W, '');
     this.promptShown = !!(p || c);
   }
