@@ -58,6 +58,14 @@ export function computeRig(anchorRef, forwardRef, targetX, targetZ, facing = -1)
   return { x: targetX - r.x, z: targetZ - r.z, yaw: wrapAngle(yaw) };
 }
 
+// Rig transform that puts `anchorRef` at world (x, z) with the horizontal
+// `forwardRef` turned to face the world direction (dirX, dirZ).
+export function computeRigFacing(anchorRef, forwardRef, targetX, targetZ, dirX, dirZ) {
+  const yaw = Math.atan2(-dirX, -dirZ) - yawOfForward(forwardRef);
+  const r = rotY(new Vec3(), anchorRef, yaw);
+  return { x: targetX - r.x, z: targetZ - r.z, yaw: wrapAngle(yaw) };
+}
+
 export function wrapAngle(a) {
   while (a > Math.PI) a -= 2 * Math.PI;
   while (a < -Math.PI) a += 2 * Math.PI;

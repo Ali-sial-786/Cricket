@@ -1,0 +1,1076 @@
+{
+"_comment": "Converted from courtside assets/cricket/commentary/manifest.gd. clips: event -> exchanges; an exchange is the utterances in order, each [file, transcript, voice (pbp Kate | col Geoff), seconds, gap before it in s (negative = overlaps)]. need: 'runs:balls' -> a whole chase sentence [file, transcript, voice, seconds]. numbers[n] says n mid-sentence (0..200); fragments are the pieces stitched around them.",
+"voices": {"pbp": "Kate", "col": "Geoff"},
+"clips": {
+  "match_start": [
+    [["match_start_0_0.ogg", "Hello, and welcome to Courtside Oval. I'm Kate Marsden, and alongside me, as ever, Geoff Hollins.", "pbp", 7.216, 0.0], ["match_start_0_1.ogg", "Morning, Kate. Lovely day for it. Pitch looks a belter.", "col", 4.54, 0.32]],
+    [["match_start_1_0.ogg", "Good afternoon, everyone. A full house, the sun's out, and Geoff's already had two cups of tea.", "pbp", 5.187, 0.0], ["match_start_1_1.ogg", "Three, actually. It's a long day, Kate. You've got to pace yourself.", "col", 5.442, 0.32]],
+    [["match_start_2_0.ogg", "Welcome along to the Oval. Geoff, what are you expecting from this one?", "pbp", 3.477, 0.0], ["match_start_2_1.ogg", "Runs, Kate. Plenty of them. Short boundaries, quick outfield. The bowlers will earn their money today.", "col", 7.715, 0.32]],
+    [["match_start_3_0.ogg", "Hello again. The players are on their way out, and the crowd are in fine voice.", "pbp", 5.546, 0.0], ["match_start_3_1.ogg", "They are. Short game like this, every ball's an event. Nobody can afford a quiet over.", "col", 5.026, 0.32]],
+    [["match_start_4_0.ogg", "Welcome to Courtside Oval. Short format, big hitting, no hiding place. Geoff, good to have you with me.", "pbp", 6.619, 0.0], ["match_start_4_1.ogg", "Wouldn't miss it, Kate. I've got a feeling about this one.", "col", 3.023, 0.32]]
+  ],
+  "toss_bat": [
+    [["toss_bat_0_0.ogg", "And they've won the toss, and they'll bat first.", "pbp", 2.717, 0.0], ["toss_bat_0_1.ogg", "I'd have done the same. Put runs on the board, let the scoreboard do the talking.", "col", 3.613, 0.32]],
+    [["toss_bat_1_0.ogg", "The captain calls correctly, and they'll have a bat.", "pbp", 6.363, 0.0], ["toss_bat_1_1.ogg", "Right decision. That surface won't get any better.", "col", 4.607, 0.32]],
+    [["toss_bat_2_0.ogg", "Toss won, and it's a bat first decision. Would you have batted, Geoff?", "pbp", 7.042, 0.0], ["toss_bat_2_1.ogg", "Every time, Kate. Every time. Bowl second, when the dew's down? No thank you.", "col", 6.667, 0.32]],
+    [["toss_bat_3_0.ogg", "They win the toss, and no hesitation. They're going to bat.", "pbp", 4.255, 0.0], ["toss_bat_3_1.ogg", "Brave. There might be a bit in it for the quicks early on.", "col", 3.205, 0.32]]
+  ],
+  "toss_bowl": [
+    [["toss_bowl_0_0.ogg", "They've won the toss, and they'll have a bowl.", "pbp", 3.768, 0.0], ["toss_bowl_0_1.ogg", "They like to know what they're chasing. Fair enough.", "col", 2.724, 0.32]],
+    [["toss_bowl_1_0.ogg", "Toss won, and they're going to bowl first and chase.", "pbp", 2.636, 0.0], ["toss_bowl_1_1.ogg", "Hmm. I'd have batted, Kate. But then I always wanted to bat.", "col", 5.526, 0.32]],
+    [["toss_bowl_2_0.ogg", "The captain calls it right, and they'd like to field. Surprised, Geoff?", "pbp", 3.86, 0.0], ["toss_bowl_2_1.ogg", "A little. But there's a bit of grass on it. Get it right early, and this could be a short morning.", "col", 6.787, 0.32]],
+    [["toss_bowl_3_0.ogg", "They'll bowl first. A chase it is, then.", "pbp", 2.895, 0.0], ["toss_bowl_3_1.ogg", "Modern thinking, that. Chase it down, know exactly what you need.", "col", 4.938, 0.32]]
+  ],
+  "innings_start": [
+    [["innings_start_0_0.ogg", "Right then, the openers are out in the middle. Here we go.", "pbp", 3.772, 0.0], ["innings_start_0_1.ogg", "Nice and positive, I hope. Make the bowlers think.", "col", 3.291, 0.32]],
+    [["innings_start_1_0.ogg", "The fielders are in their places, the batters are ready. Let's get under way.", "pbp", 4.818, 0.0]],
+    [["innings_start_2_0.ogg", "First ball coming up. Plenty of attacking fielders in place.", "pbp", 3.775, 0.0], ["innings_start_2_1.ogg", "Two slips and a gully. The skipper means business.", "col", 3.438, 0.32]],
+    [["innings_start_3_0.ogg", "And we're under way here at the Oval.", "pbp", 2.242, 0.0]]
+  ],
+  "chase_start": [
+    [["chase_start_0_0.ogg", "So the target is set. Can they chase it down, Geoff?", "pbp", 3.606, 0.0], ["chase_start_0_1.ogg", "They can, Kate. But they'll need a partnership. Somebody's got to bat through.", "col", 4.271, 0.32]],
+    [["chase_start_1_0.ogg", "Second innings, then. The chase is on.", "pbp", 2.685, 0.0], ["chase_start_1_1.ogg", "You don't win it in the first over. But you can certainly lose it.", "col", 4.656, 0.32]],
+    [["chase_start_2_0.ogg", "The openers come out with a clear job to do. Here we go again.", "pbp", 3.963, 0.0], ["chase_start_2_1.ogg", "Get off to a flyer, and the pressure's all on the bowlers.", "col", 5.52, 0.32]],
+    [["chase_start_3_0.ogg", "Everything to play for. The run chase starts now.", "pbp", 3.276, 0.0], ["chase_start_3_1.ogg", "Wickets in hand, Kate. That's what matters in a chase. Wickets in hand.", "col", 4.386, 0.32]]
+  ],
+  "innings_end": [
+    [["innings_end_0_0.ogg", "And that's the end of the innings. Geoff, is it enough?", "pbp", 3.939, 0.0], ["innings_end_0_1.ogg", "I think it's a decent total, Kate. It'll take some getting.", "col", 3.736, 0.32]],
+    [["innings_end_1_0.ogg", "And that's the innings complete.", "pbp", 3.167, 0.0], ["innings_end_1_1.ogg", "Probably twenty short, that. Game on.", "col", 3.458, 0.32]],
+    [["innings_end_2_0.ogg", "The innings closes. A target is set.", "pbp", 2.57, 0.0], ["innings_end_2_1.ogg", "The bowlers did a good job there to pull it back at the end.", "col", 2.868, 0.32]],
+    [["innings_end_3_0.ogg", "That's the innings over. What do you reckon, par score?", "pbp", 3.045, 0.0], ["innings_end_3_1.ogg", "Just about, Kate. On this pitch, with that outfield, it's about par. Maybe a touch under.", "col", 6.387, 0.32]]
+  ],
+  "new_bowler": [
+    [["new_bowler_0_0.ogg", "A change of bowling.", "pbp", 1.494, 0.0], ["new_bowler_0_1.ogg", "Good captaincy, that. Keep the batters guessing.", "col", 2.563, 0.32]],
+    [["new_bowler_1_0.ogg", "New man into the attack.", "pbp", 1.658, 0.0], ["new_bowler_1_1.ogg", "He'll want to settle quickly. Line and length, nothing fancy.", "col", 2.89, 0.32]],
+    [["new_bowler_2_0.ogg", "Fresh legs at this end.", "pbp", 2.623, 0.0]],
+    [["new_bowler_3_0.ogg", "A different bowler to have a go now. What's he got, Geoff?", "pbp", 3.055, 0.0], ["new_bowler_3_1.ogg", "Honest pace, Kate. Hits the deck hard. Won't give much away.", "col", 4.367, 0.32]]
+  ],
+  "new_bowler_pace": [
+    [["new_bowler_pace_0_0.ogg", "Pace at this end. The keeper's gone a long way back.", "pbp", 3.721, 0.0], ["new_bowler_pace_0_1.ogg", "He's quick, this lad. I wouldn't fancy it. Not these days, anyway.", "col", 3.661, 0.32]],
+    [["new_bowler_pace_1_0.ogg", "The fast bowler takes the ball. Long run up, plenty of intent.", "pbp", 4.552, 0.0]],
+    [["new_bowler_pace_2_0.ogg", "Here comes the quick. Let's see what he's got.", "pbp", 3.135, 0.0], ["new_bowler_pace_2_1.ogg", "Watch for the short one. He loves to bang it in.", "col", 3.259, 0.32]],
+    [["new_bowler_pace_3_0.ogg", "Out of the attack comes some real pace. Geoff, did you ever face anyone this quick?", "pbp", 5.302, 0.0], ["new_bowler_pace_3_1.ogg", "Once or twice, Kate. I've still got the bruises to prove it.", "col", 4.411, 0.32]]
+  ],
+  "new_bowler_swing": [
+    [["new_bowler_swing_0_0.ogg", "The swing bowler has the ball. Can he find some movement?", "pbp", 3.414, 0.0], ["new_bowler_swing_0_1.ogg", "If it's swinging, Kate, this could be a very long over for the batter.", "col", 4.132, 0.32]],
+    [["new_bowler_swing_1_0.ogg", "Here's the swing man, with the ball still nice and shiny.", "pbp", 4.015, 0.0], ["new_bowler_swing_1_1.ogg", "Look at the wrist position. Seam bolt upright. Lovely.", "col", 3.794, 0.32]],
+    [["new_bowler_swing_2_0.ogg", "The new bowler likes to shape it. Watch the swing.", "pbp", 2.862, 0.0]]
+  ],
+  "new_bowler_spin": [
+    [["new_bowler_spin_0_0.ogg", "Spin into the attack now.", "pbp", 1.863, 0.0], ["new_bowler_spin_0_1.ogg", "Bit early for the spinner, isn't it? Bold. I like it.", "col", 3.402, 0.32]],
+    [["new_bowler_spin_1_0.ogg", "The spinner comes on. The keeper comes up to the stumps.", "pbp", 3.05, 0.0], ["new_bowler_spin_1_1.ogg", "Tempt him. Toss it up, Kate. Give it some air and let him have a go.", "col", 3.746, 0.32]],
+    [["new_bowler_spin_2_0.ogg", "Time for some slow bowling. A bit of flight, a bit of guile.", "pbp", 4.287, 0.0]],
+    [["new_bowler_spin_3_0.ogg", "And it's spin from this end. The field comes in.", "pbp", 4.085, 0.0], ["new_bowler_spin_3_1.ogg", "There's a bit of turn out there. I saw one grip in the warm up.", "col", 3.268, 0.32]]
+  ],
+  "deliv_seam": [
+    [["deliv_seam_0_0.ogg", "Good length, seaming.", "pbp", 2.295, 0.0]],
+    [["deliv_seam_1_0.ogg", "Hits the seam.", "pbp", 2.526, 0.0]],
+    [["deliv_seam_2_0.ogg", "Bang on a length.", "pbp", 2.3, 0.0]],
+    [["deliv_seam_3_0.ogg", "Nips off the pitch.", "pbp", 2.633, 0.0]]
+  ],
+  "deliv_outswing": [
+    [["deliv_outswing_0_0.ogg", "Shaping away.", "pbp", 4.01, 0.0]],
+    [["deliv_outswing_1_0.ogg", "That's swinging away.", "pbp", 1.442, 0.0]],
+    [["deliv_outswing_2_0.ogg", "Lovely outswinger.", "pbp", 3.0, 0.0]],
+    [["deliv_outswing_3_0.ogg", "Holds its line, then swings.", "pbp", 4.213, 0.0]]
+  ],
+  "deliv_inswing": [
+    [["deliv_inswing_0_0.ogg", "Swinging in.", "pbp", 3.697, 0.0]],
+    [["deliv_inswing_1_0.ogg", "That's tailing in.", "pbp", 1.605, 0.0]],
+    [["deliv_inswing_2_0.ogg", "Late inswing.", "pbp", 1.13, 0.0]],
+    [["deliv_inswing_3_0.ogg", "Curving back in.", "pbp", 2.485, 0.0]]
+  ],
+  "deliv_slower": [
+    [["deliv_slower_0_0.ogg", "Slower ball.", "pbp", 2.943, 0.0]],
+    [["deliv_slower_1_0.ogg", "Takes the pace off.", "pbp", 1.238, 0.0]],
+    [["deliv_slower_2_0.ogg", "Off cutter.", "pbp", 0.82, 0.0]],
+    [["deliv_slower_3_0.ogg", "Cleverly disguised slower one.", "pbp", 3.981, 0.0]]
+  ],
+  "deliv_off_break": [
+    [["deliv_off_break_0_0.ogg", "Tossed up.", "pbp", 0.736, 0.0]],
+    [["deliv_off_break_1_0.ogg", "Flighted, turning in.", "pbp", 2.776, 0.0]],
+    [["deliv_off_break_2_0.ogg", "Off break.", "pbp", 2.515, 0.0]],
+    [["deliv_off_break_3_0.ogg", "Nice loop on that one.", "pbp", 1.712, 0.0]]
+  ],
+  "deliv_leg_break": [
+    [["deliv_leg_break_0_0.ogg", "Leg break.", "pbp", 2.446, 0.0]],
+    [["deliv_leg_break_1_0.ogg", "Big turn.", "pbp", 1.162, 0.0]],
+    [["deliv_leg_break_2_0.ogg", "Ripped out of the hand.", "pbp", 2.451, 0.0]],
+    [["deliv_leg_break_3_0.ogg", "Spinning away.", "pbp", 2.198, 0.0]]
+  ],
+  "deliv_arm_ball": [
+    [["deliv_arm_ball_0_0.ogg", "Arm ball.", "pbp", 1.657, 0.0]],
+    [["deliv_arm_ball_1_0.ogg", "That one goes straight on.", "pbp", 2.116, 0.0]],
+    [["deliv_arm_ball_2_0.ogg", "Skids through.", "pbp", 1.076, 0.0]]
+  ],
+  "deliv_doosra": [
+    [["deliv_doosra_0_0.ogg", "The doosra.", "pbp", 2.237, 0.0]],
+    [["deliv_doosra_1_0.ogg", "That's the other one.", "pbp", 2.409, 0.0]],
+    [["deliv_doosra_2_0.ogg", "Turns away. The doosra.", "pbp", 2.999, 0.0]]
+  ],
+  "deliv_googly": [
+    [["deliv_googly_0_0.ogg", "Googly.", "pbp", 0.856, 0.0]],
+    [["deliv_googly_1_0.ogg", "The wrong one.", "pbp", 3.953, 0.0]],
+    [["deliv_googly_2_0.ogg", "That's the googly.", "pbp", 1.962, 0.0]]
+  ],
+  "deliv_bouncer": [
+    [["deliv_bouncer_0_0.ogg", "Bouncer!", "pbp", 2.17, 0.0]],
+    [["deliv_bouncer_1_0.ogg", "Short, and up at the head!", "pbp", 1.501, 0.0]],
+    [["deliv_bouncer_2_0.ogg", "Banged in short!", "pbp", 1.324, 0.0]],
+    [["deliv_bouncer_3_0.ogg", "Here's the bumper!", "pbp", 2.554, 0.0]],
+    [["deliv_bouncer_4_0.ogg", "Short one!", "pbp", 2.746, 0.0]],
+    [["deliv_bouncer_5_0.ogg", "That's dug in!", "pbp", 1.164, 0.0]]
+  ],
+  "deliv_yorker": [
+    [["deliv_yorker_0_0.ogg", "Yorker!", "pbp", 2.192, 0.0]],
+    [["deliv_yorker_1_0.ogg", "Right in the blockhole.", "pbp", 1.29, 0.0]],
+    [["deliv_yorker_2_0.ogg", "Full and straight.", "pbp", 1.405, 0.0]],
+    [["deliv_yorker_3_0.ogg", "Fired in at the toes.", "pbp", 1.644, 0.0]]
+  ],
+  "deliv_full_toss": [
+    [["deliv_full_toss_0_0.ogg", "Full toss.", "pbp", 1.926, 0.0]],
+    [["deliv_full_toss_1_0.ogg", "That's a gift.", "pbp", 2.346, 0.0]],
+    [["deliv_full_toss_2_0.ogg", "Waist high full toss.", "pbp", 1.638, 0.0]]
+  ],
+  "wide": [
+    [["wide_0_0.ogg", "Too wide. The umpire signals wide.", "pbp", 3.705, 0.0], ["wide_0_1.ogg", "Can't afford those, Kate. Not in this format.", "col", 2.519, 0.32]],
+    [["wide_1_0.ogg", "Strays down the leg side. Wide.", "pbp", 2.355, 0.0]],
+    [["wide_2_0.ogg", "That's a wide. An extra ball to come.", "pbp", 3.146, 0.0], ["wide_2_1.ogg", "Free runs. The captain won't be happy.", "col", 2.51, 0.32]],
+    [["wide_3_0.ogg", "Way outside off stump, and it's called wide.", "pbp", 3.116, 0.0]],
+    [["wide_4_0.ogg", "Loses his line there. Wide.", "pbp", 2.573, 0.0], ["wide_4_1.ogg", "Trying too hard, that's the trouble. Just bowl, son.", "col", 3.318, 0.32]]
+  ],
+  "no_ball": [
+    [["no_ball_0_0.ogg", "No ball! He's overstepped!", "pbp", 2.358, 0.0], ["no_ball_0_1.ogg", "Oh dear. Inches, Kate. Inches. All that work in the nets.", "col", 4.928, 0.32]],
+    [["no_ball_1_0.ogg", "The umpire's arm is out. No ball.", "pbp", 2.343, 0.0]],
+    [["no_ball_2_0.ogg", "He's gone over the line. No ball, and a free hit to come!", "pbp", 4.127, 0.0], ["no_ball_2_1.ogg", "That could be expensive.", "col", 1.764, 0.32]]
+  ],
+  "free_hit": [
+    [["free_hit_0_0.ogg", "Free hit. The batter can swing away.", "pbp", 2.211, 0.0], ["free_hit_0_1.ogg", "Nothing to lose here. I'd be looking to clear the ropes.", "col", 3.772, 0.32]],
+    [["free_hit_1_0.ogg", "Here's the free hit. Nothing to lose.", "pbp", 2.243, 0.0]],
+    [["free_hit_2_0.ogg", "Free hit coming up. What does the bowler do here, Geoff?", "pbp", 2.939, 0.0], ["free_hit_2_1.ogg", "Go full and wide, Kate. Make him reach for it.", "col", 3.653, 0.32]]
+  ],
+  "leave": [
+    [["leave_0_0.ogg", "Left alone.", "pbp", 1.392, 0.0], ["leave_0_1.ogg", "Good judgement. Knows where his off stump is.", "col", 2.977, 0.32]],
+    [["leave_1_0.ogg", "Shoulders arms.", "pbp", 3.077, 0.0]],
+    [["leave_2_0.ogg", "Lets it go.", "pbp", 3.123, 0.0]],
+    [["leave_3_0.ogg", "Good leave.", "pbp", 1.805, 0.0], ["leave_3_1.ogg", "I've seen worse leaves, Kate. Not many, mind.", "col", 3.047, 0.32]],
+    [["leave_4_0.ogg", "No shot offered.", "pbp", 1.244, 0.0]],
+    [["leave_5_0.ogg", "Watched carefully past off stump.", "pbp", 4.776, 0.0], ["leave_5_1.ogg", "That's the discipline you need early on.", "col", 2.587, 0.32]]
+  ],
+  "dot": [
+    [["dot_0_0.ogg", "No run.", "pbp", 2.127, 0.0]],
+    [["dot_1_0.ogg", "Dot ball.", "pbp", 2.167, 0.0], ["dot_1_1.ogg", "The pressure builds with every one of those.", "col", 4.703, 0.32]],
+    [["dot_2_0.ogg", "Beaten!", "pbp", 0.847, 0.0], ["dot_2_1.ogg", "Oh, he's beaten him all ends up, Kate. Didn't lay a bat on it.", "col", 4.111, 0.32]],
+    [["dot_3_0.ogg", "Played and missed!", "pbp", 1.627, 0.0], ["dot_3_1.ogg", "Lovely ball, that. Just doing enough off the seam.", "col", 2.833, 0.32]],
+    [["dot_4_0.ogg", "Straight to the fielder.", "pbp", 1.601, 0.0]],
+    [["dot_5_0.ogg", "Good ball, that. Nothing doing.", "pbp", 3.689, 0.0], ["dot_5_1.ogg", "He'll be happy with that. Right in the channel.", "col", 2.18, 0.32]],
+    [["dot_6_0.ogg", "Can't get that one away.", "pbp", 3.206, 0.0], ["dot_6_1.ogg", "He's getting a bit frustrated, I think. Look at the body language.", "col", 3.705, 0.32]],
+    [["dot_7_0.ogg", "Another dot ball.", "pbp", 1.954, 0.0], ["dot_7_1.ogg", "Can't keep letting those go, Kate. The scoreboard needs to move.", "col", 3.255, 0.32]],
+    [["dot_8_0.ogg", "Beaten! Again!", "pbp", 1.592, 0.0], ["dot_8_1.ogg", "He's playing for the swing that isn't there, Kate.", "col", 2.869, 0.32]],
+    [["dot_9_0.ogg", "Dot ball. The bowler's got him tied in knots.", "pbp", 3.221, 0.0], ["dot_9_1.ogg", "Lovely bowling. Nothing to hit, nowhere to go.", "col", 3.251, 0.32]]
+  ],
+  "defended": [
+    [["defended_0_0.ogg", "Defended.", "pbp", 1.098, 0.0]],
+    [["defended_1_0.ogg", "Solid in defence.", "pbp", 1.192, 0.0], ["defended_1_1.ogg", "Nice and soft hands. Textbook, that.", "col", 2.947, 0.32]],
+    [["defended_2_0.ogg", "Blocked back to the bowler.", "pbp", 1.495, 0.0]],
+    [["defended_3_0.ogg", "Gets right behind that one.", "pbp", 3.214, 0.0], ["defended_3_1.ogg", "Head over the ball. That's how you play it.", "col", 2.343, 0.32]],
+    [["defended_4_0.ogg", "Dead bat. Respect for a good ball.", "pbp", 2.908, 0.0]],
+    [["defended_5_0.ogg", "Pushed into the off side. No run.", "pbp", 2.812, 0.0], ["defended_5_1.ogg", "He wanted a single there. The fielder was too quick.", "col", 4.132, 0.32]]
+  ],
+  "single": [
+    [["single_0_0.ogg", "Just the one.", "pbp", 3.82, 0.0]],
+    [["single_1_0.ogg", "Pushed away for a single.", "pbp", 4.324, 0.0], ["single_1_1.ogg", "Keeps the strike rotating. That's the bread and butter.", "col", 4.654, 0.32]],
+    [["single_2_0.ogg", "Quick single!", "pbp", 2.123, 0.0]],
+    [["single_3_0.ogg", "Tucked off the hip for one.", "pbp", 1.559, 0.0]],
+    [["single_4_0.ogg", "Rotates the strike.", "pbp", 3.023, 0.0]],
+    [["single_5_0.ogg", "Worked into the leg side for one.", "pbp", 2.427, 0.0], ["single_5_1.ogg", "Easy single, that. You'd take that all day.", "col", 2.895, 0.32]],
+    [["single_6_0.ogg", "Dabbed down, and they scamper through.", "pbp", 2.548, 0.0]],
+    [["single_7_0.ogg", "Just a single.", "pbp", 2.895, 0.0], ["single_7_1.ogg", "Sensible, Kate. Not everything has to go into the crowd.", "col", 4.011, 0.32], ["single_7_2.ogg", "Says the man who's been yelling for sixes all day.", "pbp", 2.824, 0.15]]
+  ],
+  "two": [
+    [["two_0_0.ogg", "They'll come back for two.", "pbp", 1.985, 0.0], ["two_0_1.ogg", "Good running, that. Turned hard, looking for the second straight away.", "col", 3.89, 0.32]],
+    [["two_1_0.ogg", "Good running. Two.", "pbp", 2.085, 0.0]],
+    [["two_2_0.ogg", "Into the gap, and that's a couple.", "pbp", 2.107, 0.0]],
+    [["two_3_0.ogg", "Pushed hard, and they come back for the second.", "pbp", 2.661, 0.0]],
+    [["two_4_0.ogg", "Two more, well run.", "pbp", 1.625, 0.0], ["two_4_1.ogg", "That's what wins you games, Kate. Running hard between the wickets.", "col", 4.882, 0.32]]
+  ],
+  "three": [
+    [["three_0_0.ogg", "They'll get three.", "pbp", 3.07, 0.0], ["three_0_1.ogg", "Lungs bursting there, I should think.", "col", 2.114, 0.32]],
+    [["three_1_0.ogg", "Hard running. Three of them.", "pbp", 2.053, 0.0]],
+    [["three_2_0.ogg", "Saved just inside the rope. Three.", "pbp", 2.597, 0.0], ["three_2_1.ogg", "Great effort in the deep. Saved a run there.", "col", 2.626, 0.32]],
+    [["three_3_0.ogg", "Chased down short of the rope. They take three.", "pbp", 3.111, 0.0]]
+  ],
+  "four": [
+    [["four_0_0.ogg", "Four! Cracking shot!", "pbp", 1.677, 0.0], ["four_0_1.ogg", "Lovely timing. You just can't bowl there.", "col", 3.834, 0.32]],
+    [["four_1_0.ogg", "Oh, that's four! Didn't even hit it hard!", "pbp", 4.411, 0.0], ["four_1_1.ogg", "He didn't need to, Kate. Timing. Something I never had.", "col", 3.929, 0.32], ["four_1_2.ogg", "We know, Geoff. We've seen the footage.", "pbp", 3.706, 0.15]],
+    [["four_2_0.ogg", "Crunched! Four more!", "pbp", 2.244, 0.0], ["four_2_1.ogg", "Oh, I like that. I like that a lot!", "col", 2.625, -0.15]],
+    [["four_3_0.ogg", "Races away! Nobody's stopping that! Four!", "pbp", 3.246, 0.0]],
+    [["four_4_0.ogg", "Bad ball... and put away! Four!", "pbp", 2.621, 0.0], ["four_4_1.ogg", "Simple as that. Bad ball, four runs. Thank you very much.", "col", 7.626, 0.32]],
+    [["four_5_0.ogg", "Ooh, that's sweet! Four!", "pbp", 3.064, 0.0], ["four_5_1.ogg", "Steady on, Kate. It's only a four.", "col", 3.25, 0.32], ["four_5_2.ogg", "You'd have had that on a poster, Geoff!", "pbp", 1.945, 0.15]],
+    [["four_6_0.ogg", "Find the gap... and he has! Four!", "pbp", 3.214, 0.0], ["four_6_1.ogg", "Placement, Kate. Not power. Placement.", "col", 3.085, 0.32]]
+  ],
+  "four_cover": [
+    [["four_cover_0_0.ogg", "Oh, that's gorgeous! Driven through the covers! Four!", "pbp", 3.626, 0.0], ["four_cover_0_1.ogg", "Textbook, Kate. Head over the ball, full face of the bat.", "col", 3.852, 0.32]],
+    [["four_cover_1_0.ogg", "Cover drive... and it's four! Oh, that's a picture!", "pbp", 3.842, 0.0], ["four_cover_1_1.ogg", "That'll be on the highlights. Next to my cover drive.", "col", 3.261, 0.32], ["four_cover_1_2.ogg", "You never played a cover drive, Geoff.", "pbp", 1.582, 0.15], ["four_cover_1_3.ogg", "I played one. Nineteen ninety eight. Ask anyone.", "col", 3.756, 0.1]],
+    [["four_cover_2_0.ogg", "Oh, he leans into it! Through extra cover... four!", "pbp", 5.766, 0.0], ["four_cover_2_1.ogg", "Overpitched, and punished! The bowler'll be kicking himself, Kate.", "col", 5.285, 0.32], ["four_cover_2_2.ogg", "He certainly will, Geoff!", "pbp", 1.573, 0.32]],
+    [["four_cover_3_0.ogg", "Picture perfect! Four runs!", "pbp", 2.315, 0.0]],
+    [["four_cover_4_0.ogg", "Driven on the up! Through the covers! Four!", "pbp", 2.735, 0.0], ["four_cover_4_1.ogg", "Oh, that's a beauty!", "col", 2.643, -0.2]]
+  ],
+  "four_straight": [
+    [["four_straight_0_0.ogg", "Straight down the ground! Four!", "pbp", 2.297, 0.0], ["four_straight_0_1.ogg", "Straight bat, straight back past him. Simple game, isn't it, Kate?", "col", 3.389, 0.32]],
+    [["four_straight_1_0.ogg", "Back past the bowler... and it races away! Four!", "pbp", 3.532, 0.0], ["four_straight_1_1.ogg", "Bowler had a go at stopping that. Wise man, he didn't try very hard.", "col", 4.616, 0.32]],
+    [["four_straight_2_0.ogg", "Down the ground! Nobody's catching that! Four!", "pbp", 3.824, 0.0]],
+    [["four_straight_3_0.ogg", "Oh, straight as an arrow! Four!", "pbp", 2.637, 0.0], ["four_straight_3_1.ogg", "Down the V, Kate. They teach that at the under elevens.", "col", 4.156, 0.32], ["four_straight_3_2.ogg", "Did you go to the under elevens, Geoff?", "pbp", 1.66, 0.15], ["four_straight_3_3.ogg", "Captained them. Briefly.", "col", 1.856, 0.1]]
+  ],
+  "four_pull": [
+    [["four_pull_0_0.ogg", "Pulled! Four!", "pbp", 1.223, 0.0], ["four_pull_0_1.ogg", "Rocked back and got right on top of it. Lovely.", "col", 3.007, 0.32]],
+    [["four_pull_1_0.ogg", "Short... and dispatched! Four through midwicket!", "pbp", 3.205, 0.0], ["four_pull_1_1.ogg", "Too short, Kate. Asking for that.", "col", 3.467, 0.32]],
+    [["four_pull_2_0.ogg", "Swivel pull! And it's to the rope!", "pbp", 2.166, 0.0], ["four_pull_2_1.ogg", "Saw it early, and helped it on its way.", "col", 2.348, 0.32]],
+    [["four_pull_3_0.ogg", "Short ball... pulled... four! What a shot!", "pbp", 3.397, 0.0], ["four_pull_3_1.ogg", "That's the danger with the bouncer, Kate. Get it slightly wrong, and it's four.", "col", 4.177, 0.32]]
+  ],
+  "four_hook": [
+    [["four_hook_0_0.ogg", "Bouncer! Hooked! Four!", "pbp", 2.272, 0.0], ["four_hook_0_1.ogg", "Took it on! Took it right on! I love a batter who takes on the short ball.", "col", 4.629, 0.32]],
+    [["four_hook_1_0.ogg", "Hooked away behind square! Four!", "pbp", 2.382, 0.0], ["four_hook_1_1.ogg", "Fine leg had no chance. Kept it down. Brilliant.", "col", 4.241, 0.32]],
+    [["four_hook_2_0.ogg", "He's gone for the hook... and it's flown to the rope! Four!", "pbp", 3.357, 0.0], ["four_hook_2_1.ogg", "Bit risky, Kate.", "col", 0.963, 0.32], ["four_hook_2_2.ogg", "Worked though, didn't it?", "pbp", 1.994, 0.15], ["four_hook_2_3.ogg", "It did. This time.", "col", 2.109, 0.1]],
+    [["four_hook_3_0.ogg", "Short... hooked... four! He loves that!", "pbp", 3.254, 0.0]]
+  ],
+  "four_cut": [
+    [["four_cut_0_0.ogg", "Cut hard! Four!", "pbp", 1.678, 0.0], ["four_cut_0_1.ogg", "Width outside off. You just can't give him that.", "col", 4.33, 0.32]],
+    [["four_cut_1_0.ogg", "Square cut! Four!", "pbp", 1.934, 0.0]],
+    [["four_cut_2_0.ogg", "Too wide... and slashed away to the fence! Four!", "pbp", 3.879, 0.0], ["four_cut_2_1.ogg", "Bit of width, and he's had a go. Who can blame him?", "col", 2.818, 0.32]],
+    [["four_cut_3_0.ogg", "Carved past point! Four runs!", "pbp", 2.532, 0.0], ["four_cut_3_1.ogg", "Ooh, he's got some wrists, this lad.", "col", 3.061, 0.32]]
+  ],
+  "four_sweep": [
+    [["four_sweep_0_0.ogg", "Swept! Four!", "pbp", 1.414, 0.0], ["four_sweep_0_1.ogg", "Down on one knee, beautifully done. Spinners hate that.", "col", 4.398, 0.32]],
+    [["four_sweep_1_0.ogg", "Down on one knee... swept fine! Four!", "pbp", 3.147, 0.0]],
+    [["four_sweep_2_0.ogg", "Paddled round the corner! Four!", "pbp", 2.445, 0.0], ["four_sweep_2_1.ogg", "Cheeky. Very cheeky. I like it.", "col", 2.346, 0.32]]
+  ],
+  "four_edge": [
+    [["four_edge_0_0.ogg", "Edged... and it's gone for four!", "pbp", 1.907, 0.0], ["four_edge_0_1.ogg", "He'll get away with that. Lucky, but four's four.", "col", 3.106, 0.32]],
+    [["four_edge_1_0.ogg", "Off the edge! Past the slips! Four!", "pbp", 2.973, 0.0], ["four_edge_1_1.ogg", "Should've had a third slip, Kate. I said that two overs ago.", "col", 4.704, 0.32], ["four_edge_1_2.ogg", "You did not, Geoff.", "pbp", 1.795, 0.15], ["four_edge_1_3.ogg", "I thought it. Very loudly.", "col", 2.375, 0.1]],
+    [["four_edge_2_0.ogg", "Streaky! But they all count!", "pbp", 1.799, 0.0], ["four_edge_2_1.ogg", "Ugly, but you don't get extra marks for style.", "col", 3.34, 0.32]],
+    [["four_edge_3_0.ogg", "Thick edge... flies down to third man! Four!", "pbp", 4.326, 0.0], ["four_edge_3_1.ogg", "The bowler can't believe it. Look at him.", "col", 2.419, 0.32]]
+  ],
+  "four_top_edge": [
+    [["four_top_edge_0_0.ogg", "Top edge! Over the keeper! Four!", "pbp", 2.667, 0.0], ["four_top_edge_0_1.ogg", "Lucky boy! He didn't know much about that one, Kate.", "col", 3.296, 0.32]],
+    [["four_top_edge_1_0.ogg", "Off the top edge... and it's sailed away! Four!", "pbp", 3.253, 0.0], ["four_top_edge_1_1.ogg", "Ugly as you like. Bowler won the battle, lost the war.", "col", 4.417, 0.32]],
+    [["four_top_edge_2_0.ogg", "He's gloved it... over the keeper's head... four!", "pbp", 2.493, 0.0], ["four_top_edge_2_1.ogg", "They all count. But he won't want to see the replay.", "col", 3.816, 0.32]]
+  ],
+  "six": [
+    [["six_0_0.ogg", "He's gone big... is it enough... yes! Into the crowd!", "pbp", 3.746, 0.0], ["six_0_1.ogg", "Pure power, that. Didn't look like he tried.", "col", 3.328, 0.32]],
+    [["six_1_0.ogg", "Six! That's gone all the way!", "pbp", 2.389, 0.0], ["six_1_1.ogg", "Oh, he's middled that!", "col", 2.288, -0.2]],
+    [["six_2_0.ogg", "Big hit! That's six!", "pbp", 2.292, 0.0], ["six_2_1.ogg", "They'll need a new ball if he keeps that up.", "col", 2.735, 0.32]],
+    [["six_3_0.ogg", "Up... up... and over! Six!", "pbp", 2.637, 0.0], ["six_3_1.ogg", "Somebody in the crowd's got a souvenir.", "col", 2.017, 0.32]],
+    [["six_4_0.ogg", "Into the stands! Six!", "pbp", 2.14, 0.0], ["six_4_1.ogg", "That's the shot that changes a game, Kate.", "col", 2.425, 0.32]],
+    [["six_5_0.ogg", "Out of here! Six!", "pbp", 1.855, 0.0], ["six_5_1.ogg", "Easy, Kate. You'll need your voice for the second innings.", "col", 3.508, 0.32], ["six_5_2.ogg", "Not a chance, Geoff! That was huge!", "pbp", 3.318, 0.15]],
+    [["six_6_0.ogg", "Up... up... and caught in the crowd! Somebody's taken a beauty in the stands!", "pbp", 4.531, 0.0], ["six_6_1.ogg", "Better hands than half the fielders, Kate.", "col", 2.765, 0.32]],
+    [["six_7_0.ogg", "That's gone into the next postcode! Six!", "pbp", 2.56, 0.0], ["six_7_1.ogg", "Somebody tell the neighbours.", "col", 1.951, -0.1], ["six_7_2.ogg", "They know, Geoff. They heard it.", "pbp", 1.994, 0.15]],
+    [["six_8_0.ogg", "Here it comes... he's gone down the ground... and it's miles back! Six!", "pbp", 4.276, 0.0], ["six_8_1.ogg", "That's brute force, that. No finesse. Love it.", "col", 5.415, 0.32]]
+  ],
+  "six_straight": [
+    [["six_straight_0_0.ogg", "Straight back over his head! Six!", "pbp", 2.593, 0.0], ["six_straight_0_1.ogg", "Watch the head. Perfectly still. Clean as you like.", "col", 3.825, 0.32]],
+    [["six_straight_1_0.ogg", "Launched! Down the ground! Six!", "pbp", 3.079, 0.0], ["six_straight_1_1.ogg", "Oh, that's a beauty!", "col", 2.643, -0.15]],
+    [["six_straight_2_0.ogg", "Over the sight screen! Massive!", "pbp", 2.224, 0.0], ["six_straight_2_1.ogg", "I don't think I hit one that far in my whole career, Kate.", "col", 2.772, 0.32], ["six_straight_2_2.ogg", "I've seen the footage, Geoff. You didn't.", "pbp", 2.615, 0.2]]
+  ],
+  "six_cover": [
+    [["six_cover_0_0.ogg", "Over extra cover! Six!", "pbp", 1.988, 0.0], ["six_cover_0_1.ogg", "Inside out, over the top. Proper modern shot, that.", "col", 4.816, 0.32]],
+    [["six_cover_1_0.ogg", "Lofted inside out... and it's over the rope!", "pbp", 3.099, 0.0]],
+    [["six_cover_2_0.ogg", "Clears the fielder... clears the rope! Six!", "pbp", 3.934, 0.0], ["six_cover_2_1.ogg", "Fielder never moved. Just watched it sail over his head.", "col", 4.051, 0.32]]
+  ],
+  "six_pull": [
+    [["six_pull_0_0.ogg", "Pulled... into the stands! Six!", "pbp", 3.558, 0.0], ["six_pull_0_1.ogg", "Short ball, and he's punished it.", "col", 4.283, 0.32]],
+    [["six_pull_1_0.ogg", "Smashed over midwicket! Six!", "pbp", 2.468, 0.0], ["six_pull_1_1.ogg", "Picked the length early, and just helped it on its way.", "col", 2.468, 0.32]],
+    [["six_pull_2_0.ogg", "He's gone for the slog... and that's a maximum!", "pbp", 2.891, 0.0], ["six_pull_2_1.ogg", "Not pretty, Kate. But very effective.", "col", 3.975, 0.32]],
+    [["six_pull_3_0.ogg", "Pulled... and it's gone all the way! Six!", "pbp", 2.547, 0.0], ["six_pull_3_1.ogg", "Off the eyebrows, and into the crowd! Oh, he's strong!", "col", 4.274, 0.32]]
+  ],
+  "six_hook": [
+    [["six_hook_0_0.ogg", "Bouncer! Hooked... and that's gone all the way! Six!", "pbp", 3.719, 0.0], ["six_hook_0_1.ogg", "Oh, he's taken that on! Brave, brave cricket!", "col", 3.507, -0.2]],
+    [["six_hook_1_0.ogg", "Hooked! Into the stands at fine leg! Six!", "pbp", 3.622, 0.0], ["six_hook_1_1.ogg", "Bowler tried to rough him up, Kate. Didn't work, did it?", "col", 3.038, 0.32], ["six_hook_1_2.ogg", "It certainly did not!", "pbp", 1.404, 0.15]],
+    [["six_hook_2_0.ogg", "He's hooked the bouncer for six! What a shot!", "pbp", 3.197, 0.0], ["six_hook_2_1.ogg", "That's a statement, that. Bowl short at me, and see what happens.", "col", 4.137, 0.32]]
+  ],
+  "six_big": [
+    [["six_big_0_0.ogg", "Oh, that's huge! Right out of the ground!", "pbp", 3.587, 0.0], ["six_big_0_1.ogg", "Oh my word!", "col", 1.593, -0.25]],
+    [["six_big_1_0.ogg", "That is massive! Into the top tier!", "pbp", 3.195, 0.0], ["six_big_1_1.ogg", "Somebody fetch that, would you? It's in the car park.", "col", 3.535, 0.32]],
+    [["six_big_2_0.ogg", "Absolute monster! That's still going!", "pbp", 3.162, 0.0], ["six_big_2_1.ogg", "Is that the biggest of the day, Kate?", "col", 1.504, 0.32], ["six_big_2_2.ogg", "Biggest of the season, Geoff!", "pbp", 3.564, 0.1]],
+    [["six_big_3_0.ogg", "Oh, he's absolutely nailed that! Out of the ground!", "pbp", 2.393, 0.0], ["six_big_3_1.ogg", "That's landed near my car.", "col", 3.062, 0.32], ["six_big_3_2.ogg", "Your car's older than the stadium, Geoff.", "pbp", 2.793, 0.15]],
+    [["six_big_4_0.ogg", "Oh, he's murdered that! It's still climbing!", "pbp", 3.108, 0.0], ["six_big_4_1.ogg", "I think it's gone into orbit, Kate.", "col", 1.545, 0.32]]
+  ],
+  "six_top_edge": [
+    [["six_top_edge_0_0.ogg", "Top edge... and it's carried all the way! Six!", "pbp", 2.881, 0.0], ["six_top_edge_0_1.ogg", "Oh, you're kidding me! Off the top edge!", "col", 3.324, -0.15]],
+    [["six_top_edge_1_0.ogg", "He's top edged it... and it's six! The luck of it!", "pbp", 3.511, 0.0], ["six_top_edge_1_1.ogg", "I tried that shot for fifteen years, Kate. Never once went for six.", "col", 5.009, 0.32]]
+  ],
+  "top_edge": [
+    [["top_edge_0_0.ogg", "Top edge! Up it goes!", "pbp", 1.854, 0.0]],
+    [["top_edge_1_0.ogg", "Off the top edge! In the air!", "pbp", 3.179, 0.0]],
+    [["top_edge_2_0.ogg", "He's gloved it! Going up!", "pbp", 1.724, 0.0]],
+    [["top_edge_3_0.ogg", "Skied! Off the top edge!", "pbp", 2.767, 0.0]]
+  ],
+  "caught_top_edge": [
+    [["caught_top_edge_0_0.ogg", "Top edge! Up it goes... and taken! The bouncer's done the trick!", "pbp", 4.404, 0.0], ["caught_top_edge_0_1.ogg", "He went for the hook, Kate, and couldn't control it. Fell straight into the trap!", "col", 3.457, 0.32]],
+    [["caught_top_edge_1_0.ogg", "Up it went... and he's held on! Out!", "pbp", 2.215, 0.0], ["caught_top_edge_1_1.ogg", "That's the plan, that. Short ball, man at fine leg. Textbook.", "col", 3.911, 0.32]],
+    [["caught_top_edge_2_0.ogg", "Taken! The top edge! The short ball wins!", "pbp", 3.31, 0.0], ["caught_top_edge_2_1.ogg", "You live by the hook, Kate. You die by the hook.", "col", 3.061, 0.32]],
+    [["caught_top_edge_3_0.ogg", "Caught! Top edge, straight down his throat!", "pbp", 2.441, 0.0], ["caught_top_edge_3_1.ogg", "Hurried him up. The extra pace did him.", "col", 1.935, 0.32]]
+  ],
+  "ducked": [
+    [["ducked_0_0.ogg", "Ducks under it!", "pbp", 0.816, 0.0], ["ducked_0_1.ogg", "Good eyes, that. Picked the length early, and got right out of the way.", "col", 3.494, 0.32]],
+    [["ducked_1_0.ogg", "Sways out of the line.", "pbp", 4.343, 0.0], ["ducked_1_1.ogg", "Nice and calm. Didn't need to play at that.", "col", 4.831, 0.32]],
+    [["ducked_2_0.ogg", "He's ducked! Right underneath it.", "pbp", 2.551, 0.0], ["ducked_2_1.ogg", "You don't have to play every ball, Kate. Ask me. I left plenty.", "col", 4.684, 0.32]],
+    [["ducked_3_0.ogg", "Bouncer, and he's gone down underneath it.", "pbp", 2.156, 0.0], ["ducked_3_1.ogg", "Chin music, we used to call it. Keep your eyes on it, get low.", "col", 5.377, 0.32]],
+    [["ducked_4_0.ogg", "Gets inside the line, and lets it go by.", "pbp", 4.538, 0.0]]
+  ],
+  "beaten_bouncer": [
+    [["beaten_bouncer_0_0.ogg", "Beaten by the bouncer!", "pbp", 1.599, 0.0], ["beaten_bouncer_0_1.ogg", "Through him before he'd moved, Kate. That's serious pace.", "col", 3.686, 0.32]],
+    [["beaten_bouncer_1_0.ogg", "He's gone for it, and he's missed! Way too quick for him!", "pbp", 4.695, 0.0], ["beaten_bouncer_1_1.ogg", "Hurried him up. You can't hook that late.", "col", 2.822, 0.32]],
+    [["beaten_bouncer_2_0.ogg", "Swings, and misses the bouncer!", "pbp", 2.199, 0.0], ["beaten_bouncer_2_1.ogg", "Lucky that didn't hit the glove. Could've been a catch.", "col", 2.551, 0.32]],
+    [["beaten_bouncer_3_0.ogg", "Short, and he's beaten all ends up!", "pbp", 2.222, 0.0], ["beaten_bouncer_3_1.ogg", "Didn't pick the length. Look at that, he's nearly on his backside.", "col", 3.207, 0.32]]
+  ],
+  "bouncer_col": [
+    [["bouncer_col_0_0.ogg", "That's the bouncer. He'll mix it up now, keep the batter guessing.", "col", 4.589, 0.0]],
+    [["bouncer_col_1_0.ogg", "Short ball. That's to make him think about the hook. Next one'll be full.", "col", 5.141, 0.0]],
+    [["bouncer_col_2_0.ogg", "He's allowed two of those an over, Kate. Expect the second.", "col", 3.499, 0.0]]
+  ],
+  "dropped": [
+    [["dropped_0_0.ogg", "Dropped! He's put it down!", "pbp", 1.742, 0.0], ["dropped_0_1.ogg", "Oh no!", "col", 1.227, -0.2], ["dropped_0_2.ogg", "Catches win matches, Kate. That might be costly.", "col", 5.177, 0.18]],
+    [["dropped_1_0.ogg", "Oh, he's dropped it!", "pbp", 2.455, 0.0], ["dropped_1_1.ogg", "He'll be having nightmares about that one.", "col", 2.131, 0.32]],
+    [["dropped_2_0.ogg", "Chance... and it's gone down!", "pbp", 2.12, 0.0], ["dropped_2_1.ogg", "Two hands, nice and soft. That's all it needed.", "col", 3.536, 0.32]],
+    [["dropped_3_0.ogg", "Spilled! That should've been taken!", "pbp", 2.255, 0.0], ["dropped_3_1.ogg", "I'd have caught that, Kate.", "col", 1.508, 0.32], ["dropped_3_2.ogg", "You dropped the toss coin earlier, Geoff.", "pbp", 2.813, 0.15]],
+    [["dropped_4_0.ogg", "In and out of the hands!", "pbp", 1.595, 0.0], ["dropped_4_1.ogg", "Ooh, dear me.", "col", 1.974, -0.2]]
+  ],
+  "great_catch": [
+    [["great_catch_0_0.ogg", "What a catch!", "pbp", 1.735, 0.0], ["great_catch_0_1.ogg", "Oh, that's a screamer!", "col", 1.888, -0.25]],
+    [["great_catch_1_0.ogg", "Oh, he's taken a blinder!", "pbp", 2.933, 0.0], ["great_catch_1_1.ogg", "Made a hard catch look easy, that.", "col", 2.432, 0.32]],
+    [["great_catch_2_0.ogg", "Diving... and he's got it! Unbelievable!", "pbp", 3.929, 0.0], ["great_catch_2_1.ogg", "I'd have got there, Kate.", "col", 1.61, 0.32], ["great_catch_2_2.ogg", "You wouldn't have got out of your chair, Geoff.", "pbp", 1.8, 0.15]],
+    [["great_catch_3_0.ogg", "Plucked out of the air! Sensational!", "pbp", 2.0, 0.0], ["great_catch_3_1.ogg", "Great hands! Great hands!", "col", 2.467, -0.1]],
+    [["great_catch_4_0.ogg", "One handed! That is a screamer!", "pbp", 3.249, 0.0]]
+  ],
+  "caught": [
+    [["caught_0_0.ogg", "Caught! He's gone!", "pbp", 2.25, 0.0], ["caught_0_1.ogg", "Played the wrong shot to the wrong ball.", "col", 2.935, 0.32]],
+    [["caught_1_0.ogg", "In the air... and taken! Out!", "pbp", 4.495, 0.0], ["caught_1_1.ogg", "He'll be disappointed with that shot.", "col", 2.024, 0.32]],
+    [["caught_2_0.ogg", "Up it goes... and it's caught!", "pbp", 2.823, 0.0], ["caught_2_1.ogg", "That's pressure doing its job.", "col", 3.135, 0.32]],
+    [["caught_3_0.ogg", "Holes out! Caught in the deep!", "pbp", 2.207, 0.0], ["caught_3_1.ogg", "Went for the slog. It was always a risk.", "col", 2.748, 0.32]],
+    [["caught_4_0.ogg", "Straight down the fielder's throat! Out!", "pbp", 4.07, 0.0], ["caught_4_1.ogg", "Brilliant judgement under a high one.", "col", 2.625, 0.32]],
+    [["caught_5_0.ogg", "Mistimed... and it's a simple catch.", "pbp", 2.203, 0.0], ["caught_5_1.ogg", "Too early on the shot. Got it up in the air, and that's that.", "col", 3.821, 0.32]],
+    [["caught_6_0.ogg", "Up it goes... miles up... he's under it... taken!", "pbp", 2.576, 0.0], ["caught_6_1.ogg", "Never in doubt.", "col", 1.3, 0.32], ["caught_6_2.ogg", "You had your eyes shut, Geoff.", "pbp", 1.829, 0.15]]
+  ],
+  "caught_behind": [
+    [["caught_behind_0_0.ogg", "Edged... and taken!", "pbp", 4.266, 0.0], ["caught_behind_0_1.ogg", "Big gap between bat and pad. You can't do that.", "col", 2.717, 0.32]],
+    [["caught_behind_1_0.ogg", "Feathered through! The keeper's got it! Gone!", "pbp", 3.067, 0.0], ["caught_behind_1_1.ogg", "Lovely bit of shape. Just doing enough.", "col", 2.017, 0.32]],
+    [["caught_behind_2_0.ogg", "Nicks it... and the keeper takes a beauty!", "pbp", 2.035, 0.0], ["caught_behind_2_1.ogg", "The keeper's been brilliant today, Kate.", "col", 1.959, 0.32]],
+    [["caught_behind_3_0.ogg", "A thin edge... in the gloves... out!", "pbp", 2.5, 0.0], ["caught_behind_3_1.ogg", "Did he hit that?", "col", 0.897, -0.2], ["caught_behind_3_2.ogg", "He did, Geoff. Everyone heard it. Even you.", "pbp", 3.449, 0.1]]
+  ],
+  "bowled": [
+    [["bowled_0_0.ogg", "Bowled him!", "pbp", 0.948, 0.0], ["bowled_0_1.ogg", "Oh, what a ball!", "col", 2.215, -0.3]],
+    [["bowled_1_0.ogg", "Clean bowled! Gone!", "pbp", 2.08, 0.0], ["bowled_1_1.ogg", "Unplayable, that. Simply unplayable.", "col", 3.857, 0.32]],
+    [["bowled_2_0.ogg", "Timber! The stumps are everywhere!", "pbp", 3.283, 0.0], ["bowled_2_1.ogg", "That's the breakthrough they needed, Kate!", "col", 1.792, 0.32]],
+    [["bowled_3_0.ogg", "Through the gate... and he's bowled!", "pbp", 2.059, 0.0], ["bowled_3_1.ogg", "Big gap between bat and pad. You could drive a bus through that.", "col", 4.966, 0.32]],
+    [["bowled_4_0.ogg", "Knocked him over! Middle stump!", "pbp", 2.283, 0.0], ["bowled_4_1.ogg", "Oh, that's a beauty! Pitched middle, hit the top of off!", "col", 4.93, -0.15]],
+    [["bowled_5_0.ogg", "That's crashed into the stumps!", "pbp", 2.906, 0.0], ["bowled_5_1.ogg", "The bowler deserved that. Hit the right areas all day.", "col", 3.813, 0.32]],
+    [["bowled_6_0.ogg", "Swing and a miss... and the stumps are gone!", "pbp", 2.585, 0.0], ["bowled_6_1.ogg", "Went for the big one, Kate, and he's missed it by a mile!", "col", 2.698, 0.32]]
+  ],
+  "lbw_appeal": [
+    [["lbw_appeal_0_0.ogg", "Howzat!", "pbp", 0.761, 0.0]],
+    [["lbw_appeal_1_0.ogg", "Big appeal!", "pbp", 1.389, 0.0]],
+    [["lbw_appeal_2_0.ogg", "That's hit the pad! Big shout!", "pbp", 2.929, 0.0]],
+    [["lbw_appeal_3_0.ogg", "Appeal for leg before!", "pbp", 1.889, 0.0]],
+    [["lbw_appeal_4_0.ogg", "Huge shout!", "pbp", 2.928, 0.0]]
+  ],
+  "out_lbw": [
+    [["out_lbw_0_0.ogg", "And the finger goes up! Out, leg before!", "pbp", 3.233, 0.0], ["out_lbw_0_1.ogg", "Plumb, Kate! Absolutely plumb! Hitting middle, halfway up!", "col", 4.402, 0.32]],
+    [["out_lbw_1_0.ogg", "Given! He's out, leg before!", "pbp", 4.315, 0.0], ["out_lbw_1_1.ogg", "Playing across the line. Asking for trouble.", "col", 2.569, 0.32]],
+    [["out_lbw_2_0.ogg", "The umpire's convinced! He's gone, leg before!", "pbp", 3.021, 0.0], ["out_lbw_2_1.ogg", "That would have hit middle. No doubt about it.", "col", 2.702, 0.32]],
+    [["out_lbw_3_0.ogg", "Trapped in front! Gone!", "pbp", 1.722, 0.0], ["out_lbw_3_1.ogg", "Front pad in the way, and the bat nowhere.", "col", 2.862, 0.32]]
+  ],
+  "not_out": [
+    [["not_out_0_0.ogg", "Not out, says the umpire.", "pbp", 1.796, 0.0], ["not_out_0_1.ogg", "I think he's got that right, Kate. Going down leg.", "col", 4.032, 0.32]],
+    [["not_out_1_0.ogg", "Turned down.", "pbp", 1.301, 0.0]],
+    [["not_out_2_0.ogg", "The umpire shakes his head. Not out.", "pbp", 2.616, 0.0], ["not_out_2_1.ogg", "Bit high, that. Bounce would've taken it over.", "col", 2.592, 0.32]],
+    [["not_out_3_0.ogg", "No, says the umpire.", "pbp", 1.861, 0.0]],
+    [["not_out_4_0.ogg", "Not given.", "pbp", 1.076, 0.0], ["not_out_4_1.ogg", "Close, though. Very close.", "col", 2.891, 0.32]],
+    [["not_out_5_0.ogg", "Not out!", "pbp", 0.65, 0.0], ["not_out_5_1.ogg", "Told you that was going down leg.", "col", 1.854, 0.32], ["not_out_5_2.ogg", "You said it was plumb, Geoff.", "pbp", 1.712, 0.15], ["not_out_5_3.ogg", "I said it looked plumb. Different thing.", "col", 2.678, 0.1]]
+  ],
+  "drs_review": [
+    [["drs_review_0_0.ogg", "They're going to review it.", "pbp", 3.187, 0.0], ["drs_review_0_1.ogg", "Brave. I'm not sure about that one, Kate.", "col", 2.786, 0.32]],
+    [["drs_review_1_0.ogg", "The T sign. We're going upstairs.", "pbp", 3.878, 0.0], ["drs_review_1_1.ogg", "Let's see it. I thought it was going over the top, myself.", "col", 3.665, 0.32]],
+    [["drs_review_2_0.ogg", "They've asked for the review. What do you think, Geoff?", "pbp", 2.766, 0.0], ["drs_review_2_1.ogg", "I think it's pitched outside leg, Kate. But I've been wrong before.", "col", 2.947, 0.32]],
+    [["drs_review_3_0.ogg", "Here comes the review. Let's see the technology.", "pbp", 3.345, 0.0]],
+    [["drs_review_4_0.ogg", "They're going upstairs! Geoff, you've got ten seconds. Out or not out?", "pbp", 4.989, 0.0], ["drs_review_4_1.ogg", "Out. Definitely out.", "col", 2.393, 0.32], ["drs_review_4_2.ogg", "Let's see how that ages.", "pbp", 1.28, 0.15]]
+  ],
+  "drs_umpires_call": [
+    [["drs_umpires_call_0_0.ogg", "Umpire's call. The decision stays.", "pbp", 2.743, 0.0], ["drs_umpires_call_0_1.ogg", "Marginal. Just shaving the stumps. That's why you have umpire's call.", "col", 6.665, 0.32]],
+    [["drs_umpires_call_1_0.ogg", "It's clipping. Umpire's call.", "pbp", 2.392, 0.0], ["drs_umpires_call_1_1.ogg", "Lucky. Very lucky.", "col", 1.703, 0.32]],
+    [["drs_umpires_call_2_0.ogg", "Marginal, so it stays with the umpire.", "pbp", 2.806, 0.0]]
+  ],
+  "drs_overturned": [
+    [["drs_overturned_0_0.ogg", "Overturned! The decision is reversed!", "pbp", 2.751, 0.0], ["drs_overturned_0_1.ogg", "Good use of the review, that.", "col", 1.969, 0.32]],
+    [["drs_overturned_1_0.ogg", "The technology says otherwise. Overturned!", "pbp", 2.374, 0.0], ["drs_overturned_1_1.ogg", "That's why you have the technology, Kate.", "col", 2.827, 0.32]],
+    [["drs_overturned_2_0.ogg", "Off it comes! The review is successful!", "pbp", 2.715, 0.0]],
+    [["drs_overturned_3_0.ogg", "Big moment... and it's been overturned!", "pbp", 1.862, 0.0], ["drs_overturned_3_1.ogg", "I told you it was going over the top!", "col", 3.591, -0.1], ["drs_overturned_3_2.ogg", "You did, Geoff. You did.", "pbp", 2.422, 0.1]]
+  ],
+  "drs_stays": [
+    [["drs_stays_0_0.ogg", "The decision stands.", "pbp", 1.36, 0.0], ["drs_stays_0_1.ogg", "Close, but the umpire's done a good job.", "col", 3.285, 0.32]],
+    [["drs_stays_1_0.ogg", "It stays. A review lost.", "pbp", 2.787, 0.0], ["drs_stays_1_1.ogg", "That was a captain's review, that. Bit hopeful.", "col", 5.243, 0.32]],
+    [["drs_stays_2_0.ogg", "Ball tracking confirms it. The umpire was right.", "pbp", 3.298, 0.0]],
+    [["drs_stays_3_0.ogg", "No change. That review is gone.", "pbp", 2.683, 0.0]]
+  ],
+  "third_umpire": [
+    [["third_umpire_0_0.ogg", "This one's going upstairs to the third umpire.", "pbp", 2.692, 0.0], ["third_umpire_0_1.ogg", "Very close. I genuinely couldn't tell you, Kate.", "col", 4.323, 0.32]],
+    [["third_umpire_1_0.ogg", "Let's see the replay.", "pbp", 3.015, 0.0]],
+    [["third_umpire_2_0.ogg", "Very close. The TV umpire will decide.", "pbp", 3.49, 0.0], ["third_umpire_2_1.ogg", "Bat grounded? I'm not sure it was.", "col", 2.666, 0.32]]
+  ],
+  "stumped": [
+    [["stumped_0_0.ogg", "Stumped! Lightning hands!", "pbp", 2.567, 0.0], ["stumped_0_1.ogg", "Lightning! Absolutely lightning!", "col", 2.931, 0.32]],
+    [["stumped_1_0.ogg", "Down the track... misses... stumped!", "pbp", 1.967, 0.0], ["stumped_1_1.ogg", "Beaten in the flight. Lovely bowling, that.", "col", 2.506, 0.32]],
+    [["stumped_2_0.ogg", "Lightning work from the keeper! Stumped!", "pbp", 2.398, 0.0]],
+    [["stumped_3_0.ogg", "Out of his ground... bails off... gone!", "pbp", 2.52, 0.0], ["stumped_3_1.ogg", "Done him. Absolutely done him.", "col", 3.017, 0.32]]
+  ],
+  "run_out": [
+    [["run_out_0_0.ogg", "Run out! He's miles out!", "pbp", 1.504, 0.0], ["run_out_0_1.ogg", "Should never have gone for that, Kate.", "col", 2.26, 0.32]],
+    [["run_out_1_0.ogg", "Direct hit! He's gone!", "pbp", 2.855, 0.0], ["run_out_1_1.ogg", "Brilliant fielding! Hit the stumps from side on!", "col", 3.312, 0.32]],
+    [["run_out_2_0.ogg", "Short of his ground! Run out!", "pbp", 2.582, 0.0]],
+    [["run_out_3_0.ogg", "Oh, terrible mix up! And he's run out!", "pbp", 4.363, 0.0], ["run_out_3_1.ogg", "Talk to each other, lads! It's not difficult!", "col", 3.762, 0.32]],
+    [["run_out_4_0.ogg", "The throw comes in... bails off... out!", "pbp", 2.564, 0.0], ["run_out_4_1.ogg", "Oh, that's poor running. Very poor.", "col", 4.057, -0.1]]
+  ],
+  "near_run_out": [
+    [["near_run_out_0_0.ogg", "Close! He's just made it!", "pbp", 2.1, 0.0], ["near_run_out_0_1.ogg", "Ooh, that was tight.", "col", 1.701, -0.2]],
+    [["near_run_out_1_0.ogg", "Ooh, that was tight!", "pbp", 2.279, 0.0]],
+    [["near_run_out_2_0.ogg", "Throw comes in, and he's in. Just.", "pbp", 2.58, 0.0], ["near_run_out_2_1.ogg", "Inches, Kate. Inches.", "col", 1.722, 0.32]],
+    [["near_run_out_3_0.ogg", "Dive! And he's made his ground!", "pbp", 1.959, 0.0]]
+  ],
+  "overthrow": [
+    [["overthrow_0_0.ogg", "Overthrow! They'll take another.", "pbp", 2.683, 0.0], ["overthrow_0_1.ogg", "Nobody backing up. Schoolboy stuff.", "col", 2.377, 0.32]],
+    [["overthrow_1_0.ogg", "Misses the stumps, and there's nobody backing up!", "pbp", 2.31, 0.0]],
+    [["overthrow_2_0.ogg", "Wild throw, and they get an extra run.", "pbp", 2.71, 0.0]]
+  ],
+  "charge": [
+    [["charge_0_0.ogg", "Down the track!", "pbp", 1.603, 0.0]],
+    [["charge_1_0.ogg", "He's dancing down the pitch!", "pbp", 2.551, 0.0]],
+    [["charge_2_0.ogg", "Charges the bowler!", "pbp", 1.833, 0.0]],
+    [["charge_3_0.ogg", "Comes down to meet it.", "pbp", 1.084, 0.0]]
+  ],
+  "misfield": [
+    [["misfield_0_0.ogg", "Misfield.", "pbp", 1.318, 0.0], ["misfield_0_1.ogg", "Oh dear. The skipper's not happy.", "col", 2.796, 0.32]],
+    [["misfield_1_0.ogg", "Fumbled in the field.", "pbp", 2.685, 0.0]],
+    [["misfield_2_0.ogg", "Through his legs!", "pbp", 1.402, 0.0], ["misfield_2_1.ogg", "Oh, he'll get some stick for that one.", "col", 2.563, 0.32]],
+    [["misfield_3_0.ogg", "Sloppy from the fielder.", "pbp", 3.161, 0.0]]
+  ],
+  "good_fielding": [
+    [["good_fielding_0_0.ogg", "Good stop.", "pbp", 0.934, 0.0]],
+    [["good_fielding_1_0.ogg", "What a dive! Saved a certain four!", "pbp", 5.042, 0.0], ["good_fielding_1_1.ogg", "That's the kind of thing that wins you games, Kate.", "col", 2.495, 0.32]],
+    [["good_fielding_2_0.ogg", "Brilliant fielding.", "pbp", 2.928, 0.0]],
+    [["good_fielding_3_0.ogg", "Great effort in the deep. Saved two runs.", "pbp", 2.861, 0.0]],
+    [["good_fielding_4_0.ogg", "Sharp work in the field.", "pbp", 1.646, 0.0]]
+  ],
+  "last_over": [
+    [["last_over_0_0.ogg", "Here we go. The final over.", "pbp", 2.408, 0.0], ["last_over_0_1.ogg", "Nerves now, Kate. Whoever holds theirs wins it.", "col", 3.594, 0.32]],
+    [["last_over_1_0.ogg", "Last over. Everything comes down to this.", "pbp", 2.782, 0.0]],
+    [["last_over_2_0.ogg", "Six balls left. Who holds their nerve, Geoff?", "pbp", 3.151, 0.0], ["last_over_2_1.ogg", "The bowler. Yorkers, every ball. Don't give him anything in the slot.", "col", 4.522, 0.32]],
+    [["last_over_3_0.ogg", "It's the final over of the innings.", "pbp", 1.565, 0.0]]
+  ],
+  "chase_close": [
+    [["chase_close_0_0.ogg", "This is getting tight.", "pbp", 1.457, 0.0], ["chase_close_0_1.ogg", "Somebody's got to be brave now, Kate.", "col", 2.693, 0.32]],
+    [["chase_close_1_0.ogg", "Oh, the tension is unbearable here!", "pbp", 2.054, 0.0], ["chase_close_1_1.ogg", "I can't watch, Kate.", "col", 1.227, 0.32], ["chase_close_1_2.ogg", "You have to, Geoff. You're on commentary.", "pbp", 2.488, 0.15]],
+    [["chase_close_2_0.ogg", "Every run counts now.", "pbp", 1.596, 0.0]],
+    [["chase_close_3_0.ogg", "Nail biting stuff at the Oval!", "pbp", 1.699, 0.0], ["chase_close_3_1.ogg", "You couldn't write it, could you?", "col", 1.736, 0.32]]
+  ],
+  "chase_easy": [
+    [["chase_easy_0_0.ogg", "They're cruising now.", "pbp", 1.32, 0.0], ["chase_easy_0_1.ogg", "Don't do anything silly. Just knock it around.", "col", 2.967, 0.32]],
+    [["chase_easy_1_0.ogg", "Well on top in this chase.", "pbp", 1.708, 0.0]],
+    [["chase_easy_2_0.ogg", "Plenty of time, plenty of wickets in hand.", "pbp", 3.15, 0.0], ["chase_easy_2_1.ogg", "This is a stroll, Kate. A Sunday stroll.", "col", 3.612, 0.32]]
+  ],
+  "won_runs": [
+    [["won_runs_0_0.ogg", "That's it! They've won it! They've defended the total!", "pbp", 3.611, 0.0], ["won_runs_0_1.ogg", "What a game of cricket that was, Kate!", "col", 2.075, 0.32]],
+    [["won_runs_1_0.ogg", "They've done it! A win by runs! What a performance with the ball!", "pbp", 3.919, 0.0], ["won_runs_1_1.ogg", "Thoroughly deserved. The better side on the day.", "col", 3.648, 0.32]],
+    [["won_runs_2_0.ogg", "Game over! The total was enough!", "pbp", 2.151, 0.0]],
+    [["won_runs_3_0.ogg", "That's the match! They've held on!", "pbp", 2.304, 0.0], ["won_runs_3_1.ogg", "Some brave decisions with the ball, and they paid off.", "col", 3.722, 0.32]]
+  ],
+  "won_wickets": [
+    [["won_wickets_0_0.ogg", "They've done it! They've chased it down!", "pbp", 3.083, 0.0], ["won_wickets_0_1.ogg", "Great advert for the game, that!", "col", 2.039, 0.32]],
+    [["won_wickets_1_0.ogg", "That's the winning runs! What a chase!", "pbp", 3.182, 0.0], ["won_wickets_1_1.ogg", "Oh, I've enjoyed that, Kate. I really have.", "col", 3.335, 0.32]],
+    [["won_wickets_2_0.ogg", "They get there! Victory with wickets to spare!", "pbp", 3.695, 0.0]],
+    [["won_wickets_3_0.ogg", "Job done! The target is reached!", "pbp", 2.347, 0.0], ["won_wickets_3_1.ogg", "Never in doubt.", "col", 1.3, 0.32], ["won_wickets_3_2.ogg", "Never in doubt? You had them losing ten minutes ago!", "pbp", 3.274, 0.1]]
+  ],
+  "tie": [
+    [["tie_0_0.ogg", "It's a tie! Scores level! Unbelievable!", "pbp", 4.572, 0.0], ["tie_0_1.ogg", "Well, I've seen it all now!", "col", 2.74, -0.1]],
+    [["tie_1_0.ogg", "Level! They can't split them! A tie!", "pbp", 2.805, 0.0]],
+    [["tie_2_0.ogg", "A tie! Nobody can believe it!", "pbp", 3.006, 0.0], ["tie_2_1.ogg", "Nobody deserved to lose that, Kate.", "col", 2.735, 0.32]]
+  ],
+  "hat_trick_ball": [
+    [["hat_trick_ball_0_0.ogg", "So, it's a hat-trick ball.", "pbp", 3.027, 0.0], ["hat_trick_ball_0_1.ogg", "Everyone round the bat. Go for the kill.", "col", 2.701, 0.32]],
+    [["hat_trick_ball_1_0.ogg", "Two in two. Here comes the hat-trick ball.", "pbp", 3.178, 0.0], ["hat_trick_ball_1_1.ogg", "If I'm the batter, Kate, I'm just getting bat on ball. Anything.", "col", 3.46, 0.32]],
+    [["hat_trick_ball_2_0.ogg", "Everyone's round the bat for the hat-trick.", "pbp", 2.149, 0.0]]
+  ],
+  "hat_trick": [
+    [["hat_trick_0_0.ogg", "Hat-trick! Three in three!", "pbp", 3.185, 0.0], ["hat_trick_0_1.ogg", "Oh, you beauty!", "col", 1.924, -0.25]],
+    [["hat_trick_1_0.ogg", "He's got the hat-trick! Incredible!", "pbp", 2.297, 0.0], ["hat_trick_1_1.ogg", "Three in three, Kate! Dream stuff!", "col", 2.099, 0.32]]
+  ],
+  "milestone_25": [
+    [["milestone_25_0_0.ogg", "And that brings up twenty five.", "pbp", 2.245, 0.0], ["milestone_25_0_1.ogg", "Starting to look ominous, this.", "col", 1.832, 0.32]],
+    [["milestone_25_1_0.ogg", "Twenty five for the batter. Nicely played.", "pbp", 4.793, 0.0]],
+    [["milestone_25_2_0.ogg", "He's into the twenties, and looking good.", "pbp", 3.973, 0.0], ["milestone_25_2_1.ogg", "Set now. Bowlers have got a job on.", "col", 2.507, 0.32]]
+  ],
+  "milestone_50": [
+    [["milestone_50_0_0.ogg", "And that's fifty! What an innings!", "pbp", 3.162, 0.0], ["milestone_50_0_1.ogg", "Outstanding knock, Kate. Took his time early, and then cut loose.", "col", 4.82, 0.32]],
+    [["milestone_50_1_0.ogg", "Half century! He raises the bat to the crowd.", "pbp", 5.056, 0.0], ["milestone_50_1_1.ogg", "Lovely to see. Thoroughly deserved.", "col", 2.778, 0.32]],
+    [["milestone_50_2_0.ogg", "Fifty up, and the crowd are on their feet!", "pbp", 3.663, 0.0]],
+    [["milestone_50_3_0.ogg", "Fifty! What a knock!", "pbp", 1.934, 0.0], ["milestone_50_3_1.ogg", "I got a fifty once, Kate.", "col", 1.735, 0.32], ["milestone_50_3_2.ogg", "We know, Geoff. It's framed in the commentary box.", "pbp", 3.941, 0.15]]
+  ],
+  "partnership_50": [
+    [["partnership_50_0_0.ogg", "That's a fifty partnership.", "pbp", 3.113, 0.0], ["partnership_50_0_1.ogg", "Frustrating for the bowlers. They need something different.", "col", 3.514, 0.32]],
+    [["partnership_50_1_0.ogg", "These two have put on fifty together.", "pbp", 4.935, 0.0], ["partnership_50_1_1.ogg", "Talking to each other, running well. Lovely to watch.", "col", 3.836, 0.32]],
+    [["partnership_50_2_0.ogg", "The partnership passes fifty.", "pbp", 2.977, 0.0]]
+  ],
+  "maiden": [
+    [["maiden_0_0.ogg", "That's a maiden over.", "pbp", 4.059, 0.0], ["maiden_0_1.ogg", "A maiden in this format is gold dust, Kate.", "col", 2.884, 0.32]],
+    [["maiden_1_0.ogg", "A maiden. Six balls, no runs.", "pbp", 2.883, 0.0], ["maiden_1_1.ogg", "Brilliant control. Didn't give him anything to hit.", "col", 3.253, 0.32]],
+    [["maiden_2_0.ogg", "Superb over. A maiden.", "pbp", 2.252, 0.0], ["maiden_2_1.ogg", "That's how you build pressure.", "col", 1.799, 0.32]]
+  ],
+  "end_over": [
+    [["end_over_0_0.ogg", "That's the end of the over.", "pbp", 1.61, 0.0]],
+    [["end_over_1_0.ogg", "Over.", "pbp", 2.045, 0.0]],
+    [["end_over_2_0.ogg", "End of the over. Change of ends.", "pbp", 2.82, 0.0]],
+    [["end_over_3_0.ogg", "And that's the over completed.", "pbp", 1.96, 0.0]]
+  ],
+  "new_batter": [
+    [["new_batter_0_0.ogg", "So here's the new batter. Geoff, what does he need to do?", "pbp", 4.09, 0.0], ["new_batter_0_1.ogg", "Get off strike, Kate. Get a feel for it. Nothing silly.", "col", 3.059, 0.32]],
+    [["new_batter_1_0.ogg", "Here's the next one in.", "pbp", 1.995, 0.0], ["new_batter_1_1.ogg", "Tough moment to come in. The bowlers are on top.", "col", 3.158, 0.32]],
+    [["new_batter_2_0.ogg", "Walking out to a big job.", "pbp", 1.841, 0.0]],
+    [["new_batter_3_0.ogg", "New batter at the crease. Fresh guard, a look around the field.", "pbp", 4.07, 0.0], ["new_batter_3_1.ogg", "He'll get a bouncer first ball, I'd bet on it.", "col", 2.135, 0.32]]
+  ],
+  "need_reply_easy": [
+    [["need_reply_easy_0_0.ogg", "Should be a stroll from here.", "col", 1.496, 0.0]],
+    [["need_reply_easy_1_0.ogg", "Just keep the scoreboard ticking, Kate. No heroics.", "col", 3.832, 0.0]],
+    [["need_reply_easy_2_0.ogg", "Very gettable. Singles and the odd boundary.", "col", 3.053, 0.0]]
+  ],
+  "need_reply_close": [
+    [["need_reply_close_0_0.ogg", "That's tight. Somebody's got to take a risk.", "col", 2.889, 0.0]],
+    [["need_reply_close_1_0.ogg", "Could go either way, this.", "col", 1.373, 0.0]],
+    [["need_reply_close_2_0.ogg", "One big over, and it's done. One good over, and it's gone.", "col", 3.22, 0.0]],
+    [["need_reply_close_3_0.ogg", "Nerves now, Kate. Proper nerves.", "col", 2.426, 0.0]]
+  ],
+  "need_reply_hard": [
+    [["need_reply_hard_0_0.ogg", "That's a big ask now, Kate.", "col", 1.927, 0.0]],
+    [["need_reply_hard_1_0.ogg", "They'll need some big hitting. Boundaries, and plenty of them.", "col", 3.158, 0.0]],
+    [["need_reply_hard_2_0.ogg", "The required rate's climbing. They need a big over.", "col", 3.249, 0.0]]
+  ],
+  "chat_rate_fast": [
+    [["chat_rate_fast_0_0.ogg", "They're scoring at a real lick here.", "pbp", 2.074, 0.0], ["chat_rate_fast_0_1.ogg", "Ten an over, near enough. The bowlers need a plan, and quickly.", "col", 5.769, 0.32]],
+    [["chat_rate_fast_1_0.ogg", "Geoff, can anyone stop this?", "pbp", 1.948, 0.0], ["chat_rate_fast_1_1.ogg", "A wicket, Kate. That's the only thing that slows this down.", "col", 3.351, 0.32]],
+    [["chat_rate_fast_2_0.ogg", "Runs flowing freely at the Oval.", "pbp", 2.069, 0.0], ["chat_rate_fast_2_1.ogg", "Short boundaries and a quick outfield. Anything in the air's going.", "col", 3.548, 0.32]]
+  ],
+  "chat_rate_slow": [
+    [["chat_rate_slow_0_0.ogg", "It's been hard going for the batters.", "pbp", 1.626, 0.0], ["chat_rate_slow_0_1.ogg", "They've let the bowlers settle, Kate. Need to put them under pressure.", "col", 3.866, 0.32]],
+    [["chat_rate_slow_1_0.ogg", "The run rate's been slow. Is that a worry?", "pbp", 2.904, 0.0], ["chat_rate_slow_1_1.ogg", "It is in this format. You can't just survive. You've got to score.", "col", 4.289, 0.32]],
+    [["chat_rate_slow_2_0.ogg", "Not many runs about at the moment.", "pbp", 1.647, 0.0], ["chat_rate_slow_2_1.ogg", "Good bowling, mind. Tight lines, the field set beautifully.", "col", 4.012, 0.32]]
+  ],
+  "chat_rate_steady": [
+    [["chat_rate_steady_0_0.ogg", "Steady progress, then.", "pbp", 2.582, 0.0], ["chat_rate_steady_0_1.ogg", "Ticking along nicely. A boundary an over, and the rest in ones and twos.", "col", 4.43, 0.32]],
+    [["chat_rate_steady_1_0.ogg", "Neither side really on top yet, Geoff.", "pbp", 2.117, 0.0], ["chat_rate_steady_1_1.ogg", "No. Even contest, this. The next wicket's a big one.", "col", 3.774, 0.32]]
+  ],
+  "chat_chase_ahead": [
+    [["chat_chase_ahead_0_0.ogg", "They're ahead of the rate in this chase.", "pbp", 3.778, 0.0], ["chat_chase_ahead_0_1.ogg", "Comfortably. As long as they don't lose a cluster of wickets.", "col", 3.896, 0.32]],
+    [["chat_chase_ahead_1_0.ogg", "The required rate's coming down nicely.", "pbp", 2.286, 0.0], ["chat_chase_ahead_1_1.ogg", "This is how you chase, Kate. Calm heads.", "col", 4.237, 0.32]]
+  ],
+  "chat_chase_behind": [
+    [["chat_chase_behind_0_0.ogg", "The required rate's creeping up, isn't it, Geoff?", "pbp", 2.691, 0.0], ["chat_chase_behind_0_1.ogg", "It is. Someone's going to have to go for it, and soon.", "col", 3.443, 0.32]],
+    [["chat_chase_behind_1_0.ogg", "They're falling behind in this chase.", "pbp", 2.846, 0.0], ["chat_chase_behind_1_1.ogg", "Too many dot balls, Kate. You can't let the rate get away from you.", "col", 4.493, 0.32]],
+    [["chat_chase_behind_2_0.ogg", "Is the pressure telling now?", "pbp", 4.707, 0.0], ["chat_chase_behind_2_1.ogg", "You can see it. Look at the body language. They need a boundary.", "col", 3.381, 0.32]]
+  ],
+  "chat_chase_steep": [
+    [["chat_chase_steep_0_0.ogg", "It's a big ask from here.", "pbp", 3.285, 0.0], ["chat_chase_steep_0_1.ogg", "They'll need something special. A couple of big overs.", "col", 2.974, 0.32]],
+    [["chat_chase_steep_1_0.ogg", "Can they still win this, Geoff?", "pbp", 1.563, 0.0], ["chat_chase_steep_1_1.ogg", "Stranger things have happened, Kate. But not many.", "col", 3.185, 0.32]]
+  ],
+  "chat_chase_level": [
+    [["chat_chase_level_0_0.ogg", "Neck and neck in this chase.", "pbp", 1.867, 0.0], ["chat_chase_level_0_1.ogg", "Just about level with the rate. Whoever blinks first.", "col", 3.361, 0.32]],
+    [["chat_chase_level_1_0.ogg", "Pressure on both sides now.", "pbp", 3.565, 0.0], ["chat_chase_level_1_1.ogg", "Lovely game, this. Exactly what you want.", "col", 3.24, 0.32]]
+  ],
+  "chat_tail": [
+    [["chat_tail_0_0.ogg", "Not many wickets left now.", "pbp", 1.534, 0.0], ["chat_tail_0_1.ogg", "One more, and it's the tail. The bowlers can smell it.", "col", 3.365, 0.32]],
+    [["chat_tail_1_0.ogg", "The batters are running out of partners.", "pbp", 4.52, 0.0], ["chat_tail_1_1.ogg", "They'll have to farm the strike, Kate. Protect the tail.", "col", 3.341, 0.32]]
+  ],
+  "chat_batter_set": [
+    [["chat_batter_set_0_0.ogg", "He's batting beautifully, this one.", "pbp", 2.303, 0.0], ["chat_batter_set_0_1.ogg", "Seeing it like a football, Kate. Getting right in line.", "col", 3.02, 0.32]],
+    [["chat_batter_set_1_0.ogg", "He looks well set now.", "pbp", 2.057, 0.0], ["chat_batter_set_1_1.ogg", "Got his eye in. The bowlers need a plan for him, fast.", "col", 4.043, 0.32]],
+    [["chat_batter_set_2_0.ogg", "What's he doing so well, Geoff?", "pbp", 2.989, 0.0], ["chat_batter_set_2_1.ogg", "Watching the ball, Kate. Simple as that. Waiting for the bad one.", "col", 4.539, 0.32]]
+  ],
+  "chat_batter_new": [
+    [["chat_batter_new_0_0.ogg", "Still early days for the new batter.", "pbp", 1.646, 0.0], ["chat_batter_new_0_1.ogg", "Nervous start. Just needs one off the middle.", "col", 4.767, 0.32]],
+    [["chat_batter_new_1_0.ogg", "He's yet to get going.", "pbp", 1.347, 0.0], ["chat_batter_new_1_1.ogg", "Give him a couple of overs. He can bat, this lad.", "col", 2.267, 0.32]]
+  ],
+  "chat_partnership": [
+    [["chat_partnership_0_0.ogg", "Good partnership building here.", "pbp", 4.75, 0.0], ["chat_partnership_0_1.ogg", "Running well, talking well. The bowlers need a breakthrough.", "col", 4.423, 0.32]],
+    [["chat_partnership_1_0.ogg", "These two are starting to frustrate the fielding side.", "pbp", 2.822, 0.0], ["chat_partnership_1_1.ogg", "And how. The skipper's running out of ideas, Kate.", "col", 2.871, 0.32]]
+  ],
+  "chat_pressure": [
+    [["chat_pressure_0_0.ogg", "Three dot balls in a row now.", "pbp", 3.126, 0.0], ["chat_pressure_0_1.ogg", "The pressure's building, Kate. Something's going to give.", "col", 3.319, 0.32]],
+    [["chat_pressure_1_0.ogg", "He can't get it away.", "pbp", 1.856, 0.0], ["chat_pressure_1_1.ogg", "Tied down. This is where batters do silly things.", "col", 3.206, 0.32]],
+    [["chat_pressure_2_0.ogg", "The dot balls are piling up.", "pbp", 4.045, 0.0], ["chat_pressure_2_1.ogg", "That's good bowling. Just in the channel, ball after ball.", "col", 4.96, 0.32]],
+    [["chat_pressure_3_0.ogg", "He's throwing the kitchen sink at it, and getting nothing.", "pbp", 3.185, 0.0], ["chat_pressure_3_1.ogg", "Swinging against the swing, Kate. Go with it, son. Go with it.", "col", 3.826, 0.32]]
+  ],
+  "chat_bowler_hot": [
+    [["chat_bowler_hot_0_0.ogg", "The bowler's on fire this spell.", "pbp", 3.175, 0.0], ["chat_bowler_hot_0_1.ogg", "Two wickets already. Hitting the deck hard, Kate. Hard to get after.", "col", 4.634, 0.32]],
+    [["chat_bowler_hot_1_0.ogg", "What a spell this is.", "pbp", 1.9, 0.0], ["chat_bowler_hot_1_1.ogg", "The captain must be delighted. Give him another over.", "col", 2.947, 0.32]]
+  ],
+  "chat_bowler_expensive": [
+    [["chat_bowler_expensive_0_0.ogg", "This bowler's been expensive.", "pbp", 2.779, 0.0], ["chat_bowler_expensive_0_1.ogg", "Too short, too wide. He's been feeding the strengths, Kate.", "col", 4.159, 0.32]],
+    [["chat_bowler_expensive_1_0.ogg", "Tough day for the bowler.", "pbp", 3.066, 0.0], ["chat_bowler_expensive_1_1.ogg", "They all have them. I had plenty. You just keep running in.", "col", 3.676, 0.32]]
+  ],
+  "chat_banter": [
+    [["chat_banter_0_0.ogg", "Geoff, is that a new jacket?", "pbp", 1.621, 0.0], ["chat_banter_0_1.ogg", "It is, Kate. Thank you for noticing.", "col", 2.632, 0.32], ["chat_banter_0_2.ogg", "Did it come with the stain, or is that extra?", "pbp", 2.401, 0.15]],
+    [["chat_banter_1_0.ogg", "Geoff's on his third cup of tea, everyone.", "pbp", 4.699, 0.0], ["chat_banter_1_1.ogg", "Fourth, Kate. Some of us have stamina.", "col", 3.934, 0.32]],
+    [["chat_banter_2_0.ogg", "Remind me, Geoff, what was your highest score?", "pbp", 3.38, 0.0], ["chat_banter_2_1.ogg", "Seventy four. Against very good bowling.", "col", 4.04, 0.32], ["chat_banter_2_2.ogg", "It was a charity match, Geoff.", "pbp", 2.797, 0.15], ["chat_banter_2_3.ogg", "Very good charity bowling.", "col", 2.704, 0.1]],
+    [["chat_banter_3_0.ogg", "My fantasy team's doing brilliantly today.", "pbp", 2.23, 0.0], ["chat_banter_3_1.ogg", "Your fantasy team has three wicketkeepers in it, Kate.", "col", 3.674, 0.32], ["chat_banter_3_2.ogg", "It's a strategy, Geoff.", "pbp", 3.034, 0.15]],
+    [["chat_banter_4_0.ogg", "You've gone very quiet, Geoff.", "pbp", 4.168, 0.0], ["chat_banter_4_1.ogg", "I'm concentrating, Kate. Some of us watch the cricket.", "col", 3.34, 0.32], ["chat_banter_4_2.ogg", "You were asleep.", "pbp", 3.487, 0.15], ["chat_banter_4_3.ogg", "Resting my eyes. Professionally.", "col", 1.914, 0.1]],
+    [["chat_banter_5_0.ogg", "Geoff, the crowd are doing a wave.", "pbp", 2.307, 0.0], ["chat_banter_5_1.ogg", "I don't do the wave, Kate.", "col", 1.535, 0.32], ["chat_banter_5_2.ogg", "You did it last week!", "pbp", 3.762, 0.15], ["chat_banter_5_3.ogg", "That was a stretch. There's a difference.", "col", 3.416, 0.1]],
+    [["chat_banter_6_0.ogg", "Who was the best player you ever played with, Geoff?", "pbp", 2.634, 0.0], ["chat_banter_6_1.ogg", "Modesty forbids, Kate.", "col", 2.559, 0.32], ["chat_banter_6_2.ogg", "So, not you then.", "pbp", 1.637, 0.15]],
+    [["chat_banter_7_0.ogg", "Every time I say a batter looks settled, he gets out.", "pbp", 3.529, 0.0], ["chat_banter_7_1.ogg", "Then please, Kate, never say it again.", "col", 2.544, 0.32], ["chat_banter_7_2.ogg", "I'm making no promises.", "pbp", 1.136, 0.15]],
+    [["chat_banter_8_0.ogg", "The crowd camera's on you, Geoff. Give them a wave.", "pbp", 2.627, 0.0], ["chat_banter_8_1.ogg", "I'm not dancing, Kate.", "col", 1.541, 0.32], ["chat_banter_8_2.ogg", "Nobody asked you to dance, Geoff.", "pbp", 2.755, 0.15]],
+    [["chat_banter_9_0.ogg", "Geoff, you've got some swagger today.", "pbp", 2.348, 0.0], ["chat_banter_9_1.ogg", "New shoes, Kate. They change a man.", "col", 2.825, 0.32]],
+    [["chat_banter_10_0.ogg", "What's in the sandwich today, Geoff?", "pbp", 4.366, 0.0], ["chat_banter_10_1.ogg", "Cheese and pickle. Same as every day since nineteen ninety.", "col", 3.225, 0.32], ["chat_banter_10_2.ogg", "Living on the edge.", "pbp", 1.28, 0.15]]
+  ],
+  "chat_predict_wicket": [
+    [["chat_predict_wicket_0_0.ogg", "Anything happening for the bowlers, Geoff?", "pbp", 1.706, 0.0], ["chat_predict_wicket_0_1.ogg", "Mark my words, Kate. Wicket this over. I can feel it.", "col", 5.257, 0.32]],
+    [["chat_predict_wicket_1_0.ogg", "Very quiet out there.", "pbp", 1.544, 0.0], ["chat_predict_wicket_1_1.ogg", "Too quiet. Next few balls, Kate, something happens. You heard it here first.", "col", 5.339, 0.32]],
+    [["chat_predict_wicket_2_0.ogg", "Who's on top right now?", "pbp", 1.618, 0.0], ["chat_predict_wicket_2_1.ogg", "The bowler. He's setting him up. Wicket's coming, Kate.", "col", 5.571, 0.32]]
+  ],
+  "chat_predict_six": [
+    [["chat_predict_six_0_0.ogg", "He's looking very relaxed out there.", "pbp", 2.585, 0.0], ["chat_predict_six_0_1.ogg", "He's going to hit one into the stands, Kate. Next few balls. Guaranteed.", "col", 4.28, 0.32]],
+    [["chat_predict_six_1_0.ogg", "Geoff, any predictions?", "pbp", 1.999, 0.0], ["chat_predict_six_1_1.ogg", "Six, Kate. Over midwicket. You can write it down.", "col", 6.201, 0.32], ["chat_predict_six_1_2.ogg", "I'm writing it down, Geoff.", "pbp", 3.399, 0.15]]
+  ],
+  "chat_praise_batter": [
+    [["chat_praise_batter_0_0.ogg", "He hasn't played a false shot all day, has he?", "pbp", 2.056, 0.0], ["chat_praise_batter_0_1.ogg", "Oh, Kate. Why would you say that?", "col", 2.283, 0.32], ["chat_praise_batter_0_2.ogg", "What? It's true!", "pbp", 1.959, 0.15]],
+    [["chat_praise_batter_1_0.ogg", "He looks completely settled now.", "pbp", 3.514, 0.0], ["chat_praise_batter_1_1.ogg", "You've done it now, Kate. You've jinxed him.", "col", 2.485, 0.32]]
+  ],
+  "gag_told_you": [
+    [["gag_told_you_0_0.ogg", "Told you! Didn't I tell you, Kate?", "col", 2.376, 0.0], ["gag_told_you_0_1.ogg", "Alright, Geoff. Even a broken clock.", "pbp", 2.851, 0.2]],
+    [["gag_told_you_1_0.ogg", "What did I say? What did I say, Kate?", "col", 4.054, 0.0], ["gag_told_you_1_1.ogg", "Yes, Geoff. You're a genius. We'll get you a medal.", "pbp", 3.606, 0.2]],
+    [["gag_told_you_2_0.ogg", "Called it! I called that!", "col", 2.221, 0.0], ["gag_told_you_2_1.ogg", "He's going to be unbearable now.", "pbp", 3.738, 0.2]]
+  ],
+  "gag_six_called": [
+    [["gag_six_called_0_0.ogg", "Six! What did I tell you, Kate?", "col", 2.816, 0.0], ["gag_six_called_0_1.ogg", "Fine. You were right. Once.", "pbp", 2.511, 0.2]],
+    [["gag_six_called_1_0.ogg", "Into the stands, just like I said!", "col", 2.734, 0.0], ["gag_six_called_1_1.ogg", "Don't let it go to your head, Geoff.", "pbp", 5.195, 0.2]]
+  ],
+  "gag_six_jinx": [
+    [["gag_six_jinx_0_0.ogg", "So much for your six, Geoff.", "pbp", 3.078, 0.0], ["gag_six_jinx_0_1.ogg", "He was meant to hit it, Kate, not get out.", "col", 2.253, 0.32]],
+    [["gag_six_jinx_1_0.ogg", "Geoff, weren't you predicting a six?", "pbp", 4.38, 0.0], ["gag_six_jinx_1_1.ogg", "I was. I'd like that to be struck from the record.", "col", 3.481, 0.32]]
+  ],
+  "gag_jinx": [
+    [["gag_jinx_0_0.ogg", "You jinxed him, Kate. You absolutely jinxed him.", "col", 3.296, 0.0], ["gag_jinx_0_1.ogg", "I did not! I said one nice thing!", "pbp", 4.199, 0.2]],
+    [["gag_jinx_1_0.ogg", "And there it is. The commentator's curse.", "col", 3.264, 0.0], ["gag_jinx_1_1.ogg", "Alright, alright. I'm not saying anything nice ever again.", "pbp", 3.362, 0.2]]
+  ],
+  "chat_general": [
+    [["chat_general_0_0.ogg", "Lovely atmosphere here at the Oval.", "pbp", 2.365, 0.0], ["chat_general_0_1.ogg", "Wonderful, Kate. Proper cricket crowd. They know their stuff.", "col", 2.768, 0.32]],
+    [["chat_general_1_0.ogg", "Geoff, you played here, didn't you?", "pbp", 1.898, 0.0], ["chat_general_1_1.ogg", "Many times, Kate. Got a pair here once. Don't mention it.", "col", 3.399, 0.32], ["chat_general_1_2.ogg", "I won't, Geoff.", "pbp", 3.269, 0.1]],
+    [["chat_general_2_0.ogg", "Sun's out, crowd's in. Perfect day for it.", "pbp", 2.695, 0.0], ["chat_general_2_1.ogg", "Couldn't ask for more. Apart from a cup of tea, perhaps.", "col", 2.844, 0.32]],
+    [["chat_general_3_0.ogg", "What are you looking for in the next few overs?", "pbp", 2.012, 0.0], ["chat_general_3_1.ogg", "A wicket, Kate. That's always the answer. A wicket.", "col", 4.635, 0.32]],
+    [["chat_general_4_0.ogg", "The fielders are moving around a lot.", "pbp", 2.076, 0.0], ["chat_general_4_1.ogg", "The captain's thinking. I like an active captain.", "col", 2.966, 0.32]],
+    [["chat_general_5_0.ogg", "Geoff, what's the plan for the bowlers here?", "pbp", 2.192, 0.0], ["chat_general_5_1.ogg", "I'll tell you what, Kate. Take the pace off. Make him supply his own power.", "col", 4.462, 0.32]],
+    [["chat_general_6_0.ogg", "The noise in this ground is incredible.", "pbp", 2.479, 0.0], ["chat_general_6_1.ogg", "Six-hitting does that, Kate. Everybody wants a souvenir.", "col", 3.734, 0.32]]
+  ]
+},
+"need": {
+  "1:6": ["need_1_6.ogg", "Just one run needed off the last over.", "pbp", 1.899],
+  "2:6": ["need_2_6.ogg", "Two runs needed off the last over.", "pbp", 2.008],
+  "3:6": ["need_3_6.ogg", "Three runs needed off the last over.", "pbp", 2.035],
+  "4:6": ["need_4_6.ogg", "They need four off the last over.", "pbp", 2.071],
+  "5:6": ["need_5_6.ogg", "They need five off the last over.", "pbp", 2.563],
+  "6:6": ["need_6_6.ogg", "They need six off the last over.", "pbp", 1.95],
+  "7:6": ["need_7_6.ogg", "They need seven off the last over.", "pbp", 1.936],
+  "8:6": ["need_8_6.ogg", "They need eight off the last over.", "pbp", 2.138],
+  "9:6": ["need_9_6.ogg", "They need nine off the last over.", "pbp", 1.854],
+  "10:6": ["need_10_6.ogg", "They need ten off the last over.", "pbp", 1.925],
+  "11:6": ["need_11_6.ogg", "They need eleven off the last over.", "pbp", 2.105],
+  "12:6": ["need_12_6.ogg", "They need twelve off the last over.", "pbp", 2.114],
+  "13:6": ["need_13_6.ogg", "They need thirteen off the last over.", "pbp", 2.397],
+  "14:6": ["need_14_6.ogg", "They need fourteen off the last over.", "pbp", 1.789],
+  "15:6": ["need_15_6.ogg", "They need fifteen off the last over.", "pbp", 2.055],
+  "16:6": ["need_16_6.ogg", "They need sixteen off the last over.", "pbp", 2.546],
+  "17:6": ["need_17_6.ogg", "They need seventeen off the last over.", "pbp", 2.41],
+  "18:6": ["need_18_6.ogg", "They need eighteen off the last over.", "pbp", 2.269],
+  "19:6": ["need_19_6.ogg", "They need nineteen off the last over.", "pbp", 2.095],
+  "20:6": ["need_20_6.ogg", "They need twenty off the last over.", "pbp", 2.15],
+  "21:6": ["need_21_6.ogg", "They need twenty one off the last over.", "pbp", 2.371],
+  "22:6": ["need_22_6.ogg", "They need twenty two off the last over.", "pbp", 2.029],
+  "23:6": ["need_23_6.ogg", "They need twenty three off the last over.", "pbp", 2.135],
+  "24:6": ["need_24_6.ogg", "They need twenty four off the last over.", "pbp", 2.355],
+  "25:6": ["need_25_6.ogg", "They need twenty five off the last over.", "pbp", 2.115],
+  "26:6": ["need_26_6.ogg", "They need twenty six off the last over.", "pbp", 2.268],
+  "27:6": ["need_27_6.ogg", "They need twenty seven off the last over.", "pbp", 2.285],
+  "28:6": ["need_28_6.ogg", "They need twenty eight off the last over.", "pbp", 2.211],
+  "29:6": ["need_29_6.ogg", "They need twenty nine off the last over.", "pbp", 2.041],
+  "30:6": ["need_30_6.ogg", "They need thirty off the last over.", "pbp", 1.875],
+  "31:6": ["need_31_6.ogg", "They need thirty one off the last over.", "pbp", 2.192],
+  "32:6": ["need_32_6.ogg", "They need thirty two off the last over.", "pbp", 2.345],
+  "33:6": ["need_33_6.ogg", "They need thirty three off the last over.", "pbp", 2.167],
+  "34:6": ["need_34_6.ogg", "They need thirty four off the last over.", "pbp", 2.269],
+  "35:6": ["need_35_6.ogg", "They need thirty five off the last over.", "pbp", 2.078],
+  "36:6": ["need_36_6.ogg", "They need thirty six off the last over.", "pbp", 2.438],
+  "1:12": ["need_1_12.ogg", "Just one run needed from the last two overs.", "pbp", 2.541],
+  "2:12": ["need_2_12.ogg", "They need two from the last two overs.", "pbp", 1.738],
+  "3:12": ["need_3_12.ogg", "They need three from the last two overs.", "pbp", 2.243],
+  "4:12": ["need_4_12.ogg", "They need four from the last two overs.", "pbp", 2.223],
+  "5:12": ["need_5_12.ogg", "They need five from the last two overs.", "pbp", 1.966],
+  "6:12": ["need_6_12.ogg", "They need six from the last two overs.", "pbp", 2.003],
+  "7:12": ["need_7_12.ogg", "They need seven from the last two overs.", "pbp", 2.298],
+  "8:12": ["need_8_12.ogg", "They need eight from the last two overs.", "pbp", 2.105],
+  "9:12": ["need_9_12.ogg", "They need nine from the last two overs.", "pbp", 2.386],
+  "10:12": ["need_10_12.ogg", "They need ten from the last two overs.", "pbp", 2.141],
+  "11:12": ["need_11_12.ogg", "They need eleven from the last two overs.", "pbp", 2.141],
+  "12:12": ["need_12_12.ogg", "They need twelve from the last two overs.", "pbp", 2.006],
+  "13:12": ["need_13_12.ogg", "They need thirteen from the last two overs.", "pbp", 2.635],
+  "14:12": ["need_14_12.ogg", "They need fourteen from the last two overs.", "pbp", 2.061],
+  "15:12": ["need_15_12.ogg", "They need fifteen from the last two overs.", "pbp", 2.291],
+  "16:12": ["need_16_12.ogg", "They need sixteen from the last two overs.", "pbp", 2.2],
+  "17:12": ["need_17_12.ogg", "They need seventeen from the last two overs.", "pbp", 2.129],
+  "18:12": ["need_18_12.ogg", "They need eighteen from the last two overs.", "pbp", 2.333],
+  "19:12": ["need_19_12.ogg", "They need nineteen from the last two overs.", "pbp", 2.495],
+  "20:12": ["need_20_12.ogg", "They need twenty from the last two overs.", "pbp", 2.416],
+  "21:12": ["need_21_12.ogg", "They need twenty one from the last two overs.", "pbp", 2.151],
+  "22:12": ["need_22_12.ogg", "They need twenty two from the last two overs.", "pbp", 1.839],
+  "23:12": ["need_23_12.ogg", "They need twenty three from the last two overs.", "pbp", 1.885],
+  "24:12": ["need_24_12.ogg", "They need twenty four from the last two overs.", "pbp", 2.354],
+  "25:12": ["need_25_12.ogg", "They need twenty five from the last two overs.", "pbp", 1.989],
+  "26:12": ["need_26_12.ogg", "They need twenty six from the last two overs.", "pbp", 2.372],
+  "27:12": ["need_27_12.ogg", "They need twenty seven from the last two overs.", "pbp", 2.438],
+  "28:12": ["need_28_12.ogg", "They need twenty eight from the last two overs.", "pbp", 2.393],
+  "29:12": ["need_29_12.ogg", "They need twenty nine from the last two overs.", "pbp", 2.308],
+  "30:12": ["need_30_12.ogg", "They need thirty from the last two overs.", "pbp", 2.736],
+  "31:12": ["need_31_12.ogg", "They need thirty one from the last two overs.", "pbp", 1.999],
+  "32:12": ["need_32_12.ogg", "They need thirty two from the last two overs.", "pbp", 2.23],
+  "33:12": ["need_33_12.ogg", "They need thirty three from the last two overs.", "pbp", 2.292],
+  "34:12": ["need_34_12.ogg", "They need thirty four from the last two overs.", "pbp", 2.603],
+  "35:12": ["need_35_12.ogg", "They need thirty five from the last two overs.", "pbp", 2.665],
+  "36:12": ["need_36_12.ogg", "They need thirty six from the last two overs.", "pbp", 2.29],
+  "37:12": ["need_37_12.ogg", "They need thirty seven from the last two overs.", "pbp", 2.172],
+  "38:12": ["need_38_12.ogg", "They need thirty eight from the last two overs.", "pbp", 2.493],
+  "39:12": ["need_39_12.ogg", "They need thirty nine from the last two overs.", "pbp", 2.248],
+  "40:12": ["need_40_12.ogg", "They need forty from the last two overs.", "pbp", 2.208],
+  "41:12": ["need_41_12.ogg", "They need forty one from the last two overs.", "pbp", 2.394],
+  "42:12": ["need_42_12.ogg", "They need forty two from the last two overs.", "pbp", 2.219],
+  "43:12": ["need_43_12.ogg", "They need forty three from the last two overs.", "pbp", 2.323],
+  "44:12": ["need_44_12.ogg", "They need forty four from the last two overs.", "pbp", 2.135],
+  "45:12": ["need_45_12.ogg", "They need forty five from the last two overs.", "pbp", 2.54],
+  "46:12": ["need_46_12.ogg", "They need forty six from the last two overs.", "pbp", 2.286],
+  "47:12": ["need_47_12.ogg", "They need forty seven from the last two overs.", "pbp", 2.442],
+  "48:12": ["need_48_12.ogg", "They need forty eight from the last two overs.", "pbp", 2.435],
+  "1:18": ["need_1_18.ogg", "Just one run needed from the last three overs.", "pbp", 2.524],
+  "2:18": ["need_2_18.ogg", "They need two from the last three overs.", "pbp", 2.589],
+  "3:18": ["need_3_18.ogg", "They need three from the last three overs.", "pbp", 1.863],
+  "4:18": ["need_4_18.ogg", "They need four from the last three overs.", "pbp", 2.035],
+  "5:18": ["need_5_18.ogg", "They need five from the last three overs.", "pbp", 1.912],
+  "6:18": ["need_6_18.ogg", "They need six from the last three overs.", "pbp", 2.373],
+  "7:18": ["need_7_18.ogg", "They need seven from the last three overs.", "pbp", 1.97],
+  "8:18": ["need_8_18.ogg", "They need eight from the last three overs.", "pbp", 1.854],
+  "9:18": ["need_9_18.ogg", "They need nine from the last three overs.", "pbp", 2.075],
+  "10:18": ["need_10_18.ogg", "They need ten from the last three overs.", "pbp", 2.139],
+  "11:18": ["need_11_18.ogg", "They need eleven from the last three overs.", "pbp", 2.457],
+  "12:18": ["need_12_18.ogg", "They need twelve from the last three overs.", "pbp", 1.987],
+  "13:18": ["need_13_18.ogg", "They need thirteen from the last three overs.", "pbp", 2.33],
+  "14:18": ["need_14_18.ogg", "They need fourteen from the last three overs.", "pbp", 2.303],
+  "15:18": ["need_15_18.ogg", "They need fifteen from the last three overs.", "pbp", 2.224],
+  "16:18": ["need_16_18.ogg", "They need sixteen from the last three overs.", "pbp", 2.851],
+  "17:18": ["need_17_18.ogg", "They need seventeen from the last three overs.", "pbp", 2.35],
+  "18:18": ["need_18_18.ogg", "They need eighteen from the last three overs.", "pbp", 2.819],
+  "19:18": ["need_19_18.ogg", "They need nineteen from the last three overs.", "pbp", 2.362],
+  "20:18": ["need_20_18.ogg", "They need twenty from the last three overs.", "pbp", 2.196],
+  "21:18": ["need_21_18.ogg", "They need twenty one from the last three overs.", "pbp", 2.52],
+  "22:18": ["need_22_18.ogg", "They need twenty two from the last three overs.", "pbp", 2.684],
+  "23:18": ["need_23_18.ogg", "They need twenty three from the last three overs.", "pbp", 2.633],
+  "24:18": ["need_24_18.ogg", "They need twenty four from the last three overs.", "pbp", 2.326],
+  "25:18": ["need_25_18.ogg", "They need twenty five from the last three overs.", "pbp", 2.243],
+  "26:18": ["need_26_18.ogg", "They need twenty six from the last three overs.", "pbp", 2.309],
+  "27:18": ["need_27_18.ogg", "They need twenty seven from the last three overs.", "pbp", 2.084],
+  "28:18": ["need_28_18.ogg", "They need twenty eight from the last three overs.", "pbp", 2.152],
+  "29:18": ["need_29_18.ogg", "They need twenty nine from the last three overs.", "pbp", 2.07],
+  "30:18": ["need_30_18.ogg", "They need thirty from the last three overs.", "pbp", 2.094],
+  "31:18": ["need_31_18.ogg", "They need thirty one from the last three overs.", "pbp", 2.378],
+  "32:18": ["need_32_18.ogg", "They need thirty two from the last three overs.", "pbp", 2.417],
+  "33:18": ["need_33_18.ogg", "They need thirty three from the last three overs.", "pbp", 2.716],
+  "34:18": ["need_34_18.ogg", "They need thirty four from the last three overs.", "pbp", 2.416],
+  "35:18": ["need_35_18.ogg", "They need thirty five from the last three overs.", "pbp", 2.211],
+  "36:18": ["need_36_18.ogg", "They need thirty six from the last three overs.", "pbp", 2.947],
+  "37:18": ["need_37_18.ogg", "They need thirty seven from the last three overs.", "pbp", 2.115],
+  "38:18": ["need_38_18.ogg", "They need thirty eight from the last three overs.", "pbp", 2.396],
+  "39:18": ["need_39_18.ogg", "They need thirty nine from the last three overs.", "pbp", 2.404],
+  "40:18": ["need_40_18.ogg", "They need forty from the last three overs.", "pbp", 2.375],
+  "41:18": ["need_41_18.ogg", "They need forty one from the last three overs.", "pbp", 2.334],
+  "42:18": ["need_42_18.ogg", "They need forty two from the last three overs.", "pbp", 2.388],
+  "43:18": ["need_43_18.ogg", "They need forty three from the last three overs.", "pbp", 2.118],
+  "44:18": ["need_44_18.ogg", "They need forty four from the last three overs.", "pbp", 2.584],
+  "45:18": ["need_45_18.ogg", "They need forty five from the last three overs.", "pbp", 2.279],
+  "46:18": ["need_46_18.ogg", "They need forty six from the last three overs.", "pbp", 2.313],
+  "47:18": ["need_47_18.ogg", "They need forty seven from the last three overs.", "pbp", 2.606],
+  "48:18": ["need_48_18.ogg", "They need forty eight from the last three overs.", "pbp", 2.568],
+  "1:24": ["need_1_24.ogg", "Just one run needed from the last four overs.", "pbp", 2.671],
+  "2:24": ["need_2_24.ogg", "They need two from the last four overs.", "pbp", 2.41],
+  "3:24": ["need_3_24.ogg", "They need three from the last four overs.", "pbp", 2.004],
+  "4:24": ["need_4_24.ogg", "They need four from the last four overs.", "pbp", 2.32],
+  "5:24": ["need_5_24.ogg", "They need five from the last four overs.", "pbp", 2.203],
+  "6:24": ["need_6_24.ogg", "They need six from the last four overs.", "pbp", 2.064],
+  "7:24": ["need_7_24.ogg", "They need seven from the last four overs.", "pbp", 2.416],
+  "8:24": ["need_8_24.ogg", "They need eight from the last four overs.", "pbp", 1.943],
+  "9:24": ["need_9_24.ogg", "They need nine from the last four overs.", "pbp", 2.501],
+  "10:24": ["need_10_24.ogg", "They need ten from the last four overs.", "pbp", 2.121],
+  "11:24": ["need_11_24.ogg", "They need eleven from the last four overs.", "pbp", 2.311],
+  "12:24": ["need_12_24.ogg", "They need twelve from the last four overs.", "pbp", 1.966],
+  "13:24": ["need_13_24.ogg", "They need thirteen from the last four overs.", "pbp", 2.254],
+  "14:24": ["need_14_24.ogg", "They need fourteen from the last four overs.", "pbp", 2.177],
+  "15:24": ["need_15_24.ogg", "They need fifteen from the last four overs.", "pbp", 2.37],
+  "16:24": ["need_16_24.ogg", "They need sixteen from the last four overs.", "pbp", 2.726],
+  "17:24": ["need_17_24.ogg", "They need seventeen from the last four overs.", "pbp", 2.095],
+  "18:24": ["need_18_24.ogg", "They need eighteen from the last four overs.", "pbp", 2.697],
+  "19:24": ["need_19_24.ogg", "They need nineteen from the last four overs.", "pbp", 2.18],
+  "20:24": ["need_20_24.ogg", "They need twenty from the last four overs.", "pbp", 2.11],
+  "21:24": ["need_21_24.ogg", "They need twenty one from the last four overs.", "pbp", 2.035],
+  "22:24": ["need_22_24.ogg", "They need twenty two from the last four overs.", "pbp", 2.604],
+  "23:24": ["need_23_24.ogg", "They need twenty three from the last four overs.", "pbp", 2.691],
+  "24:24": ["need_24_24.ogg", "They need twenty four from the last four overs.", "pbp", 2.283],
+  "25:24": ["need_25_24.ogg", "They need twenty five from the last four overs.", "pbp", 2.331],
+  "26:24": ["need_26_24.ogg", "They need twenty six from the last four overs.", "pbp", 2.544],
+  "27:24": ["need_27_24.ogg", "They need twenty seven from the last four overs.", "pbp", 2.181],
+  "28:24": ["need_28_24.ogg", "They need twenty eight from the last four overs.", "pbp", 2.898],
+  "29:24": ["need_29_24.ogg", "They need twenty nine from the last four overs.", "pbp", 2.312],
+  "30:24": ["need_30_24.ogg", "They need thirty from the last four overs.", "pbp", 1.875],
+  "31:24": ["need_31_24.ogg", "They need thirty one from the last four overs.", "pbp", 2.546],
+  "32:24": ["need_32_24.ogg", "They need thirty two from the last four overs.", "pbp", 2.268],
+  "33:24": ["need_33_24.ogg", "They need thirty three from the last four overs.", "pbp", 2.183],
+  "34:24": ["need_34_24.ogg", "They need thirty four from the last four overs.", "pbp", 2.455],
+  "35:24": ["need_35_24.ogg", "They need thirty five from the last four overs.", "pbp", 2.11],
+  "36:24": ["need_36_24.ogg", "They need thirty six from the last four overs.", "pbp", 2.481],
+  "37:24": ["need_37_24.ogg", "They need thirty seven from the last four overs.", "pbp", 2.31],
+  "38:24": ["need_38_24.ogg", "They need thirty eight from the last four overs.", "pbp", 2.169],
+  "39:24": ["need_39_24.ogg", "They need thirty nine from the last four overs.", "pbp", 2.437],
+  "40:24": ["need_40_24.ogg", "They need forty from the last four overs.", "pbp", 2.348],
+  "41:24": ["need_41_24.ogg", "They need forty one from the last four overs.", "pbp", 2.432],
+  "42:24": ["need_42_24.ogg", "They need forty two from the last four overs.", "pbp", 2.24],
+  "43:24": ["need_43_24.ogg", "They need forty three from the last four overs.", "pbp", 2.747],
+  "44:24": ["need_44_24.ogg", "They need forty four from the last four overs.", "pbp", 2.648],
+  "45:24": ["need_45_24.ogg", "They need forty five from the last four overs.", "pbp", 2.437],
+  "46:24": ["need_46_24.ogg", "They need forty six from the last four overs.", "pbp", 2.267],
+  "47:24": ["need_47_24.ogg", "They need forty seven from the last four overs.", "pbp", 2.284],
+  "48:24": ["need_48_24.ogg", "They need forty eight from the last four overs.", "pbp", 2.136]
+},
+"numbers": [
+  ["num_0.ogg", "nought", "pbp", 0.626],
+  ["num_1.ogg", "one", "pbp", 0.46],
+  ["num_2.ogg", "two", "pbp", 0.415],
+  ["num_3.ogg", "three", "pbp", 0.422],
+  ["num_4.ogg", "four", "pbp", 1.502],
+  ["num_5.ogg", "five", "pbp", 0.416],
+  ["num_6.ogg", "six", "pbp", 0.433],
+  ["num_7.ogg", "seven", "pbp", 0.488],
+  ["num_8.ogg", "eight", "pbp", 0.268],
+  ["num_9.ogg", "nine", "pbp", 0.56],
+  ["num_10.ogg", "ten", "pbp", 0.526],
+  ["num_11.ogg", "eleven", "pbp", 0.699],
+  ["num_12.ogg", "twelve", "pbp", 0.471],
+  ["num_13.ogg", "thirteen", "pbp", 0.81],
+  ["num_14.ogg", "fourteen", "pbp", 0.833],
+  ["num_15.ogg", "fifteen", "pbp", 0.657],
+  ["num_16.ogg", "sixteen", "pbp", 0.724],
+  ["num_17.ogg", "seventeen", "pbp", 0.686],
+  ["num_18.ogg", "eighteen", "pbp", 0.802],
+  ["num_19.ogg", "nineteen", "pbp", 1.375],
+  ["num_20.ogg", "twenty", "pbp", 0.892],
+  ["num_21.ogg", "twenty one", "pbp", 0.956],
+  ["num_22.ogg", "twenty two", "pbp", 0.944],
+  ["num_23.ogg", "twenty three", "pbp", 1.007],
+  ["num_24.ogg", "twenty four", "pbp", 0.946],
+  ["num_25.ogg", "twenty five", "pbp", 0.917],
+  ["num_26.ogg", "twenty six", "pbp", 0.693],
+  ["num_27.ogg", "twenty seven", "pbp", 0.939],
+  ["num_28.ogg", "twenty eight", "pbp", 0.676],
+  ["num_29.ogg", "twenty nine", "pbp", 0.791],
+  ["num_30.ogg", "thirty", "pbp", 0.653],
+  ["num_31.ogg", "thirty one", "pbp", 0.823],
+  ["num_32.ogg", "thirty two", "pbp", 0.749],
+  ["num_33.ogg", "thirty three", "pbp", 0.757],
+  ["num_34.ogg", "thirty four", "pbp", 0.859],
+  ["num_35.ogg", "thirty five", "pbp", 0.688],
+  ["num_36.ogg", "thirty six", "pbp", 0.824],
+  ["num_37.ogg", "thirty seven", "pbp", 0.891],
+  ["num_38.ogg", "thirty eight", "pbp", 0.566],
+  ["num_39.ogg", "thirty nine", "pbp", 0.798],
+  ["num_40.ogg", "forty", "pbp", 0.591],
+  ["num_41.ogg", "forty one", "pbp", 0.713],
+  ["num_42.ogg", "forty two", "pbp", 0.987],
+  ["num_43.ogg", "forty three", "pbp", 0.927],
+  ["num_44.ogg", "forty four", "pbp", 0.937],
+  ["num_45.ogg", "forty five", "pbp", 0.815],
+  ["num_46.ogg", "forty six", "pbp", 0.856],
+  ["num_47.ogg", "forty seven", "pbp", 0.942],
+  ["num_48.ogg", "forty eight", "pbp", 0.626],
+  ["num_49.ogg", "forty nine", "pbp", 0.949],
+  ["num_50.ogg", "fifty", "pbp", 0.606],
+  ["num_51.ogg", "fifty one", "pbp", 0.717],
+  ["num_52.ogg", "fifty two", "pbp", 0.769],
+  ["num_53.ogg", "fifty three", "pbp", 0.895],
+  ["num_54.ogg", "fifty four", "pbp", 0.666],
+  ["num_55.ogg", "fifty five", "pbp", 1.067],
+  ["num_56.ogg", "fifty six", "pbp", 0.67],
+  ["num_57.ogg", "fifty seven", "pbp", 0.861],
+  ["num_58.ogg", "fifty eight", "pbp", 0.726],
+  ["num_59.ogg", "fifty nine", "pbp", 0.758],
+  ["num_60.ogg", "sixty", "pbp", 1.149],
+  ["num_61.ogg", "sixty one", "pbp", 0.757],
+  ["num_62.ogg", "sixty two", "pbp", 0.745],
+  ["num_63.ogg", "sixty three", "pbp", 0.745],
+  ["num_64.ogg", "sixty four", "pbp", 0.83],
+  ["num_65.ogg", "sixty five", "pbp", 1.286],
+  ["num_66.ogg", "sixty six", "pbp", 0.804],
+  ["num_67.ogg", "sixty seven", "pbp", 1.033],
+  ["num_68.ogg", "sixty eight", "pbp", 0.777],
+  ["num_69.ogg", "sixty nine", "pbp", 0.782],
+  ["num_70.ogg", "seventy", "pbp", 0.81],
+  ["num_71.ogg", "seventy one", "pbp", 0.981],
+  ["num_72.ogg", "seventy two", "pbp", 1.107],
+  ["num_73.ogg", "seventy three", "pbp", 0.86],
+  ["num_74.ogg", "seventy four", "pbp", 0.791],
+  ["num_75.ogg", "seventy five", "pbp", 1.085],
+  ["num_76.ogg", "seventy six", "pbp", 0.675],
+  ["num_77.ogg", "seventy seven", "pbp", 0.99],
+  ["num_78.ogg", "seventy eight", "pbp", 0.956],
+  ["num_79.ogg", "seventy nine", "pbp", 0.853],
+  ["num_80.ogg", "eighty", "pbp", 0.68],
+  ["num_81.ogg", "eighty one", "pbp", 0.781],
+  ["num_82.ogg", "eighty two", "pbp", 0.79],
+  ["num_83.ogg", "eighty three", "pbp", 0.768],
+  ["num_84.ogg", "eighty four", "pbp", 0.759],
+  ["num_85.ogg", "eighty five", "pbp", 0.912],
+  ["num_86.ogg", "eighty six", "pbp", 0.785],
+  ["num_87.ogg", "eighty seven", "pbp", 0.892],
+  ["num_88.ogg", "eighty eight", "pbp", 0.838],
+  ["num_89.ogg", "eighty nine", "pbp", 0.85],
+  ["num_90.ogg", "ninety", "pbp", 1.774],
+  ["num_91.ogg", "ninety one", "pbp", 0.792],
+  ["num_92.ogg", "ninety two", "pbp", 1.261],
+  ["num_93.ogg", "ninety three", "pbp", 0.837],
+  ["num_94.ogg", "ninety four", "pbp", 0.92],
+  ["num_95.ogg", "ninety five", "pbp", 0.899],
+  ["num_96.ogg", "ninety six", "pbp", 0.924],
+  ["num_97.ogg", "ninety seven", "pbp", 0.996],
+  ["num_98.ogg", "ninety eight", "pbp", 0.775],
+  ["num_99.ogg", "ninety nine", "pbp", 0.818],
+  ["num_100.ogg", "one hundred", "pbp", 0.575],
+  ["num_101.ogg", "one hundred and one", "pbp", 1.176],
+  ["num_102.ogg", "one hundred and two", "pbp", 0.913],
+  ["num_103.ogg", "one hundred and three", "pbp", 1.025],
+  ["num_104.ogg", "one hundred and four", "pbp", 0.808],
+  ["num_105.ogg", "one hundred and five", "pbp", 1.005],
+  ["num_106.ogg", "one hundred and six", "pbp", 0.657],
+  ["num_107.ogg", "one hundred and seven", "pbp", 0.948],
+  ["num_108.ogg", "one hundred and eight", "pbp", 1.112],
+  ["num_109.ogg", "one hundred and nine", "pbp", 1.218],
+  ["num_110.ogg", "one hundred and ten", "pbp", 0.84],
+  ["num_111.ogg", "one hundred and eleven", "pbp", 0.858],
+  ["num_112.ogg", "one hundred and twelve", "pbp", 1.145],
+  ["num_113.ogg", "one hundred and thirteen", "pbp", 1.254],
+  ["num_114.ogg", "one hundred and fourteen", "pbp", 1.315],
+  ["num_115.ogg", "one hundred and fifteen", "pbp", 0.832],
+  ["num_116.ogg", "one hundred and sixteen", "pbp", 1.139],
+  ["num_117.ogg", "one hundred and seventeen", "pbp", 1.19],
+  ["num_118.ogg", "one hundred and eighteen", "pbp", 1.447],
+  ["num_119.ogg", "one hundred and nineteen", "pbp", 1.286],
+  ["num_120.ogg", "one hundred and twenty", "pbp", 1.444],
+  ["num_121.ogg", "one hundred and twenty one", "pbp", 1.231],
+  ["num_122.ogg", "one hundred and twenty two", "pbp", 1.36],
+  ["num_123.ogg", "one hundred and twenty three", "pbp", 1.192],
+  ["num_124.ogg", "one hundred and twenty four", "pbp", 1.3],
+  ["num_125.ogg", "one hundred and twenty five", "pbp", 1.292],
+  ["num_126.ogg", "one hundred and twenty six", "pbp", 1.316],
+  ["num_127.ogg", "one hundred and twenty seven", "pbp", 1.092],
+  ["num_128.ogg", "one hundred and twenty eight", "pbp", 1.378],
+  ["num_129.ogg", "one hundred and twenty nine", "pbp", 0.944],
+  ["num_130.ogg", "one hundred and thirty", "pbp", 1.325],
+  ["num_131.ogg", "one hundred and thirty one", "pbp", 1.315],
+  ["num_132.ogg", "one hundred and thirty two", "pbp", 1.213],
+  ["num_133.ogg", "one hundred and thirty three", "pbp", 1.385],
+  ["num_134.ogg", "one hundred and thirty four", "pbp", 1.207],
+  ["num_135.ogg", "one hundred and thirty five", "pbp", 1.021],
+  ["num_136.ogg", "one hundred and thirty six", "pbp", 1.238],
+  ["num_137.ogg", "one hundred and thirty seven", "pbp", 1.532],
+  ["num_138.ogg", "one hundred and thirty eight", "pbp", 1.471],
+  ["num_139.ogg", "one hundred and thirty nine", "pbp", 1.061],
+  ["num_140.ogg", "one hundred and forty", "pbp", 0.865],
+  ["num_141.ogg", "one hundred and forty one", "pbp", 1.474],
+  ["num_142.ogg", "one hundred and forty two", "pbp", 1.174],
+  ["num_143.ogg", "one hundred and forty three", "pbp", 1.001],
+  ["num_144.ogg", "one hundred and forty four", "pbp", 1.516],
+  ["num_145.ogg", "one hundred and forty five", "pbp", 1.187],
+  ["num_146.ogg", "one hundred and forty six", "pbp", 1.204],
+  ["num_147.ogg", "one hundred and forty seven", "pbp", 1.323],
+  ["num_148.ogg", "one hundred and forty eight", "pbp", 0.86],
+  ["num_149.ogg", "one hundred and forty nine", "pbp", 1.57],
+  ["num_150.ogg", "one hundred and fifty", "pbp", 1.187],
+  ["num_151.ogg", "one hundred and fifty one", "pbp", 1.242],
+  ["num_152.ogg", "one hundred and fifty two", "pbp", 1.516],
+  ["num_153.ogg", "one hundred and fifty three", "pbp", 1.406],
+  ["num_154.ogg", "one hundred and fifty four", "pbp", 1.286],
+  ["num_155.ogg", "one hundred and fifty five", "pbp", 1.634],
+  ["num_156.ogg", "one hundred and fifty six", "pbp", 1.314],
+  ["num_157.ogg", "one hundred and fifty seven", "pbp", 1.558],
+  ["num_158.ogg", "one hundred and fifty eight", "pbp", 1.174],
+  ["num_159.ogg", "one hundred and fifty nine", "pbp", 1.385],
+  ["num_160.ogg", "one hundred and sixty", "pbp", 1.212],
+  ["num_161.ogg", "one hundred and sixty one", "pbp", 1.525],
+  ["num_162.ogg", "one hundred and sixty two", "pbp", 1.426],
+  ["num_163.ogg", "one hundred and sixty three", "pbp", 1.476],
+  ["num_164.ogg", "one hundred and sixty four", "pbp", 1.399],
+  ["num_165.ogg", "one hundred and sixty five", "pbp", 1.177],
+  ["num_166.ogg", "one hundred and sixty six", "pbp", 1.38],
+  ["num_167.ogg", "one hundred and sixty seven", "pbp", 1.348],
+  ["num_168.ogg", "one hundred and sixty eight", "pbp", 1.623],
+  ["num_169.ogg", "one hundred and sixty nine", "pbp", 1.243],
+  ["num_170.ogg", "one hundred and seventy", "pbp", 1.149],
+  ["num_171.ogg", "one hundred and seventy one", "pbp", 1.228],
+  ["num_172.ogg", "one hundred and seventy two", "pbp", 1.562],
+  ["num_173.ogg", "one hundred and seventy three", "pbp", 1.334],
+  ["num_174.ogg", "one hundred and seventy four", "pbp", 1.7],
+  ["num_175.ogg", "one hundred and seventy five", "pbp", 1.054],
+  ["num_176.ogg", "one hundred and seventy six", "pbp", 1.518],
+  ["num_177.ogg", "one hundred and seventy seven", "pbp", 1.163],
+  ["num_178.ogg", "one hundred and seventy eight", "pbp", 1.499],
+  ["num_179.ogg", "one hundred and seventy nine", "pbp", 1.459],
+  ["num_180.ogg", "one hundred and eighty", "pbp", 0.99],
+  ["num_181.ogg", "one hundred and eighty one", "pbp", 0.888],
+  ["num_182.ogg", "one hundred and eighty two", "pbp", 1.361],
+  ["num_183.ogg", "one hundred and eighty three", "pbp", 1.341],
+  ["num_184.ogg", "one hundred and eighty four", "pbp", 1.215],
+  ["num_185.ogg", "one hundred and eighty five", "pbp", 1.261],
+  ["num_186.ogg", "one hundred and eighty six", "pbp", 1.236],
+  ["num_187.ogg", "one hundred and eighty seven", "pbp", 1.058],
+  ["num_188.ogg", "one hundred and eighty eight", "pbp", 0.896],
+  ["num_189.ogg", "one hundred and eighty nine", "pbp", 1.354],
+  ["num_190.ogg", "one hundred and ninety", "pbp", 1.229],
+  ["num_191.ogg", "one hundred and ninety one", "pbp", 1.379],
+  ["num_192.ogg", "one hundred and ninety two", "pbp", 1.392],
+  ["num_193.ogg", "one hundred and ninety three", "pbp", 1.425],
+  ["num_194.ogg", "one hundred and ninety four", "pbp", 1.093],
+  ["num_195.ogg", "one hundred and ninety five", "pbp", 1.224],
+  ["num_196.ogg", "one hundred and ninety six", "pbp", 1.093],
+  ["num_197.ogg", "one hundred and ninety seven", "pbp", 1.283],
+  ["num_198.ogg", "one hundred and ninety eight", "pbp", 1.404],
+  ["num_199.ogg", "one hundred and ninety nine", "pbp", 1.308],
+  ["num_200.ogg", "two hundred", "pbp", 0.968]
+],
+"fragments": {
+  "they_need": ["frag_they_need.ogg", "They need", "pbp", 0.764],
+  "runs_from": ["frag_runs_from.ogg", "runs from", "pbp", 0.877],
+  "run_from": ["frag_run_from.ogg", "run from", "pbp", 0.843],
+  "balls": ["frag_balls.ogg", "balls.", "pbp", 0.524],
+  "ball": ["frag_ball.ogg", "ball.", "pbp", 0.586],
+  "end_over_score": ["frag_end_over_score.ogg", "End of the over, and they're", "pbp", 2.655],
+  "score_is": ["frag_score_is.ogg", "The score is", "pbp", 0.767],
+  "to_win": ["frag_to_win.ogg", "to win.", "pbp", 0.511],
+  "for_0": ["frag_for_0.ogg", "for none.", "pbp", 0.552],
+  "for_1": ["frag_for_1.ogg", "for one.", "pbp", 0.666],
+  "for_2": ["frag_for_2.ogg", "for two.", "pbp", 0.824],
+  "for_3": ["frag_for_3.ogg", "for three.", "pbp", 0.643],
+  "for_4": ["frag_for_4.ogg", "for four.", "pbp", 0.563],
+  "for_5": ["frag_for_5.ogg", "for five.", "pbp", 0.649],
+  "for_6": ["frag_for_6.ogg", "for six.", "pbp", 0.621],
+  "for_7": ["frag_for_7.ogg", "for seven.", "pbp", 0.655],
+  "for_8": ["frag_for_8.ogg", "for eight.", "pbp", 0.509],
+  "for_9": ["frag_for_9.ogg", "for nine.", "pbp", 0.585],
+  "for_10": ["frag_for_10.ogg", "for ten.", "pbp", 0.528]
+}
+}

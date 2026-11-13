@@ -26,7 +26,7 @@ export class BatterView {
       a.pos.set(this.running.x, 0, this.running.z);
       a.speed = this.running.speed;
       a.turnToward(this.running.heading, dt, 9);
-      a.updateMoving(dt, t, ball);
+      a.updateMoving(dt, t, ball, this.running.diving);
       return;
     }
     this.ai.poseAt(t, this.pose);
@@ -108,7 +108,7 @@ export class NonStrikerView {
       a.pos.set(this.running.x, 0, this.running.z);
       a.speed = this.running.speed;
       a.turnToward(this.running.heading, dt, 9);
-      a.updateMoving(dt, t, ball);
+      a.updateMoving(dt, t, ball, this.running.diving);
       return;
     }
     // Back up during the run-up, drift back afterwards.

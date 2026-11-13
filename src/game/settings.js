@@ -3,7 +3,7 @@
 import { DEFAULT_MACHINE } from '../physics/bowlingMachine.js';
 import { CONFIG } from '../config.js';
 
-const KEY_SETTINGS = 'creasevr.settings.v1';
+const KEY_SETTINGS = 'creasevr.settings.v2';
 const KEY_CAL = 'creasevr.calibration.v1';
 
 export function loadJSON(key) {
@@ -31,7 +31,10 @@ export function defaultSettings() {
     trail: true,
     ballBoost: true,               // draw the ball at a minimum angular size far away
     sound: true,
-    overs: 2,
+    overs: 5,
+    commentary: true,
+    seenHowTo: false,
+    captions: true,
     paceMultiplier: CONFIG.bowling.paceMultiplier,
     batSpeedMultiplier: CONFIG.bat.speedMultiplier,
     hapticsScale: 1.0,

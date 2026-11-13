@@ -41,6 +41,55 @@ export class UI {
     this._o = new THREE.Vector3(); this._d = new THREE.Vector3();
     this.hoverHit = null;
     this.setHudPose('batting');
+
+    // Prompt + caption strip that floats in front of the player (controls
+    // hints, "CATCH IT!", commentary subtitles).
+    this.promptPanel = new CanvasPanel({ width: 1.05, height: 0.26, ppm: 640, name: 'prompt', bg: 'rgba(8,12,20,0.62)', interactive: false });
+    this.promptPanel.mesh.visible = false;
+    this.promptPanel.mesh.renderOrder = 11;
+    this.scene.add(this.promptPanel.mesh);
+    this.promptText = ''; this.promptColor = '#ffffff'; this.promptUntil = 0; this.captionText = ''; this.captionUntil = 0;
+    this._pt = new THREE.Vector3(); this._pq = new THREE.Quaternion(); this._pf = new THREE.Vector3();
+    this.clock = 0;
+  }
+
+  // Big hint line (stays `secs`, or until replaced). Empty string clears it.
+  prompt(text, secs = 3, color = '#ffffff') {
+    if (text === this.promptText && color === this.promptColor) { this.promptUntil = this.clock + secs; return; }
+    this.promptText = text; this.promptColor = color; this.promptUntil = this.clock + secs;
+    this.drawPrompt();
+  }
+  caption(text) {
+    this.captionText = text || '';
+    this.captionUntil = this.clock + (text ? 6 : 0);
+    this.drawPrompt();
+  }
+  drawPrompt() {
+    const P = this.promptPanel, W = [];
+    const p = this.clock < this.promptUntil ? this.promptText : '', c = this.clock < this.captionUntil ? this.captionText : '';
+    if (p) W.push({ type: 'label', x: P.W / 2, y: c ? 52 : 82, text: p, size: p.length > 46 ? 30 : 40, bold: true, align: 'center', color: this.promptColor });
+    if (c) W.push({ type: 'label', x: P.W / 2, y: p ? 118 : 82, text: c.length > 74 ? c.slice(0, 72) + '…' : c, size: 25, align: 'center', color: '#cfe3f5' });
+    P.set(W, '');
+    this.promptShown = !!(p || c);
+  }
+  updatePrompt(dt) {
+    this.clock += dt;
+    const P = this.promptPanel;
+    if (this.promptShown && this.clock >= Math.max(this.promptText ? this.promptUntil : 0, this.captionText ? this.captionUntil : 0)) this.drawPrompt();
+    const show = this.promptShown && !this.menuOpen;
+    P.mesh.visible = show;
+    if (!show) return;
+    const head = this.game.input.headPose;
+    this._pq.set(head.q.x, head.q.y, head.q.z, head.q.w);
+    this._pf.set(0, 0, -1).applyQuaternion(this._pq); this._pf.y = 0;
+    if (this._pf.lengthSq() < 1e-6) this._pf.set(0, 0, -1);
+    this._pf.normalize();
+    this._pt.set(head.p.x + this._pf.x * 1.5, head.p.y - 0.5, head.p.z + this._pf.z * 1.5);
+    const m = P.mesh;
+    if (m.position.distanceTo(this._pt) > 3) m.position.copy(this._pt);
+    else m.position.lerp(this._pt, Math.min(1, dt * 5));
+    m.lookAt(head.p.x, head.p.y - 0.1, head.p.z);
+    P.update();
   }
 
   get menuOpen() { return this.menu.mesh.visible; }
@@ -137,24 +186,67 @@ export class UI {
       btn('cal-skip', L(2, 0), g.calibration ? 'Cancel' : 'Use default', () => g.actions.calibSkip());
       P.set(W, '');
     } else if (this.page === 'main') {
-      const L = grid(P, { top: 0.17, bottom: 0.05, cols: 2, rows: 5 });
+      const L = grid(P, { top: 0.15, bottom: 0.04, cols: 2, rows: 6 });
       const playing = !!g.session;
       btn('nets', L(0, 0), 'Nets: Batting', () => g.actions.start('nets'));
       btn('bnets', L(1, 0), 'Nets: Bowling', () => g.actions.start('bowlnets'));
       btn('chase', L(0, 1), `Run Chase (${s.overs} ov)`, () => g.actions.start('chase'));
       btn('over', L(1, 1), 'Bowl an Over', () => g.actions.start('over'));
-      btn('match', L(0, 2), `Match (${s.overs} ov each)`, () => g.actions.start('match'));
+      btn('match', L(0, 2), `Match (${s.overs} overs, 5 wickets)`, () => g.actions.start('match'));
       btn('machine', L(1, 2), 'Bowling machine…', () => this.go('machine'));
-      btn('settings', L(0, 3), 'Settings…', () => this.go('settings'));
-      btn('calib', L(1, 3), 'Calibrate bat', () => g.actions.calibrate());
+      btn('howto', L(0, 3), 'How to play', () => this.go('howto'), { active: !s.seenHowTo });
+      btn('settings', L(1, 3), `Settings… (${s.difficulty})`, () => this.go('settings'));
+      btn('calib', L(0, 4), 'Calibrate bat', () => g.actions.calibrate());
+      btn('recenter', L(1, 4), 'Recenter here', () => g.actions.recenter());
       if (playing) {
-        btn('resume', L(0, 4), 'Resume', () => this.closeMenu(), { active: true });
-        btn('recenter', L(1, 4), 'Recenter here', () => g.actions.recenter());
+        btn('resume', L(0, 5), 'Resume', () => this.closeMenu(), { active: true });
+        btn('quit', L(1, 5), 'End this game', () => g.actions.quit());
       } else {
-        btn('mr', L(0, 4), g.mr ? 'MR: re-place stumps' : 'Mixed reality nets…', () => g.actions.mr());
-        btn('recenter', L(1, 4), 'Recenter here', () => g.actions.recenter());
+        btn('mr', L(0, 5, 2), g.mr ? 'Mixed reality: re-place the stumps' : (g.input.xr ? 'Switch to mixed reality nets' : 'Mixed reality nets (in headset)'), () => g.actions.mr());
       }
       P.set(W, 'CREASE VR');
+    } else if (this.page === 'howto') {
+      const tab = this.howTab || 0;
+      const pages = [
+        ['BATTING', [
+          'Right controller is the bat. The FACE angle at contact decides',
+          'ground or air: face straight = along the ground, open face = lofted.',
+          'Hold TRIGGER: stride down the pitch. Harder to time, more power.',
+          'Hold GRIP (side button): sweep. Swing to the off side = reverse sweep.',
+          'TRIGGER + GRIP: come down and slog-sweep it.',
+          'Left stick (or really stepping): move around in your crease.',
+        ]],
+        ['RUNNING', [
+          'After you hit it:  X = RUN.  The batters stop after each run.',
+          'Press X again once they are home to take another.',
+          'Left TRIGGER = turn back mid-run.   Y = DIVE for the line.',
+          'A throw that beats you to the crease is a RUN OUT.',
+          'Caught out, bowled, LBW, stumped and run out all count. 5 wickets.',
+          'Given out LBW? Press A to review it (1 review per innings).',
+        ]],
+        ['BOWLING', [
+          'Hold right TRIGGER, bowl overarm, let go to release.',
+          'Arm speed = pace. Direction of the hand = line.',
+          'Let go EARLY = full (very early: full toss). LATE = short / bouncer.',
+          'Roll the wrist clockwise = off-break, anticlockwise = leg-break.',
+          'Same roll with the BACK of the hand to the batter = doosra / googly.',
+          'No roll: A = out-swing, B = in-swing. Bowled fast, a roll is a cutter.',
+        ]],
+        ['FIELDING', [
+          'Catch chance: time slows and you become the fielder.',
+          'Reach out and get a hand to the ball — no button.',
+          'When a fielder picks up: A = throw to the keeper, B = bowler\'s end.',
+          'Hit the stumps before the batter is home for a run out.',
+          'Not-out LBW? Press A to review. Umpires signal 4, 6, out and wide.',
+          'Menu: click the LEFT thumbstick (or Y between balls).',
+        ]],
+      ];
+      const [name, lines] = pages[tab];
+      label(P.W / 2, P.H * 0.2, lines.join('\n'), { align: 'center', size: 27 });
+      const L = grid(P, { top: 0.78, bottom: 0.05, cols: 5, rows: 1 });
+      pages.forEach((pg, i) => btn('tab' + i, L(i, 0), pg[0], () => { this.howTab = i; this.go('howto'); }, { active: i === tab, size: 24 }));
+      btn('back', L(4, 0), 'Back', () => { s.seenHowTo = true; g.saveSettings(); this.go('main'); });
+      P.set(W, 'HOW TO PLAY — ' + name);
     } else if (this.page === 'machine') {
       const m = s.machine;
       const L = grid(P, { top: 0.15, bottom: 0.04, cols: 2, rows: 6 });
@@ -192,7 +284,7 @@ export class UI {
       const hw = (L(0, 4).w - 12) / 2, r4 = L(0, 4);
       btn('trail', { x: r4.x, y: r4.y, w: hw, h: r4.h }, `Trail: ${s.trail ? 'ON' : 'OFF'}`, () => g.actions.toggle('trail'), { active: s.trail });
       btn('boost', { x: r4.x + hw + 12, y: r4.y, w: hw, h: r4.h }, `Ball boost: ${s.ballBoost ? 'ON' : 'OFF'}`, () => g.actions.toggle('ballBoost'), { active: s.ballBoost });
-      btn('sound', L(1, 4), `Sound: ${s.sound ? 'ON' : 'OFF'}`, () => g.actions.toggle('sound'), { active: s.sound });
+      btn('sound', L(1, 4), !s.sound ? 'Sound: OFF' : s.commentary ? 'Sound + commentary' : 'Sound, no commentary', () => g.actions.soundCycle(), { active: s.sound });
       btn('relcal', L(0, 5), 'Calibrate bowling release', () => g.actions.bowlCalib());
       const gx = s.guardX;
       const guardName = gx < -0.08 ? 'leg' : gx < -0.02 ? 'mid-leg' : gx < 0.03 ? 'middle' : 'mid-off';
@@ -277,6 +369,7 @@ export class UI {
   }
 
   update() {
+    this.updatePrompt(this.game.realDt || 0.016);
     this.menu.update();
     this.hud.update();
     this.board.update();

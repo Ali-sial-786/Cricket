@@ -18,8 +18,8 @@ export function createSession(game, kind) {
       const target = DEFEND[diff] || 12;
       return new BowlingSession(game, {
         kind: 'over', title: `Bowl an Over · defend ${target - 1}`,
-        innings: new Innings({ balls: 6, wickets: 10, target, batting: 'ai' }),
-        fielders: new FieldController(game, { bowlerFields: false }),
+        innings: new Innings({ balls: 6, wickets: 5, target, batting: 'ai' }),
+        fielders: new FieldController(game, { bowlerFields: false, playerBatting: false }),
         onDone: (inn) => {
           const won = inn.runs < target;
           game.showResult({
@@ -81,7 +81,7 @@ function matchSecondInnings(game, inn1) {
   const target = inn1.runs + 1;
   const inn2 = new Innings({ balls: overs * 6, wickets: wk, target, batting: 'ai', label: 'AI' });
   return new BowlingSession(game, {
-    kind: 'match', title: `Match · defend ${inn1.runs}`, innings: inn2, fielders: new FieldController(game, { bowlerFields: false }),
+    kind: 'match', title: `Match · defend ${inn1.runs}`, innings: inn2, fielders: new FieldController(game, { bowlerFields: false, playerBatting: false }),
     onDone: (i) => {
       const r = i.chaseResult;
       const youWon = r === 'lost';

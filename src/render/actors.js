@@ -162,9 +162,10 @@ export class BowlerActor extends Actor {
 
   // Plan the run-up so the bowling hand passes through `releasePos` at
   // `t + duration`.
-  startRunup(t, releasePos) {
+  startRunup(t, releasePos, kind = 'long') {
     const h = this.h;
-    const dur = 2.7;
+    const dur = { long: 2.7, medium: 2.3, short: 1.6 }[kind] || 2.7;
+    const vTop = { long: 6.4, medium: 5.2, short: 3.2 }[kind] || 6.4;
     const tr = t + dur;
     const L = 0.98;               // fraction of arm reach used (straight arm)
     const psiR = 0.22;            // release angle past vertical (rad)
@@ -189,9 +190,9 @@ export class BowlerActor extends Actor {
     const N = 240, prof = [];
     const vAt = (u) => {                       // u = time relative to release
       const tt = u + dur;
-      if (u < -0.62) return 6.4 * sstep(0, 1.3, tt) + 0.6;
-      if (u < 0) return mix(6.4, 3.4, sstep(-0.62, 0, u));
-      return 3.4 * (1 - sstep(0, 0.9, u));
+      if (u < -0.62) return vTop * sstep(0, Math.min(1.3, dur * 0.5), tt) + 0.6;
+      if (u < 0) return mix(vTop, vTop * 0.53, sstep(-0.62, 0, u));
+      return vTop * 0.53 * (1 - sstep(0, 0.9, u));
     };
     let z = 0;
     for (let i = 0; i <= N; i++) {
@@ -203,6 +204,7 @@ export class BowlerActor extends Actor {
     for (const p of prof) p.z += rootR.z - zAtRelease;
     this.run = { t0: t, tr, dur, prof, rootX: rootR.x, arm, psiR, released: false, vAt };
     this.pos.set(rootR.x, 0, prof[0].z);
+    this.home.set(rootR.x, 0, prof[0].z);
     this.heading = 0;
     this.state = 'runup';
   }
@@ -348,7 +350,7 @@ export class BatterActor extends Actor {
       if (p.C && type !== 'leave') {
         const k = sstep(p.tCommit, (p.Tc ?? p.tCommit + 0.3) - 0.05, t);
         if (p.foot === 'front') {
-          fl.x = mix(fl.x, clamp(p.C.x - 0.3, -0.55, 0.4), k);
+          fl.x = mix(fl.x, clamp(p.C.x - 0.17, -0.55, 0.45), k);
           fl.z = mix(fl.z, clamp(p.C.z + 0.38, -2.15, -1.35), k);
           fr.z = mix(fr.z, fr.z - 0.08, k);
           lean += 0.18 * k; hipsDrop += 0.06 * k;
@@ -407,7 +409,7 @@ export class BatterActor extends Actor {
   }
 
   // Generic locomotion (running between the wickets / walking), carrying the bat.
-  updateMoving(dt, t, look = null) {
+  updateMoving(dt, t, look = null, diving = false) {
     const h = this.h;
     this.mode = 'run';
     this.gait(dt);
@@ -419,7 +421,14 @@ export class BatterActor extends Actor {
       this.footWorld(_a, 0.14, 0.04); this.footWorld(_b, -0.14, 0);
       plantFeet(h, _a, _b, this.forward(_c).multiplyScalar(0.6));
     }
-    if (look) h.lookAt(look, 0.8);
+    if (diving) {                                  // full-length dive for the crease, bat stretched out
+      h.bones.hips.position.y = h.hipsRest.y * 0.42;
+      h.rot('spine', 1.15, 0, 0); h.rot('chest', 0.2, 0, 0); h.rot('neck', -0.7, 0, 0);
+      h.rot('shoulderR', -2.7, 0, -0.1); h.rot('elbowR', -0.05, 0, 0); h.rot('shoulderL', -2.2, 0, 0.3);
+      h.rot('hipL', 0.5, 0, 0.1); h.rot('hipR', 0.9, 0, -0.1); h.rot('kneeL', 0.3, 0, 0); h.rot('kneeR', 0.5, 0, 0);
+      this.apply();
+    }
+    if (look && !diving) h.lookAt(look, 0.8);
     this.carry();
     h.syncShadow();
   }

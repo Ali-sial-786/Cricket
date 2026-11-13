@@ -300,14 +300,17 @@ export class DesktopControls {
     R.connected = true; L.connected = true;
     R.source = null; L.source = null;
     // Left "controller" = mouse pointer for menus.
-    L.buttons.trigger.set(this.mouseDown && this.mode === 'menu');
-    L.buttons.a.set(this.held('Space') || this.held('Enter'));
-    L.buttons.b.set(this.held('Escape') || this.held('KeyM'));
+    // Keyboard stand-ins for the controller buttons (see README).
+    L.buttons.trigger.set((this.mouseDown && this.mode === 'menu') || this.held('KeyG'));   // select / "go back"
+    L.buttons.a.set(this.held('Space') || this.held('Enter'));                              // X: next ball / RUN
+    L.buttons.b.set(this.held('KeyV'));                                                     // Y: dive
+    L.buttons.stick.set(this.held('Escape') || this.held('KeyM'));                          // stick click: menu
     L.stick.x = (this.held('ArrowRight') ? 1 : 0) - (this.held('ArrowLeft') ? 1 : 0);
     L.stick.y = (this.held('ArrowDown') ? 1 : 0) - (this.held('ArrowUp') ? 1 : 0);
     R.buttons.a.set(this.held('KeyZ'));
     R.buttons.b.set(this.held('KeyX'));
-    R.buttons.trigger.set(this.mouseDown && this.mode === 'bowl');
+    R.buttons.trigger.set((this.mouseDown && this.mode === 'bowl') || (this.mode === 'bat' && this.held('ShiftLeft')));  // bowl / come down the pitch
+    R.buttons.squeeze.set(this.mode === 'bat' && this.held('KeyS'));                        // sweep
     L.rayPose.p.set(0, 0, 0);
 
     if (this.mode === 'bowl') this.bowlPose(R);

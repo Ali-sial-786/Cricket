@@ -1,0 +1,59 @@
+Courtside cricket sounds (assets/cricket/audio)
+
+1. Synthesised effects (*.wav): pad, bounce,
+   gloves, stumps, bails, catch, whoosh, coin, footstep_1/2, drs_stinger,
+   chime, cam_whoosh, umpire_out, umpire_not_out.
+   Made from scratch by tools/cricket/make_sounds.py (numpy: filtered noise,
+   resonators, soft additive tones). Original work of the Courtside project,
+   under the project's own licence. (bat_sweet/edge/block.wav are kept only as
+   a fallback; the game plays the recorded bat below.)
+
+2. The recorded ground (*.ogg): crowd_bed, applause_polite_1/2, applause_warm,
+   cheer_four, roar_six, roar_wicket, and the crowd swell under appeal.
+   Cut, filtered and levelled by tools/cricket/build_crowd_sounds.py from these
+   recordings (kept in source/, provenance and sha256 in
+   source/recordings-manifest.json, re-fetch with
+   tools/cricket/fetch_crowd_sources.py). All are CC0 1.0 (public domain
+   dedication, https://creativecommons.org/publicdomain/zero/1.0/), the licence
+   checked on each sound's own page on 2026-10-22. Credit is not required but
+   is given gladly:
+   - "Cricket Ground Ambience" by rupertcole, recorded in the members stand at
+     Edgbaston during England v New Zealand.
+     https://freesound.org/people/rupertcole/sounds/575763/  (crowd_bed)
+   - "R19-34-Golf Crowd Applauds" by craigsmith.
+     https://freesound.org/people/craigsmith/sounds/479967/  (applause_polite_1/2)
+   - "applause cheer ext medium crowd enthusiastic whistling for outdoor show"
+     by kyles. https://freesound.org/people/kyles/sounds/455659/  (applause_warm)
+   - "MLB Crowd Cheer - 09032022" by tylermyers1992.
+     https://freesound.org/people/tylermyers1992/sounds/649156/  (cheer_four)
+   - "CRWDReac-SOCCER Millerntor Stadium Crowd Reaction Excited 01" by
+     itmightgetloud (Philipp Feit, Sound of Sankt Pauli).
+     https://freesound.org/people/itmightgetloud/sounds/829453/  (roar_six,
+     roar_wicket, the swell under appeal)
+
+2b. The bat on the ball (*.ogg, round 4): bat_sweet_1/2/3, bat_edge_1/2,
+   bat_block_1/2. Cut, filtered and driven (soft clip + limiter) by
+   tools/cricket/build_crowd_sounds.py from these CC0 1.0 recordings (licence on
+   each sound's page; the files were taken from the lossless originals in the
+   LAION-630k Freesound mirror, huggingface.co/datasets/benjamin-paine/
+   freesound-laion-640k, because freesound.org refused the download; excerpts
+   in source/, provenance and sha256 in source/recordings-manifest.json):
+   - "Cricket (Sport)" by OroborosNZ: a boy batting and bowling in practice
+     nets, Ferndale Park, Glen Iris, Melbourne.
+     https://freesound.org/people/OroborosNZ/sounds/141249/  (bat_sweet_1/2/3)
+     The uploader asks for a credit ("OroborosNZ on freesound.org"), given here.
+   - "Cricket ball bouncing on a bat" by GH0STY_XD (English willow bat, 135 g
+     match ball). https://freesound.org/people/GH0STY_XD/sounds/594342/
+     (bat_edge_1/2, bat_block_1/2)
+
+3. The appeal voices (howzat.ogg, appeal.ogg): "How's that!" spoken by
+   Kokoro-82M voices (bm_george, bm_lewis, bm_fable, am_fenrir, am_onyx,
+   am_eric, am_michael, am_adam), model and voices Apache-2.0
+   (https://huggingface.co/hexgrad/Kokoro-82M), run with kokoro-onnx (MIT).
+   The raw renders are in source/voices; build_crowd_sounds.py pitches,
+   drives, layers and spreads them into a group appeal.
+
+The game also layers the shared tennis crowd (assets/audio/crowd, CC0, see
+assets/audio/source/recordings-manifest.json) for oohs, groans and sighs,
+and uses two recorded CC0 efforts from assets/audio/sports for the bowler's
+grunt.

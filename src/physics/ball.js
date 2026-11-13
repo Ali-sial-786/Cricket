@@ -34,6 +34,7 @@ export class BallState {
     this.hitWicket = false;
     this.maxHeightSinceBat = 0;
     this.seamRandomScale = 1;   // scales CONFIG.surfaces.seamRandomDeg for this ball
+    this.padded = false;        // struck the batter's pad (dead for bat / keeper logic)
     return this;
   }
   copyFrom(o) {

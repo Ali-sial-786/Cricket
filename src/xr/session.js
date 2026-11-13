@@ -49,6 +49,7 @@ export class XRSessionManager {
       // System recenter (long-press Meta button) resets the reference space.
       const ref = r.xr.getReferenceSpace();
       if (ref && ref.addEventListener) ref.addEventListener('reset', () => { if (this.onReset) this.onReset(); });
+      session.addEventListener('select', () => { if (this.onSelect) this.onSelect(); });
       session.addEventListener('visibilitychange', () => { if (this.onVisibility) this.onVisibility(session.visibilityState); });
       this.applyFrameRate(session);
       if (this.onStart) this.onStart(kind, session);
@@ -99,6 +100,16 @@ export class XRSessionManager {
   }
 
   end() { if (this.session) this.session.end().catch(() => {}); }
+
+  // End the current session and start another kind (must be called from an
+  // XR 'select' event so the browser still counts it as a user gesture).
+  async switchTo(kind) {
+    const s = this.session;
+    if (!s) return this.start(kind);
+    try { await s.end(); } catch { /* already ending */ }
+    for (let i = 0; i < 40 && this.session; i++) await new Promise((r) => setTimeout(r, 25));
+    return this.start(kind);
+  }
 
   _ended() {
     if (!this.session) return;

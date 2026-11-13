@@ -13,14 +13,20 @@ import { InputManager } from '../xr/input.js';
 import { UI } from '../ui/ui.js';
 import { Sfx } from '../audio/sfx.js';
 import { loadSettings, saveSettings, loadCalibration, saveCalibration } from './settings.js';
-import { computeBatOffset, defaultBatOffset, computeRig, headForward } from './calibration.js';
+import { computeBatOffset, defaultBatOffset, computeRig, computeRigFacing, headForward } from './calibration.js';
 import { LENGTH_PRESETS, LINE_PRESETS } from '../physics/bowlingMachine.js';
 import { createSession } from './modes.js';
 import { MRPlacer } from '../xr/mr.js';
 import { AIBatter } from './aiBatter.js';
-import { BatterView, BowlerView, FieldView, NonStrikerView, RunningController, PlayerBodyView } from '../render/people.js';
+import { BatterView, BowlerView, FieldView, NonStrikerView, PlayerBodyView } from '../render/people.js';
 import { FIELD } from './fielding.js';
 import { Particles } from '../render/particles.js';
+import { Samples } from '../audio/samples.js';
+import { Commentary } from '../audio/commentary.js';
+import { DRSView } from '../render/drsView.js';
+import { UmpireView } from '../render/umpires.js';
+import { BatGeometry } from '../physics/bat.js';
+import { Runs } from './running.js';
 import { ShadowPool, Humanoid } from '../render/humanoid.js';
 
 export const BAT_HEAD = { z: -1.05, legOffset: -0.35 };      // head relative to guard (hand) x
@@ -72,7 +78,9 @@ export class Game {
     this.figures = { bowler: new BowlerView(scene) };
     this.fieldView = new FieldView(scene, FIELD);
     this.nonStrikerView = new NonStrikerView(scene);
-    this.runners = new RunningController();
+    this.runs = new Runs(CONFIG);
+    this.umpires = new UmpireView(scene);
+    this.drs = new DRSView(scene);
     this.playerBody = new PlayerBodyView(scene);
     this.particles = new Particles(scene);
     this.ballOverride = null;   // fielding drives the ball view after a catch / pick-up
@@ -80,7 +88,26 @@ export class Game {
     this.input = new InputManager(renderer, rig, camera, dom);
     this.sfx = new Sfx();
     this.sfx.setEnabled(this.settings.sound);
+    this.samples = new Samples(this.sfx);
+    this.commentary = new Commentary({ sfx: this.sfx, rng: () => this.rng() });
+    this.commentary.onCaption = (text) => { if (this.ui && this.settings.captions) this.ui.caption(text); };
+    this.commentary.load().catch((e) => console.warn('Commentary unavailable', e));
+    this.commentary.setEnabled(this.settings.commentary && this.settings.sound);
     this.ui = new UI(this);
+    this.timeScale = 1;              // current game-time scale (slow motion)
+    this.timeScaleTarget = 1;
+    this.rigOffset = { x: 0, z: 0 }; // stick movement / coming down the pitch
+    this.viewOverride = null;        // temporary rig (catching)
+    this.clock = 0;                  // real seconds since start
+    this.catchMarker = new THREE.Mesh(new THREE.TorusGeometry(0.2, 0.012, 6, 28), new THREE.MeshBasicMaterial({ color: 0xffd34d, transparent: true, opacity: 0.85, depthTest: false }));
+    this.catchMarker.visible = false; this.catchMarker.renderOrder = 5;
+    scene.add(this.catchMarker);
+    this.handMarkers = [0, 1].map(() => {
+      const m = new THREE.Mesh(new THREE.SphereGeometry(0.085, 12, 8), new THREE.MeshLambertMaterial({ color: 0xf2f2f2, emissive: 0x333333, transparent: true, opacity: 0.75 }));
+      m.visible = false; scene.add(m); return m;
+    });
+    this._hands = [new Vec3(), new Vec3()];
+    this.applyDifficulty();
 
     this.simTime = 0;
     this.lastNow = null;
@@ -112,7 +139,29 @@ export class Game {
     CONFIG.bat.speedMultiplier = this.settings.batSpeedMultiplier;
     this.input && (this.input.right.hapticsScale = this.input.left.hapticsScale = this.settings.hapticsScale);
   }
-  saveSettings() { saveSettings(this.settings); this.applySettingsToConfig(); }
+  saveSettings() {
+    saveSettings(this.settings); this.applySettingsToConfig();
+    if (this.commentary) this.commentary.setEnabled(this.settings.commentary && this.settings.sound);
+  }
+
+  get diff() { return CONFIG.difficulty[this.settings.difficulty] || CONFIG.difficulty.medium; }
+
+  // Difficulty changes the player's bat hit-zone (invisible assist).
+  applyDifficulty() {
+    const a = this.diff.batAssist;
+    const c = { ...CONFIG.bat, bladeWidth: CONFIG.bat.bladeWidth * a, bladeThickness: CONFIG.bat.bladeThickness * (1 + (a - 1) * 0.6), sweetSpotSigma: CONFIG.bat.sweetSpotSigma * (1 + (a - 1) * 0.8) };
+    this.playerBat.geom = new BatGeometry(c);
+  }
+
+  // Unit vector out of the right palm (world), from the calibrated bat face.
+  palmDir(out) {
+    const base = this.input.xr ? (this.calibration || defaultBatOffset()) : _identity;
+    return out.set(0, 0, 1).applyQuat(base).applyQuat(this.input.right.gripPose.q);
+  }
+
+  // Short commentary / crowd helpers (never throw).
+  say(kind, ctx) { try { this.commentary.say(kind, ctx || {}); } catch { /* optional */ } }
+  sample(name, opts) { try { return this.samples.play(name, opts); } catch { return false; } }
 
   get difficulty() { return this.settings.difficulty; }
 
@@ -156,9 +205,62 @@ export class Game {
     this.setRig(r);
   }
 
+  // Temporarily put the player somewhere else, facing (dirX, dirZ) — used
+  // for catching chances.
+  beginViewOverride(x, z, dirX, dirZ) {
+    this.viewOverride = { x, z, dirX, dirZ };
+    if (this.input.xr) {
+      const head = this.input.headRef;
+      const r = computeRigFacing(head.p, headForward(head.q), x, z, dirX, dirZ);
+      this.rig.position.set(r.x, 0, r.z);
+      this.rig.rotation.set(0, r.yaw, 0);
+      this.rig.updateMatrixWorld(true);
+      this.input.refreshHeadWorld();
+      this.input.right.resetMotion(); this.input.left.resetMotion();
+    } else {
+      this.camera.position.set(x, 1.62, z);
+      this.camera.lookAt(x + dirX * 6, 1.45, z + dirZ * 6);
+      this.camera.updateMatrixWorld(true);
+    }
+  }
+  endViewOverride() {
+    if (!this.viewOverride) return;
+    this.viewOverride = null;
+    for (const m of this.handMarkers) m.visible = false;
+    if (this.input.xr) this.setRig(this.rigState); else this.placeDesktopCamera();
+  }
+
+  // World positions of the player's hands (XR controllers, or a point on the
+  // mouse ray on desktop).
+  playerHands() {
+    const out = [];
+    if (this.input.xr) {
+      if (this.input.left.connected) out.push(this._hands[0].copy(this.input.left.gripPose.p));
+      if (this.input.right.connected) out.push(this._hands[1].copy(this.input.right.gripPose.p));
+    } else {
+      this.input.desktop.mouseRay(_ro, _rd);
+      out.push(this._hands[0].set(_ro.x + _rd.x * 0.55, _ro.y + _rd.y * 0.55, _ro.z + _rd.z * 0.55));
+    }
+    return out;
+  }
+
+  // Move within the crease / down the pitch (added to the anchored rig).
+  setRigOffset(x, z) {
+    if (x === this.rigOffset.x && z === this.rigOffset.z) return;
+    this.rigOffset.x = x; this.rigOffset.z = z;
+    if (this.viewOverride) return;
+    if (this.input.xr) {
+      this.rig.position.set(this.rigState.x + x, 0, this.rigState.z + z);
+      this.rig.updateMatrixWorld(true);
+      this.input.refreshHeadWorld();
+    } else if ((this.desktopView % 5) === 1 && this.end === 'batting') {
+      this.camera.position.set(-0.42 + x, 1.62, -0.85 + z);
+    }
+  }
+
   setRig(r) {
     this.rigState = r;
-    this.rig.position.set(r.x, 0, r.z);
+    this.rig.position.set(r.x + (this.viewOverride ? 0 : this.rigOffset.x), 0, r.z + (this.viewOverride ? 0 : this.rigOffset.z));
     this.rig.rotation.set(0, r.yaw, 0);
     this.rig.updateMatrixWorld(true);
     this.input.right.resetMotion();
@@ -295,7 +397,14 @@ export class Game {
     }
 
     const paused = this.ui.menuOpen && this.state === 'play';
-    if (!paused) this.simTime += dt;
+    // Game-time scale (slow motion for easier difficulties and catching).
+    this.timeScale += (this.timeScaleTarget - this.timeScale) * Math.min(1, dt * 10);
+    if (Math.abs(this.timeScale - this.timeScaleTarget) < 0.005) this.timeScale = this.timeScaleTarget;
+    const realDt = dt;
+    this.clock += dt;
+    const sdt = dt * (this.session ? this.timeScale : 1);
+    this.realDt = realDt;
+    if (!paused) this.simTime += sdt;
     this.input.update(this.simTime, xrFrame);
 
     if (this.pendingRecenter != null && this.input.xr) {
@@ -309,14 +418,23 @@ export class Game {
     if (this.mrPlacer && this.state === 'mrplace') this.mrPlacer.update(xrFrame, dt);
 
     if (!paused) {
-      if (this.session) this.session.update(dt, this.simTime);
+      if (this.session) this.session.update(sdt, this.simTime);
+      this.commentary.update(realDt);
       this.world.advanceTo(this.simTime);
       for (const e of this.world.drainEvents()) this.onPhysicsEvent(e);
     }
-    this.updateViews(dt, paused);
+    this.updateViews(sdt, paused);
+    this.umpires.update(paused ? 0 : realDt, now);
     this.ui.updatePointer(this.input);
     this.ui.update();
     this.env.update(dt, now);
+    // Recorded crowd bed (ducked under the commentary) once audio is unlocked.
+    if (!this.bed && this.sfx.ctx) {
+      this.samples.preload();
+      this.bed = this.samples.loop('crowd_bed', { gain: 0.22 });
+      if (this.bed.ok) this.sfx.setCrowdLevel(0);
+    }
+    if (this.bed && this.bed.ok) this.bed.setGain(!this.settings.sound ? 0 : this.commentary.speaking() ? 0.1 : 0.22, 0.4);
     const cu = this.env.crowd.userData.uniforms;
     cu.uTime.value = now;
     cu.uCheer.value = Math.max(0, cu.uCheer.value - dt * 0.35);
@@ -335,7 +453,10 @@ export class Game {
     const L = this.input.left, R = this.input.right, D = this.input.desktop;
     // Menu toggle: Y (left B) in XR, Esc / M on desktop. Without a left
     // controller, the right thumbstick click does it.
-    const menuBtn = L.buttons.b.down || (this.input.xr && !L.connected && R.buttons.stick.down);
+    // Left thumbstick click always toggles the menu; Y does too unless the
+    // session is using it (diving while running).
+    const yFree = !(this.session && this.session.usesY && this.session.usesY());
+    const menuBtn = L.buttons.stick.down || (L.buttons.b.down && yFree) || (this.input.xr && !L.connected && R.buttons.stick.down);
     if (menuBtn && (this.state === 'play' || this.state === 'menu')) {
       if (this.ui.menuOpen) {
         if (this.session) this.ui.closeMenu();
@@ -358,7 +479,7 @@ export class Game {
     const R = this.input.right;
     const batting = this.session ? !this.session.isBowling : this.state === 'calibrate' || this.state === 'menu';
     const show = batting && R.connected && !(this.state === 'calibrate' && this.calib.step === 'capture' && this.input.xr && !this.calibration);
-    this.batMesh.visible = show && !(this.ui.menuOpen && this.input.xr && this.state !== 'calibrate' && !this.session);
+    this.batMesh.visible = show && !this.viewOverride && !(this.ui.menuOpen && this.input.xr && this.state !== 'calibrate' && !this.session);
     this.playerBat.enabled = batting && !!this.session && !paused && R.connected && R.tracked;
     if (!R.connected || !R.tracked) { this.snapBat = true; return; }
     const off = this.batOffset();
@@ -378,7 +499,7 @@ export class Game {
       if (e.speedIn > 3) this.particles.dust(e.pos, e.speedIn, e.surface !== 'pitch');
       if (!e.batted && e.surface === 'pitch' && e.index === 1) this.pitchMark.show(e.pos);
     } else if (e.type === 'bat') {
-      s.batCrack(e.quality, e.speedIn + e.batSpeed, e.isEdge);
+      this.sample(e.isEdge ? 'bat_edge' : e.quality > 0.55 ? 'bat_sweet' : 'bat_block', { gain: Math.min(1, 0.45 + (e.speedIn + e.batSpeed) / 70) }) || s.batCrack(e.quality, e.speedIn + e.batSpeed, e.isEdge);
       if (e.batId === 'player') {
         const H = CONFIG.haptics;
         const R = this.input.right;
@@ -386,7 +507,8 @@ export class Game {
         else R.pulse(H.contactMin + (H.contactMax - H.contactMin) * e.quality, H.durationMinMs + (H.durationMaxMs - H.durationMinMs) * e.quality);
       }
     } else if (e.type === 'wicket') {
-      s.stumps();
+      this.sample('stumps') || s.stumps();
+      this.sample('bails', { gain: 0.7 });
       this.stumps[e.end].break({ x: 0, y: 0, z: (e.end === 'batting' ? 1 : -1) * e.speed }, e.stump);
       this.particles.splinters({ x: 0, z: e.end === 'batting' ? 0 : -20.12 });
     } else if (e.type === 'boundary' && e.onFull && e.batted) {
@@ -422,6 +544,11 @@ export class Game {
     }
     if (this.session && this.session.updateViews) this.session.updateViews(dt, paused);
     Humanoid.updateLods(this.input.headPose.p);
+    if (this.viewOverride) {
+      const hs = this.playerHands();
+      this.handMarkers.forEach((m, i) => { m.visible = i < hs.length; if (m.visible) m.position.set(hs[i].x, hs[i].y, hs[i].z); });
+      this.catchMarker.lookAt(this.input.headPose.p.x, this.input.headPose.p.y, this.input.headPose.p.z);
+    }
     // Particles (point size needs the per-eye half height).
     this.particles.update(pdtFx(paused, dt), this.input.xr ? 900 : this.renderer.getDrawingBufferSize(_dbs).y / 2);
     // People.
@@ -517,6 +644,7 @@ const _batPose = new Pose();
 const _render = new Vec3();
 const _look = new THREE.Vector3();
 const _dbs = new THREE.Vector2();
+const _ro = new THREE.Vector3(), _rd = new THREE.Vector3();
 const pdtFx = (paused, dt) => (paused ? 0 : dt);
 
 // UI callbacks.
@@ -539,6 +667,12 @@ function makeActions(game) {
     recenter: () => g.recenter(),
     mr: () => {
       if (g.mr) { g.endSession(); g.ui.closeMenu(); if (g.mrPlacer) g.mrPlacer.restart(); return; }
+      if (g.input.xr && g.xrManager) {
+        // Switch straight from VR: needs the trigger's "select" event, which arrives on release.
+        g.wantMR = g.clock;
+        g.ui.setHud({ big: 'Switching to mixed reality…', bigColor: '#5cf2a6', last: 'If nothing happens, exit VR and press "Enter MR nets" on the page.', detail: '' });
+        return;
+      }
       // A new XR session needs a page gesture: point the player at the page button.
       g.ui.setHud({ big: 'Mixed reality', bigColor: '#5cf2a6', last: g.input.xr ? 'Exit VR, then press "Enter MR nets" on the page.' : 'Press "Enter MR nets" on the page (needs a headset).', detail: '' });
     },
@@ -568,9 +702,18 @@ function makeActions(game) {
       persist();
     },
     machineRelease: () => { const m = g.settings.machine; m.release = m.release === 'over' ? 'around' : 'over'; g.machine.setRelease(m.release); persist(); },
+    soundCycle: () => {
+      const s = g.settings;
+      if (s.sound && s.commentary) s.commentary = false;
+      else if (s.sound) s.sound = false;
+      else { s.sound = true; s.commentary = true; }
+      g.sfx.setEnabled(s.sound);
+      if (!s.sound || !s.commentary) g.commentary.stop();
+      persist();
+    },
     toggle: (key) => { g.settings[key] = !g.settings[key]; if (key === 'sound') g.sfx.setEnabled(g.settings.sound); persist(); },
     setting: (key, d, lo, hi) => { g.settings[key] = clamp(Math.round((g.settings[key] + d) * 100) / 100, lo, hi); persist(); },
-    difficulty: (dir) => { const i = clamp(DIFFS.indexOf(g.settings.difficulty) + dir, 0, 2); g.settings.difficulty = DIFFS[i]; persist(); },
+    difficulty: (dir) => { const i = clamp(DIFFS.indexOf(g.settings.difficulty) + dir, 0, 2); g.settings.difficulty = DIFFS[i]; g.applyDifficulty(); persist(); },
     bowlCalib: () => { g.bowlCalibPending = 3; g.sfx.init(); g.startSession('bowlnets'); },
   };
 }

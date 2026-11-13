@@ -1,14 +1,25 @@
-// Batting session: the player bats against the bowling machine (nets) or the
-// AI bowler (run chase / match), optionally with fielders and an innings.
+// Batting session: the player bats against the bowling machine (nets) or an
+// AI bowling attack (run chase / match) with fielders, umpires and an innings.
+//
+// Controls (XR / desktop):
+//   right trigger / Shift   stride down the pitch (more power, harder to time)
+//   right grip / S          sweep (swing toward the off side = reverse sweep;
+//                           with the trigger too = slog sweep)
+//   left stick / arrows     move in the crease
+//   X / Space               RUN (and "next ball" in the nets)
+//   left trigger / G        turn back mid-run        Y / V   dive for the line
+//   A / Z                   review an LBW decision
 import * as THREE from 'three';
 import { CONFIG } from '../config.js';
 import { Vec3, msToKmh, clamp } from '../physics/math.js';
 import { PITCH, lengthName, lineName, groundDistance, battingPoppingZ } from '../physics/pitch.js';
 import { machineDelivery } from '../physics/bowlingMachine.js';
 import { predict } from '../physics/trajectory.js';
+import { LbwFlow, padHit, deflectOffPad } from './lbwFlow.js';
 
 const KMH = (v) => Math.round(msToKmh(v));
 const _hand = new THREE.Vector3();
+const STANCE = { x: -0.4, z: -1.05 };
 
 export class BattingSession {
   constructor(game, { kind = 'nets', title = 'Nets · Batting', innings = null, bowler = 'machine', fielders = null, aiBowler = null, onDone = null } = {}) {
@@ -17,16 +28,22 @@ export class BattingSession {
     this.title = title;
     this.innings = innings;
     this.bowler = bowler;          // 'machine' | 'ai'
-    this.field = fielders;         // Fielding controller or null
-    this.aiBowler = aiBowler;      // AIBowler (picks deliveries) or null
-    this.bowlerFig = null;         // BowlerFigure view (ai)
+    this.field = fielders;         // FieldController or null
+    this.aiBowler = aiBowler;
+    this.bowlerFig = null;
     this.onDone = onDone;
     this.isBowling = false;
     this.state = 'idle';
     this.timer = 1.2;
     this.stats = { balls: 0, fours: 0, sixes: 0, middled: 0, edges: 0, bowled: 0, bestCarry: 0 };
-    this.lastText = '';
     this.done = false;
+    this.crease = { x: 0, z: 0 };
+    this.advance = 0;
+    this.reviews = { player: CONFIG.match.reviews, ai: CONFIG.match.reviews };
+    this.lbw = new LbwFlow(game, this.reviews);
+    this.path = [];
+    this.partnership = 0;
+    this.dots = 0;
   }
 
   enter() {
@@ -43,9 +60,16 @@ export class BattingSession {
     g.batterView.show(false);
     g.nonStrikerView.show(!!this.innings);
     g.nonStrikerView.reset();
+    g.umpires.place(false);
+    g.umpires.show(!!this.field);
     if (this.field) this.field.enter();
     this.resetEnds();
     this.updateHud();
+    if (this.innings) {
+      g.say('toss', { choice: this.innings.target != null ? 'bowl' : 'bat' });
+      g.say('innings', { chase: this.innings.target != null });
+    }
+    g.ui.prompt(this.field ? 'Trigger: step out · Grip: sweep · X: run' : 'Trigger: step out · Grip: sweep · X: next ball', 6);
   }
 
   exit() {
@@ -54,12 +78,20 @@ export class BattingSession {
     if (this.bowlerFig) this.bowlerFig.show(false);
     if (this.field) this.field.exit();
     g.nonStrikerView.show(false);
+    g.umpires.show(false);
     g.ballOverride = null;
+    g.timeScaleTarget = 1;
+    g.setRigOffset(0, 0);
+    g.playerBat.mods = null;
+    g.drs.hide();
   }
 
   footer() {
-    return this.game.input.xr ? 'X: next ball · Y: menu · hold left grip: recenter' : 'Mouse: bat · Space: next ball · Esc: menu · C: camera';
+    if (this.game.input.xr) return this.field ? 'X run · L-trigger back · Y dive · stick click: menu' : 'X: next ball · left stick click: menu · hold left grip: recenter';
+    return this.field ? 'Space run · G back · V dive · Shift step out · S sweep · Esc menu' : 'Mouse: bat · Space: next ball · Shift step out · S sweep · Esc menu';
   }
+
+  usesY() { return !!(this.field && this.state === 'live' && this.hit); }
 
   resetEnds() {
     const g = this.game;
@@ -67,8 +99,40 @@ export class BattingSession {
     g.world.resetWickets();
   }
 
+  // Where the batter's legs are (for pads / the crease).
+  body() {
+    const g = this.game;
+    if (g.input.xr) return g.input.headPose.p;
+    return { x: STANCE.x + this.crease.x, z: STANCE.z + this.crease.z - this.advance };
+  }
+
+  // ------------------------------------------------------------- input (real time)
   handleInput(input) {
-    if (input.left.buttons.a.down || (input.xr && !input.left.connected && input.right.buttons.a.down)) this.requestNext();
+    const g = this.game, L = input.left, R = input.right, B = CONFIG.bat, dt = g.realDt || 0.016;
+    const preBall = this.state === 'cue' || this.state === 'runup' || (this.state === 'live' && !this.hit && !g.world.ball.padded);
+    // Move in the crease with the left stick.
+    if (Math.abs(L.stick.x) > 0.15 || Math.abs(L.stick.y) > 0.15) {
+      this.crease.x = clamp(this.crease.x + L.stick.x * B.creaseMoveSpeed * dt, -B.creaseBox[0], B.creaseBox[0]);
+      this.crease.z = clamp(this.crease.z + L.stick.y * B.creaseMoveSpeed * dt, -B.creaseBox[1], B.creaseBox[1]);
+    }
+    // Stride down the pitch while the trigger is held.
+    const want = preBall && R.buttons.trigger.pressed ? B.advanceDistance : 0;
+    if (want > 0 && this.advance === 0) g.say('charge');
+    this.advance += clamp(want - this.advance, -B.advanceSpeed * dt, B.advanceSpeed * dt);
+    g.setRigOffset(this.crease.x, this.crease.z - this.advance);
+    const f = this.advance / B.advanceDistance;
+    g.playerBat.mods = { faceLed: B.faceLed, power: 1 + B.advancePower * f, sigmaScale: 1 - B.advanceSweetShrink * f, loftPower: 0.2 * f };
+
+    if (this.lbw.active) return;
+    const run = this.field && this.state === 'live' && this.hit && !this.field.result();
+    if (run) {
+      const r = g.runs;
+      if (L.buttons.a.down || (input.xr && !L.connected && R.buttons.a.down)) { if (this.field.callRun()) g.ui.prompt('RUN!', 1.0, '#7dff8a'); }
+      if (L.buttons.trigger.down && this.field.turnBack()) g.ui.prompt('BACK!', 1.0, '#ff9f43');
+      if (L.buttons.b.down && this.field.dive(g.simTime)) { g.ui.prompt('DIVE!', 0.8, '#ffd34d'); L.pulse(0.5, 40); }
+      if (!r.running && !r.closed) g.ui.prompt(input.xr ? 'X: RUN' : 'Space: RUN', 0.4, '#ffffff');
+      else if (r.running) g.ui.prompt(input.xr ? 'Left trigger: BACK  ·  Y: DIVE' : 'G: BACK  ·  V: DIVE', 0.4, '#cfe3f5');
+    } else if (L.buttons.a.down || (input.xr && !L.connected && R.buttons.a.down)) this.requestNext();
   }
 
   requestNext() {
@@ -77,13 +141,13 @@ export class BattingSession {
 
   autoNext() { return this.kind !== 'nets' || this.game.settings.autoFeed; }
 
-  // ------------------------------------------------------------- per frame
+  // ------------------------------------------------------------- per frame (game time)
   update(dt, t) {
     const g = this.game;
     if (this.done) return;
+    g.timeScaleTarget = this.state === 'live' && !this.hit && !g.world.ball.padded && g.world.ball.active ? g.diff.timeScale : 1;
     if (this.state === 'idle') {
       if (this.autoNext() || this.timer <= 0) this.timer -= dt;
-      // Let the fielders get back to their marks first (max ~4 s).
       this.waitField = (this.waitField || 0) + dt;
       const fieldReady = !this.field || this.field.inPosition() || this.waitField > 4;
       if (this.timer <= 0 && fieldReady) { this.waitField = 0; this.prepare(t); }
@@ -97,6 +161,9 @@ export class BattingSession {
       else if (this.bowlerFig.holdingBall()) { g.ballOverride = { pos: this.bowlerFig.handPos(_hand) }; g.ballView.setVisible(true); }
     } else if (this.state === 'live') {
       this.checkLive(t);
+    } else if (this.state === 'review') {
+      this.lbw.update(g.realDt || dt);
+      if (this.lbw.done) this.finish(this.lbw.out ? { kind: 'lbw' } : { kind: 'beaten', padded: true });
     } else if (this.state === 'settle') {
       this.timer -= dt;
       if (this.timer <= 0) {
@@ -104,11 +171,11 @@ export class BattingSession {
         if (this.innings && this.innings.complete) { this.complete(); return; }
         this.state = 'idle';
         this.timer = this.autoNext() ? 0.3 : 1e9;
-        if (!this.autoNext()) this.timer = 1e9;
       }
     }
     if (this.field) this.field.update(dt, t);
     if (this.bowlerFig && this.state !== 'runup') this.bowlerFig.update(dt, t);
+    g.umpires.setLook(g.ballView.visible ? g.ballView.mesh.position : null);
   }
 
   prepare(t) {
@@ -118,10 +185,14 @@ export class BattingSession {
     g.ballView.clearTrail();
     g.world.removeBall();
     const settings = this.aiBowler ? this.aiBowler.next(this.innings) : g.settings.machine;
-    this.delivery = machineDelivery(settings, g.rng);
+    const rel = this.bowler === 'ai'
+      ? new Vec3((settings.release === 'around' ? -1 : 1) * CONFIG.machine.releaseX, CONFIG.bowlerAI.releaseHeight, CONFIG.machine.releaseZ)
+      : null;
+    this.delivery = machineDelivery(settings, g.rng, CONFIG, rel);
+    this.settingsUsed = settings;
     this.hit = null; this.firstBounce = null; this.wide = false; this.crossedCrease = false;
-    this.maxBatSpeedNear = 0;
-    if (this.field) { this.field.reset(); this.field.beginDelivery(); }
+    this.maxBatSpeedNear = 0; this.stumpAt = 0; this.path.length = 0; this.shotName = '';
+    if (this.field) { this.field.reset(); this.field.setSpinner(!!settings.spinner); this.field.beginDelivery(); }
     if (this.bowlerFig) this.bowlerFig.show(true);
     if (this.bowler === 'machine') {
       g.machine.setRelease(settings.release || 'over');
@@ -130,13 +201,17 @@ export class BattingSession {
       this.cueStage = 0;
     } else {
       this.state = 'runup';
-      this.bowlerFig.startRunup(t, this.delivery.releasePos);
+      this.bowlerFig.startRunup(t, this.delivery.releasePos, settings.runup);
+      if (settings.newBowler) {
+        g.say('over', { style: settings.spinner ? 'SPIN' : settings.bowlerType === 'swing' ? 'SWING' : 'FAST', balls: this.innings ? this.innings.ballsLeft : 6 });
+        g.ui.prompt(`${settings.bowler} — ${settings.bowlerLabel}`, 3, '#ffd34d');
+      } else g.say('runup');
     }
-    if (this.aiBowler) this.game.ui.setHud({ sub: this.aiBowler.describe(settings) });
+    if (this.aiBowler) g.ui.setHud({ sub: this.aiBowler.describe(settings) });
   }
 
   release(t) {
-    const g = this.game, d = this.delivery;
+    const g = this.game, d = this.delivery, s = this.settingsUsed;
     g.world.launch({ pos: d.releasePos, vel: d.vel, spin: d.spin, swing: d.swing, seamDeg: d.seamDeg });
     g.ballOverride = null;
     if (this.field) this.field.released();
@@ -144,28 +219,58 @@ export class BattingSession {
     g.ballView.mesh.quaternion.identity();
     this.launchT = t;
     this.state = 'live';
-    g.sfx.whoosh(d.vel.length() * 0.4);
+    g.sample('whoosh', { gain: 0.5 }) || g.sfx.whoosh(d.vel.length() * 0.4);
+    const len = d.length;
+    g.say('release', { type: s.name && /googly|doosra|arm ball|slower|outswing|inswing/.test(s.name) ? s.name.replace('outswinger', 'outswing').replace('inswinger', 'inswing').replace(' ', '_') : s.spinType === 'off' ? 'off_spin' : s.spinType === 'leg' ? 'leg_spin' : s.bowlerType === 'swing' ? 'swing' : 'fast',
+      length: len < 2 ? 'yorker' : len > 11 ? 'bouncer' : undefined, pace: d.paceKmh });
   }
 
   checkLive(t) {
     const g = this.game, b = g.world.ball;
+    if (b.active && !b.batted) this.path.push({ x: b.pos.x, y: b.pos.y, z: b.pos.z });
     // Track bat speed while the ball is near the batter (play-and-miss vs leave).
-    if (!b.batted && b.pos.z > -3 && b.pos.z < 0.5) {
+    if (!b.batted && b.pos.z > -3.5 && b.pos.z < 0.5) {
       this.maxBatSpeedNear = Math.max(this.maxBatSpeedNear, g.input.right.linVel.length());
     }
-    // Wide (only counted in innings).
     if (!this.crossedCrease && b.pos.z > battingPoppingZ) {
       this.crossedCrease = true;
       if (!b.batted && Math.abs(b.pos.x) > PITCH.wideLineX) this.wide = true;
     }
+    // Struck on the pad: LBW appeal (match modes, not on easy).
+    if (this.field && g.diff.lbwAgainstPlayer && !this.hit) {
+      const body = this.body();
+      if (padHit(b, body.x, body.z)) {
+        const impact = b.clone();
+        deflectOffPad(b, g.rng);
+        this.state = 'review';
+        this.lbw.start({ impactState: impact, path: this.path.slice(), shotOffered: this.maxBatSpeedNear > 2, playerIsBatter: true });
+        return;
+      }
+    }
     if (this.field && b.batted) {
       const res = this.field.result();
       if (res) { this.finish(res); return; }
-      if (t - this.launchT > 14) this.finish({ kind: 'hit', runs: 0 });
+      if (t - this.launchT > 20) this.finish({ kind: 'runs', runs: g.runs.completed });
       return;
     }
-    if (!b.batted && b.pos.z > 2.4) {
-      if (this.field) this.field.keeperTakes(b);
+    // Through to the keeper (or past the stumps in the nets).
+    if (!b.batted && (b.pos.z > 2.4 || (this.field && this.field.keeperHold))) {
+      if (this.field && !this.field.keeperHold) this.field.keeperTakes(b);
+      const out = this.body().z < battingPoppingZ - 0.12;          // out of your ground
+      if (this.field && out && !this.stumpAt) {
+        this.stumpAt = t + (this.settingsUsed.spinner ? 0.3 : 0.85);
+        g.ui.prompt('GET BACK!', 1, '#ff5a5a');
+        return;
+      }
+      if (this.stumpAt) {
+        if (t < this.stumpAt) return;
+        if (this.body().z < battingPoppingZ - 0.05) {
+          g.stumps.batting.break({ x: 0, y: 0, z: -6 }, 1);
+          g.sample('stumps') || g.sfx.stumps();
+          this.finish({ kind: 'stumped' });
+          return;
+        }
+      }
       this.finish({ kind: this.maxBatSpeedNear > 3.5 ? 'beaten' : 'left' });
       return;
     }
@@ -176,7 +281,7 @@ export class BattingSession {
         return;
       }
     }
-    if (t - this.launchT > 10) this.finish({ kind: b.batted ? 'hit' : 'left' });
+    if (t - this.launchT > 12) this.finish({ kind: b.batted ? 'hit' : 'left' });
   }
 
   netsHitResult(b) {
@@ -185,30 +290,51 @@ export class BattingSession {
     return { kind: 'hit', runs: 0 };
   }
 
+  // Sweep / reverse sweep / slog sweep: the shot is steered square (or
+  // behind square) on the side you swing to.
+  applySweep(e) {
+    const g = this.game, b = g.world.ball, R = g.input.right, B = CONFIG.bat;
+    if (e.isEdge || e.face !== 'front') return false;
+    const reverse = R.linVel.x > 0.6;                 // swinging toward the off side
+    const slog = R.buttons.trigger.pressed || this.advance > 0.4;
+    const q = e.quality;
+    const speed = Math.min(44, (e.batSpeed * B.sweepSpeedGain + 0.3 * e.speedIn) * (0.5 + 0.5 * q) * (slog ? 1.3 : 1));
+    const behind = slog ? -(0.25 + g.rng() * 0.45) : (0.1 + g.rng() * 0.5);   // radians behind square (+) / in front (-)
+    const elev = slog ? 0.42 + g.rng() * 0.18 : 0.03 + g.rng() * 0.08 + (1 - q) * 0.25;
+    const side = reverse ? 1 : -1;
+    const ch = Math.cos(elev);
+    b.vel.set(side * Math.cos(behind) * ch * speed, Math.sin(elev) * speed, Math.sin(behind) * ch * speed);
+    e.vel.copy(b.vel); e.speedOut = speed;
+    this.shotName = reverse ? 'reverse sweep' : slog ? 'slog sweep' : 'sweep';
+    return true;
+  }
+
   onEvent(e) {
     const g = this.game;
     if (this.state !== 'live' && this.state !== 'settle') return;
     if (e.type === 'bounce' && !e.batted && !this.firstBounce) this.firstBounce = e.pos.clone();
     if (e.type === 'bat' && e.batId === 'player' && !this.hit) {
       const b = g.world.ball;
-      const pred = predict(b, { maxTime: 8, h: 1 / 240 });
+      if (g.input.right.buttons.squeeze.pressed) this.applySweep(e);
+      const pred = predict(b, { maxTime: 9, h: 1 / 240 });
       const land = pred.bounces[0];
       const carry = land ? Math.hypot(land.pos.x - b.pos.x, land.pos.z - b.pos.z) : 0;
-      const v = e.vel;
+      const v = b.vel;
       const launch = Math.atan2(v.y, Math.hypot(v.x, v.z)) / (Math.PI / 180);
       this.hit = {
-        t: e.t, quality: e.quality, edge: e.isEdge, exit: e.speedOut, batSpeed: e.batSpeed, launch, carry,
-        sixOnFull: !!(pred.boundary && pred.boundary.onFull),
-        pred,
+        t: e.t, quality: e.quality, edge: e.isEdge, exit: v.length(), batSpeed: e.batSpeed, launch, carry,
+        sixOnFull: !!(pred.boundary && pred.boundary.onFull), pred, advanced: this.advance > 0.5,
       };
       if (e.isEdge) this.stats.edges++; else if (e.quality > 0.75) this.stats.middled++;
       const qual = e.isEdge ? 'EDGE' : e.quality > 0.85 ? 'MIDDLED' : e.quality > 0.5 ? 'good contact' : 'mistimed';
-      g.ui.setHud({ big: qual, bigColor: e.isEdge ? '#ff9f43' : e.quality > 0.85 ? '#7dff8a' : '#ffffff', detail: this.shotDetail() });
+      g.ui.setHud({ big: this.shotName ? `${qual} · ${this.shotName}` : qual, bigColor: e.isEdge ? '#ff9f43' : e.quality > 0.85 ? '#7dff8a' : '#ffffff', detail: this.shotDetail() });
+      g.say('hit', { shot: this.shotName.includes('sweep') ? 'sweep' : launch > 20 ? 'loft' : 'drive', edge: e.isEdge, top_edge: e.isEdge && launch > 35, speed: v.length(), vel: { x: v.x, y: v.y, z: v.z } });
       if (this.field) this.field.onHit(b, e.t, pred);
-      if (!e.isEdge && e.quality > 0.8 && e.speedOut > 30) g.cheer(0.3);
+      if (!e.isEdge && e.quality > 0.8 && v.length() > 30) g.cheer(0.3);
     }
-    if (e.type === 'wicket' && e.end === 'batting') {
-      if (!this.field || !this.field.fielded) this.finish({ kind: 'bowled', wicket: 'bowled' });
+    if (e.type === 'wicket' && e.end === 'batting' && this.state === 'live') {
+      if (!this.field || (!this.field.fielded && !this.hit)) this.finish({ kind: 'bowled', wicket: 'bowled' });
+      else if (this.hit && !this.field.fielded && e.t - this.hit.t < 0.6) this.finish({ kind: 'bowled', wicket: 'bowled' });   // played on
     }
     if (e.type === 'boundary' && e.batted) {
       g.cheer(e.onFull ? 1 : 0.7);
@@ -220,34 +346,34 @@ export class BattingSession {
   shotDetail() {
     const h = this.hit;
     if (!h) return '';
-    return `Exit ${KMH(h.exit)} km/h · ${Math.round(h.launch)}° · bat ${h.batSpeed.toFixed(1)} m/s · sweet ${Math.round(h.quality * 100)}%\nCarry ${Math.round(h.carry)} m`;
+    return `Exit ${KMH(h.exit)} km/h · ${Math.round(h.launch)}° · bat ${h.batSpeed.toFixed(1)} m/s · sweet ${Math.round(h.quality * 100)}%${h.advanced ? ' · stepped out' : ''}\nCarry ${Math.round(h.carry)} m`;
   }
 
-  // ------------------------------------------------------------- results
   // Non-striker backs up while the ball is being bowled.
   backingUp() { return this.state === 'runup' || this.state === 'cue' || (this.state === 'live' && !this.game.world.ball.batted); }
 
+  // ------------------------------------------------------------- results
   finish(res) {
     const g = this.game;
     if (this.state === 'settle') return;
     if (this.field) this.field.endDelivery();
     this.state = 'settle';
-    this.timer = this.kind === 'nets' ? CONFIG.machine.autoFeedDelay : 2.6;
-    const d = this.delivery;
+    this.timer = this.kind === 'nets' ? CONFIG.machine.autoFeedDelay : 3.0;
+    g.timeScaleTarget = 1;
+    const d = this.delivery, s = this.settingsUsed;
     this.stats.balls++;
     const len = this.firstBounce ? -this.firstBounce.z : -1;
-    const ballText = `Ball: ${Math.round(d.paceKmh)} km/h · ${lengthName(len)}${len > 0 ? ` (${len.toFixed(1)} m)` : ''} · ${lineName(d.line)}`;
+    const ballText = `${Math.round(d.paceKmh)} km/h${s.name ? ' · ' + s.name : ''} · ${lengthName(len)}${len > 0 ? ` (${len.toFixed(1)} m)` : ''} · ${lineName(d.line)}`;
 
     let big = '', color = '#ffffff';
     const outcome = { runs: 0, wide: false, wicket: null, boundary: 0 };
+    const now = g.clock;
     switch (res.kind) {
-      case 'bowled':
-        big = 'BOWLED!'; color = '#ff5a5a'; outcome.wicket = 'bowled'; this.stats.bowled++;
-        g.sfx.groan();
-        break;
-      case 'caught':
-        big = `CAUGHT${res.by ? ' — ' + res.by : ''}!`; color = '#ff5a5a'; outcome.wicket = 'caught';
-        break;
+      case 'bowled': big = 'BOWLED!'; color = '#ff5a5a'; outcome.wicket = 'bowled'; this.stats.bowled++; break;
+      case 'caught': big = `CAUGHT${res.by ? ' — ' + res.by : ''}!`; color = '#ff5a5a'; outcome.wicket = 'caught'; break;
+      case 'lbw': big = 'OUT — LBW'; color = '#ff5a5a'; outcome.wicket = 'lbw'; break;
+      case 'stumped': big = 'STUMPED!'; color = '#ff5a5a'; outcome.wicket = 'stumped'; break;
+      case 'runout': big = `RUN OUT! (${res.margin.toFixed(1)} m short)`; color = '#ff5a5a'; outcome.wicket = 'run out'; outcome.runs = res.runs; break;
       case 'boundary':
         big = res.runs === 6 ? 'SIX!' : 'FOUR!'; color = res.runs === 6 ? '#ff6bd6' : '#4dd2ff';
         outcome.runs = res.runs; outcome.boundary = res.runs;
@@ -255,25 +381,43 @@ export class BattingSession {
         break;
       case 'runs':
         big = res.runs === 0 ? 'Dot ball' : `${res.runs} run${res.runs > 1 ? 's' : ''}`;
+        if (res.closeCall != null && res.closeCall < 0.9 && res.runs > 0) big += ' — just home!';
         outcome.runs = res.runs;
         break;
-      case 'beaten':
-        big = 'Beaten!'; color = '#ffb347';
-        break;
-      case 'left':
-        big = 'Left alone';
-        break;
-      default:
-        big = this.hit ? `Carried ${Math.round(this.hit.carry)} m` : 'Dot ball';
+      case 'beaten': big = res.padded ? 'Not out' : 'Beaten!'; color = '#ffb347'; break;
+      case 'left': big = 'Left alone'; break;
+      default: big = this.hit ? `Carried ${Math.round(this.hit.carry)} m` : 'Dot ball';
     }
-    if (this.wide && !this.hit && !outcome.wicket && this.innings) { outcome.wide = true; big = 'Wide'; }
-    if (this.hit && res.kind === 'hit' && this.hit.carry > this.stats.bestCarry) this.stats.bestCarry = this.hit.carry;
+    if (this.wide && !this.hit && !outcome.wicket && this.innings) { outcome.wide = true; big = 'Wide'; g.umpires.signal('wide', now); }
 
+    // Umpires, crowd, commentary.
+    if (outcome.boundary) {
+      g.umpires.signal(outcome.boundary === 6 ? 'six' : 'four', now);
+      g.sample(outcome.boundary === 6 ? 'roar_six' : 'cheer_four');
+      g.say('boundary', { runs: outcome.boundary });
+    } else if (outcome.wicket) {
+      if (res.kind !== 'lbw') g.umpires.signal('out', now);
+      g.sample('roar_wicket', { gain: 0.7 }); g.sfx.groan();
+      if (res.kind === 'caught') g.say('catch', { keeper: res.by === 'Keeper' });
+      else if (res.kind === 'runout') g.say('run_out');
+      else if (res.kind === 'stumped') g.say('third_result', { what: 'stumping', out: true });
+      g.say('wicket', { how: res.kind === 'runout' ? 'run_out' : res.kind });
+    } else if (outcome.runs > 0) g.sample('applause_polite', { gain: 0.8 });
+
+    let overDone = false;
     if (this.innings) {
       const r = this.innings.record(outcome);
-      if (r.overDone) big += '  · over';
+      overDone = r.overDone;
+      if (overDone) big += '  · over';
+      this.partnership = outcome.wicket ? 0 : this.partnership + outcome.runs;
+      this.dots = outcome.runs || outcome.wide ? 0 : this.dots + 1;
+      const inn = this.innings;
+      g.commentary.situation = { runs: inn.runs, wickets: inn.wickets, balls: inn.legal, ballsLimit: inn.ballsLimit, target: inn.target, wicketsLimit: inn.wicketsLimit, partnershipRuns: this.partnership, dotsInRow: this.dots, battingIsPlayer: true };
+      g.say('ball', { runs: outcome.runs, wide: outcome.wide, boundary: outcome.boundary, wicket: outcome.wicket, overDone });
     }
+    if (this.hit && res.kind === 'hit' && this.hit.carry > this.stats.bestCarry) this.stats.bestCarry = this.hit.carry;
     g.ui.setHud({ big, bigColor: color, last: ballText, detail: this.shotDetail() || (res.kind === 'beaten' ? 'Played and missed' : '') });
+    if (outcome.wicket || outcome.boundary) g.ui.prompt(big, 2.4, color);
     this.updateHud();
   }
 
@@ -281,17 +425,19 @@ export class BattingSession {
     const g = this.game;
     let score, sub;
     if (this.innings) {
-      score = `${this.innings.scoreText}  (${this.innings.overs})`;
-      sub = this.innings.target != null ? `Need ${this.innings.runsNeeded} off ${this.innings.ballsLeft} · ${this.innings.wicketsLimit - this.innings.wickets} wkts left` : `${this.innings.ballsLeft} balls left`;
-      g.ui.setBoard([this.title.toUpperCase(), score, sub, `This over: ${this.innings.thisOver.join(' ') || '-'}`]);
+      const inn = this.innings;
+      score = `${inn.scoreText}  (${inn.overs})`;
+      sub = inn.target != null ? `Need ${inn.runsNeeded} off ${inn.ballsLeft} · ${inn.wicketsLimit - inn.wickets} wkts left` : `${inn.ballsLeft} balls left · ${inn.wicketsLimit - inn.wickets} wkts in hand`;
+      g.ui.setBoard([this.title.toUpperCase(), score, sub, `This over: ${inn.thisOver.join(' ') || '-'}`]);
+      g.ui.setHud({ title: this.title, score, sub, footer: this.footer() });
     } else {
       const s = this.stats;
       score = `${s.balls} balls`;
       const m = g.settings.machine;
       sub = `Machine: ${Math.round(m.paceKmh)} km/h · ${lengthName(m.length)} · ${lineName(m.line)}${m.swing ? (m.swing > 0 ? ' · out-swing' : ' · in-swing') : ''}${m.seam ? ' · seam' : ''}${m.spinType !== 'none' ? ` · ${m.spinType}-spin` : ''}`;
       g.ui.setBoard(['NETS', `${s.balls} balls · ${s.fours}×4 · ${s.sixes}×6`, `Middled ${s.middled} · edges ${s.edges} · bowled ${s.bowled}`, `Best carry ${Math.round(s.bestCarry)} m`]);
+      g.ui.setHud({ title: this.title, score, sub, footer: this.footer() });
     }
-    g.ui.setHud({ title: this.title, score, sub: this.aiBowler ? g.ui.hudData.sub : sub, footer: this.footer() });
   }
 
   onSettingsChanged() { this.updateHud(); }

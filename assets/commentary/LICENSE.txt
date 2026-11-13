@@ -1,0 +1,68 @@
+Courtside cricket commentary (assets/cricket/commentary/*.ogg, manifest.gd)
+
+The commentators, Kate Marsden (play-by-play) and Geoff Hollins (summariser),
+are fictional. Every line is original wording written for Courtside. No
+broadcast or game audio ships in these clips; the two voices are synthesised,
+cloned from two short Creative Commons (CC BY) reference clips credited below.
+
+The lines are spoken by Chatterbox text-to-speech and made by
+tools/cricket/make_commentary.py (Chatterbox synthesis, every take checked by
+speech recognition and re-rolled if it doesn't match its line or drifts
+from its commentator's voice, a light
+time-stretch for the big calls, then ffmpeg broadcast EQ, a short room
+reflection and gentle compression, levelled to about -19 dBFS active speech
+with a soft peak limit at -1.5 dBFS, Ogg Vorbis q2, mono 24 kHz).
+
+  Model:   Chatterbox (the standard model, with its emotion "exaggeration"
+           control, for the lines; Chatterbox Turbo for the stitched numbers
+           and chase sums), by Resemble AI
+           https://github.com/resemble-ai/chatterbox
+           https://huggingface.co/ResembleAI/chatterbox
+           https://huggingface.co/ResembleAI/chatterbox-turbo
+           Licence: MIT (code and weights). Chatterbox embeds Resemble's
+           imperceptible "Perth" watermark in everything it generates.
+  Voices:  Chatterbox clones each commentator from one short reference clip
+           (tools/cricket/commentary_refs/kate.flac, geoff.flac; 8 s each):
+           Commentary voice references: Cricket Hong Kong, China — Hong Kong
+           Sixes 2025, https://www.youtube.com/watch?v=biTw1GGK22o, CC BY 3.0
+           (YouTube Creative Commons Attribution). Kate is cloned from the
+           broadcast's female ball-by-ball caller (at 6:19), Geoff from a
+           lively male summariser (at 49:25); lightly denoised. The commentary
+           box, the names and every line are fictional / original.
+           Takes whose voice drifts from that commentator's median take
+           (speaker-embedding check) are re-rolled.
+           Alternative (--refs kokoro): references rendered by the generator with
+           Kokoro-82M's British voices (Apache-2.0, by hexgrad,
+           https://huggingface.co/hexgrad/Kokoro-82M, via kokoro-onnx, MIT):
+             Kate (play-by-play): bf_emma
+             Geoff (summariser): bm_george
+           (no real person's voice).
+  Runtime: PyTorch (BSD-style) and faster-whisper (MIT, for the take check)
+           on the CPU; build-time only, nothing of them ships with the game.
+
+The model licences place no restriction on the generated audio; the clips
+are distributed as part of Courtside under the project's own licence.
+A copy of the Apache-2.0 licence: https://www.apache.org/licenses/LICENSE-2.0
+
+The same Hong Kong Sixes broadcast was also transcribed and measured
+(speaking rate, pitch range, loudness on big moments) to guide the writing
+and the delivery settings; none of its sentences are used, every line is
+original.
+
+Recorded commentary considered (October 2026) and not used:
+  - Freesound: no CC0 (or any) cricket commentary or "howzat" calls exist.
+  - archive.org: the cricket commentary there is off-air BBC Test Match
+    Special / Radio 4 / 5 Live captures, which are copyrighted with no licence.
+  - Wikimedia Commons: one item, "Twenty20 game commentary.ogg" (CC BY-SA 3.0,
+    a ten-minute amateur recording of a 2010 Australia Day charity match). It is
+    continuous ground commentary about named real people, so it can't be cut
+    into generic game-event lines.
+  - National sound archives (NFSA, Nga Taonga) hold historic radio commentary,
+    but it is rights-restricted and not downloadable.
+
+Previous versions: Kokoro-82M (bf_emma, bm_george) spoke the lines directly;
+before that, Piper TTS voices en_GB-cori-high and en_US-norman-medium.
+
+Rebuild: see the header of tools/cricket/make_commentary.py (a Python venv
+with CPU PyTorch and chatterbox-tts), then
+`godot --headless --editor --import --quit`.

@@ -1,21 +1,36 @@
-// Glue between the pure Fielding logic, the physics world, the animated
-// fielders, the keeper, and the batters running between the wickets.
+// Ball-in-play controller: glue between the pure Fielding / Runs logic, the
+// physics world, the animated figures and the player.
+//   - batters run only when called (player: buttons; AI: its own judgement),
+//     can be sent back and can dive; a throw that beats them is a run out
+//   - when the player's side is fielding: catching chances are taken by the
+//     player in slow motion (reach a hand to the ball), and the player picks
+//     the end a fielder throws to
 import * as THREE from 'three';
 import { Fielding } from './fielding.js';
+import { planRuns } from './running.js';
+import { Vec3 } from '../physics/math.js';
+import { PITCH } from '../physics/pitch.js';
 import { CONFIG } from '../config.js';
 
 const _v = new THREE.Vector3(), _w = new THREE.Vector3();
 
 export class FieldController {
-  constructor(game, { spinner = false, bowlerFields = true } = {}) {
+  constructor(game, { spinner = false, bowlerFields = true, playerBatting = true } = {}) {
     this.game = game;
     const skill = CONFIG.ai[game.settings.difficulty] || CONFIG.ai.medium;
     this.logic = new Fielding({ rng: game.rng, catchSkill: skill.catchSkill, spinner, bowlerFields });
+    this.logic.autoRuns = false;
+    this.playerBatting = playerBatting;
+    this.playerFielding = !playerBatting;
     this.delivering = false;
-    this.runsStarted = false;
     this.keeperTold = false;
+    this.outcome = null;
+    this.catch = null;
+    this.aiRunsLeft = 0;
+    this.pred = null;
+    this.restoreViewAt = 0;
   }
-  get runners() { return this.game.runners; }
+  get runs() { return this.game.runs; }
 
   enter() {
     const g = this.game;
@@ -28,6 +43,7 @@ export class FieldController {
     const g = this.game;
     g.fieldView.show(false);
     g.ballOverride = null;
+    this.endCatchView(true);
     this.clearRunners(false);
   }
 
@@ -37,13 +53,17 @@ export class FieldController {
     this.game.ballOverride = null;
     this.delivering = false;
     this.keeperTold = false;
+    this.outcome = null;
+    this.catch = null;
+    this.aiRunsLeft = 0;
+    this.pred = null;
+    this.throwPrompted = false;
     this.clearRunners(true);
   }
   clearRunners(allowSwap) {
-    const g = this.game, r = this.runners;
-    if (allowSwap && r.active && r.final != null && r.final % 2 === 1) g.swapBatters();
-    r.active = false;
-    this.runsStarted = false;
+    const g = this.game, r = this.runs;
+    if (allowSwap && r.active && r.crossed && !this.playerBatting) g.swapBatters();
+    r.reset();
     g.batterView.running = null;
     g.nonStrikerView.running = null;
     g.nonStrikerView.reset();
@@ -54,38 +74,198 @@ export class FieldController {
   beginDelivery() { this.delivering = true; this.logic.walkIn(); }
   released() { this.logic.onRelease(); }
   endDelivery() { this.delivering = false; }
-
   setSpinner(on) { this.logic.setSpinner(on); }
-  onHit(ball, t, pred) { this.logic.onHit(ball, t, pred); this.delivering = false; }
-  onBoundary(e) { this.logic.onBoundary(e); }
   keeperTakes(ball) { this.logic.keeperTakes(ball); }
   get fielded() { return this.logic.fielded; }
   get message() { return this.logic.message; }
-  result() { return this.logic.outcome; }
-  runsSoFar(t) { return this.logic.runsSoFar(t); }
+  get keeperHold() { return this.logic.keeperHold; }
+  result() { return this.outcome; }
 
+  // ------------------------------------------------------------- the hit
+  onHit(ball, t, pred) {
+    const g = this.game, L = this.logic;
+    L.onHit(ball, t, pred);
+    this.pred = pred;
+    this.delivering = false;
+    const striker = g.batterView.runnerOnly ? new Vec3(-0.4, 0, -1.1) : new Vec3(g.batterView.actor.pos.x, 0, g.batterView.actor.pos.z);
+    if (g.batterView.runnerOnly) g.batterView.show(true);
+    this.runs.begin(t, striker, g.nonStrikerView.visible ? g.nonStrikerView.actor.pos : null);
+    if (!this.playerBatting) {
+      const est = L.estimateReturn();
+      const bold = 0.25 + 0.5 * (g.aiBatter.aggression || 0.4);
+      this.aiRunsLeft = est === 0 ? 0 : est === Infinity ? 3 : planRuns(est, bold, g.rng);
+    }
+    // A catch for the player to take?
+    if (this.playerFielding && L.plan && L.plan.airborne) this.planCatch(t);
+  }
+
+  onBoundary(e) {
+    this.logic.onBoundary(e);
+    if (this.logic.outcome && !this.outcome) { this.outcome = this.logic.outcome; this.runs.close(); }
+  }
+
+  // Player batting controls.
+  callRun() { if (!this.playerBatting || this.outcome) return false; const ok = this.runs.call(); if (ok) this.game.sample('footstep'); return ok; }
+  turnBack() { return this.playerBatting && !this.outcome && this.runs.turnBack(); }
+  dive(t) { return this.playerBatting && !this.outcome && this.runs.dive(t); }
+
+  // ------------------------------------------------------------- catching (player)
+  planCatch(t) {
+    const L = this.logic, p = L.plan, C = CONFIG.catching;
+    let best = null;
+    for (const s of this.pred.samples) {
+      if (s.bouncesSinceBat > 0) break;
+      if (s.t < p.t - 0.1 || s.t > p.t + 0.5) continue;
+      const score = Math.abs(s.y - 1.25);
+      if (!best || score < best.score) best = { s, score };
+    }
+    const s = best ? best.s : { x: p.x, y: p.y, z: p.z, vx: 0, vz: 1, t: p.t };
+    const hv = Math.hypot(s.vx, s.vz) || 1;
+    const dir = { x: s.vx / hv, z: s.vz / hv };
+    this.catch = {
+      f: L.fielders[p.fi], fi: p.fi, state: 'pending',
+      point: new Vec3(s.x, Math.min(2.0, Math.max(0.35, s.y)), s.z), tArrive: L.hitT + s.t, dir,
+      stand: { x: s.x + dir.x * C.standOff, z: s.z + dir.z * C.standOff },
+      tStart: Math.max(t, L.hitT + s.t - C.leadTime),
+    };
+    this.catch.f.playerControlled = true;
+  }
+
+  updateCatch(t) {
+    const g = this.game, c = this.catch, b = g.world.ball, C = CONFIG.catching;
+    if (!c || c.state === 'done') return;
+    if (c.state === 'pending') {
+      if (t < c.tStart) return;
+      c.state = 'live';
+      c.f.pos.set(c.stand.x, 0, c.stand.z);
+      c.f.speed = 0;
+      g.beginViewOverride(c.stand.x, c.stand.z, -c.dir.x, -c.dir.z);
+      g.timeScaleTarget = C.slowMo;
+      g.ui.prompt('CATCH IT!  Get a hand to the ball', 8, '#ffd34d');
+      g.catchMarker.position.set(c.point.x, c.point.y, c.point.z);
+      g.catchMarker.visible = true;
+      g.say('catch_chance', { time: c.tArrive - this.logic.hitT });
+    }
+    if (c.state !== 'live') return;
+    if (b.active) {
+      for (const h of g.playerHands()) {
+        if (Math.hypot(h.x - b.pos.x, h.y - b.pos.y, h.z - b.pos.z) < C.handRadius) {
+          g.world.removeBall();
+          this.logic.playerCaught(c.f);
+          this.logic.ballOverride = { pos: new Vec3(h.x, h.y, h.z), hand: h };
+          g.input.left.pulse(0.9, 70); g.input.right.pulse(0.9, 70);
+          g.sample('catch') || g.sfx.catchThud();
+          this.finishCatch(true, t);
+          return;
+        }
+      }
+    }
+    if (!b.active || b.bouncesSinceBat > 0 || t > c.tArrive + 0.3) {
+      if (b.active) this.logic.playerDropped(c.f, b); else c.f.playerControlled = false;
+      this.finishCatch(false, t);
+    }
+  }
+
+  finishCatch(success) {
+    const g = this.game, c = this.catch;
+    c.state = 'done';
+    c.success = success;
+    g.timeScaleTarget = 1;
+    g.catchMarker.visible = false;
+    g.ui.prompt(success ? 'CAUGHT!' : 'Dropped…', 1.6, success ? '#7dff8a' : '#ff9f43');
+    this.restoreViewAt = (g.clock || 0) + (success ? 1.6 : 0.7);
+    if (!success) g.say('drop');
+  }
+
+  endCatchView(force = false) {
+    const g = this.game;
+    if (g.viewOverride && (force || (this.restoreViewAt && (g.clock || 0) >= this.restoreViewAt))) {
+      this.restoreViewAt = 0;
+      g.endViewOverride();
+      g.timeScaleTarget = 1;
+      g.catchMarker.visible = false;
+    }
+  }
+
+  // ------------------------------------------------------------- per frame
   update(dt, t) {
-    const g = this.game, w = g.world, L = this.logic, b = w.ball;
+    const g = this.game, w = g.world, L = this.logic, b = w.ball, r = this.runs;
     L.update(dt, t, b.active ? b : null, w);
+    this.updateCatch(t);
+    this.endCatchView();
 
     // Keeper gathers deliveries that beat (or are left by) the batter.
-    if (b.active && !b.batted && !L.outcome && !L.keeperHold && b.pos.z > -0.5 && b.vel.z > 0) {
+    if (b.active && !b.batted && !b.padded && !L.outcome && !L.keeperHold && b.pos.z > -0.5 && b.vel.z > 0) {
       const k = L.fielders[0];
       if (!this.keeperTold) { L.keeperTakes(b); this.keeperTold = true; }
       if (b.pos.z >= k.pos.z - 0.35 && Math.abs(b.pos.x - k.pos.x) < 1.5 && b.pos.y < 2.3) {
         L.keeperCollect(b, t);
         w.removeBall();
-        g.sfx.catchThud();
+        g.sample('gloves') || g.sfx.catchThud();
+      }
+    }
+
+    // ---- running ----
+    if (r.active && !this.outcome) {
+      if (!this.playerBatting) {
+        if (this.aiRunsLeft > 0 && !r.running && r.call()) this.aiRunsLeft--;
+        const th = L.throw;
+        if (th && r.running) {
+          // Will they make it? If clearly not (and still early in the run), turn back; near the line, dive.
+          const F = CONFIG.field;
+          const need = r.remaining * F.runNext;
+          if (!r.goingBack && r.remaining > 0.62 && t + need > th.tArrive + 0.1 && !this.turnedBack && g.rng() < 0.75) { r.turnBack(); this.turnedBack = true; this.aiRunsLeft = 0; }
+          if (r.remaining < 0.26 && th.released) r.dive(t);
+        }
+      }
+      r.update(dt);
+      if (r.running && Math.floor(t * 4.5) !== Math.floor((t - dt) * 4.5)) g.sample('footstep', { gain: 0.5 });
+    }
+    if (r.active) {
+      g.batterView.running = r.state(true);
+      g.nonStrikerView.running = g.nonStrikerView.visible ? r.state(false) : null;
+    }
+
+    // ---- the player picks the end to throw to ----
+    const th = L.throw;
+    if (this.playerFielding && th && !th.released && !this.outcome) {
+      if (!this.throwPrompted) { this.throwPrompted = true; g.ui.prompt("A: throw to the KEEPER  ·  B: BOWLER'S end", 2.5, '#ffd34d'); }
+      const R = g.input.right;
+      if (R.buttons.a.down && L.setThrowEnd('batting')) g.ui.prompt('To the keeper!', 1.2);
+      if (R.buttons.b.down && L.setThrowEnd('bowling')) g.ui.prompt("Bowler's end!", 1.2);
+    }
+
+    // ---- outcomes ----
+    if (!this.outcome) {
+      if (L.outcome) {                                   // boundary or catch
+        this.outcome = L.outcome;
+        r.close();
+      } else if (L.throwArrived) {
+        const end = L.throwArrived.end;
+        const short = r.running ? r.shortBy() : -1;
+        if (r.running && short > 0) {
+          this.outcome = { kind: 'runout', runs: r.completed, end, margin: short, who: r.headingTo(end) };
+          g.stumps[end].break({ x: 0, y: 0, z: end === 'batting' ? -8 : 8 }, 1);
+          g.sample('stumps') || g.sfx.stumps();
+        } else {
+          if (r.running) r.p = r.target;                // made their ground
+          this.outcome = { kind: 'runs', runs: r.completed, closeCall: r.rate !== 0 && short > -1.2 ? -short : null, end };
+          g.sample('gloves', { gain: 0.7 });
+        }
+        r.close();
       }
     }
 
     const ballPos = b.active ? _v.set(b.pos.x, b.pos.y, b.pos.z) : (g.ballOverride ? _v.copy(g.ballOverride.pos) : null);
-    g.fieldView.update(dt, L.states(), { t, ball: ballPos, delivering: this.delivering, cam: g.input.headPose.p });
+    const states = L.states();
+    if (this.catch && this.catch.state === 'live') states[this.catch.fi].hidden = true;
+    g.fieldView.update(dt, states, { t, ball: ballPos, delivering: this.delivering, cam: g.input.headPose.p });
 
     // Ball in a fielder's hands.
     if (L.ballOverride) {
       const o = L.ballOverride;
-      if (L.keeperHold) g.fieldView.glovesPos(0, _w);
+      if (o.hand) _w.set(o.hand.x, o.hand.y, o.hand.z);
+      else if (L.keeperHold) g.fieldView.glovesPos(0, _w);
       else if (L.caught) {
         const i = L.fielders.findIndex((f) => f.action && f.action.type === 'catch' && f.action.success);
         g.fieldView.glovesPos(Math.max(0, i), _w);
@@ -101,27 +281,10 @@ export class FieldController {
       g.ballOverride = null;
     }
 
-    // Batters running between the wickets.
-    const r = this.runners;
-    if (L.hitT != null && !this.runsStarted) {
-      this.runsStarted = true;
-      const striker = g.batterView.actor.pos.clone();
-      if (g.batterView.runnerOnly) { striker.set(-0.4, 0, -1.1); g.batterView.show(true); }
-      r.start(L.hitT, striker, g.nonStrikerView.actor.pos.clone());
-    }
-    if (r.active) {
-      if (L.outcome) {
-        if (L.outcome.kind === 'runs') r.setFinal(L.outcome.runs);
-        else r.stop();
-      }
-      r.update(dt, t);
-      g.batterView.running = r.state(true);
-      g.nonStrikerView.running = g.nonStrikerView.visible ? r.state(false) : null;
-    }
-
     // The AI bowler figure hands over to the fielding bowler once it moves.
-    const st = L.states();
-    const bf = st[st.length - 1];
+    const bf = states[states.length - 1];
     if (L.bowlerFields && g.figures.bowler.actor.visible === !bf.hidden && L.hitT != null) g.figures.bowler.show(bf.hidden);
   }
 }
+
+void PITCH;
