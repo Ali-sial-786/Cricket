@@ -1,13 +1,14 @@
 # On-headset test checklist (Quest 3S)
 
-About 30–40 minutes. Each item says what to try and **what to report back**. Report numbers where
+About 45 minutes. Each item says what to try and **what to report back**. Report numbers where
 asked: they map straight onto constants in `src/config.js`.
 
-Setup: open the GitHub Pages URL in the Quest Browser. Wear the wrist straps and clear 2 × 2 m.
+Setup: open the GitHub Pages URL in the Quest Browser. Wear the wrist straps and clear 2 × 2 m. Set a
+**room-scale** boundary (with a stationary boundary the headset shows your room when you step off centre).
 
 ## 1. Boot, comfort, performance (5 min)
 - [ ] Press **Enter VR**. The safety screen appears; click it with the **left trigger** (laser pointer).
-- [ ] Open **Settings** (Y → Settings…). The top line shows the frame rate and whether the controllers
+- [ ] Open **Settings** (left stick click → Settings…). The top line shows the frame rate and whether the controllers
       report XR velocities.
   - **Report:** frame rate (Hz) and controller velocity (`XR` or `pose`).
 - [ ] Look around the stadium and play a few nets balls.
@@ -77,17 +78,60 @@ marker; move it with the left stick.
   - **Report:** whether it leaves wide balls, defends straight ones, drives full ones, pulls short ones, edges and gets bowled
     sometimes. Say if any difficulty is too easy or too hard (`ai.easy/medium/hard`).
 
-## 5. Match modes (5 min)
-- [ ] **Run Chase** (2 overs). AI bowler run-up, fielders chase and throw, catches, boundaries at 65 m.
-  - **Report:** whether singles and twos feel attainable, and whether fielders are too good or too poor
-    (`field.fielderSpeed`, `fielderReaction`, `runFirst`, `runNext`).
-- [ ] **Bowl an Over** (defend a total) and one **Match** (bat, then bowl).
-  - **Report:** any point where the game got stuck (no ball coming, no way forward).
+## 5. New batting controls (5 min)
+Use **Run Chase** on *Easy* first.
+- [ ] Difficulty: play an over each on easy, medium and hard.
+  - **Report:** whether easy feels about 30% slower and hittable, and medium a bit slower than hard
+    (`difficulty.*.timeScale`, `batAssist`, `paceScale`).
+- [ ] Bat face: play the same drive with the face straight, then opened upward.
+  - **Report:** whether a straight face keeps the ball on the ground and an open face lofts it (`bat.faceLed`, `loftGain`).
+- [ ] Hold the **right trigger** before the ball: you stride down the pitch. Hit a few, miss one on purpose.
+  - **Report:** whether the stride feels comfortable (it moves the world 1.6 m; `bat.advanceDistance`, `advanceSpeed`),
+    whether hits go clearly further, and whether the keeper stumps you when you miss.
+- [ ] Hold the **right grip** and sweep; swing to the off side for a reverse sweep; trigger + grip for the slog sweep.
+  - **Report:** whether the right shot is recognised (the HUD names it) and the ball goes where you expect.
+- [ ] Move in the crease with the **left stick** and by physically stepping.
+  - **Report:** whether the world stays put when you step, and how far you can go before the Quest boundary appears.
+- [ ] Bat width: the blade is 12.5 cm (real: 10.8). **Report:** easier to hit? too wide? (`bat.bladeWidth`)
 
-## 6. Mixed reality nets (3 min)
-- [ ] Exit VR, then press **Enter MR nets**. Point the **left** controller at the floor; a green ring and arrow follow it.
-      Pull the trigger to drop the stumps. The pitch runs the way you are facing. Walk to the crease, then open
-      **Nets: Batting**.
+## 6. Running, run-outs, umpires (5 min)
+- [ ] Hit into a gap and press **X**. The floating prompt shows RUN / the runs so far. The batters stop after each run.
+      Press **X** again for a second. Try **left trigger** to turn back and **Y** to dive.
+  - **Report:** whether the prompts make it clear what to press, whether you can judge a run from where the
+    fielders are, and whether run-outs feel fair (`field.pickupTime`, `field.throwSpeed`).
+- [ ] Watch the umpire at the bowler's end after a four, a six, a wide and a wicket.
+- [ ] Get hit on the pad in front of the stumps (leave a straight one). The umpire decides; if given out, press **A**
+      to review. **Report:** whether the review board is readable from the crease and how long it feels.
+
+## 7. Bowling deliveries and fielding (10 min)
+Start **Nets: Bowling**, then **Bowl an Over**.
+- [ ] Pace: bowl gentle, normal and flat-out. The HUD names the delivery and speed.
+- [ ] Length by release timing: let go early (full / full toss), normally, and late (short / bouncer).
+  - **Report:** whether length follows your release point (`bowling.lengthRange`, `lengthPerDeg`).
+- [ ] Off-break and leg-break: roll the wrist clockwise / anticlockwise at release.
+- [ ] Doosra and googly: the same rolls with the **back of your hand** facing the batter at release.
+  - **Report:** whether the game names the delivery you meant. This uses the calibrated bat-face direction as your
+    palm (`bowling.palmDot`), so calibrate first. Say which ones it gets wrong.
+- [ ] Cutters: bowl fast (over 105 km/h) with a roll.
+- [ ] Catching: when the batter skies one, time slows and you are moved under the ball. Reach for it.
+  - **Report:** whether the move is comfortable, whether there is enough time, and whether the catch radius is fair
+    (`catching.slowMo`, `leadTime`, `handRadius`).
+- [ ] Throws: when a fielder picks up, press **A** (keeper) or **B** (bowler's end).
+  - **Report:** whether you get run-outs and whether the prompt appears in time.
+- [ ] Turned-down LBW: press **A** to review.
+
+## 8. Match modes and sound (5 min)
+- [ ] **Run Chase** and one **Match** (5 overs, 5 wickets each).
+  - **Report:** any point where the game got stuck (no ball coming, no way forward), and whether targets are
+    fair on each difficulty.
+- [ ] Commentary and captions (Settings → Sound cycles all / effects only / off).
+  - **Report:** lines that are wrong for what happened, clipped, or too frequent.
+
+## 9. Mixed reality nets (3 min)
+- [ ] In VR, open the menu and choose **Switch to mixed reality nets**. If nothing happens after a second trigger
+      pull, exit VR and press **Enter MR nets** on the page. **Report which one worked.**
+- [ ] Point the **left** controller at the floor; a green ring and arrow follow it. Pull the trigger to drop the
+      stumps. The pitch runs the way you are facing. Walk to the crease, then open **Nets: Batting**.
   - **Report:** whether the ring sits on the real floor (hit-test) and whether the stumps stay put when you move.
 
 ## What to send back

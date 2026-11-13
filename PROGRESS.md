@@ -1,6 +1,6 @@
 # Progress
 
-_Last updated by the overnight build._
+_Last updated after the gameplay overhaul (third pass)._
 
 ## Done
 - **Phase 1: Nets (batting core)**
@@ -59,14 +59,39 @@ _Last updated by the overnight build._
 - Exit VR restores the desktop camera. A failed session start ends the session.
 - Automatic frame-rate step-down if 120 Hz can't be held.
 
+## Gameplay overhaul (third pass)
+- **Models:** the athlete from the Courtside project, re-rigged to this game's 17-bone IK skeleton, with kit
+  colours, helmets, caps, pads and gloves; two LODs. Umpires at the bowler's end and square leg.
+- **Difficulty:** easy / medium / hard now change ball-in-flight time scale (0.70 / 0.85 / 1), sweet-spot size,
+  bowler pace, fielder speed and the chase target.
+- **Bowler types:** swing, fast, seam, off-spin and leg-spin, each with its own pace range, run-up and named
+  deliveries; one bowler per over.
+- **Batting:** bat-face-led launch angle, wider blade, stride down the pitch (trigger), sweep / reverse sweep /
+  slog sweep (grip), movement in the crease (stick or real steps), stumpings.
+- **Running:** manual calls (X), one run at a time, turn back (left trigger), dive (Y), run-outs at either end.
+- **Bowling:** delivery decided by the action. Hand speed = pace, release timing = length (full toss to bouncer),
+  wrist roll + palm direction = off-break / leg-break / doosra / googly / cutters.
+- **Fielding:** player-taken catches in slow motion by reaching for the ball; throw to the keeper (A) or the
+  bowler's end (B).
+- **LBW and DRS:** pad contact, the LBW law, an umpire with an error rate, one review per innings, a review board
+  with pitching / impact / wickets and ball tracking (ported from Courtside).
+- **Presentation:** umpire signals, two-voice commentary with captions, recorded bat / crowd / stumps samples,
+  a How to play page, floating prompts.
+- **Format:** 5 overs, 5 wickets.
+- 84 unit tests.
+
 ## Known issues / not verified
 - **Not tested on a real headset.** All XR paths ran only under Meta's IWER emulator in headless Chromium
   (no pose velocities, haptics, hit-test or passthrough there). Haptics, `updateTargetFrameRate`, pose velocities
   and MR hit-test are coded defensively but unverified.
 - The uncalibrated default bat orientation is a guess about the Quest grip-space axes. Calibrate on first use
   (the game prompts you).
-- The AI batter has no body collider, so there is no LBW.
-- The ball can pass through bodies (no body colliders).
+- Headless checks covered: all modes, running and run-outs, umpire signals, slow-motion catch, LBW appeal and both
+  kinds of review, sweep, stride, stumping, crease movement, the emulated VR and MR flows. **Not** checkable without
+  a headset: palm / back-of-hand detection for doosra and googly, the feel of the stride and of catching, the
+  in-VR switch to mixed reality, commentary timing by ear.
+- Only the pads have a collider (for LBW). The ball passes through the rest of a body.
+- Left-handed batting is not supported yet.
 - Desktop bowling with the mouse is awkward by nature. Use **B** (auto-bowl at the marker) for quick tests.
 - Headless test renders run at about 20 fps (software GL), so in-browser timings were checked with
   frame-synchronised scripts, not by feel.

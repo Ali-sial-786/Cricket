@@ -40,6 +40,7 @@ jobs:
           mkdir _site
           cp index.html _site/
           cp -r src _site/
+          cp -r assets _site/
           touch _site/.nojekyll
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3

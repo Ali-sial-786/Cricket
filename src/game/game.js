@@ -670,7 +670,7 @@ function makeActions(game) {
       if (g.input.xr && g.xrManager) {
         // Switch straight from VR: needs the trigger's "select" event, which arrives on release.
         g.wantMR = g.clock;
-        g.ui.setHud({ big: 'Switching to mixed reality…', bigColor: '#5cf2a6', last: 'If nothing happens, exit VR and press "Enter MR nets" on the page.', detail: '' });
+        g.ui.setHud({ big: 'Switching to mixed reality…', bigColor: '#5cf2a6', last: 'Pull the trigger once more if nothing happens — or exit VR and press "Enter MR nets" on the page.', detail: '' });
         return;
       }
       // A new XR session needs a page gesture: point the player at the page button.

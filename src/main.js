@@ -45,7 +45,7 @@ const xr = new XRSessionManager(renderer, {
 });
 game.requestXR = (kind) => xr.start(kind);
 game.xrManager = xr;
-xr.onSelect = () => { if (game.wantMR != null && game.clock - game.wantMR < 2.5) { game.wantMR = null; xr.switchTo('ar'); } };
+xr.onSelect = () => { if (game.wantMR != null && game.clock - game.wantMR < 8) { game.wantMR = null; xr.switchTo('ar'); } };
 
 const vrBtn = document.getElementById('enter-vr');
 const arBtn = document.getElementById('enter-mr');
