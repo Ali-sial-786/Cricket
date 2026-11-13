@@ -52,7 +52,7 @@ export const CONFIG = {
     // Geometry (bat local frame: origin = controller grip point, +Y toward
     // handle top, +Z = hitting face normal, +X across the face).
     bladeLength: 0.56,
-    bladeWidth: 0.108,
+    bladeWidth: 0.125,       // a touch wider than a real bat (10.8 cm) so contact is easier in VR
     bladeThickness: 0.050,
     edgeRadius: 0.012,       // rounding of the blade edges (affects edge deflection)
     handleLength: 0.30,
@@ -75,6 +75,15 @@ export const CONFIG = {
     thinEdgeSidePush: 0.16,  // …plus this much sideways deflection (fraction of speed)
     tangentialRetain: 0.70,  // fraction of tangential relative velocity kept
     cooldown: 0.15,          // s: ignore further contacts with the same bat
+    faceLed: 0.75,           // 0..1: how much the bat FACE angle (not the swing path) sets the launch angle
+    loftGain: 1.0,           // launch elevation per unit of face elevation
+    advanceDistance: 1.6,    // m you come down the pitch while the trigger is held
+    advanceSpeed: 3.6,       // m/s
+    advancePower: 0.32,      // extra bat power at full advance (x1.32), more for lofted shots
+    advanceSweetShrink: 0.4, // sweet spot shrinks by this fraction at full advance (harder to time)
+    sweepSpeedGain: 1.15,    // sweep exit speed = bat speed x this + a share of the ball's pace
+    creaseMoveSpeed: 1.3,    // m/s with the left thumbstick
+    creaseBox: [0.9, 0.55],  // how far (x, z) the stick can move you in the crease
     velocitySource: 'auto',  // 'auto' | 'xr' | 'pose' — where controller velocity comes from
   },
 
@@ -112,7 +121,10 @@ export const CONFIG = {
     neutralLength: 6.5,      // m from batter's stumps at the neutral elevation
     lengthPerDeg: 0.15,      // m of length change per degree of elevation error
     lineGain: 0.6,           // 1 = fully geometric line from your release direction
-    lengthRange: [0.3, 13],  // clamp (no beamers / full tosses)
+    lengthRange: [-2.5, 13.5], // early release = full (negative = full toss), late = short
+    fullTossHeight: [0.35, 1.25], // m at the batter for a full toss (waist-high no-balls not allowed)
+    spinnerPaceKmh: 105,     // below this, wrist action gives a spin delivery; above, a cutter
+    palmDot: 0.15,           // palm toward the batter above this, back of the hand below -this
     assistStrength: 0.65,    // 0..1, how strongly the aim marker pulls deliveries
     spinMultiplier: 4.0,     // wrist roll rad/s × this = ball spin rad/s
     spinDeadzone: 2.5,       // rad/s of wrist roll ignored
@@ -161,11 +173,29 @@ export const CONFIG = {
   },
 
   bowlerAI: {
-    // AI bowler (when you bat in a match): pace range per difficulty.
-    easy:   { paceKmh: [112, 126], accuracy: 0.6, variation: 0.3 },
-    medium: { paceKmh: [124, 138], accuracy: 0.75, variation: 0.5 },
-    hard:   { paceKmh: [134, 148], accuracy: 0.88, variation: 0.75 },
+    // AI bowling quality per difficulty (pace comes from the bowler type x paceScale).
+    easy:   { accuracy: 0.6, variation: 0.3 },
+    medium: { accuracy: 0.75, variation: 0.5 },
+    hard:   { accuracy: 0.88, variation: 0.75 },
+    releaseHeight: 1.98,
   },
+
+  // What each difficulty changes for the PLAYER.
+  difficulty: {
+    //         ball flight slowed    bat hit-zone   AI pace    fielders   AI batter aggression
+    easy:   { timeScale: 0.70, batAssist: 1.55, paceScale: 0.88, fieldScale: 0.85, chase: 1.7, lbwAgainstPlayer: false },
+    medium: { timeScale: 0.85, batAssist: 1.25, paceScale: 0.94, fieldScale: 0.95, chase: 2.0, lbwAgainstPlayer: true },
+    hard:   { timeScale: 1.00, batAssist: 1.00, paceScale: 1.00, fieldScale: 1.00, chase: 2.4, lbwAgainstPlayer: true },
+  },
+
+  catching: {
+    slowMo: 0.22,            // time scale during a catching chance
+    leadTime: 0.75,          // s (game time) before the ball arrives that the chance starts
+    handRadius: 0.24,        // m: ball centre within this of either hand = caught
+    standOff: 0.42,          // m you stand behind the catch point
+  },
+
+  match: { overs: 5, wickets: 5, reviews: 1 },
 
   audio: {
     master: 0.8,

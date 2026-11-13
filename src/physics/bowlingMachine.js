@@ -5,7 +5,7 @@
 // Pure JS.
 
 import { Vec3, clamp, kmhToMs, msToKmh } from './math.js';
-import { BallState, aeroParams } from './ball.js';
+import { BallState, aeroParams, integrateFlight } from './ball.js';
 import { firstBounce } from './trajectory.js';
 import { PITCH } from './pitch.js';
 import { CONFIG } from '../config.js';
@@ -143,4 +143,47 @@ export function machineDelivery(settings, rng = null, cfg = CONFIG, releasePos =
     solverError: sol.error,
     spinType: s.spinType,
   };
+}
+
+// Solve the launch direction for a FULL TOSS: the ball passes through
+// (at.x, at.y) on the plane z = at.z without bouncing first.
+export function solveThrough({ releasePos, speed, at, spin = _zero, swing = 0, cfg = CONFIG, tol = 0.01, maxIter = 14 }) {
+  const P = aeroParams(cfg);
+  const st = new BallState();
+  const h = 1 / cfg.physics.substepHz;
+  const evalDir = (el, az) => {
+    st.reset();
+    st.active = true;
+    st.pos.copy(releasePos);
+    st.vel.set(Math.cos(el) * Math.sin(az), Math.sin(el), Math.cos(el) * Math.cos(az)).scale(speed);
+    st.spin.copy(spin);
+    st.swing = swing;
+    let px = st.pos.x, py = st.pos.y, pz = st.pos.z;
+    for (let i = 0; i < 2400; i++) {
+      px = st.pos.x; py = st.pos.y; pz = st.pos.z;
+      integrateFlight(st, h, P, null);
+      if (st.pos.z >= at.z) { const f = (at.z - pz) / Math.max(1e-9, st.pos.z - pz); return { x: px + (st.pos.x - px) * f, y: py + (st.pos.y - py) * f, bounced: st.bounces > 0 }; }
+    }
+    return null;
+  };
+  const dx = at.x - releasePos.x, dz = at.z - releasePos.z, dist = Math.hypot(dx, dz);
+  let az = Math.atan2(dx, dz);
+  const T = dist / Math.max(speed, 1);
+  let el = clamp(Math.atan2(at.y - releasePos.y, dist) + 0.5 * cfg.physics.gravity * T / Math.max(speed, 1), -1.0, 0.9);
+  let p = evalDir(el, az), err = Infinity, iterations = 0;
+  for (; iterations < maxIter && p; iterations++) {
+    const ex = at.x - p.x, ey = at.y - p.y;
+    err = Math.hypot(ex, ey);
+    if (err < tol) break;
+    const pe = evalDir(el + 1e-3, az), pa = evalDir(el, az + 1e-3);
+    if (!pe || !pa) break;
+    const j00 = (pe.x - p.x) / 1e-3, j01 = (pa.x - p.x) / 1e-3, j10 = (pe.y - p.y) / 1e-3, j11 = (pa.y - p.y) / 1e-3;
+    const det = j00 * j11 - j01 * j10;
+    if (Math.abs(det) < 1e-9) break;
+    el += clamp((j11 * ex - j01 * ey) / det, -0.08, 0.08);
+    az += clamp((-j10 * ex + j00 * ey) / det, -0.08, 0.08);
+    p = evalDir(el, az);
+  }
+  const vel = new Vec3(Math.cos(el) * Math.sin(az), Math.sin(el), Math.cos(el) * Math.cos(az)).scale(speed);
+  return { vel, error: err, iterations, bounced: !!(p && p.bounced) };
 }

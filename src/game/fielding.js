@@ -33,6 +33,8 @@ export class Fielding {
   constructor({ cfg = CONFIG, rng = makeRng(99), catchSkill = 0.72, spinner = false, bowlerFields = true } = {}) {
     this.cfg = cfg;
     this.bowlerFields = bowlerFields;
+    this.autoRuns = true;        // legacy: score completed runs from timings; the match controller turns this off
+    this.throwArrived = null;    // { end, t } once the throw reaches the stumps
     this.rng = rng;
     this.catchSkill = catchSkill;
     this.fielders = FIELD.map((f) => ({
@@ -67,7 +69,9 @@ export class Fielding {
     this.message = '';
     this.dropped = false;
     this.keeperHold = false;
+    this.throwArrived = null;
     for (const f of this.fielders) {
+      f.playerControlled = false;
       f.pos.copy(f.home); f.vel.set(0, 0, 0); f.state = 'set'; f.target = null; f.speed = 0; f.prevDist = Infinity;
       f.action = null;
       f.face = Math.atan2(0 - f.home.x, -1.0 - f.home.z); // look at the batter
@@ -80,7 +84,9 @@ export class Fielding {
     this.hitT = null; this.plan = null; this.outcome = null; this.fielded = false; this.caught = false;
     this.boundary = null; this.throw = null; this.ballOverride = null; this.message = ''; this.dropped = false;
     this.keeperHold = false;
+    this.throwArrived = null;
     for (const f of this.fielders) {
+      f.playerControlled = false;
       f.prevDist = Infinity; f.action = null;
       const far = Math.hypot(f.pos.x - f.home.x, f.pos.z - f.home.z);
       if (far > 40) { f.pos.copy(f.home); f.state = 'set'; f.speed = 0; }   // never visible marathon walks
@@ -236,6 +242,7 @@ export class Fielding {
     for (let i = 0; i < this.fielders.length; i++) {
       const f = this.fielders[i];
       if (f.bowler && !this.bowlerFields) continue;
+      if (f.playerControlled) continue;                  // the player is taking this one
       if (f.state !== 'chase' && f.state !== 'backup' && f.state !== 'gather' && f.state !== 'set' && f.state !== 'stumps' && f.state !== 'walkin' && f.state !== 'return') continue;
       const dxz = Math.hypot(ball.pos.x - f.pos.x, ball.pos.z - f.pos.z);
       const airborne = ball.batted && ball.bouncesSinceBat === 0;
@@ -315,10 +322,11 @@ export class Fielding {
     f.state = 'throwing';
     f.speed = 0;
     const from = new Vec3(ball.pos.x, 1.0, ball.pos.z);
-    // Throw to whichever end is nearer.
+    // Throw to whichever end is nearer (the controller / player may change it).
     const toBat = Math.hypot(from.x, from.z - 0);
     const toBowl = Math.hypot(from.x, from.z - PITCH.bowlingStumpsZ);
-    const to = toBat <= toBowl ? new Vec3(0, 1.0, 0.4) : new Vec3(0, 1.0, PITCH.bowlingStumpsZ - 0.4);
+    const end = toBat <= toBowl ? 'batting' : 'bowling';
+    const to = endPoint(end);
     const dist = from.distanceTo(to);
     const pl = this.plan;
     const stretched = pl && this.fielders[pl.fi] === f && pl.slack < 0.2;
@@ -332,7 +340,7 @@ export class Fielding {
       if (tRun + F.runSafetyMargin <= tArrive) runs++;
       else break;
     }
-    this.throw = { from, to, tStart, tArrive, f, anim: false };
+    this.throw = { from, to, tStart, tArrive, f, anim: false, end };
     this.ballOverride = { pos: from.clone() };
     this.pendingRuns = runs;
     f.action = { type: 'pickup', t0: t, dur: Math.max(0.3, tStart - t - 0.47), ball: new Vec3(ball.pos.x, 0.04, ball.pos.z) };
@@ -359,18 +367,59 @@ export class Fielding {
       return;
     }
     if (!th.anim && t >= th.tStart - 0.47) { th.anim = true; th.f.action = { type: 'throw', t0: th.tStart - 0.47 }; }
+    if (t >= th.tStart) th.released = true;
     const k = clamp((t - th.tStart) / (th.tArrive - th.tStart), 0, 1);
     const p = this.ballOverride.pos;
     p.x = th.from.x + (th.to.x - th.from.x) * k;
     p.z = th.from.z + (th.to.z - th.from.z) * k;
     const arc = Math.min(6, th.from.distanceTo(th.to) * 0.08);
     p.y = th.from.y + (th.to.y - th.from.y) * k + Math.sin(Math.PI * k) * arc;
-    if (k >= 1 && !this.outcome) {
+    if (k >= 1 && !this.throwArrived) this.throwArrived = { end: th.end, t: th.tArrive };
+    if (k >= 1 && !this.outcome && this.autoRuns) {
       this.outcome = { kind: 'runs', runs: this.pendingRuns };
       this.message = this.pendingRuns ? `${this.pendingRuns} run${this.pendingRuns > 1 ? 's' : ''}` : 'Fielded';
       th.f.state = 'return';
       for (const f of this.fielders) if (f.state !== 'set' && f.state !== 'throwing') f.state = 'return';
     }
+  }
+
+  // Re-aim a throw that has not left the hand yet.
+  setThrowEnd(end) {
+    const th = this.throw;
+    if (!th || th.released || th.end === end) return false;
+    th.end = end;
+    th.to = endPoint(end);
+    th.tArrive = th.tStart + th.from.distanceTo(th.to) / this.cfg.field.throwSpeed;
+    th.f.face = Math.atan2(th.to.x - th.f.pos.x, th.to.z - th.f.pos.z);
+    return true;
+  }
+
+  // Seconds after the hit until the ball should be back at the stumps
+  // (Infinity if it is going for a boundary / nobody gets there).
+  estimateReturn() {
+    const p = this.plan, F = this.cfg.field;
+    if (!p) return Infinity;
+    if (p.airborne) return 0;                       // a catch is on: don't run
+    const d = Math.min(Math.hypot(p.x, p.z), Math.hypot(p.x, p.z - PITCH.bowlingStumpsZ));
+    return p.t + F.pickupTime + d / F.throwSpeed;
+  }
+
+  // The player (as a fielder) took / dropped the catch.
+  playerCaught(f) {
+    this.caught = true; this.fielded = true;
+    this.outcome = { kind: 'caught', by: 'you' };
+    this.message = 'Caught!';
+    f.playerControlled = false;
+    f.state = 'celebrate';
+    f.action = { type: 'catch', t0: -10, success: true, dive: false, side: 1, dir: { x: 0, z: 1 }, lunge: 0, target: null };
+  }
+  playerDropped(f, ball) {
+    f.playerControlled = false;
+    f.state = 'gather';
+    f.target = new Vec3(ball.pos.x + ball.vel.x * 0.6, 0, ball.pos.z + ball.vel.z * 0.6);
+    this.message = 'Dropped!';
+    this.dropped = true;
+    ball.bouncesSinceBat = Math.max(1, ball.bouncesSinceBat);
   }
 
   // Back to positions after a ball.
@@ -399,6 +448,8 @@ export class Fielding {
     return Math.min(3, 1 + Math.floor((el - F.runFirst) / F.runNext));
   }
 }
+
+function endPoint(end) { return end === 'batting' ? new Vec3(0, 1.0, 0.4) : new Vec3(0, 1.0, PITCH.bowlingStumpsZ - 0.4); }
 
 function airborne(ball) { return ball.batted && ball.bouncesSinceBat === 0; }
 

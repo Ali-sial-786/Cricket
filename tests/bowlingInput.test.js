@@ -46,7 +46,9 @@ test('wrist roll along the travel direction gives off-spin, the other way leg-sp
   const leg = mapRelease({ releasePos: rel, handVel: handAt(9, -8), handAngVel: new Vec3(0, 0, -25), assist: false });
   const none = mapRelease({ releasePos: rel, handVel: handAt(9, -8), handAngVel: new Vec3(0, 0, 1), assist: false, swingChoice: 1 });
   assert.equal(off.spinType, 'off');
+  assert.equal(off.name, 'off-break');
   assert.equal(leg.spinType, 'leg');
+  assert.equal(leg.name, 'leg-break');
   assert.equal(none.spinType, 'none');
   assert.ok(none.swing > 0);
   assert.equal(off.swing, 0);
@@ -59,4 +61,34 @@ test('player delivery pitches on the mapped target', () => {
   b.pos.copy(d.releasePos); b.vel.copy(d.vel); b.spin.copy(d.spin); b.swing = d.swing;
   const hit = firstBounce(b);
   assert.ok(Math.hypot(hit.pos.x - d.target.x, hit.pos.z - d.target.z) < 0.03);
+});
+
+test('back of the hand turns an off-spin action into a doosra and a leg-spin action into a googly', () => {
+  const back = new Vec3(0, 0, -1), front = new Vec3(0, 0, 1);
+  const doosra = mapRelease({ releasePos: rel, handVel: handAt(9, -8), handAngVel: new Vec3(0, 0, 25), palmDir: back, assist: false });
+  assert.equal(doosra.name, 'doosra');
+  assert.equal(doosra.spinType, 'leg');          // turns away from the right-hander
+  const googly = mapRelease({ releasePos: rel, handVel: handAt(9, -8), handAngVel: new Vec3(0, 0, -25), palmDir: back, assist: false });
+  assert.equal(googly.name, 'googly');
+  assert.equal(googly.spinType, 'off');          // turns in
+  const offb = mapRelease({ releasePos: rel, handVel: handAt(9, -8), handAngVel: new Vec3(0, 0, 25), palmDir: front, assist: false });
+  assert.equal(offb.name, 'off-break');
+});
+
+test('the same wrist action at pace is a cutter', () => {
+  const c = mapRelease({ releasePos: rel, handVel: handAt(15, -8), handAngVel: new Vec3(0, 0, 25), assist: false });
+  assert.equal(c.name, 'off-cutter');
+  assert.ok(c.seamDeg < 0);
+});
+
+test('letting go very early gives a full toss that reaches the batter on the full; late gives a bouncer', () => {
+  const early = playerDelivery({ releasePos: rel, handVel: handAt(14, CONFIG.bowling.neutralElevationDeg + 55), handAngVel: new Vec3(), assist: false });
+  assert.ok(early.fullToss, 'full toss expected');
+  assert.ok(early.name.includes('full toss'));
+  const b = new BallState();
+  b.active = true; b.pos.copy(early.releasePos); b.vel.copy(early.vel); b.spin.copy(early.spin);
+  const hit = firstBounce(b);
+  assert.ok(hit.pos.z > early.fullToss.z, `bounced at ${hit.pos.z}, before the batter`);
+  const late = mapRelease({ releasePos: rel, handVel: handAt(14, CONFIG.bowling.neutralElevationDeg - 40), handAngVel: new Vec3(), assist: false });
+  assert.ok(late.length > 11 && late.name.includes('bouncer'), late.name);
 });

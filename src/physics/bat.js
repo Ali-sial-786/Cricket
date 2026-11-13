@@ -96,7 +96,7 @@ const _sp = new Vec3();
 
 // Compute contact quality and restitution from the local contact.
 // cLocal = ball centre (local) at contact, nLocal = outward surface normal.
-export function contactQuality(geom, cLocal, nLocal, part) {
+export function contactQuality(geom, cLocal, nLocal, part, sigmaScale = 1) {
   const c = geom.cfg;
   if (part === 'handle') {
     return { quality: 0.05, e: c.restitutionHandle, isEdge: false, face: 'handle', across: 0, along: 0 };
@@ -105,7 +105,8 @@ export function contactQuality(geom, cLocal, nLocal, part) {
   const sx = cLocal.x, sy = cLocal.y;
   const across = Math.min(1.2, Math.abs(sx) / geom.bladeHalf.x);
   const alongDist = sy - geom.sweetY;
-  const along = Math.exp(-(alongDist * alongDist) / (c.sweetSpotSigma * c.sweetSpotSigma));
+  const sig = c.sweetSpotSigma * sigmaScale;
+  const along = Math.exp(-(alongDist * alongDist) / (sig * sig));
   let face;
   if (nLocal.z > 0.45) face = 'front';
   else if (nLocal.z < -0.45) face = 'back';
@@ -141,10 +142,11 @@ const _n = new Vec3(), _nw = new Vec3(), _cw = new Vec3(), _r = new Vec3(), _vb 
 //  batLinVel, batAngVel: controller (grip) velocities at contact (world)
 //  gripPos:   world position the angular velocity is about
 // Returns contact info or null if the bodies were separating.
-export function resolveBatContact(geom, ball, pose, cLocal, batLinVel, batAngVel, gripPos, R, cfg = CONFIG, speedScale = cfg.bat.speedMultiplier) {
+// mods (optional, per bat): { faceLed, power, sigmaScale, loftPower }
+export function resolveBatContact(geom, ball, pose, cLocal, batLinVel, batAngVel, gripPos, R, cfg = CONFIG, speedScale = cfg.bat.speedMultiplier, mods = null) {
   const c = cfg.bat;
   const part = geom.normalAt(_n, cLocal);
-  const q = contactQuality(geom, cLocal, _n, part);
+  const q = contactQuality(geom, cLocal, _n, part, mods && mods.sigmaScale ? mods.sigmaScale : 1);
 
   // Thick-edge deflection: tilt the face normal toward the nearer edge.
   if (q.face === 'front' && q.across > c.edgeStart) {
@@ -186,6 +188,23 @@ export function resolveBatContact(geom, ball, pose, cLocal, batLinVel, batAngVel
     _tmp.copy(_vin).scale(c.thinEdgeRetain).addScaled(_vb, 0.15).addScaled(_xw, speedIn * c.thinEdgeSidePush);
     ball.vel.lerp(_tmp, thin);
     q.isEdge = true;
+  }
+  // Face-led launch: the bat FACE angle at contact (not the swing path)
+  // decides whether the ball goes along the ground or in the air.
+  if (mods && q.face === 'front' && thin < 0.5) {
+    const power = (mods.power || 1);
+    if (power !== 1) ball.vel.scale(1 + (power - 1) * q.quality);
+    if (mods.faceLed > 0) {
+      const sp = ball.vel.length(), h = Math.hypot(ball.vel.x, ball.vel.z);
+      if (sp > 1e-3 && h > 1e-3) {
+        const cur = Math.atan2(ball.vel.y, h);
+        const faceEl = Math.asin(Math.max(-1, Math.min(1, _nw.y))) * (c.loftGain ?? 1);
+        const el = Math.max(-0.5, Math.min(1.2, cur + (faceEl - cur) * mods.faceLed));
+        const k = Math.cos(el) * sp / h;
+        ball.vel.set(ball.vel.x * k, Math.sin(el) * sp, ball.vel.z * k);
+        if (el > 0.2 && mods.loftPower) ball.vel.scale(1 + mods.loftPower * q.quality);
+      }
+    }
   }
   ball.spin.scale(cfg.ball.hitSpinRetain);
 

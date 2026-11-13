@@ -34,6 +34,6 @@ test('chase result: won / lost / tied', () => {
 });
 
 test('chase targets scale with overs and difficulty', () => {
-  assert.equal(chaseTarget('medium', 2), Math.round(2.2 * 12));
+  assert.equal(chaseTarget('medium', 2), Math.round(1.6 * 12));
   assert.ok(chaseTarget('hard', 2) > chaseTarget('easy', 2));
 });

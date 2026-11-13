@@ -62,10 +62,10 @@ export class Innings {
 }
 
 // Wickets allowed per innings for a given number of overs.
-export function wicketsForOvers(overs) { return Math.max(2, Math.min(10, overs + 1)); }
+export function wicketsForOvers(overs) { return Math.max(2, Math.min(5, overs + 1)); }
 
 // Run-chase target for difficulty and overs.
 export function chaseTarget(difficulty, overs) {
-  const perBall = { easy: 1.7, medium: 2.2, hard: 2.75 }[difficulty] || 2.2;
+  const perBall = { easy: 1.35, medium: 1.6, hard: 1.9 }[difficulty] || 1.6;
   return Math.round(perBall * overs * 6);
 }
