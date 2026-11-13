@@ -1,6 +1,6 @@
 # Progress
 
-_Last updated after the fourth pass (batting animation, stumpings, extras, toss, scorecards)._
+_Last updated after the fifth pass (your bowler types, swing and seam by action)._
 
 ## Done
 - **Phase 1: Nets (batting core)**
@@ -95,6 +95,16 @@ _Last updated after the fourth pass (batting animation, stumpings, extras, toss,
 - **Toss:** call heads or tails; bat or bowl first. The match works in either order.
 - 92 unit tests.
 
+## Fifth pass
+- **Your bowler types:** fast, medium-fast, off-spin and leg-spin, each with a pace range and only their own
+  deliveries. A leg-spinner cannot bowl an off-break or a doosra; an off-spinner cannot bowl a leg-break.
+- **Swing and seam for the quicks:** the seam position is set by turning the wrist with the ball in the hand
+  (or A / B); cutters by rolling the wrist at release; slower ball from the back of the hand. Fast bowlers swing it
+  more, medium-pacers seam it more.
+- New spin variations: arm ball, top-spinner, slider.
+- The bowler is changed with the right stick at the start of an over; the keeper stands up to your spinners.
+- 99 unit tests.
+
 ## Known issues / not verified
 - **Not tested on a real headset.** All XR paths ran only under Meta's IWER emulator in headless Chromium
   (no pose velocities, haptics, hit-test or passthrough there). Haptics, `updateTargetFrameRate`, pose velocities
@@ -104,7 +114,8 @@ _Last updated after the fourth pass (batting animation, stumpings, extras, toss,
 - Headless checks covered: all modes, running and run-outs, umpire signals, slow-motion catch, LBW appeal and both
   kinds of review, sweep, stride, stumping (both sides), the third umpire, no-ball and free hit, the toss,
   bowling first, crease movement, the emulated VR and MR flows, and frame strips of every AI batting shot. **Not** checkable without
-  a headset: palm / back-of-hand detection for doosra and googly, the feel of the stride and of catching, the
+  a headset: palm / back-of-hand detection for doosra and googly, whether the wrist turn for swing feels natural
+  and stays put through a real wind-up (it works under the emulator), the feel of the stride and of catching, the
   in-VR switch to mixed reality, commentary timing by ear.
 - Only the pads have a collider (for LBW). The ball passes through the rest of a body.
 - Left-handed batting is not supported yet.

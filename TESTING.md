@@ -108,11 +108,21 @@ Start **Nets: Bowling**, then **Bowl an Over**.
 - [ ] Pace: bowl gentle, normal and flat-out. The HUD names the delivery and speed.
 - [ ] Length by release timing: let go early (full / full toss), normally, and late (short / bouncer).
   - **Report:** whether length follows your release point (`bowling.lengthRange`, `lengthPerDeg`).
-- [ ] Off-break and leg-break: roll the wrist clockwise / anticlockwise at release.
-- [ ] Doosra and googly: the same rolls with the **back of your hand** facing the batter at release.
-  - **Report:** whether the game names the delivery you meant. This uses the calibrated bat-face direction as your
-    palm (`bowling.palmDot`), so calibrate first. Say which ones it gets wrong.
-- [ ] Cutters: bowl fast (over 105 km/h) with a roll.
+- [ ] Bowler types: flick the **right stick** left / right to go through fast, medium-fast, off-spin and leg-spin.
+  - **Report:** km/h for a normal action with each bowler (ranges in `src/game/bowlerTypes.js`: `pace`, `paceScale`).
+- [ ] **Fast / medium, swing:** grip the ball, then turn your wrist left (seam to the slips) and right before you
+      bowl. Watch the seam on the ball in your hand and the "Seam: …" prompt.
+  - **Report:** whether the seam follows your wrist the right way round, whether it changes when you did not mean
+    it to (dead zone 10°, full at 31°: `seamFromWrist` in `bowlerTypes.js`), whether it survives your wind-up
+    (it should lock once the hand moves faster than 1.5 m/s), and whether the ball then swings the way it said.
+    Also try **A** / **B**.
+- [ ] **Fast / medium, cutters:** roll the wrist as you let go. Clockwise should be an off-cutter (seams in to the
+      right-hander), anticlockwise a leg-cutter. Back of the hand: slower ball.
+- [ ] **Off-spin:** clockwise roll = off-break; back of the hand = doosra; no roll = arm ball. An anticlockwise
+      roll should *not* produce a leg-break (you get an arm ball and a note).
+- [ ] **Leg-spin:** anticlockwise roll = leg-break; back of the hand = googly; clockwise = top-spinner; no roll = slider.
+  - **Report:** whether the game names the delivery you meant. Back-of-the-hand detection uses the calibrated
+    bat-face direction as your palm (`bowling.palmDot`), so calibrate first. Say which ones it gets wrong.
 - [ ] Catching: when the batter skies one, time slows and you are moved under the ball. Reach for it.
   - **Report:** whether the move is comfortable, whether there is enough time, and whether the catch radius is fair
     (`catching.slowMo`, `leadTime`, `handRadius`).

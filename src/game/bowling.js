@@ -11,8 +11,11 @@ import { LbwFlow, padHit, deflectOffPad } from './lbwFlow.js';
 import { ThirdUmpireFlow } from './thirdUmpire.js';
 import { Innings } from './scoring.js';
 import { batProfile } from './squad.js';
+import { playerBowler, nextBowler, seamFromWrist, PLAYER_BOWLER_ORDER } from './bowlerTypes.js';
 
 const _palm = new Vec3();
+// Ball mesh: the seam is the equator (normal = local Y). Upright seam = normal across the pitch.
+const S2 = Math.SQRT1_2;
 
 export class BowlingSession {
   constructor(game, { kind = 'bowlnets', title = 'Nets · Bowling', innings = null, fielders = null, aggression = 0.35, onDone = null } = {}) {
@@ -40,7 +43,32 @@ export class BowlingSession {
     this.path = [];
     this.partnership = 0; this.dots = 0;
     this.noBall = false; this.freeHit = false; this.stumpAt = 0;
-    this.paceAvg = null; this.keeperUp = false;      // the keeper stands up to slow bowling
+    this.keeperUp = false;           // the keeper stands up to the spinners
+    this.seamYaw = 0;                // how far the wrist has been turned since gripping the ball (rad)
+    this.stickArmed = true;
+  }
+
+  get bowler() { return playerBowler(this.game.settings.bowlerType); }
+  // Seam position for this ball: A / B plus the wrist turn. -1 inswing .. +1 outswing.
+  get seam() { return this.bowler.spinner ? 0 : clamp(this.swingChoice + seamFromWrist(this.seamYaw), -1, 1); }
+  seamText() {
+    const s = this.seam;
+    if (this.bowler.spinner) return this.bowler.deliveries;
+    return Math.abs(s) < 0.05 ? 'seam upright' : `${s > 0 ? 'OUT-swing' : 'IN-swing'} ${Math.round(Math.abs(s) * 100)}%`;
+  }
+  canChangeBowler() { return this.state === 'ready' && !this.holding && (!this.innings || this.innings.thisOver.length === 0); }
+  setBowler(key) {
+    const g = this.game;
+    if (key === g.settings.bowlerType) return;
+    if (!this.canChangeBowler()) { g.ui.prompt('You can change bowler at the start of an over', 1.8, '#ffb347'); return; }
+    g.settings.bowlerType = key; g.saveSettings();
+    this.swingChoice = 0; this.seamYaw = 0;
+    this.keeperUp = this.bowler.spinner;
+    if (this.field) this.field.setSpinner(this.keeperUp);
+    const b = this.bowler;
+    g.ui.prompt(`${b.label}: ${b.deliveries}`, 4, '#ffd34d');
+    g.sfx.ui();
+    this.updateHud();
   }
 
   usesY() { return false; }
@@ -62,8 +90,10 @@ export class BowlingSession {
     g.umpires.place(true);
     g.umpires.show(!!this.field);
     if (this.field) this.field.enter();
+    this.keeperUp = this.bowler.spinner;
+    if (this.field) this.field.setSpinner(this.keeperUp);
     if (this.innings) { g.say('toss', { choice: 'bowl' }); g.say('innings', { chase: this.innings.target != null }); }
-    g.ui.prompt(g.input.xr ? 'Hold TRIGGER, bowl overarm, let go' : 'Hold the mouse, sweep down, let go  (B: auto-bowl)', 6);
+    g.ui.prompt(g.input.xr ? `You are bowling ${this.bowler.label.toLowerCase()} · right stick ◂ ▸ changes bowler` : `Bowling ${this.bowler.label.toLowerCase()} · keys 1–4 change bowler · B: auto-bowl`, 6);
     this.resetEnds();
     this.updateAim();
     this.updateHud();
@@ -87,8 +117,8 @@ export class BowlingSession {
 
   howTo() {
     return this.game.input.xr
-      ? 'Trigger: hold + bowl + let go · early = full, late = short · roll wrist = spin · A/B swing'
-      : 'Mouse: hold, sweep down, release · B auto-bowl · Q/E spin (+F back of hand) · Z/X swing';
+      ? (this.bowler.spinner ? 'Roll the wrist at release · back of the hand = the wrong \'un · early = full, late = short' : 'Turn the wrist before you bowl (or A/B) = swing · roll at release = cutter · back of hand = slower')
+      : 'Mouse: hold, sweep down, release · B auto-bowl · Q/E wrist roll (+F back of hand) · Z/X swing · 1–4 bowler';
   }
 
   footer() {
@@ -111,9 +141,25 @@ export class BowlingSession {
   handleInput(input) {
     const R = input.right, L = input.left, D = input.desktop;
     if (this.state === 'ready') {
-      if (R.buttons.a.down) { this.swingChoice = this.swingChoice === 1 ? 0 : 1; this.updateHud(); R.pulse(0.15, 15); }
-      if (R.buttons.b.down) { this.swingChoice = this.swingChoice === -1 ? 0 : -1; this.updateHud(); R.pulse(0.15, 15); }
-      if (R.buttons.trigger.down) { this.holding = true; this.game.sfx.ui(); this.game.aiBatter.setReady(this.game.world.time + 0.15); }
+      const g = this.game, seamer = !this.bowler.spinner;
+      // Seam position (seamers): A = to the slips (out-swing), B = to fine leg (in-swing); press again for upright.
+      if (R.buttons.a.down || R.buttons.b.down) {
+        if (seamer) { const want = R.buttons.a.down ? 1 : -1; this.swingChoice = this.swingChoice === want ? 0 : want; this.updateHud(); R.pulse(0.15, 15); g.ui.prompt(`Seam: ${this.seamText()}`, 1.2, '#ffd34d'); }
+        else g.ui.prompt(`${this.bowler.label}: roll the wrist at release`, 1.5, '#cfe3f5');
+      }
+      // Change bowler: right stick left / right (keys 1–4 on desktop).
+      const sx = R.stick.x;
+      if (Math.abs(sx) < 0.3) this.stickArmed = true;
+      else if (this.stickArmed && Math.abs(sx) > 0.65) { this.stickArmed = false; this.setBowler(nextBowler(g.settings.bowlerType, sx > 0 ? 1 : -1)); }
+      if (!input.xr) PLAYER_BOWLER_ORDER.forEach((k, i) => { if (D.took('Digit' + (i + 1))) this.setBowler(k); });
+      if (R.buttons.trigger.down) { this.holding = true; this.seamYaw = 0; this.seamShown = 0; g.sfx.ui(); g.aiBatter.setReady(g.world.time + 0.15); }
+      // With the ball in the hand, turning the wrist left / right angles the seam (it locks once the arm is moving).
+      if (this.holding && seamer && input.xr && R.linVel.length() < 1.5) {
+        this.seamYaw = clamp(this.seamYaw + R.angVel.y * (g.realDt || 0.014), -0.9, 0.9);
+        const s = this.seam, step = Math.round(s * 4);
+        if (step !== this.seamShown) { this.seamShown = step; R.pulse(0.2, 12); this.updateHud(); }
+        g.ui.prompt(`Seam: ${this.seamText()}`, 0.3, Math.abs(s) < 0.05 ? '#cfe3f5' : '#ffd34d');
+      }
       if (this.holding && R.buttons.trigger.up) this.attemptRelease();
       if (!input.xr && D.took('KeyB')) this.autoBowl();
     }
@@ -132,6 +178,7 @@ export class BowlingSession {
     if (!pk || pk.v.length() < CONFIG.bowling.minReleaseHandSpeed) {
       g.ui.setHud({ big: 'Dropped — swing harder', bigColor: '#ffb347' });
       g.aiBatter.reset();
+      this.seamYaw = 0; this.updateHud();
       return;
     }
     const pos = R.gripPose.p.clone().add(new Vec3(...CONFIG.bowling.ballHoldOffset).applyQuat(R.gripPose.q));
@@ -142,8 +189,9 @@ export class BowlingSession {
   autoBowl() {
     const g = this.game, D = g.input.desktop;
     const rel = new Vec3(0.5, 2.05, -18.95);
-    const kmh = g.settings.machine.paceKmh;
-    const speed = kmh / 3.6 / CONFIG.bowling.paceMultiplier;
+    const bw = this.bowler;
+    const kmh = clamp(g.settings.machine.paceKmh, bw.pace[0], bw.pace[1]);
+    const speed = kmh / 3.6 / CONFIG.bowling.paceMultiplier / bw.paceScale;
     const el = (this.neutralElev() ?? CONFIG.bowling.neutralElevationDeg) * DEG;
     const az = Math.atan2(this.aim.x - rel.x, this.aim.z - rel.z);
     const v = new Vec3(Math.cos(el) * Math.sin(az), Math.sin(el), Math.cos(el) * Math.cos(az)).scale(speed);
@@ -159,7 +207,8 @@ export class BowlingSession {
     const g = this.game;
     const d = playerDelivery({
       releasePos, handVel, handAngVel, palmDir,
-      swingChoice: this.swingChoice,
+      swingChoice: this.seam,
+      bowler: this.bowler,
       aim: g.settings.aimAssist ? this.aim : null,
       assist: g.settings.aimAssist,
       neutralElevDeg: this.neutralElev(),
@@ -182,9 +231,8 @@ export class BowlingSession {
     this.noBall = false;
     this.freeHit = !!(this.innings && this.innings.freeHit);
     if (this.innings && g.input.xr && g.input.headPose.p.z > bowlingPoppingZ + CONFIG.match.overstep) this.callNoBall('overstepped — stay behind the line');
-    // The keeper comes up to the stumps once you are bowling slow.
-    this.paceAvg = this.paceAvg == null ? d.paceKmh : 0.5 * this.paceAvg + 0.5 * d.paceKmh;
-    this.keeperUp = this.paceAvg < 100;
+    if (d.note) g.ui.prompt(d.note, 2.6, '#ffb347');
+    this.keeperUp = this.bowler.spinner;                   // the keeper stands up to the spinners
     // AI reads the ball. Each batter in the order has their own ability.
     const diff = g.settings.difficulty;
     const card = this.innings && this.innings.card;
@@ -256,6 +304,8 @@ export class BowlingSession {
         _hold.set(...CONFIG.bowling.ballHoldOffset).applyQuat(R.gripPose.q).add(R.gripPose.p);
         g.ballView.setVisible(true);
         g.ballView.update(_hold, 0, null, false);
+        // Show the seam the way it is being held (upright, or angled for swing).
+        if (!this.bowler.spinner) { const a = this.seam * 0.25, sn = Math.sin(a) * S2, cs = Math.cos(a) * S2; g.ballView.mesh.quaternion.set(sn, sn, cs, cs); }
       }
     } else if (this.state === 'live') {
       this.checkLive(t);
@@ -278,7 +328,10 @@ export class BowlingSession {
         if (this.innings && this.innings.freeHit) {
           g.umpires.signal('freehit', g.clock);
           g.ui.prompt('FREE HIT — only a run-out counts', 3.5, '#ffd34d');
+        } else if (this.innings && this.innings.thisOver.length === 0 && this.innings.legal > 0) {
+          g.ui.prompt(g.input.xr ? `New over · ${this.bowler.label} · right stick ◂ ▸ to change bowler` : `New over · ${this.bowler.label} · keys 1–4 to change bowler`, 3.5, '#ffd34d');
         }
+        this.seamYaw = 0;
         this.resetEnds();
         this.updateAim();
         g.ui.setHud({ big: 'Your ball', bigColor: '#ffd34d', last: this.howTo() });
@@ -468,7 +521,7 @@ export class BowlingSession {
 
   updateHud() {
     const g = this.game, s = this.stats;
-    const sw = this.swingChoice === 1 ? 'OUT-swing' : this.swingChoice === -1 ? 'IN-swing' : 'no swing';
+    const sw = `${this.bowler.label}${this.bowler.spinner ? '' : ' · ' + this.seamText()}`;
     let score, sub;
     if (this.innings) {
       score = `${this.innings.scoreText}  (${this.innings.overs})`;

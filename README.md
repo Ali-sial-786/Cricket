@@ -68,18 +68,30 @@ bigger sweet spot. *Hard* is real time and real size.
 
 Hold the **trigger** to grip the ball, bowl overarm, let go to release.
 
-* **Pace** comes from how fast your hand is moving at release.
+* **Pace** comes from how fast your hand is moving at release, scaled into your bowler's range.
 * **Line** comes from the direction of the hand. **Length** from *when* you let go: early = full (very early = a
   full toss), late = short, very late = a bouncer.
-* **Spin** comes from the wrist at release. Roll clockwise (seen from behind) for an **off-break**, anticlockwise
-  for a **leg-break**. The same rolls with the **back of the hand** facing the batter bowl the **doosra** and the
-  **googly**, which turn the other way. Bowled fast (over 105 km/h) a roll becomes an off- or leg-cutter.
-* With no roll, **A** / **B** choose out-swing / in-swing before the ball.
+* **Your bowler:** flick the **right stick left / right** (start of an over in a match, any time in the nets) to
+  bowl as a fast, medium-fast, off-spin or leg-spin bowler. A bowler only bowls their own deliveries:
+
+| Bowler | Pace | What the action does |
+|---|---|---|
+| Fast | 118–152 km/h | Seam position → **out-swinger / in-swinger** (most swing). Wrist roll at release → **off-cutter** (seams in) / **leg-cutter** (seams away). Back of the hand → **slower ball**. |
+| Medium-fast | 100–132 km/h | The same deliveries with less swing and more movement off the seam. |
+| Off-spin | 62–98 km/h | Clockwise roll → **off-break**. Back of the hand → **doosra**. No roll (or the wrong roll) → **arm ball**. No leg-breaks. |
+| Leg-spin | 60–96 km/h | Anticlockwise roll → **leg-break**. Back of the hand → **googly**. Clockwise roll → **top-spinner**. No roll → **slider**. No off-breaks or doosras. |
+
+* **Setting the seam (fast and medium):** once the ball is in your hand, turn your wrist **left** (seam toward the
+  slips) for out-swing or **right** (toward fine leg) for in-swing. About 10° does nothing, 30° is full swing. The
+  ball in your hand shows the seam angle, a prompt shows the setting and the controller ticks as it changes. It
+  locks when your arm starts moving. **A** / **B** set full out-swing / in-swing directly if you prefer buttons.
+* Rolls are judged as seen from behind your hand; "back of the hand" means the back of your hand faces the batter
+  as you let go.
+* The left stick moves the aim marker (the assist nudges you toward it; turn it off in Settings).
 * Stay behind the popping crease: if your head is more than 30 cm past it when you let go, it is a **no-ball** (one
   run, bowled again, and the next ball is a free hit). A full toss above the waist is a no-ball too.
-* Bowl slowly and the batters start coming down the pitch (and the keeper comes up to the stumps). Beat the bat and
+* The keeper stands up to the stumps for your spinners, and batters come down the pitch to them. Beat the bat and
   they are **stumped**.
-* The left stick moves the aim marker (the assist nudges you toward it; turn it off in Settings).
 
 ### Fielding
 
@@ -105,8 +117,9 @@ Open the page in any WebGL2 browser without a headset. The page starts on the me
 | `G` / `V` | Turn back / dive | — |
 | Arrow keys | Move in the crease | Move the aim marker |
 | `B` | — | Auto-bowl a clean delivery at the aim marker |
-| `Q` / `E` (+ `F`) | — | Wrist roll: off-break / leg-break (`F` = back of the hand: doosra / googly) |
-| `Z` / `X` | Review (`Z`) | Out-swing / in-swing · throw to keeper / bowler's end |
+| `1`–`4` | — | Bowler: fast, medium-fast, off-spin, leg-spin |
+| `Q` / `E` (+ `F`) | — | Wrist roll clockwise / anticlockwise (`F` = back of the hand) |
+| `Z` / `X` | Review (`Z`) | Seam for out-swing / in-swing · throw to keeper / bowler's end |
 | `Esc` or `M` | Menu (click buttons with the mouse) | Menu |
 | `C` / `T` | Cycle cameras / toggle ball trail | |
 
@@ -144,7 +157,7 @@ src/physics/          pure JS, node-tested: math, ball (aero + bounce), bat (SDF
 src/game/             game.js (orchestrator + frame loop), batting.js / bowling.js sessions, modes.js,
                       aiBatter.js, aiBowler.js (bowler types), fielding.js (+fieldController), running.js,
                       lbw.js + lbwFlow.js (appeal, decision, review), thirdUmpire.js, scoring.js, scorecard.js,
-                      squad.js, bowlingInput.js (delivery types),
+                      squad.js, bowlerTypes.js + bowlingInput.js (your bowlers and their deliveries),
                       calibration.js, settings.js
 src/render/           env (stadium), objects (bat/ball/stumps/machine), humanoid (skinned athlete + IK),
                       actors + people + anim, umpires, drsView (review board + ball tracking)

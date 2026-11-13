@@ -235,12 +235,14 @@ export class UI {
         ]],
         ['BOWLING', [
           'Hold right TRIGGER, bowl overarm, let go to release.',
-          'Arm speed = pace. Direction of the hand = line.',
-          'Let go EARLY = full / full toss. LATE = short / bouncer.',
-          'Roll the wrist clockwise = off-break,',
-          'anticlockwise = leg-break.',
-          'Same roll, BACK of the hand to the batter:',
-          'doosra / googly.   No roll: A / B = out- / in-swing.',
+          'Arm speed = pace. Early release = full, late = short.',
+          'RIGHT STICK left / right: choose your bowler',
+          '(fast, medium, off-spin, leg-spin) at the start of an over.',
+          'FAST / MEDIUM: with the ball in your hand, turn your wrist',
+          'left = OUT-swing, right = IN-swing (or press A / B).',
+          'Roll the wrist as you let go = off-cutter / leg-cutter.',
+          'OFF-SPIN: roll clockwise. LEG-SPIN: roll anticlockwise.',
+          'Back of the hand to the batter = doosra / googly.',
           'Stay behind the crease, or it is a no-ball.',
         ]],
         ['FIELDING', [
@@ -255,7 +257,7 @@ export class UI {
         ]],
       ];
       const [name, lines] = pages[tab];
-      label(P.W / 2, P.H * 0.19, lines.join('\n'), { align: 'center', size: 25 });
+      label(P.W / 2, P.H * 0.19, lines.join('\n'), { align: 'center', size: lines.length > 8 ? 23 : 25 });
       const L = grid(P, { top: 0.78, bottom: 0.05, cols: 5, rows: 1 });
       pages.forEach((pg, i) => btn('tab' + i, L(i, 0), pg[0], () => { this.howTab = i; this.go('howto'); }, { active: i === tab, size: 24 }));
       btn('back', L(4, 0), 'Back', () => { s.seenHowTo = true; g.saveSettings(); this.go('main'); });

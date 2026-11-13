@@ -32,6 +32,7 @@ export function defaultSettings() {
     ballBoost: true,               // draw the ball at a minimum angular size far away
     sound: true,
     overs: 5,
+  bowlerType: 'fast',          // your bowler: fast | medium | offspin | legspin
     commentary: true,
     seenHowTo: false,
     captions: true,

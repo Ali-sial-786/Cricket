@@ -74,6 +74,8 @@ export function spinVector(type, amount, travel, cfg = CONFIG) {
     const w = new Vec3(travel.x * 0.8 * sgn, 0.15 * sgn, travel.z * 0.8 * sgn).addScaled(top, 0.5);
     return w.normalize().scale(rate);
   }
+  // Top-spinner: over-spin only (dips late and kicks on).
+  if (type === 'top') return top.scale(clamp(amount, 0, 1) * cfg.machine.spinMaxRps * 2 * Math.PI * 0.8);
   return top.scale(-cfg.machine.seamerBackspinRps * 2 * Math.PI);
 }
 
