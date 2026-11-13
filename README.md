@@ -11,8 +11,11 @@ tested without a headset.
 * **Animated players:** skinned athletes (model from the Courtside project, re-rigged for IK) with helmets, pads and
   gloves. The bowler's arm passes exactly through the physics release point; fielders walk in, chase, dive, pick up
   and throw; batters run, turn and dive; umpires signal.
-* **Full match rules:** bowled, caught, LBW (with DRS ball tracking), stumped and run out; manual running; player-taken
-  catches in slow motion; two-voice commentary.
+* **Full match rules:** bowled, caught, LBW (with DRS ball tracking), stumped and run out; wides, no-balls and free
+  hits; a third umpire for close run-outs and stumpings; manual running; player-taken catches in slow motion;
+  two-voice commentary.
+* **First person throughout:** you see the game through the batter's eyes when you bat and the bowler's (or the
+  catching fielder's) when you field. There are no broadcast cameras in the headset.
 * **Physics** (`src/physics/`) is pure JS at a fixed 480 Hz, independent of the render rate.
   It covers gravity, quadratic drag, swing, Magnus, a spin-coupled bounce and seam movement,
   and swept bat collision that cannot tunnel. Unit tests use `node:test`.
@@ -24,7 +27,7 @@ tested without a headset.
 | Nets: Bowling | Bowl to the AI batter from the bowler's end. Stats on dots, beaten balls and edges. |
 | Run Chase | Chase a target against a rotating attack of five AI bowlers, with fielders, a keeper and two umpires. 5 overs, 5 wickets by default. |
 | Bowl an Over | Defend a total off 6 balls against the AI batters with a full field. |
-| Match | You bat 5 overs (5 wickets), then bowl 5 overs while the AI chases your score. |
+| Match | Coin toss (call heads or tails; the winner chooses to bat or bowl), then one innings each: 5 overs, 5 wickets. Named batters and bowlers, with a scorecard on the HUD, the big screen and the result page. |
 | Mixed reality nets | Passthrough. Place the stumps on your real floor; the pitch runs off into the room. |
 
 **Difficulty** (Settings): *Easy* plays the ball in flight at 70% speed (a 140 km/h ball feels like ~100), with a
@@ -58,6 +61,7 @@ bigger sweet spot. *Hard* is real time and real size.
 | **Left trigger** | Turn back mid-run. |
 | **Y** | Dive for the crease. |
 | **A** | Review an LBW decision (1 review per innings) while the prompt is up. |
+| — | **No-ball:** the AI bowler oversteps now and then. One run, the ball is bowled again and the next one is a **free hit** (you can only be run out). |
 | **Left stick click** | Menu (also **Y** between balls). Hold **left grip** 1 s to recenter. |
 
 ### Bowling (right controller is your bowling hand)
@@ -71,6 +75,10 @@ Hold the **trigger** to grip the ball, bowl overarm, let go to release.
   for a **leg-break**. The same rolls with the **back of the hand** facing the batter bowl the **doosra** and the
   **googly**, which turn the other way. Bowled fast (over 105 km/h) a roll becomes an off- or leg-cutter.
 * With no roll, **A** / **B** choose out-swing / in-swing before the ball.
+* Stay behind the popping crease: if your head is more than 30 cm past it when you let go, it is a **no-ball** (one
+  run, bowled again, and the next ball is a free hit). A full toss above the waist is a no-ball too.
+* Bowl slowly and the batters start coming down the pitch (and the keeper comes up to the stumps). Beat the bat and
+  they are **stumped**.
 * The left stick moves the aim marker (the assist nudges you toward it; turn it off in Settings).
 
 ### Fielding
@@ -80,6 +88,7 @@ Hold the **trigger** to grip the ball, bowl overarm, let go to release.
 * **Throws:** when a fielder picks up, **A** throws to the keeper's end and **B** to the bowler's end. Beat the
   batter home for a run out.
 * **Reviews:** if an LBW appeal is turned down, press **A** to send it upstairs (ball tracking, umpire's call).
+  Close run-outs and stumpings go to the third umpire automatically.
 * Umpires signal fours, sixes, wides and wickets. Two commentators call the game (toggle in Settings, with captions).
 
 ## Desktop debug mode
@@ -134,7 +143,8 @@ src/physics/          pure JS, node-tested: math, ball (aero + bounce), bat (SDF
                       wicket, world (fixed step, bat providers), trajectory (prediction), bowlingMachine (solver)
 src/game/             game.js (orchestrator + frame loop), batting.js / bowling.js sessions, modes.js,
                       aiBatter.js, aiBowler.js (bowler types), fielding.js (+fieldController), running.js,
-                      lbw.js + lbwFlow.js (appeal, decision, review), scoring.js, bowlingInput.js (delivery types),
+                      lbw.js + lbwFlow.js (appeal, decision, review), thirdUmpire.js, scoring.js, scorecard.js,
+                      squad.js, bowlingInput.js (delivery types),
                       calibration.js, settings.js
 src/render/           env (stadium), objects (bat/ball/stumps/machine), humanoid (skinned athlete + IK),
                       actors + people + anim, umpires, drsView (review board + ball tracking)

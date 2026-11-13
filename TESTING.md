@@ -120,8 +120,21 @@ Start **Nets: Bowling**, then **Bowl an Over**.
   - **Report:** whether you get run-outs and whether the prompt appears in time.
 - [ ] Turned-down LBW: press **A** to review.
 
+## 7b. The AI batters (5 min)
+Bowl a few overs in **Bowl an Over** or a **Match** and watch the batter from your end.
+- [ ] Stance and backlift: the bat is grounded by the back foot and comes up as you grip the ball.
+- [ ] Drives, forward defence, pulls, cuts, flicks and leaves.
+  - **Report:** any shot that looks stiff or wrong: a jerk at the start, arms detached from the bat, feet sliding,
+    a finish that looks odd. Say which shot (the HUD names it) so the template in `SHOTS` (`src/game/aiBatter.js`)
+    can be tuned.
+- [ ] Bowl slow (under 100 km/h) for an over: the keeper comes up to the stumps and batters start coming down the pitch.
+  - **Report:** how often they charge (`ai.charge`), whether you can get them **stumped**, and whether the third
+    umpire board is readable from your end.
+- [ ] Step well past the white line as you bowl: it should be called a **no-ball**, and the next ball a free hit.
+  - **Report:** whether no-balls are called when you did not overstep (`match.overstep`, default 0.3 m).
+
 ## 8. Match modes and sound (5 min)
-- [ ] **Run Chase** and one **Match** (5 overs, 5 wickets each).
+- [ ] **Run Chase** and one **Match** (toss, then 5 overs and 5 wickets each; try bowling first once).
   - **Report:** any point where the game got stuck (no ball coming, no way forward), and whether targets are
     fair on each difficulty.
 - [ ] Commentary and captions (Settings → Sound cycles all / effects only / off).

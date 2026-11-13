@@ -214,40 +214,48 @@ export class UI {
       const tab = this.howTab || 0;
       const pages = [
         ['BATTING', [
-          'Right controller is the bat. The FACE angle at contact decides',
-          'ground or air: face straight = along the ground, open face = lofted.',
-          'Hold TRIGGER: stride down the pitch. Harder to time, more power.',
-          'Hold GRIP (side button): sweep. Swing to the off side = reverse sweep.',
-          'TRIGGER + GRIP: come down and slog-sweep it.',
-          'Left stick (or really stepping): move around in your crease.',
+          'The right controller is the bat.',
+          'Bat FACE at contact: straight = along the ground,',
+          'opened upward = in the air.',
+          'Hold TRIGGER: stride down the pitch. Harder to time,',
+          'more power. Miss it and the keeper can stump you.',
+          'Hold GRIP: sweep. Swing to the off side = reverse sweep.',
+          'TRIGGER + GRIP: come down and slog-sweep.',
+          'Left stick (or really stepping): move in your crease.',
         ]],
         ['RUNNING', [
-          'After you hit it:  X = RUN.  The batters stop after each run.',
-          'Press X again once they are home to take another.',
-          'Left TRIGGER = turn back mid-run.   Y = DIVE for the line.',
-          'A throw that beats you to the crease is a RUN OUT.',
-          'Caught out, bowled, LBW, stumped and run out all count. 5 wickets.',
-          'Given out LBW? Press A to review it (1 review per innings).',
+          'After you hit it:  X = RUN.',
+          'The batters stop after each run. X again for another.',
+          'Left TRIGGER = turn back.   Y = DIVE for the line.',
+          'A throw that beats you home is a RUN OUT.',
+          'Close run-outs and stumpings go to the third umpire.',
+          'Given out LBW? Press A to review (1 per innings).',
+          'NO BALL: the next ball is a FREE HIT.',
+          'On a free hit you can only be run out.',
         ]],
         ['BOWLING', [
           'Hold right TRIGGER, bowl overarm, let go to release.',
           'Arm speed = pace. Direction of the hand = line.',
-          'Let go EARLY = full (very early: full toss). LATE = short / bouncer.',
-          'Roll the wrist clockwise = off-break, anticlockwise = leg-break.',
-          'Same roll with the BACK of the hand to the batter = doosra / googly.',
-          'No roll: A = out-swing, B = in-swing. Bowled fast, a roll is a cutter.',
+          'Let go EARLY = full / full toss. LATE = short / bouncer.',
+          'Roll the wrist clockwise = off-break,',
+          'anticlockwise = leg-break.',
+          'Same roll, BACK of the hand to the batter:',
+          'doosra / googly.   No roll: A / B = out- / in-swing.',
+          'Stay behind the crease, or it is a no-ball.',
         ]],
         ['FIELDING', [
           'Catch chance: time slows and you become the fielder.',
-          'Reach out and get a hand to the ball — no button.',
-          'When a fielder picks up: A = throw to the keeper, B = bowler\'s end.',
-          'Hit the stumps before the batter is home for a run out.',
-          'Not-out LBW? Press A to review. Umpires signal 4, 6, out and wide.',
-          'Menu: click the LEFT thumbstick (or Y between balls).',
+          'Reach out and get a hand to the ball. No button.',
+          'When a fielder picks up:  A = throw to the keeper,',
+          "B = throw to the bowler's end.",
+          'Beat the batter home for a RUN OUT.',
+          'Bowl slow and batters come down the pitch:',
+          'beat the bat and the keeper STUMPS them.',
+          'Turned-down LBW? Press A to review.',
         ]],
       ];
       const [name, lines] = pages[tab];
-      label(P.W / 2, P.H * 0.2, lines.join('\n'), { align: 'center', size: 27 });
+      label(P.W / 2, P.H * 0.19, lines.join('\n'), { align: 'center', size: 25 });
       const L = grid(P, { top: 0.78, bottom: 0.05, cols: 5, rows: 1 });
       pages.forEach((pg, i) => btn('tab' + i, L(i, 0), pg[0], () => { this.howTab = i; this.go('howto'); }, { active: i === tab, size: 24 }));
       btn('back', L(4, 0), 'Back', () => { s.seenHowTo = true; g.saveSettings(); this.go('main'); });

@@ -1,6 +1,6 @@
 # Progress
 
-_Last updated after the gameplay overhaul (third pass)._
+_Last updated after the fourth pass (batting animation, stumpings, extras, toss, scorecards)._
 
 ## Done
 - **Phase 1: Nets (batting core)**
@@ -80,6 +80,21 @@ _Last updated after the gameplay overhaul (third pass)._
 - **Format:** 5 overs, 5 wickets.
 - 84 unit tests.
 
+## Fourth pass
+- **Batting animation:** the AI batters' swings were rebuilt: grounded stance, backlift as the bowler delivers,
+  a downswing that accelerates into the ball, wrist roll, a full follow-through and a relaxed recovery. Cross-bat
+  shots start from a raised bat. The body strides with the foot picked up, transfers weight, coils and opens with
+  the hands, keeps a high front elbow and comes up on the back toe. Contact is still resolved by the same physics.
+- **Stumpings when you bowl:** batters come down the pitch to slow bowling; beat the bat and the keeper (who stands
+  up to slow bowling) takes the bails off. You could already be stumped when batting.
+- **Third umpire** for close run-outs and stumpings, at both ends, in both innings.
+- **Extras:** no-balls (you overstepping or bowling a waist-high full toss; the AI bowler overstepping now and
+  then) and free hits, as well as wides.
+- **Squads and scorecards:** two named teams; batters with their own ability (openers to tail-enders); strike
+  rotation; bowling figures; milestones; card on the HUD, the big screen and the result pages.
+- **Toss:** call heads or tails; bat or bowl first. The match works in either order.
+- 92 unit tests.
+
 ## Known issues / not verified
 - **Not tested on a real headset.** All XR paths ran only under Meta's IWER emulator in headless Chromium
   (no pose velocities, haptics, hit-test or passthrough there). Haptics, `updateTargetFrameRate`, pose velocities
@@ -87,7 +102,8 @@ _Last updated after the gameplay overhaul (third pass)._
 - The uncalibrated default bat orientation is a guess about the Quest grip-space axes. Calibrate on first use
   (the game prompts you).
 - Headless checks covered: all modes, running and run-outs, umpire signals, slow-motion catch, LBW appeal and both
-  kinds of review, sweep, stride, stumping, crease movement, the emulated VR and MR flows. **Not** checkable without
+  kinds of review, sweep, stride, stumping (both sides), the third umpire, no-ball and free hit, the toss,
+  bowling first, crease movement, the emulated VR and MR flows, and frame strips of every AI batting shot. **Not** checkable without
   a headset: palm / back-of-hand detection for doosra and googly, the feel of the stride and of catching, the
   in-VR switch to mixed reality, commentary timing by ear.
 - Only the pads have a collider (for LBW). The ball passes through the rest of a body.

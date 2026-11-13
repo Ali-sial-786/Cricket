@@ -294,7 +294,7 @@ export class AIBatter {
   }
 
   // The ball has gone past: get back in the crease (after coming down the pitch).
-  retreat(t) { const p = this.plan; if (p && p.adv > 0 && p.tBack === Infinity) p.tBack = t + 0.22; }
+  retreat(t) { const p = this.plan; if (p && p.adv > 0 && p.tBack === Infinity) p.tBack = t + 0.3; }
 
   // How far down the pitch the batter is (m) at time t.
   advanceAt(t) {
@@ -302,7 +302,7 @@ export class AIBatter {
     if (!p || !p.adv) return 0;
     const out = p.adv * smoothstep(p.t0 + 0.06, Math.max(p.t0 + 0.3, p.Tc - 0.14), t);
     if (t <= p.tBack) return out;
-    return Math.max(0, out - 3.4 * (t - p.tBack) * smoothstep(0, 0.25, t - p.tBack));
+    return Math.max(0, out - 3.0 * (t - p.tBack) * smoothstep(0, 0.25, t - p.tBack));
   }
 
   blendK(t) {
