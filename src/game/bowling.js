@@ -4,10 +4,13 @@ import { CONFIG } from '../config.js';
 import { Vec3, clamp, DEG } from '../physics/math.js';
 
 const _hold = new Vec3();
-import { PITCH, lengthName, lineName, groundDistance, battingPoppingZ } from '../physics/pitch.js';
+import { PITCH, lengthName, lineName, groundDistance, battingPoppingZ, bowlingPoppingZ } from '../physics/pitch.js';
 import { predict } from '../physics/trajectory.js';
 import { playerDelivery } from './bowlingInput.js';
 import { LbwFlow, padHit, deflectOffPad } from './lbwFlow.js';
+import { ThirdUmpireFlow } from './thirdUmpire.js';
+import { Innings } from './scoring.js';
+import { batProfile } from './squad.js';
 
 const _palm = new Vec3();
 
@@ -32,8 +35,12 @@ export class BowlingSession {
     this.assist = s.aimAssist;
     this.reviews = { player: CONFIG.match.reviews, ai: CONFIG.match.reviews };
     this.lbw = new LbwFlow(game, this.reviews);
+    this.third = new ThirdUmpireFlow(game);
+    this.reviewFlow = null; this.pendingRes = null;
     this.path = [];
     this.partnership = 0; this.dots = 0;
+    this.noBall = false; this.freeHit = false; this.stumpAt = 0;
+    this.paceAvg = null; this.keeperUp = false;      // the keeper stands up to slow bowling
   }
 
   usesY() { return false; }
@@ -74,6 +81,8 @@ export class BowlingSession {
     g.drs.hide();
     g.timeScaleTarget = 1;
     g.ballOverride = null;
+    g.ui.setHud({ players: '' });
+    g.ui.hud.mesh.visible = true;
   }
 
   howTo() {
@@ -104,7 +113,7 @@ export class BowlingSession {
     if (this.state === 'ready') {
       if (R.buttons.a.down) { this.swingChoice = this.swingChoice === 1 ? 0 : 1; this.updateHud(); R.pulse(0.15, 15); }
       if (R.buttons.b.down) { this.swingChoice = this.swingChoice === -1 ? 0 : -1; this.updateHud(); R.pulse(0.15, 15); }
-      if (R.buttons.trigger.down) { this.holding = true; this.game.sfx.ui(); }
+      if (R.buttons.trigger.down) { this.holding = true; this.game.sfx.ui(); this.game.aiBatter.setReady(this.game.world.time + 0.15); }
       if (this.holding && R.buttons.trigger.up) this.attemptRelease();
       if (!input.xr && D.took('KeyB')) this.autoBowl();
     }
@@ -122,6 +131,7 @@ export class BowlingSession {
     if (last && pk && pk.v.length() < last.v.length() * 1.12) pk = last;
     if (!pk || pk.v.length() < CONFIG.bowling.minReleaseHandSpeed) {
       g.ui.setHud({ big: 'Dropped — swing harder', bigColor: '#ffb347' });
+      g.aiBatter.reset();
       return;
     }
     const pos = R.gripPose.p.clone().add(new Vec3(...CONFIG.bowling.ballHoldOffset).applyQuat(R.gripPose.q));
@@ -166,15 +176,54 @@ export class BowlingSession {
     g.say('release', { type: d.name.split(' ')[0].replace('off-break', 'off_spin').replace('leg-break', 'leg_spin').replace('outswinger', 'outswing').replace('inswinger', 'inswing').replace('seam-up', 'fast'), length: d.fullToss ? 'full_toss' : d.length < 2 ? 'yorker' : d.length > 11 ? 'bouncer' : undefined, pace: d.paceKmh });
     this.launchT = g.world.time;
     this.state = 'live';
-    this.hit = null; this.firstBounce = null; this.adjusted = false; this.crossedCrease = false; this.wide = false;
-    // AI reads the ball.
-    g.aiBatter.aggression = this.aggressionNow();
-    g.aiBatter.planDelivery(g.world.ball.clone(), g.world.time, g.rng);
+    this.hit = null; this.firstBounce = null; this.adjusted = false; this.crossedCrease = false; this.wide = false; this.beamerChecked = false;
+    this.stumpAt = 0; this.pendingRes = null; this.reviewFlow = null;
+    // Overstepping: your head is past the popping crease as you let go.
+    this.noBall = false;
+    this.freeHit = !!(this.innings && this.innings.freeHit);
+    if (this.innings && g.input.xr && g.input.headPose.p.z > bowlingPoppingZ + CONFIG.match.overstep) this.callNoBall('overstepped — stay behind the line');
+    // The keeper comes up to the stumps once you are bowling slow.
+    this.paceAvg = this.paceAvg == null ? d.paceKmh : 0.5 * this.paceAvg + 0.5 * d.paceKmh;
+    this.keeperUp = this.paceAvg < 100;
+    // AI reads the ball. Each batter in the order has their own ability.
+    const diff = g.settings.difficulty;
+    const card = this.innings && this.innings.card;
+    const prof = card && card.onStrike ? batProfile(card.onStrike.position) : null;
+    g.aiBatter.setProfile(diff, prof);
+    g.aiBatter.aggression = clamp(this.aggressionNow() + (prof ? prof.aggr : 0) + (this.freeHit ? 0.4 : 0), 0.05, 1);
+    const plan = g.aiBatter.planDelivery(g.world.ball.clone(), g.world.time, g.rng, { charge: (CONFIG.ai.charge[diff] ?? 0.4) * (prof ? prof.charge : 1) * (this.freeHit ? 1.3 : 1) });
+    if (plan.adv) { g.say('charge'); g.ui.prompt('He comes down the pitch!', 1.2, '#ffd34d'); }
     if (this.field) { if (!this.field.delivering) this.field.beginDelivery(); this.field.released(); }
     g.aimMarker.visible = false;
     g.ui.setHud({ big: `${Math.round(d.paceKmh)} km/h · ${d.name}`, bigColor: '#ffffff', last: `Released: ${d.name}${d.spinAmount ? ` (${Math.round(d.spinAmount * 100)}% spin${d.backOfHand ? ', back of the hand' : ''})` : ''}`, detail: `hand ${d.handSpeed.toFixed(1)} m/s · elev ${d.elevDeg.toFixed(0)}° · az ${d.azDeg.toFixed(1)}° · roll ${d.roll.toFixed(0)} rad/s` });
     if (d.paceKmh > this.stats.fastest) this.stats.fastest = d.paceKmh;
     if (g.bowlCalibPending) this.calibSamples.push(d.elevDeg);
+  }
+
+  callNoBall(why) {
+    const g = this.game;
+    if (this.noBall || !this.innings) return;
+    this.noBall = true;
+    g.umpires.signal('noball', g.clock);
+    g.ui.prompt(`NO BALL — ${why}`, 2.6, '#ffb347');
+    g.sample('umpire_not_out', { gain: 0.6 });
+  }
+
+  // Close run-outs go to the third umpire. Returns true if the result waits for the verdict.
+  upstairs(res) {
+    const g = this.game, lim = CONFIG.match.thirdUmpire;
+    let margin = null;
+    if (res.kind === 'runout' && res.margin < lim) margin = res.margin;
+    else if (res.kind === 'runs' && res.closeCall != null && res.closeCall < lim * 0.8) {
+      margin = -res.closeCall;
+      const end = res.end || 'batting';
+      g.stumps[end].break({ x: 0, y: 0, z: end === 'batting' ? -8 : 8 }, 1);
+      g.sample('stumps') || g.sfx.stumps();
+    }
+    if (margin == null) return false;
+    this.pendingRes = res; this.reviewFlow = this.third; this.state = 'review';
+    this.third.start({ kind: 'run_out', end: res.end || 'batting', margin });
+    return true;
   }
 
   aggressionNow() {
@@ -211,16 +260,25 @@ export class BowlingSession {
     } else if (this.state === 'live') {
       this.checkLive(t);
     } else if (this.state === 'review') {
-      this.lbw.update(g.realDt || dt);
-      if (this.lbw.done) this.finish(this.lbw.out ? { kind: 'lbw' } : { kind: 'dot', padded: true });
+      const flow = this.reviewFlow || this.lbw;
+      flow.update(g.realDt || dt);
+      if (flow.done) {
+        const res = flow === this.lbw ? (this.lbw.out ? { kind: 'lbw' } : { kind: 'dot', padded: true }) : this.pendingRes;
+        this.reviewFlow = null;
+        this.finish(res);
+      }
     } else if (this.state === 'settle') {
       this.timer -= dt;
       if (this.timer <= 0) {
         if (this.innings && this.innings.complete) { this.complete(); return; }
-        if (this.field) this.field.reset();
+        if (this.field) { this.field.reset(); this.field.setSpinner(this.keeperUp); }
         this.state = 'ready';
         g.world.removeBall();
         g.aiBatter.reset();
+        if (this.innings && this.innings.freeHit) {
+          g.umpires.signal('freehit', g.clock);
+          g.ui.prompt('FREE HIT — only a run-out counts', 3.5, '#ffd34d');
+        }
         this.resetEnds();
         this.updateAim();
         g.ui.setHud({ big: 'Your ball', bigColor: '#ffd34d', last: this.howTo() });
@@ -235,13 +293,21 @@ export class BowlingSession {
       this.crossedCrease = true;
       if (!b.batted && Math.abs(b.pos.x) > PITCH.wideLineX) this.wide = true;
     }
-    // Beaten the bat and struck the pad: appeal.
     const plan = g.aiBatter.plan;
+    // A full toss above the waist is a no-ball.
+    if (!b.batted && b.bounces === 0 && !this.beamerChecked && b.pos.z > (plan && plan.C ? plan.C.z - 0.3 : battingPoppingZ)) {
+      this.beamerChecked = true;
+      if (b.pos.y > CONFIG.match.beamerHeight) this.callNoBall('full toss above the waist');
+    }
+    // Gone past a batter who came down the pitch: he scrambles back.
+    if (!b.batted && plan && plan.adv && plan.C && b.pos.z > plan.C.z + 0.35) g.aiBatter.retreat(t);
+    // Beaten the bat and struck the pad: appeal.
     if (!this.hit && plan && plan.C && plan.shot.type !== 'pull' && plan.shot.type !== 'cut') {
       const body = g.aiBatter.bodyAt(t);
       if (padHit(b, plan.C.x - 0.14, body.z - 0.2)) {
         const impact = b.clone();
         deflectOffPad(b, g.rng);
+        if (this.noBall || this.freeHit) { this.finish({ kind: 'dot', padded: true }); return; }
         this.state = 'review';
         this.lbw.start({ impactState: impact, path: this.path.slice(), shotOffered: plan.shot.type !== 'leave', playerIsBatter: false });
         return;
@@ -249,12 +315,31 @@ export class BowlingSession {
     }
     if (this.field && b.batted) {
       const res = this.field.result();
-      if (res) { this.finish(res); return; }
+      if (res) { if (!this.upstairs(res)) this.finish(res); return; }
       if (t - this.launchT > 20) this.finish({ kind: 'runs', runs: g.runs.completed });
       return;
     }
     if (!b.batted && (b.pos.z > 2.4 || (this.field && this.field.keeperHold))) {
       if (this.field && !this.field.keeperHold) this.field.keeperTakes(b);
+      // Out of his ground with the keeper holding the ball: a stumping chance.
+      if (this.field && this.field.keeperHold) {
+        if (!this.stumpAt && g.aiBatter.advanceAt(t) > 0.2) { this.stumpAt = t + (this.keeperUp ? 0.3 : 0.8); return; }
+        if (this.stumpAt) {
+          if (t < this.stumpAt) return;
+          const margin = g.aiBatter.advanceAt(t) - 0.5;        // m short of his ground
+          const lim = CONFIG.match.thirdUmpire;
+          if (margin > -lim) {
+            g.stumps.batting.break({ x: 0, y: 0, z: -6 }, 1);
+            g.sample('stumps') || g.sfx.stumps();
+            const res = margin > 0 ? { kind: 'stumped' } : { kind: 'dot', backInTime: true };
+            if (Math.abs(margin) < lim) {
+              this.pendingRes = res; this.reviewFlow = this.third; this.state = 'review';
+              this.third.start({ kind: 'stumping', end: 'batting', margin });
+            } else this.finish(res);
+            return;
+          }
+        }
+      }
       this.finish({ kind: 'dot' });
       return;
     }
@@ -311,14 +396,21 @@ export class BowlingSession {
       case 'bowled': big = 'BOWLED HIM!'; color = '#7dff8a'; outcome.wicket = 'bowled'; break;
       case 'caught': big = res.by === 'you' ? 'CAUGHT — great hands!' : `CAUGHT${res.by ? ' — ' + res.by : ''}!`; color = '#7dff8a'; outcome.wicket = 'caught'; break;
       case 'lbw': big = 'LBW — OUT!'; color = '#7dff8a'; outcome.wicket = 'lbw'; break;
+      case 'stumped': big = 'STUMPED!'; color = '#7dff8a'; outcome.wicket = 'stumped'; break;
       case 'runout': big = `RUN OUT! (${res.margin.toFixed(1)} m short)`; color = '#7dff8a'; outcome.wicket = 'run out'; outcome.runs = res.runs; break;
       case 'boundary': big = res.runs === 6 ? 'Six…' : 'Four…'; color = '#ff8080'; outcome.runs = res.runs; outcome.boundary = res.runs; break;
       case 'runs': big = res.runs ? `${res.runs} run${res.runs > 1 ? 's' : ''}` : 'Dot ball'; outcome.runs = res.runs || 0; break;
       default:
-        big = res.padded ? 'Not out' : this.hit ? 'Dot ball' : (g.aiBatter.plan && g.aiBatter.plan.shot.type === 'leave' ? 'Left alone' : 'Beaten!');
+        big = res.padded ? 'Not out' : res.backInTime ? 'Not out — back in time' : this.hit ? 'Dot ball' : (g.aiBatter.plan && g.aiBatter.plan.shot.type === 'leave' ? 'Left alone' : 'Beaten!');
         if (!this.hit && g.aiBatter.plan && g.aiBatter.plan.shot.type !== 'leave') this.stats.beaten++;
     }
-    if (this.wide && !this.hit && !outcome.wicket) { outcome.wide = true; big = 'Wide'; color = '#ffb347'; g.umpires.signal('wide', now); }
+    outcome.who = res.who; outcome.fielder = res.by === 'you' ? 'You' : res.by;
+    // A no-ball or a free hit: only a run-out counts.
+    if (outcome.wicket && !Innings.canDismiss(outcome.wicket, { noBall: this.noBall, freeHit: this.freeHit })) {
+      big = `NOT OUT — ${this.noBall ? 'no-ball' : 'free hit'}`; color = '#ffb347'; outcome.wicket = null;
+    }
+    if (this.noBall) { outcome.noBall = true; if (!outcome.wicket && !outcome.boundary) big = `No-ball${outcome.runs ? ` + ${outcome.runs}` : ''}`; }
+    else if (this.wide && !this.hit && !outcome.wicket) { outcome.wide = true; big = 'Wide'; color = '#ffb347'; g.umpires.signal('wide', now); }
     if (outcome.boundary) {
       g.umpires.signal(outcome.boundary === 6 ? 'six' : 'four', now);
       g.sample(outcome.boundary === 6 ? 'roar_six' : 'cheer_four', { gain: 0.7 });
@@ -328,17 +420,21 @@ export class BowlingSession {
       g.sample('roar_wicket'); g.cheer(0.9);
       if (res.kind === 'caught') g.say('catch', { keeper: res.by === 'Keeper' });
       else if (res.kind === 'runout') g.say('run_out');
+      else if (res.kind === 'stumped') g.say('third_result', { what: 'stumping', out: true });
       g.say('wicket', { how: res.kind === 'runout' ? 'run_out' : res.kind });
     }
-    this.stats.balls += outcome.wide ? 0 : 1;
-    this.stats.runs += outcome.runs + (outcome.wide ? 1 : 0);
+    const extra = outcome.wide || outcome.noBall;
+    this.stats.balls += extra ? 0 : 1;
+    this.stats.runs += outcome.runs + (extra ? 1 : 0);
     if (outcome.wicket) this.stats.wickets++;
-    if (!outcome.runs && !outcome.wide && !outcome.wicket) this.stats.dots++;
+    if (!outcome.runs && !extra && !outcome.wicket) this.stats.dots++;
     if (this.innings) {
+      if (this.innings.card) this.innings.card.setBowler('You');
       const r = this.innings.record(outcome);
       if (r.overDone) big += ' · over';
+      this.cardNews(r.card);
       this.partnership = outcome.wicket ? 0 : this.partnership + outcome.runs;
-      this.dots = outcome.runs || outcome.wide ? 0 : this.dots + 1;
+      this.dots = outcome.runs || extra ? 0 : this.dots + 1;
       const inn = this.innings;
       g.commentary.situation = { runs: inn.runs, wickets: inn.wickets, balls: inn.legal, ballsLimit: inn.ballsLimit, target: inn.target, wicketsLimit: inn.wicketsLimit, partnershipRuns: this.partnership, dotsInRow: this.dots, battingIsPlayer: false };
       g.say('ball', { runs: outcome.runs, wide: outcome.wide, boundary: outcome.boundary, wicket: outcome.wicket, overDone: r.overDone });
@@ -347,6 +443,17 @@ export class BowlingSession {
     if (outcome.wicket || outcome.boundary) g.ui.prompt(big, 2.4, color);
     this.updateHud();
     if (g.bowlCalibPending && this.calibSamples.length >= g.bowlCalibPending) this.finishReleaseCalibration();
+  }
+
+  // New batter / milestone announcements from the scorecard.
+  cardNews(c) {
+    const g = this.game;
+    if (!c) return;
+    for (const m of c.milestones) { g.ui.prompt(`${m.name} reaches ${m.runs}`, 2.5, '#ffd34d'); g.sample('applause_warm', { gain: 0.8 }); }
+    if (c.newBatter && !this.innings.complete) {
+      const prof = batProfile(c.newBatter.position);
+      g.ui.setHud({ detail: `New batter: ${c.newBatter.name} (${prof.role})` });
+    }
   }
 
   finishReleaseCalibration() {
@@ -368,8 +475,11 @@ export class BowlingSession {
       sub = this.innings.target != null
         ? `Defend: they need ${this.innings.runsNeeded} off ${this.innings.ballsLeft} · ${sw}`
         : `Conceded ${this.innings.runs} · ${this.innings.wickets} wkt · ${sw}`;
-      g.ui.setBoard([this.title.toUpperCase(), score, sub.split(' · ').slice(0, 1).join(''), `This over: ${this.innings.thisOver.join(' ') || '-'}`]);
+      const card = this.innings.card;
+      g.ui.setBoard([this.title.toUpperCase(), score, card ? card.pairText() : sub.split(' · ').slice(0, 1).join(''), card ? `${card.bowlerText()}   ·   ${this.innings.thisOver.join(' ') || '-'}` : `This over: ${this.innings.thisOver.join(' ') || '-'}`]);
+      g.ui.setHud({ players: card ? `${card.pairText()}${this.innings.freeHit ? '   ·   FREE HIT' : ''}` : '' });
     } else {
+      g.ui.setHud({ players: '' });
       score = `${s.runs}/${s.wickets} (${Math.floor(s.balls / 6)}.${s.balls % 6})`;
       sub = `${sw} · difficulty ${g.settings.difficulty}${g.bowlCalibPending ? ` · calibrating release ${this.calibSamples.length}/${g.bowlCalibPending}` : ''}`;
       g.ui.setBoard(['BOWLING NETS', score, `Dots ${s.dots} · beaten ${s.beaten} · edges ${s.edges}`, `Fastest ${Math.round(s.fastest)} km/h`]);

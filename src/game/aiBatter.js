@@ -54,7 +54,7 @@ export const SHOTS = {
              top: [0.2, 1.3, 0.34], topDir: [-0.2, 0.72, 0.66], topFace: [0.7, -0.4, -0.3], fin: ['H', -0.1, 1.42, 0.3], roll: [0, -0.7], drop: 0.09, weight: 0.45 },
   cut:     { zc: -1.05, hand: [-0.36, 0.2, -0.93], speed: 13, th: [-1.8, 2.5], loft: -0.03, foot: 'back', handMove: 0.12, linW: 0.5,
              top: [0.24, 1.26, 0.3], topDir: [-0.15, 0.75, 0.64], topFace: [0.75, -0.3, -0.3], fin: ['H', -0.08, 1.46, -0.36], roll: [0, -0.6], drop: 0.07, weight: 0.4 },
-  flick:   { zc: -1.6, hand: [0.06, 0.5, -0.12], speed: 11, th: [-1.6, 2.3], loft: 0.05, foot: 'front', handMove: 0.12, linW: 0.5,
+  flick:   { zc: -1.6, hand: [0.06, 0.5, -0.12], speed: 10, th: [-1.6, 2.3], loft: 0.05, foot: 'front', handMove: 0.12, linW: 0.5,
              top: [0.3, 1.04, 0.2], fin: ['C', -0.32, 1.36, 0.05], roll: [0.3, -1.0], drop: 0.1, weight: 0.64 },
 };
 
@@ -106,7 +106,7 @@ export function chooseShot(info, skill, aggression, rng = Math.random) {
   else if (type === 'defend' || type === 'backdef') ang = clamp(xb * 1.1, -0.3, 0.4);
   else if (type === 'pull') ang = -0.75 + (r() - 0.5) * 0.4;
   else if (type === 'cut') ang = 1.2 + (r() - 0.5) * 0.3;
-  else if (type === 'flick') ang = -0.7 + (r() - 0.5) * 0.3;
+  else if (type === 'flick') ang = -0.45 + (r() - 0.5) * 0.3;      // worked through midwicket, not swiped across the line
   let loft = t.loft;
   if (type === 'drive' || type === 'pull') loft += aggression * 0.3 * r();
   return { type, ang, loft };
@@ -135,6 +135,14 @@ export class AIBatter {
   }
 
   setDifficulty(d) { this.skill = this.cfg.ai[d] || this.cfg.ai.medium; }
+
+  // A particular batter: profile.sigma scales the timing / placement errors
+  // of the difficulty's standard batter (1 = standard, more = worse).
+  setProfile(d, profile = null) {
+    const base = this.cfg.ai[d] || this.cfg.ai.medium;
+    const k = profile ? profile.sigma : 1;
+    this.skill = { ...base, timingSigma: base.timingSigma * k, posSigma: base.posSigma * k, mistakeRate: Math.min(0.5, base.mistakeRate * k) };
+  }
 
   reset() { this.plan = null; this.tReady = null; }
 

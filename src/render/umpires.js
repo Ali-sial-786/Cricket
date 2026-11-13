@@ -46,6 +46,11 @@ class UmpireActor extends Actor {
           const ph = keys([[0, 0], [0.5, 1], [1, 0]], (tt * 1.2) % 1);
           h.rot('shoulderL', -1.5 * k, 0, (0.1 + 0.5 * ph) * k); h.rot('shoulderR', -1.5 * k, 0, -(0.1 + 0.5 * ph) * k);
           h.rot('elbowL', -0.6 * k, 0, 0); h.rot('elbowR', -0.6 * k, 0, 0);
+        } else if (s.type === 'noball') {           // one arm held straight out
+          h.rot('shoulderR', 0, 0, -1.5 * k); h.rot('elbowR', 0, 0, 0);
+        } else if (s.type === 'freehit') {          // one hand circling above the head
+          h.rot('shoulderR', (-2.9 + 0.22 * Math.sin(tt * 9)) * k, 0, (-0.1 + 0.22 * Math.cos(tt * 9)) * k);
+          h.rot('elbowR', -0.15, 0, 0);
         } else if (s.type === 'bye') {
           h.rot('shoulderR', -3.0 * k, 0, -0.1);
         }

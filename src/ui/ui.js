@@ -19,7 +19,7 @@ export class UI {
     // HUD (world-locked, beside the pitch).
     this.hud = new CanvasPanel({ width: 1.3, height: 0.72, ppm: 600, name: 'hud', bg: 'rgba(10,16,26,0.78)', interactive: false });
     this.scene.add(this.hud.mesh);
-    this.hudData = { title: 'Crease VR', score: '', sub: '', last: '', big: '', bigColor: '#ffd34d', detail: '', footer: '' };
+    this.hudData = { title: 'Crease VR', score: '', sub: '', players: '', last: '', big: '', bigColor: '#ffd34d', detail: '', footer: '' };
 
     // Big stadium scoreboard.
     this.board = new CanvasPanel({ width: 24, height: 9, ppm: 42, name: 'scoreboard', bg: 'rgba(6,10,18,1)', interactive: false });
@@ -300,11 +300,18 @@ export class UI {
     } else if (this.page === 'result') {
       const r = g.resultInfo || { title: 'Done', lines: [] };
       label(P.W / 2, P.H * 0.22, r.title, { align: 'center', size: 56, bold: true, color: r.color || '#ffd34d' });
-      label(P.W / 2, P.H * 0.36, r.lines.join('\n'), { align: 'center', size: 32 });
+      const lines = r.lines.filter(Boolean);
+      label(P.W / 2, P.H * (lines.length > 4 ? 0.31 : 0.36), lines.join('\n'), { align: 'center', size: lines.length > 4 ? 25 : lines.length > 3 ? 28 : 32 });
       const L = grid(P, { top: 0.74, bottom: 0.06, cols: 2, rows: 1 });
-      if (r.next) btn('next', L(0, 0), r.nextText || 'Continue', r.next, { active: true });
-      else btn('again', L(0, 0), 'Play again', () => g.actions.start(g.lastMode), { active: true });
-      btn('menu', L(1, 0), 'Main menu', () => g.actions.quit());
+      if (r.choices) {
+        const C = grid(P, { top: 0.74, bottom: 0.06, cols: Math.max(2, r.choices.length + 1), rows: 1 });
+        r.choices.forEach((c, i) => btn('choice' + i, C(i, 0), c.text, c.fn, { active: true }));
+        btn('menu', C(Math.max(1, r.choices.length), 0), 'Main menu', () => g.actions.quit());
+      } else {
+        if (r.next) btn('next', L(0, 0), r.nextText || 'Continue', r.next, { active: true });
+        else btn('again', L(0, 0), 'Play again', () => g.actions.start(g.lastMode), { active: true });
+        btn('menu', L(1, 0), 'Main menu', () => g.actions.quit());
+      }
       P.set(W, '');
     }
   }
@@ -360,7 +367,8 @@ export class UI {
     W.push({ type: 'label', x: 34, y: 46, text: d.title, size: 40, bold: true, color: '#ffd34d' });
     if (d.score) W.push({ type: 'label', x: P.W - 34, y: 46, text: d.score, size: 44, bold: true, align: 'right' });
     if (d.sub) W.push({ type: 'label', x: 34, y: 104, text: d.sub, size: 30, color: '#c9d6e3' });
-    if (d.big) W.push({ type: 'label', x: P.W / 2, y: 188, text: d.big, size: 76, bold: true, align: 'center', color: d.bigColor });
+    if (d.players) W.push({ type: 'label', x: 34, y: 140, text: d.players, size: 25, color: '#ffe9a8' });
+    if (d.big) W.push({ type: 'label', x: P.W / 2, y: d.players ? 204 : 188, text: d.big, size: d.players ? 68 : 76, bold: true, align: 'center', color: d.bigColor });
     if (d.last) W.push({ type: 'label', x: 34, y: 268, text: d.last, size: 28 });
     if (d.detail) W.push({ type: 'label', x: 34, y: 312, text: d.detail, size: 24, color: '#aab8c6' });
     if (d.footer) W.push({ type: 'label', x: 34, y: P.H - 30, text: d.footer, size: 22, color: '#7f8fa0' });

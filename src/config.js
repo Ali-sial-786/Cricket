@@ -168,6 +168,7 @@ export const CONFIG = {
     easy:   { timingSigma: 0.030, posSigma: 0.07, readFactor: 0.25, adjust: 0.35, mistakeRate: 0.22, catchSkill: 0.55 },
     medium: { timingSigma: 0.018, posSigma: 0.045, readFactor: 0.55, adjust: 0.6, mistakeRate: 0.12, catchSkill: 0.72 },
     hard:   { timingSigma: 0.010, posSigma: 0.028, readFactor: 0.8, adjust: 0.85, mistakeRate: 0.05, catchSkill: 0.88 },
+    charge: { easy: 0.5, medium: 0.42, hard: 0.34 },   // chance (scaled by aggression) of coming down the pitch to a slow ball
     reactionTime: 0.20,      // s after release before the batter commits
     bounceReaction: 0.09,    // s after the bounce before it can adjust
   },
@@ -195,7 +196,13 @@ export const CONFIG = {
     standOff: 0.42,          // m you stand behind the catch point
   },
 
-  match: { overs: 5, wickets: 5, reviews: 1 },
+  match: {
+    overs: 5, wickets: 5, reviews: 1,
+    noBallChance: { easy: 0.045, medium: 0.03, hard: 0.02 },   // AI bowler oversteps (per ball) -> free hit
+    overstep: 0.3,           // m your head may be past the popping crease at release before it is a no-ball
+    beamerHeight: 1.15,      // m: a full toss above this at the batter is a no-ball
+    thirdUmpire: 0.55,       // m: run-outs / stumpings closer than this go upstairs
+  },
 
   audio: {
     master: 0.8,

@@ -15,7 +15,7 @@ import { Sfx } from '../audio/sfx.js';
 import { loadSettings, saveSettings, loadCalibration, saveCalibration } from './settings.js';
 import { computeBatOffset, defaultBatOffset, computeRig, computeRigFacing, headForward } from './calibration.js';
 import { LENGTH_PRESETS, LINE_PRESETS } from '../physics/bowlingMachine.js';
-import { createSession } from './modes.js';
+import { createSession, startMatch } from './modes.js';
 import { MRPlacer } from '../xr/mr.js';
 import { AIBatter } from './aiBatter.js';
 import { BatterView, BowlerView, FieldView, NonStrikerView, PlayerBodyView } from '../render/people.js';
@@ -356,6 +356,7 @@ export class Game {
   startSession(kind) {
     if (this.session) this.endSession();
     this.lastMode = kind;
+    if (kind === 'match') { this.state = 'menu'; this.setEnd('batting'); startMatch(this); return; }
     this.startSessionObj(createSession(this, kind));
   }
 
