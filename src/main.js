@@ -2,6 +2,7 @@
 import * as THREE from 'three';
 import { Game } from './game/game.js';
 import { XRSessionManager } from './xr/session.js';
+import { loadAthlete } from './render/humanoid.js';
 
 const container = document.getElementById('app');
 const statusEl = document.getElementById('status');
@@ -23,6 +24,14 @@ const rig = new THREE.Group();
 rig.name = 'playerRig';
 rig.add(camera);
 scene.add(rig);
+
+try {
+  await loadAthlete();
+} catch (e) {
+  console.error(e);
+  setStatus('Could not load the player model: ' + (e.message || e));
+  throw e;
+}
 
 const game = new Game({ renderer, scene, camera, rig, dom: renderer.domElement });
 window.__game = game; // handy for debugging in the console

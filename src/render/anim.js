@@ -83,7 +83,7 @@ export function plantFeet(h, footL, footR, kneeForward) {
     if (!target) continue;
     h.worldPos('knee' + side, _pole).add(kneeForward);
     _ft.copy(target);
-    _ft.y += 0.075 * h.root.scale.y;      // ankle height above the sole
+    _ft.y += h.ankleHeight * h.root.scale.y;      // ankle height above the sole
     h.ikLeg(side, _ft, _pole);
   }
   // Flat feet facing the root's forward (plus a small toe-out).

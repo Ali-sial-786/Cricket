@@ -169,7 +169,7 @@ export class BowlerActor extends Actor {
     const L = 0.98;               // fraction of arm reach used (straight arm)
     const psiR = 0.22;            // release angle past vertical (rad)
     // Measure the shoulder at the release pose with the root at the origin.
-    h.root.scale.setScalar(1);
+    h.root.scale.setScalar(h.baseScale);
     this.heading = 0;
     this.pos.set(0, 0, 0);
     this.poseDelivery(0, null);
@@ -180,8 +180,8 @@ export class BowlerActor extends Actor {
     const H = h.worldPos('handR', new THREE.Vector3());
     let arm = (S.distanceTo(E) + E.distanceTo(H) + 0.07) * L;
     const reachY = S.y + arm * Math.cos(psiR);
-    const scale = clamp(releasePos.y / reachY, 0.95, 1.18);
-    h.root.scale.setScalar(scale);
+    const scale = clamp(releasePos.y / reachY, 0.94, 1.16);
+    h.root.scale.setScalar(h.baseScale * scale);
     S.multiplyScalar(scale);
     arm *= scale;
     const rootR = new THREE.Vector3(releasePos.x - S.x, 0, releasePos.z - (S.z + arm * Math.sin(psiR)));

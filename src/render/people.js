@@ -58,7 +58,7 @@ export class FieldView {
     this.actors = field.map((f, i) => new FielderActor(scene, {
       team: 'away', seed: 100 + i * 7, keeper: !!f.keeper,
       headgear: f.keeper ? 'cap' : f.bowler ? 'bare' : (i % 3 === 0 ? 'hat' : 'cap'),
-      pads: !!f.keeper, gloves: !!f.keeper, longSleeve: i % 4 === 1,
+      pads: !!f.keeper, gloves: !!f.keeper,
     }));
     for (let i = 0; i < field.length; i++) this.actors[i].place(field[i].x, field[i].z, Math.atan2(-field[i].x, -1 - field[i].z));
     this.show(false);

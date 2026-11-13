@@ -21,7 +21,7 @@ import { AIBatter } from './aiBatter.js';
 import { BatterView, BowlerView, FieldView, NonStrikerView, RunningController, PlayerBodyView } from '../render/people.js';
 import { FIELD } from './fielding.js';
 import { Particles } from '../render/particles.js';
-import { ShadowPool } from '../render/humanoid.js';
+import { ShadowPool, Humanoid } from '../render/humanoid.js';
 
 export const BAT_HEAD = { z: -1.05, legOffset: -0.35 };      // head relative to guard (hand) x
 export const BOWL_HEAD = { x: 0.75, z: -19.6 };
@@ -421,6 +421,7 @@ export class Game {
       this.pitchMark.update(dt);
     }
     if (this.session && this.session.updateViews) this.session.updateViews(dt, paused);
+    Humanoid.updateLods(this.input.headPose.p);
     // Particles (point size needs the per-eye half height).
     this.particles.update(pdtFx(paused, dt), this.input.xr ? 900 : this.renderer.getDrawingBufferSize(_dbs).y / 2);
     // People.

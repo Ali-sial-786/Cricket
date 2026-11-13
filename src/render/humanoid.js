@@ -1,193 +1,186 @@
-// Procedural low-poly athletes: one SkinnedMesh per person (one draw call,
-// GPU skinning), a 17-bone skeleton, rigid skinning with joint caps, team kit
-// colours swappable at runtime through shader uniforms, and two-bone IK so
-// hands grip bats / catch balls and feet stay planted.
+// Athletes: the Courtside athlete model (MakeHuman-derived, CC0; converted by
+// tools/build_athlete.mjs into a compact two-LOD asset) on a 17-bone skeleton,
+// one SkinnedMesh / draw call per person, with cricket gear (helmet, cap, hat,
+// pads, gloves) merged into the same mesh, team kit + skin + hair colours as
+// shader uniforms, and two-bone IK for hands and feet.
 //
-// Rest pose: standing, arms hanging, facing +Z, feet at y = 0, ~1.80 m tall.
-// Every bone's rest rotation is identity and limbs point down -Y, so poses are
-// plain local Euler rotations (x = forward/back swing, z = sideways).
+// Canonical pose used by all animation code: standing, arms hanging straight
+// down, facing +Z, every bone's local rotation = identity, limbs along -Y.
+// The model's bind pose is an A-pose; the skeleton's inverse bind matrices
+// carry the difference, so animation never needs to know.
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
-const BONES = [
-  ['hips', null, [0, 0.96, 0]],
-  ['spine', 'hips', [0, 0.10, 0]],
-  ['chest', 'spine', [0, 0.20, 0]],
-  ['neck', 'chest', [0, 0.235, 0]],
-  ['head', 'neck', [0, 0.085, 0]],
-  ['shoulderL', 'chest', [0.175, 0.185, 0]],
-  ['elbowL', 'shoulderL', [0, -0.29, 0]],
-  ['handL', 'elbowL', [0, -0.26, 0]],
-  ['shoulderR', 'chest', [-0.175, 0.185, 0]],
-  ['elbowR', 'shoulderR', [0, -0.29, 0]],
-  ['handR', 'elbowR', [0, -0.26, 0]],
-  ['hipL', 'hips', [0.095, -0.05, 0]],
-  ['kneeL', 'hipL', [0, -0.43, 0]],
-  ['ankleL', 'kneeL', [0, -0.41, 0]],
-  ['hipR', 'hips', [-0.095, -0.05, 0]],
-  ['kneeR', 'hipR', [0, -0.43, 0]],
-  ['ankleR', 'kneeR', [0, -0.41, 0]],
-];
-const BONE_INDEX = Object.fromEntries(BONES.map((b, i) => [b[0], i]));
-const REST = {};
-for (const [name, parent, off] of BONES) {
-  const p = parent ? REST[parent] : [0, 0, 0];
-  REST[name] = [p[0] + off[0], p[1] + off[1], p[2] + off[2]];
+const PARENT = {
+  hips: null, spine: 'hips', chest: 'spine', neck: 'chest', head: 'neck',
+  shoulderL: 'chest', elbowL: 'shoulderL', handL: 'elbowL', shoulderR: 'chest', elbowR: 'shoulderR', handR: 'elbowR',
+  hipL: 'hips', kneeL: 'hipL', ankleL: 'kneeL', hipR: 'hips', kneeR: 'hipR', ankleR: 'kneeR',
+};
+const KIT1 = 1, KIT2 = 2, KIT3 = 3, KIT4 = 4, KSKIN = 5, KHAIR = 6;
+export const BASE_SCALE = 0.93;            // the model is a stylised 2.0 m; bring it to ~1.87 m
+
+export const SKIN_TONES = [0xf3cfae, 0xe0b088, 0xc68e62, 0x9a6a46, 0x6b4630];
+export const HAIR = [0x1d1510, 0x3b2a1c, 0x5a4330, 0x0e0e0e, 0x8a6a40];
+export const KITS = {
+  home: { kit1: 0x1f4fa8, kit2: 0xf2c12e, kit3: 0x14285a, kit4: 0x17336e },     // royal blue / gold
+  away: { kit1: 0xb3221c, kit2: 0xf4f4f4, kit3: 0x5e0f0c, kit4: 0x7a1712 },     // crimson / white
+  umpire: { kit1: 0xf4f1e6, kit2: 0x2a2d36, kit3: 0xf2eedd, kit4: 0x2b3040 },   // white coat, dark trousers
+};
+
+let RIG = null;      // { bones[], joints{}, canon{}, bindQ{}, inverses[], lods[], headCentre }
+
+// Load + prepare the athlete asset (call once before creating any Humanoid).
+export async function loadAthlete(base = './assets/models/') {
+  if (RIG) return RIG;
+  const [meta, bin] = await Promise.all([
+    fetch(base + 'athlete.json').then((r) => { if (!r.ok) throw new Error('athlete.json ' + r.status); return r.json(); }),
+    fetch(base + 'athlete.bin').then((r) => { if (!r.ok) throw new Error('athlete.bin ' + r.status); return r.arrayBuffer(); }),
+  ]);
+  RIG = prepareRig(meta, bin);
+  return RIG;
 }
 
-// Kit slots: 0 = fixed vertex colour, 1 = primary, 2 = secondary/trim, 3 = headgear.
-const KIT1 = 1, KIT2 = 2, KIT3 = 3;
-
-export const SKIN_TONES = [0xf1c8a5, 0xd9a77c, 0xb57a52, 0x8d5a3b, 0x613d28];
-export const HAIR = [0x1d1510, 0x3b2a1c, 0x5a4330, 0x0e0e0e, 0x8a6a40];
-
-const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _e = new THREE.Euler(), _s = new THREE.Vector3();
-
-function addPart(list, geom, bone, color, pos = [0, 0, 0], rot = null, scale = null) {
-  let g = geom.index ? geom.toNonIndexed() : geom.clone();
-  for (const k of Object.keys(g.attributes)) if (k !== 'position' && k !== 'normal') g.deleteAttribute(k);
-  _q.identity();
-  if (rot) _q.setFromEuler(_e.set(rot[0], rot[1], rot[2]));
-  _s.set(...(scale || [1, 1, 1]));
-  const r = REST[bone];
-  _m.compose(new THREE.Vector3(pos[0] + r[0], pos[1] + r[1], pos[2] + r[2]), _q, _s);
-  g.applyMatrix4(_m);
-  const n = g.attributes.position.count;
-  const col = new Float32Array(n * 3), kit = new Float32Array(n);
-  const skinI = new Uint16Array(n * 4), skinW = new Float32Array(n * 4);
-  const c = new THREE.Color(typeof color === 'number' && color > 3 ? color : 0xffffff);
-  const slot = typeof color === 'number' && color <= 3 ? color : 0;
-  const bi = BONE_INDEX[bone];
-  for (let i = 0; i < n; i++) {
-    col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b;
-    kit[i] = slot;
-    skinI[i * 4] = bi; skinW[i * 4] = 1;
+function prepareRig(meta, bin) {
+  const J = {}; for (const [k, v] of Object.entries(meta.joints)) J[k] = new THREE.Vector3(...v);
+  const down = new THREE.Vector3(0, -1, 0), d = new THREE.Vector3();
+  const bindQ = {}, canon = {};
+  for (const b of meta.bones) { bindQ[b] = new THREE.Quaternion(); canon[b] = J[b].clone(); }
+  const limb = (a, b2, c) => {
+    bindQ[a].setFromUnitVectors(down, d.subVectors(J[b2], J[a]).normalize());
+    bindQ[b2].setFromUnitVectors(down, d.subVectors(J[c], J[b2]).normalize());
+    canon[b2].copy(canon[a]).add(new THREE.Vector3(0, -J[a].distanceTo(J[b2]), 0));
+    canon[c].copy(canon[b2]).add(new THREE.Vector3(0, -J[b2].distanceTo(J[c]), 0));
+  };
+  for (const s of ['L', 'R']) {
+    limb('shoulder' + s, 'elbow' + s, 'hand' + s);
+    bindQ['hand' + s].copy(bindQ['elbow' + s]);
+    limb('hip' + s, 'knee' + s, 'ankle' + s);            // feet keep their bind (flat) orientation
   }
+  const inverses = meta.bones.map((b) => new THREE.Matrix4().compose(J[b], bindQ[b], new THREE.Vector3(1, 1, 1)).invert());
+  const lods = meta.lods.map((lod) => lod.parts.map((p) => {
+    const g = new THREE.BufferGeometry();
+    const nk = new Int8Array(bin, p.nrmKit, p.vCount * 4), cb = new Uint8Array(bin, p.col, p.vCount * 4), wb = new Uint8Array(bin, p.weights, p.vCount * 4);
+    const nrm = new Float32Array(p.vCount * 3), col = new Float32Array(p.vCount * 3), kit = new Float32Array(p.vCount), w = new Float32Array(p.vCount * 4);
+    const c = new THREE.Color();
+    for (let v = 0; v < p.vCount; v++) {
+      for (let k = 0; k < 3; k++) nrm[v * 3 + k] = nk[v * 4 + k] / 127;
+      c.setRGB(cb[v * 4] / 255, cb[v * 4 + 1] / 255, cb[v * 4 + 2] / 255, THREE.SRGBColorSpace);
+      col[v * 3] = c.r; col[v * 3 + 1] = c.g; col[v * 3 + 2] = c.b;
+      kit[v] = nk[v * 4 + 3];
+      for (let k = 0; k < 4; k++) w[v * 4 + k] = wb[v * 4 + k] / 255;
+    }
+    g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(bin.slice(p.pos, p.pos + p.vCount * 12)), 3));
+    g.setAttribute('normal', new THREE.BufferAttribute(nrm, 3));
+    g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    g.setAttribute('kit', new THREE.BufferAttribute(kit, 1));
+    g.setAttribute('skinIndex', new THREE.BufferAttribute(new Uint16Array(new Uint8Array(bin, p.joints, p.vCount * 4)), 4));
+    g.setAttribute('skinWeight', new THREE.BufferAttribute(w, 4));
+    g.setIndex(new THREE.BufferAttribute(new Uint16Array(bin.slice(p.idx, p.idx + p.iCount * 2)), 1));
+    return { name: p.name, optional: p.optional, geo: g };
+  }));
+  return { bones: meta.bones, index: Object.fromEntries(meta.bones.map((b, i) => [b, i])), J, canon, bindQ, inverses, lods, headCentre: new THREE.Vector3(...meta.headCentre), geoCache: new Map() };
+}
+
+// ---- gear: rigid pieces authored in a bone's canonical local frame ----
+const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _e = new THREE.Euler(), _s = new THREE.Vector3(), _t = new THREE.Vector3();
+function gearPart(list, geom, bone, color, pos = [0, 0, 0], rot = null, scale = null) {
+  let g = geom.index ? geom : geom;
+  g = g.clone();
+  for (const k of Object.keys(g.attributes)) if (k !== 'position' && k !== 'normal') g.deleteAttribute(k);
+  _q.identity(); if (rot) _q.setFromEuler(_e.set(rot[0], rot[1], rot[2]));
+  _s.set(...(scale || [1, 1, 1]));
+  g.applyMatrix4(_m.compose(_t.set(...pos), _q, _s));                       // into bone-local (canonical)
+  g.applyMatrix4(_m.compose(RIG.J[bone], RIG.bindQ[bone], _s.set(1, 1, 1)));  // into bind space
+  if (!g.index) g.setIndex([...Array(g.attributes.position.count).keys()]);
+  const n = g.attributes.position.count;
+  const col = new Float32Array(n * 3), kit = new Float32Array(n), si = new Uint16Array(n * 4), sw = new Float32Array(n * 4);
+  const c = new THREE.Color(color > 6 ? color : 0xffffff), slot = color <= 6 ? color : 0, bi = RIG.index[bone];
+  for (let i = 0; i < n; i++) { col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b; kit[i] = slot; si[i * 4] = bi; sw[i * 4] = 1; }
   g.setAttribute('color', new THREE.BufferAttribute(col, 3));
   g.setAttribute('kit', new THREE.BufferAttribute(kit, 1));
-  g.setAttribute('skinIndex', new THREE.BufferAttribute(skinI, 4));
-  g.setAttribute('skinWeight', new THREE.BufferAttribute(skinW, 4));
+  g.setAttribute('skinIndex', new THREE.BufferAttribute(si, 4));
+  g.setAttribute('skinWeight', new THREE.BufferAttribute(sw, 4));
   list.push(g);
 }
-
-const capsule = (r, len, rs = 7) => new THREE.CapsuleGeometry(r, len, 2, rs);
-const sphere = (r, w = 8, h = 6) => new THREE.SphereGeometry(r, w, h);
+const sphere = (r, w = 10, h = 7, ...a) => new THREE.SphereGeometry(r, w, h, ...a);
 const box = (x, y, z) => new THREE.BoxGeometry(x, y, z);
 const cyl = (rt, rb, h, rs = 10) => new THREE.CylinderGeometry(rt, rb, h, rs);
 
-// Rounded box via a scaled sphere-capsule hybrid (soft torso shapes).
-function softBox(w, h, d) {
-  const g = new THREE.CapsuleGeometry(0.5, 0.6, 3, 9);
-  g.scale(w, h / 1.6, d);
+function buildGear(o) {
+  const P = [];
+  const hc = RIG.headCentre.clone().sub(RIG.J.head);     // head centre in head-bone space
+  const hx = hc.x, hy = hc.y, hz = hc.z;
+  if (o.headgear === 'helmet') {
+    gearPart(P, sphere(1, 14, 8, 0, Math.PI * 2, 0, Math.PI * 0.56), 'head', KIT3, [hx, hy + 0.02, hz - 0.02], null, [0.225, 0.262, 0.262]);
+    gearPart(P, box(0.36, 0.022, 0.13), 'head', KIT3, [hx, hy + 0.075, hz + 0.24], [0.22, 0, 0]);          // peak
+    for (let i = 0; i < 4; i++) gearPart(P, box(0.33, 0.011, 0.011), 'head', 0xc3c9d1, [hx, hy - 0.15 + i * 0.05, hz + 0.275]);
+    for (const sx of [-1, 1]) gearPart(P, box(0.011, 0.2, 0.011), 'head', 0xc3c9d1, [hx + sx * 0.165, hy - 0.07, hz + 0.275]);
+    gearPart(P, box(0.011, 0.2, 0.011), 'head', 0xc3c9d1, [hx, hy - 0.07, hz + 0.277]);
+    for (const sx of [-1, 1]) gearPart(P, box(0.03, 0.2, 0.2), 'head', KIT3, [hx + sx * 0.212, hy - 0.06, hz + 0.02]);   // ear guards
+    gearPart(P, box(0.1, 0.05, 0.012), 'head', KIT2, [hx, hy + 0.13, hz + 0.228], [-0.35, 0, 0]);          // badge
+  } else if (o.headgear === 'cap' || o.headgear === 'bare') {
+    gearPart(P, sphere(1, 14, 6, 0, Math.PI * 2, 0, Math.PI * 0.47), 'head', KIT3, [hx, hy + 0.045, hz - 0.015], null, [0.212, 0.225, 0.25]);
+    gearPart(P, cyl(0.15, 0.15, 0.016, 14), 'head', KIT3, [hx, hy + 0.09, hz + 0.23], [0.12, 0, 0], [1, 1, 0.85]);
+    gearPart(P, sphere(0.02, 6, 4), 'head', KIT2, [hx, hy + 0.268, hz - 0.015]);
+  } else if (o.headgear === 'hat') {
+    gearPart(P, cyl(0.37, 0.37, 0.016, 18), 'head', 0xf2eedd, [hx, hy + 0.11, hz]);
+    gearPart(P, cyl(0.2, 0.215, 0.13, 14), 'head', 0xf2eedd, [hx, hy + 0.175, hz]);
+    gearPart(P, cyl(0.217, 0.217, 0.03, 14), 'head', KIT1, [hx, hy + 0.135, hz]);
+  }
+  if (o.gloves) {
+    const big = o.keeper;
+    for (const s of ['L', 'R']) {
+      const sx = s === 'L' ? 1 : -1;
+      gearPart(P, box(big ? 0.135 : 0.105, big ? 0.19 : 0.15, big ? 0.07 : 0.085), 'hand' + s, big ? KIT2 : 0xf5f5f5, [0, -0.085, 0.012]);
+      gearPart(P, box(big ? 0.138 : 0.108, 0.035, big ? 0.073 : 0.088), 'hand' + s, big ? 0xf5f5f5 : KIT2, [0, -0.02, 0.012]);
+      gearPart(P, box(0.035, 0.085, 0.045), 'hand' + s, big ? KIT2 : 0xf5f5f5, [sx * 0.055, -0.06, 0.04]);
+      gearPart(P, cyl(0.05, 0.047, 0.07, 8), 'elbow' + s, 0xf5f5f5, [0, -0.215, 0]);
+    }
+  }
+  if (o.pads) {
+    for (const s of ['L', 'R']) {
+      gearPart(P, box(0.185, 0.44, 0.07), 'knee' + s, 0xf7f7f7, [0, -0.2, 0.085]);
+      gearPart(P, cyl(0.085, 0.085, 0.18, 10), 'knee' + s, 0xf7f7f7, [0, 0.03, 0.085], [0, 0, Math.PI / 2]);
+      gearPart(P, box(0.2, 0.12, 0.06), 'hip' + s, 0xf7f7f7, [0, -0.37, 0.085]);
+      for (const ox of [-0.055, 0, 0.055]) gearPart(P, box(0.03, 0.4, 0.02), 'knee' + s, 0xe6e6e6, [ox, -0.2, 0.127]);
+      for (const oy of [-0.07, -0.31]) gearPart(P, box(0.19, 0.028, 0.075), 'knee' + s, KIT2, [0, oy, 0.085]);
+    }
+  }
+  return P;
+}
+
+function geometryFor(o, lod) {
+  const key = `${lod}|${o.headgear}|${o.pads ? 1 : 0}|${o.gloves ? 1 : 0}|${o.keeper ? 1 : 0}`;
+  let g = RIG.geoCache.get(key);
+  if (!g) {
+    const parts = RIG.lods[lod].filter((p) => !p.optional).map((p) => p.geo);
+    g = mergeGeometries([...parts, ...buildGear(o)], false);
+    RIG.geoCache.set(key, g);
+  }
   return g;
 }
 
-function buildGeometry(o) {
-  const P = [];
-  const skin = o.skin, shoe = 0xf3f3f3, sole = 0x30343a;
-  const longSleeve = !!o.longSleeve;
-  // --- Torso ---
-  addPart(P, softBox(0.35, 0.26, 0.235), 'hips', KIT1, [0, -0.01, 0]);
-  addPart(P, softBox(0.335, 0.27, 0.215), 'spine', KIT1, [0, 0.11, 0.008]);
-  addPart(P, softBox(0.43, 0.35, 0.25), 'chest', KIT1, [0, 0.13, 0.004]);
-  addPart(P, softBox(0.3, 0.16, 0.08), 'chest', KIT1, [0, 0.12, 0.09]);               // pecs
-  addPart(P, cyl(0.078, 0.085, 0.04, 12), 'chest', KIT2, [0, 0.25, 0.0]);             // collar
-  addPart(P, box(0.03, 0.09, 0.012), 'chest', KIT2, [0, 0.2, 0.123], [0.25, 0, 0]);    // placket
-  addPart(P, sphere(0.078), 'chest', KIT1, [0.172, 0.175, 0]);                         // shoulder caps
-  addPart(P, sphere(0.078), 'chest', KIT1, [-0.172, 0.175, 0]);
-  addPart(P, cyl(0.17, 0.172, 0.035, 14), 'hips', KIT2, [0, 0.085, 0], null, [1, 1, 0.68]); // waistband
-  // --- Neck + head ---
-  addPart(P, cyl(0.054, 0.06, 0.11, 8), 'neck', skin, [0, 0.03, 0]);
-  addPart(P, sphere(0.104, 10, 8), 'head', skin, [0, 0.105, 0.008], null, [0.95, 1.1, 1.04]);
-  addPart(P, sphere(0.022, 6, 4), 'head', skin, [0.1, 0.1, -0.005]);                  // ears
-  addPart(P, sphere(0.022, 6, 4), 'head', skin, [-0.1, 0.1, -0.005]);
-  addPart(P, box(0.026, 0.04, 0.03), 'head', skin, [0, 0.085, 0.108]);                // nose
-  addPart(P, sphere(0.012, 6, 4), 'head', 0x1a1a1a, [0.035, 0.122, 0.096]);            // eyes
-  addPart(P, sphere(0.012, 6, 4), 'head', 0x1a1a1a, [-0.035, 0.122, 0.096]);
-  addPart(P, box(0.03, 0.007, 0.01), 'head', o.hair, [0.036, 0.145, 0.1]);             // brows
-  addPart(P, box(0.03, 0.007, 0.01), 'head', o.hair, [-0.036, 0.145, 0.1]);
-  if (o.headgear === 'helmet') {
-    addPart(P, new THREE.SphereGeometry(0.128, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.58), 'head', KIT3, [0, 0.12, -0.005], null, [1, 1.05, 1.08]);
-    addPart(P, box(0.2, 0.015, 0.08), 'head', KIT3, [0, 0.165, 0.12], [0.25, 0, 0]);  // peak
-    for (let i = 0; i < 4; i++) addPart(P, box(0.2, 0.008, 0.008), 'head', 0xb8bec6, [0, 0.03 + i * 0.03, 0.135]); // grille
-    addPart(P, box(0.008, 0.11, 0.008), 'head', 0xb8bec6, [0, 0.075, 0.137]);
-    addPart(P, box(0.02, 0.08, 0.06), 'head', KIT3, [0.115, 0.07, 0.04]);              // side flaps
-    addPart(P, box(0.02, 0.08, 0.06), 'head', KIT3, [-0.115, 0.07, 0.04]);
-  } else if (o.headgear === 'cap') {
-    addPart(P, new THREE.SphereGeometry(0.112, 12, 6, 0, Math.PI * 2, 0, Math.PI * 0.5), 'head', KIT3, [0, 0.13, 0], null, [1, 0.9, 1.06]);
-    addPart(P, cyl(0.075, 0.075, 0.012, 12), 'head', KIT3, [0, 0.135, 0.12], null, [1, 1, 0.75]);
-  } else if (o.headgear === 'hat') {
-    addPart(P, cyl(0.21, 0.21, 0.012, 16), 'head', 0xf2eedd, [0, 0.16, 0]);
-    addPart(P, cyl(0.105, 0.115, 0.09, 12), 'head', 0xf2eedd, [0, 0.2, 0]);
-    addPart(P, cyl(0.116, 0.116, 0.02, 12), 'head', KIT1, [0, 0.175, 0]);
-  } else {
-    addPart(P, new THREE.SphereGeometry(0.11, 12, 6, 0, Math.PI * 2, 0, Math.PI * 0.42), 'head', o.hair, [0, 0.118, -0.008], null, [1, 1, 1.04]);
-  }
-  // --- Arms ---
-  for (const s of ['L', 'R']) {
-    const sx = s === 'L' ? 1 : -1;
-    addPart(P, capsule(0.066, 0.12), 'shoulder' + s, KIT1, [0, -0.07, 0]);                   // sleeve
-    addPart(P, cyl(0.067, 0.067, 0.025, 10), 'shoulder' + s, KIT2, [0, -0.15, 0]);           // cuff
-    addPart(P, capsule(0.056, 0.17), 'shoulder' + s, longSleeve ? KIT1 : skin, [0, -0.165, 0]);
-    addPart(P, sphere(0.053, 8, 6), 'elbow' + s, longSleeve ? KIT1 : skin, [0, 0, 0]);
-    addPart(P, capsule(0.048, 0.16), 'elbow' + s, longSleeve ? KIT1 : skin, [0, -0.12, 0], null, [1, 1, 0.9]);
-    if (o.gloves) {
-      addPart(P, box(0.09, 0.11, 0.075), 'hand' + s, 0xf5f5f5, [0, -0.05, 0.005]);
-      addPart(P, box(0.092, 0.03, 0.077), 'hand' + s, KIT2, [0, -0.01, 0.005]);
-      addPart(P, box(0.03, 0.06, 0.04), 'hand' + s, 0xf5f5f5, [sx * 0.045, -0.04, 0.035]);
-    } else {
-      addPart(P, box(0.075, 0.1, 0.038), 'hand' + s, skin, [0, -0.052, 0.004]);
-      addPart(P, box(0.022, 0.05, 0.022), 'hand' + s, skin, [sx * 0.035, -0.035, 0.022], [0.3, 0, 0]);
-    }
-  }
-  // --- Legs ---
-  for (const s of ['L', 'R']) {
-    const sx = s === 'L' ? 1 : -1;
-    addPart(P, capsule(0.094, 0.28), 'hip' + s, KIT1, [0, -0.21, 0]);
-    addPart(P, box(0.012, 0.34, 0.045), 'hip' + s, KIT2, [sx * 0.092, -0.21, 0]);            // trouser stripe
-    addPart(P, sphere(0.072, 8, 6), 'knee' + s, KIT1, [0, 0, 0]);
-    addPart(P, capsule(0.068, 0.27), 'knee' + s, KIT1, [0, -0.2, 0.005]);
-    addPart(P, capsule(0.058, 0.12), 'knee' + s, KIT1, [0, -0.13, -0.025]);                  // calf
-    if (o.pads) {
-      addPart(P, box(0.17, 0.47, 0.085), 'knee' + s, 0xf7f7f7, [0, -0.18, 0.065]);
-      addPart(P, cyl(0.07, 0.07, 0.15, 10), 'knee' + s, 0xf7f7f7, [0, 0.03, 0.065], [0, 0, Math.PI / 2]);
-      for (const ox of [-0.05, 0, 0.05]) addPart(P, box(0.028, 0.42, 0.02), 'knee' + s, 0xe9e9e9, [ox, -0.19, 0.11]);
-      addPart(P, box(0.175, 0.025, 0.09), 'knee' + s, KIT2, [0, -0.06, 0.065]);             // straps
-      addPart(P, box(0.175, 0.025, 0.09), 'knee' + s, KIT2, [0, -0.3, 0.065]);
-    }
-    addPart(P, box(0.108, 0.08, 0.27), 'ankle' + s, shoe, [0, -0.03, 0.055]);
-    addPart(P, box(0.112, 0.02, 0.28), 'ankle' + s, sole, [0, -0.07, 0.055]);
-    addPart(P, box(0.012, 0.03, 0.12), 'ankle' + s, KIT2, [sx * 0.051, -0.02, 0.06]);      // shoe flash
-  }
-  return mergeGeometries(P, false);
-}
-
-// Shared kit shader injection (vertex colour replaced by per-figure uniforms).
+// Shared kit shader: the `kit` vertex attribute picks a per-figure uniform.
 function kitMaterial() {
   const mat = new THREE.MeshLambertMaterial({ vertexColors: true });
   const uniforms = {
-    uKit1: { value: new THREE.Color(0x1f4fa8) },
-    uKit2: { value: new THREE.Color(0xf2c12e) },
-    uKit3: { value: new THREE.Color(0x14285a) },
+    uKit1: { value: new THREE.Color(0x1f4fa8) }, uKit2: { value: new THREE.Color(0xf2c12e) }, uKit3: { value: new THREE.Color(0x14285a) },
+    uKit4: { value: new THREE.Color(0x17336e) }, uSkin: { value: new THREE.Color(0xc68e62) }, uHair: { value: new THREE.Color(0x1d1510) },
   };
   mat.onBeforeCompile = (sh) => {
     Object.assign(sh.uniforms, uniforms);
     sh.vertexShader = sh.vertexShader
-      .replace('#include <common>', '#include <common>\nattribute float kit;\nuniform vec3 uKit1;\nuniform vec3 uKit2;\nuniform vec3 uKit3;')
+      .replace('#include <common>', '#include <common>\nattribute float kit;\nuniform vec3 uKit1;\nuniform vec3 uKit2;\nuniform vec3 uKit3;\nuniform vec3 uKit4;\nuniform vec3 uSkin;\nuniform vec3 uHair;')
       .replace('#include <color_vertex>', `#include <color_vertex>
         #ifdef USE_COLOR
-          if (kit > 0.5) vColor.rgb = kit < 1.5 ? uKit1 : (kit < 2.5 ? uKit2 : uKit3);
+          if (kit > 5.5) vColor.rgb = uHair; else if (kit > 4.5) vColor.rgb = uSkin; else if (kit > 3.5) vColor.rgb = uKit4;
+          else if (kit > 2.5) vColor.rgb = uKit3; else if (kit > 1.5) vColor.rgb = uKit2; else if (kit > 0.5) vColor.rgb = uKit1;
         #endif`);
   };
-  mat.customProgramCacheKey = () => 'cricket-kit';
+  mat.customProgramCacheKey = () => 'cricket-kit-v2';
   mat.userData.uniforms = uniforms;
   return mat;
 }
-
-export const KITS = {
-  home: { kit1: 0x1f4fa8, kit2: 0xf2c12e, kit3: 0x14285a },     // royal blue / gold
-  away: { kit1: 0xb3221c, kit2: 0xf4f4f4, kit3: 0x5e0f0c },     // crimson / white
-};
 
 const DOWN = new THREE.Vector3(0, -1, 0);
 const _v = new THREE.Vector3(), _v2 = new THREE.Vector3(), _S = new THREE.Vector3(), _E = new THREE.Vector3(),
@@ -196,43 +189,68 @@ const _pq = new THREE.Quaternion(), _eul = new THREE.Euler(), _bq = new THREE.Qu
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 
 export class Humanoid {
-  constructor({ team = 'home', skin = null, hair = null, headgear = 'cap', pads = false, gloves = false, longSleeve = false, scale = 1, seed = 0 } = {}) {
+  constructor({ team = 'home', skin = null, hair = null, headgear = 'cap', pads = false, gloves = false, keeper = false, scale = 1, seed = 0 } = {}) {
+    if (!RIG) throw new Error('loadAthlete() must finish before creating players');
     const rnd = (n) => ((Math.sin(seed * 12.9898 + n * 78.233) * 43758.5453) % 1 + 1) % 1;
-    const skinC = skin ?? SKIN_TONES[Math.floor(rnd(1) * SKIN_TONES.length)];
-    const hairC = hair ?? HAIR[Math.floor(rnd(2) * HAIR.length)];
-    const geo = buildGeometry({ skin: skinC, hair: hairC, headgear, pads, gloves, longSleeve });
+    this.opts = { headgear, pads, gloves, keeper };
     this.material = kitMaterial();
+    const u = this.material.userData.uniforms;
+    u.uSkin.value.setHex(skin ?? SKIN_TONES[Math.floor(rnd(1) * SKIN_TONES.length)]);
+    u.uHair.value.setHex(hair ?? HAIR[Math.floor(rnd(2) * HAIR.length)]);
     const bones = [];
     this.bones = {};
-    for (const [name, parent, off] of BONES) {
+    for (const name of RIG.bones) {
       const b = new THREE.Bone();
       b.name = name;
-      b.position.set(...off);
-      if (parent) this.bones[parent].add(b);
+      const parent = PARENT[name];
+      b.position.copy(RIG.canon[name]);
+      if (parent) { b.position.sub(RIG.canon[parent]); this.bones[parent].add(b); }
       this.bones[name] = b;
       bones.push(b);
     }
-    this.mesh = new THREE.SkinnedMesh(geo, this.material);
+    this.lod = 0;
+    this.mesh = new THREE.SkinnedMesh(geometryFor(this.opts, 0), this.material);
     this.mesh.add(bones[0]);
-    this.mesh.bind(new THREE.Skeleton(bones));
+    this.mesh.bind(new THREE.Skeleton(bones, RIG.inverses.map((m) => m.clone())), new THREE.Matrix4());
     // Generous fixed culling sphere (covers raised arms, dives and a bat).
-    this.mesh.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0.9, 0), 1.9);
+    this.mesh.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 1.0, 0), 2.1);
     this.mesh.frustumCulled = true;
     this.boneList = bones;
     this.root = new THREE.Group();
     this.root.add(this.mesh);
-    this.root.scale.setScalar(scale);
+    this.baseScale = BASE_SCALE * scale;
+    this.root.scale.setScalar(this.baseScale);
     this.hipsRest = this.bones.hips.position.clone();
+    this.ankleHeight = RIG.J.ankleL.y;            // sole to ankle joint (model units)
+    this.armLength = RIG.J.shoulderL.distanceTo(RIG.J.elbowL) + RIG.J.elbowL.distanceTo(RIG.J.handL);
     this.setTeam(team);
     // Contact shadow: a slot in the shared instanced shadow mesh.
     this.shadowSlot = ShadowPool.alloc();
+    Humanoid.all.push(this);
+  }
+
+  // Pick the level of detail for every visible figure from the viewer's position.
+  static updateLods(viewer, nearDist = 13) {
+    for (const h of Humanoid.all) {
+      if (!h.root.visible) continue;
+      const p = h.root.position;
+      const d = Math.hypot(p.x - viewer.x, p.z - viewer.z);
+      h.setLod(d > nearDist * (h.lod === 0 ? 1.15 : 1) ? 1 : 0);
+    }
   }
 
   setTeam(team) {
     const k = KITS[team] || KITS.home;
     const u = this.material.userData.uniforms;
-    u.uKit1.value.setHex(k.kit1); u.uKit2.value.setHex(k.kit2); u.uKit3.value.setHex(k.kit3);
+    u.uKit1.value.setHex(k.kit1); u.uKit2.value.setHex(k.kit2); u.uKit3.value.setHex(k.kit3); u.uKit4.value.setHex(k.kit4);
     this.team = team;
+  }
+
+  // 0 = full detail, 1 = distant.
+  setLod(lod) {
+    if (lod === this.lod) return;
+    this.lod = lod;
+    this.mesh.geometry = geometryFor(this.opts, lod);
   }
 
   get visible() { return this.root.visible; }
@@ -383,5 +401,4 @@ export function solveTwoBone(upper, lower, end, target, pole) {
   aimBone(upper, _v.subVectors(_E, _S));
   aimBone(lower, _v.subVectors(_T, _E));
 }
-
-export { BONES, REST };
+Humanoid.all = [];
