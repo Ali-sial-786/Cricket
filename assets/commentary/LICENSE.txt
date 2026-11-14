@@ -1,68 +1,46 @@
-Courtside cricket commentary (assets/cricket/commentary/*.ogg, manifest.gd)
+Courtside cricket commentary (assets/commentary/*.ogg, manifest.json)
 
-The commentators, Kate Marsden (play-by-play) and Geoff Hollins (summariser),
-are fictional. Every line is original wording written for Courtside. No
-broadcast or game audio ships in these clips; the two voices are synthesised,
-cloned from two short Creative Commons (CC BY) reference clips credited below.
+Taken from Courtside (github.com/ali-sial-786/courtside), branch
+codex/cricket-british-commentary, commit dbfa16b9 (assets/cricket/commentary/).
+For this game the clips were re-encoded from Courtside's 48 kHz Ogg Vorbis q4
+masters to mono 24 kHz Ogg Vorbis q2 (ffmpeg / libvorbis) to keep the download
+small, and manifest.gd was converted to manifest.json (same lines and lengths).
+generation.json (build provenance) is not copied.
 
-The lines are spoken by Chatterbox text-to-speech and made by
-tools/cricket/make_commentary.py (Chatterbox synthesis, every take checked by
-speech recognition and re-rolled if it doesn't match its line or drifts
-from its commentator's voice, a light
-time-stretch for the big calls, then ffmpeg broadcast EQ, a short room
-reflection and gentle compression, levelled to about -19 dBFS active speech
-with a soft peak limit at -1.5 dBFS, Ogg Vorbis q2, mono 24 kHz).
+Courtside's licence note for the bank follows.
 
-  Model:   Chatterbox (the standard model, with its emotion "exaggeration"
-           control, for the lines; Chatterbox Turbo for the stitched numbers
-           and chase sums), by Resemble AI
-           https://github.com/resemble-ai/chatterbox
-           https://huggingface.co/ResembleAI/chatterbox
-           https://huggingface.co/ResembleAI/chatterbox-turbo
-           Licence: MIT (code and weights). Chatterbox embeds Resemble's
-           imperceptible "Perth" watermark in everything it generates.
-  Voices:  Chatterbox clones each commentator from one short reference clip
-           (tools/cricket/commentary_refs/kate.flac, geoff.flac; 8 s each):
-           Commentary voice references: Cricket Hong Kong, China — Hong Kong
-           Sixes 2025, https://www.youtube.com/watch?v=biTw1GGK22o, CC BY 3.0
-           (YouTube Creative Commons Attribution). Kate is cloned from the
-           broadcast's female ball-by-ball caller (at 6:19), Geoff from a
-           lively male summariser (at 49:25); lightly denoised. The commentary
-           box, the names and every line are fictional / original.
-           Takes whose voice drifts from that commentator's median take
-           (speaker-embedding check) are re-rolled.
-           Alternative (--refs kokoro): references rendered by the generator with
-           Kokoro-82M's British voices (Apache-2.0, by hexgrad,
-           https://huggingface.co/hexgrad/Kokoro-82M, via kokoro-onnx, MIT):
-             Kate (play-by-play): bf_emma
-             Geoff (summariser): bm_george
-           (no real person's voice).
-  Runtime: PyTorch (BSD-style) and faster-whisper (MIT, for the take check)
-           on the CPU; build-time only, nothing of them ships with the game.
+----------------------------------------------------------------------------
 
-The model licences place no restriction on the generated audio; the clips
-are distributed as part of Courtside under the project's own licence.
-A copy of the Apache-2.0 licence: https://www.apache.org/licenses/LICENSE-2.0
+Courtside cricket commentary
 
-The same Hong Kong Sixes broadcast was also transcribed and measured
-(speaking rate, pitch range, loudness on big moments) to guide the writing
-and the delivery settings; none of its sentences are used, every line is
-original.
+Kate Marsden (caller) and Geoff Hollins (summariser) are fictional characters.
+All commentary and banter is original writing for Courtside.
 
-Recorded commentary considered (October 2026) and not used:
-  - Freesound: no CC0 (or any) cricket commentary or "howzat" calls exist.
-  - archive.org: the cricket commentary there is off-air BBC Test Match
-    Special / Radio 4 / 5 Live captures, which are copyrighted with no licence.
-  - Wikimedia Commons: one item, "Twenty20 game commentary.ogg" (CC BY-SA 3.0,
-    a ten-minute amateur recording of a 2010 Australia Day charity match). It is
-    continuous ground commentary about named real people, so it can't be cut
-    into generic game-event lines.
-  - National sound archives (NFSA, Nga Taonga) hold historic radio commentary,
-    but it is rights-restricted and not downloadable.
+Current bank: generated using Cartesia Sonic 3.6 through the project's Cartesia
+subscription. Kate uses the Gemma library voice, and Geoff the Harrison library
+voice, both native British English. These are Cartesia library voices, not
+clones made from sports broadcasts. The generated audio is distributed as part
+of Courtside, subject to the project's licence and the applicable Cartesia
+service terms: https://cartesia.ai/terms-of-service
 
-Previous versions: Kokoro-82M (bf_emma, bm_george) spoke the lines directly;
-before that, Piper TTS voices en_GB-cori-high and en_US-norman-medium.
+Every utterance has its own emotional direction. Masters are mono 48 kHz PCM,
+with light EQ and compression, a soft -1.5 dBFS ceiling and Ogg Vorbis q4 output.
+No synthetic room echo, pitch shifting or post-render time stretching is added.
+generation.json records the precise model, cast, script and direction for each
+file; manifest.gd pairs the playable clips with captions and measured lengths.
+The API key and service runtime are not included in the game.
 
-Rebuild: see the header of tools/cricket/make_commentary.py (a Python venv
-with CPU PyTorch and chatterbox-tts), then
-`godot --headless --editor --import --quit`.
+Build tools: tools/cricket/make_commentary.py and cartesia_commentary.py.
+Rebuild instructions: tools/cricket/COMMENTARY.md.
+
+Historical engines retained in the build tools (not used for the current bank):
+  Chatterbox / Chatterbox Turbo by Resemble AI, code and weights MIT:
+    https://github.com/resemble-ai/chatterbox
+  Kokoro-82M by hexgrad, Apache-2.0, through kokoro-onnx (MIT):
+    https://huggingface.co/hexgrad/Kokoro-82M
+  Legacy Chatterbox references in tools/cricket/commentary_refs/:
+    Cricket Hong Kong, China, Hong Kong Sixes 2025 broadcast,
+    https://www.youtube.com/watch?v=biTw1GGK22o (YouTube CC BY 3.0).
+    kate.flac: female caller at 6:19; geoff.flac: male summariser at 49:25.
+    These references are used only when explicitly selecting the legacy
+    Chatterbox engine with --refs hk. Cartesia does not read or use them.

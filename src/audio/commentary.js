@@ -6,11 +6,12 @@
 // API:
 //   new Commentary({ sfx, manifestUrl, baseUrl, rng, backend, manifest })
 //   await load()          fetch the manifest (or take the `manifest` option); never throws
-//   say(kind, ctx = {})   a match event (toss innings over runup release swing hit duck appeal
-//                         lbw_call review review_result third_umpire third_result catch_chance
-//                         catch drop run_out_chance run_out boundary wicket ball innings_break
-//                         result charge; unknown kinds are ignored) mapped to exchanges here, or an
-//                         event of the bank directly ("four", "bowled", "need" with ctx.runs/balls)
+//   say(kind, ctx = {})   a match event (toss innings over wicket_side runup release swing hit duck
+//                         appeal lbw_call review review_result third_umpire third_result
+//                         catch_chance catch drop run_out_chance run_out boundary wicket ball
+//                         innings_break result charge; unknown kinds are ignored) mapped to exchanges
+//                         here, or an event of the bank directly ("four", "bowled", "misfield",
+//                         "direct_miss", "need" with ctx.runs/balls)
 //   stop()                silence at once and forget everything queued
 //   setEnabled(on) / setVolume(0..1) / setChattiness(0..1)
 //   speaking()            an exchange is playing (or about to): duck the crowd under it
@@ -46,6 +47,10 @@
 //   the six) comes within 3 balls, the payoff follows the call ("Told you!").
 // - Numbers ("They need twelve runs from eight balls") are whole sentences for the common
 //   chase sums, otherwise stitched from number and phrase clips with tight overlaps.
+// - Each exchange belongs to a ball (counted at the run-up, or the over / release when there's no
+//   run-up). As the next ball starts, whatever is still queued about the last one is dropped and
+//   the line being said finishes without its reply; at the release anything still about the last
+//   ball fades out (except the first line of a big call), so the delivery is called on time.
 
 const FADE = 0.12;            // an interrupted exchange fades out this fast
 const STITCH_GAP = -0.05;     // stitched pieces of one sentence overlap this much
@@ -57,16 +62,19 @@ const CHAT_REPEAT = 90.0;
 const LOAD_WAIT = 1.5;        // a line holds at most this long for its clip to decode (web only)
 const BOUNCER = 11;           // delivery kind
 const BIG = ['four', 'six', 'bowled', 'caught', 'caught_behind', 'great_catch', 'stumped', 'run_out', 'out_lbw',
-  'won_runs', 'won_wickets', 'tie', 'hat_trick', 'dropped', 'caught_top_edge'];
+  'won_runs', 'won_wickets', 'tie', 'hat_trick', 'dropped', 'caught_top_edge', 'overthrow_boundary'];
 const NOTABLE = ['match_start', 'toss_bat', 'toss_bowl', 'innings_start', 'chase_start', 'innings_end', 'last_over',
   'need', 'chase_close', 'chase_easy', 'milestone_25', 'milestone_50', 'partnership_50', 'lbw_appeal', 'not_out',
   'drs_review', 'drs_umpires_call', 'drs_overturned', 'drs_stays', 'third_umpire', 'near_run_out', 'hat_trick_ball',
-  'free_hit', 'no_ball', 'maiden', 'target', 'top_edge', 'gag_told_you', 'gag_six_called', 'gag_six_jinx', 'gag_jinx'];
+  'free_hit', 'no_ball', 'maiden', 'target', 'top_edge', 'gag_told_you', 'gag_six_called', 'gag_six_jinx', 'gag_jinx',
+  'milestone_100', 'last_ball'];
 const MINOR = ['single', 'two', 'three', 'wide', 'overthrow', 'misfield', 'good_fielding', 'end_over', 'end_over_score',
-  'score', 'new_bowler', 'new_bowler_pace', 'new_bowler_swing', 'new_bowler_spin', 'new_batter', 'ducked', 'beaten_bouncer'];
+  'score', 'new_bowler', 'new_bowler_pace', 'new_bowler_swing', 'new_bowler_spin', 'new_batter', 'ducked', 'beaten_bouncer',
+  'around_wicket', 'over_wicket', 'keeper_fumble', 'direct_miss', 'backed_up', 'relay'];
 const STITCHED = ['need', 'end_over_score', 'score', 'target'];
 // The calls that settle a ball: said directly, the "ball" event doesn't call them again.
-const CALLS = ['four', 'six', 'bowled', 'caught', 'caught_behind', 'great_catch', 'caught_top_edge', 'stumped', 'run_out', 'out_lbw'];
+const CALLS = ['four', 'six', 'bowled', 'caught', 'caught_behind', 'great_catch', 'caught_top_edge', 'stumped', 'run_out', 'out_lbw',
+  'overthrow_boundary'];
 // Delivery kinds 0..11 (courtside delivery.gd) -> the delivery line, and their names.
 const DELIVERY = ['deliv_seam', 'deliv_outswing', 'deliv_off_break', 'deliv_leg_break', 'deliv_seam', 'deliv_outswing',
   'deliv_inswing', 'deliv_slower', 'deliv_arm_ball', 'deliv_doosra', 'deliv_googly', 'deliv_bouncer'];
@@ -78,7 +86,7 @@ const PREDICT = { chat_predict_wicket: 'wicket', chat_predict_six: 'six', chat_p
 const PREDICT_BALLS = 3;
 
 /** The match event kinds say() understands (anything else must be a bank event). */
-export const MATCH_KINDS = ['toss', 'innings', 'over', 'runup', 'release', 'charge', 'duck', 'swing', 'hit', 'appeal',
+export const MATCH_KINDS = ['toss', 'innings', 'over', 'wicket_side', 'runup', 'release', 'charge', 'duck', 'swing', 'hit', 'appeal',
   'lbw_call', 'review', 'review_result', 'third_umpire', 'third_result', 'catch_chance', 'catch', 'drop',
   'run_out_chance', 'run_out', 'boundary', 'wicket', 'ball', 'innings_break', 'result'];
 
@@ -134,6 +142,9 @@ export class Commentary {
     this.predictionBalls = 0;
     this.started = false;
     this.cardRuns = {};                // batter -> runs at the last ball (for the 25s)
+    this.ballNo = 0;                   // the ball each exchange is about (counted as a ball starts)
+    this.ballOpen = false;             // the next ball has been counted, its release not seen yet
+    this.staleCuts = 0;                // exchanges about an old ball cut off at a release (tests)
   }
 
   /** Load the manifest. Resolves true / false; safe to call twice. */
@@ -196,10 +207,12 @@ export class Commentary {
   _fromMatch(kind, ctx) {
     switch (kind) {
       case 'toss':
+        this._nextBall();              // (the welcome belongs with the first ball: not cut at its release)
         if (!this.started) { this.started = true; this._speak('match_start', ctx, true); }
         this._speak(str(ctx.choice ?? 'bat') === 'bat' ? 'toss_bat' : 'toss_bowl', ctx);
         break;
       case 'innings': {
+        this._nextBall();
         this.partnership = 0; this.wicketStreak = 0; this.dotStreak = 0; this.newBatterDue = 0;
         const chase = ctx.innings != null ? int(ctx.innings) >= 1 : !!(ctx.chase ?? (this.situation || {}).target != null);
         if (chase) this._speak('chase_start', ctx);
@@ -210,6 +223,7 @@ export class Commentary {
         break;
       }
       case 'over': {
+        this._nextBall();
         if (int(this._need(ctx).balls) === 6 && this._balls(ctx) > 0) { this._speak('last_over', ctx); break; }
         const style = str(ctx.style).toUpperCase();
         let ev = 'new_bowler';
@@ -219,13 +233,22 @@ export class Commentary {
         this._speak(ev, ctx);
         break;
       }
+      case 'wicket_side': {            // the bowler goes round the wicket (side 1 / 'around'), or back over
+        const side = ctx.side;
+        this._speak(side === 1 || /^(round|around)/i.test(str(side)) || ctx.around === true ? 'around_wicket' : 'over_wicket', ctx);
+        break;
+      }
       case 'runup':
+        this._nextBall();
         if (this.newBatterDue > 0) {
           if (this._speak('new_batter', ctx)) this.newBatterDue = 0; else this.newBatterDue -= 1;
         }
         break;
       case 'release': {
+        this._nextBall();              // (a game that sends no run-up: the ball starts here)
+        this.ballOpen = false;
         this._newBall();
+        this._cutStale();
         const [k, ev] = this._deliveryLine(ctx);
         if (get(ctx, 'no_ball')) { this.bouncer = k === BOUNCER; this._speak('no_ball', ctx); break; }
         this.bouncer = k === BOUNCER || ev === 'deliv_bouncer';
@@ -293,8 +316,9 @@ export class Commentary {
         this.ballCalled = true;
         break;
       }
-      case 'drop':
-        this._speak('dropped', ctx);
+      case 'drop':                     // fumble: on the ground (the keeper's, or a misfield), not a catch
+        if (ctx.fumble === true) this._speak(ctx.keeper === true || int(ctx.fielder, -1) === 1 ? 'keeper_fumble' : 'misfield', ctx);
+        else this._speak('dropped', ctx);
         break;
       case 'run_out_chance': {
         const m = num(ctx.margin);
@@ -306,7 +330,8 @@ export class Commentary {
         break;
       case 'boundary': {
         const six = int(ctx.runs, 4) === 6;
-        this._speak(six ? 'six' : 'four', { region: ctx.region != null ? str(ctx.region) : this._region(six) });
+        if (ctx.overthrow === true) this._speak('overthrow_boundary', ctx);
+        else this._speak(six ? 'six' : 'four', { region: ctx.region != null ? str(ctx.region) : this._region(six) });
         this.ballCalled = true;
         break;
       }
@@ -450,6 +475,7 @@ export class Commentary {
       else if (overDone) { /* the end-of-over line says it */ }
       else if (this.shotName === 'leave') this._speak('leave', ctx);
       else if (this.shotName === 'block') this._speak('defended', ctx);
+      else if (this.missed) this._speak('beaten', ctx);
       else this._speak('dot', ctx);
       if (before < 50 && this.partnership >= 50) this._speak('partnership_50', ctx);
     }
@@ -458,9 +484,13 @@ export class Commentary {
     if (get(r, 'hat_trick')) this._speak('hat_trick', ctx);
     else if (this.wicketStreak === 2 && !inningsDone) this._speak('hat_trick_ball', ctx);
     const mile = this._milestone(ctx, r, extras === '' ? runs : 0);
-    if (mile === 50) this._speak('milestone_50', ctx);
+    if (mile === 100) this._speak('milestone_100', ctx);
+    else if (mile === 50) this._speak('milestone_50', ctx);
     else if (mile === 25) this._speak('milestone_25', ctx);
     if (get(r, 'free_hit')) this._speak('free_hit', ctx);
+    // One ball left in a live chase: the build-up.
+    const left = this._need(ctx);
+    if (!inningsDone && int(left.runs, -1) > 0 && int(left.balls) === 1) this._speak('last_ball', ctx);
     if (overDone && !inningsDone) {
       if (r.maiden) this._speak('maiden', ctx);
       const need = this._need(ctx), score = this._score(ctx);
@@ -488,12 +518,12 @@ export class Commentary {
     if (this.predictionBalls <= 0) this.prediction = '';
   }
 
-  // A batter passing 25 or 50 on this ball: report.milestone when the scorer says so, else
+  // A batter passing 25, 50 or 100 on this ball: report.milestone when the scorer says so, else
   // ctx.batterRuns (the runs of the batter who faced it, after the ball), else the situation's
   // strikerRuns compared with the ball before (strikerId tells batters apart when given).
   _milestone(ctx, r, batRuns) {
     const told = int(get(r, 'milestone'));
-    if (told === 25 || told === 50) return told;
+    if (told === 25 || told === 50 || told === 100) return told;
     let after, before;
     const br = get(ctx, 'batter_runs'), s = this.situation || {};
     if (br != null) { after = int(br); before = after - batRuns; }
@@ -502,6 +532,7 @@ export class Commentary {
       after = int(s.strikerRuns); before = int(this.cardRuns[key]); this.cardRuns[key] = after;
       if (after - before > 6 || after < before) return 0;      // a different batter on strike
     } else return 0;
+    if (before < 100 && after >= 100) return 100;
     if (before < 50 && after >= 50) return 50;
     return before < 25 && after >= 25 && after < 50 ? 25 : 0;
   }
@@ -601,6 +632,35 @@ export class Commentary {
     return true;
   }
 
+  // A new ball is starting (the run-up; else the over or the release): count it once. What's
+  // still queued about the last ball is old news, and nobody starts a new sentence about it: the
+  // line being said finishes (a stitched sentence whole), the rest of its exchange is let go.
+  _nextBall() {
+    if (this.ballOpen) return;
+    this.ballOpen = true;
+    this.ballNo += 1;
+    this.queue = this.queue.filter((u) => (u.ball ?? this.ballNo) >= this.ballNo);
+    const c = this.cur;
+    if (c && (c.ball ?? this.ballNo) < this.ballNo && c.idx < c.parts.length) {
+      const keep = c.stitched && c.idx > 0 && c.idx < c.callLen ? c.callLen : c.idx;
+      c.parts = c.parts.slice(0, keep);
+      if (!c.parts.length) this.cur = null;
+    }
+  }
+
+  // The bowler lets go of the next ball. An exchange about an earlier ball (a reply still going,
+  // the between-ball chat, anything but the first line of a big call) fades out, so the delivery
+  // is called on time and no line from the last ball hangs over this one.
+  _cutStale() {
+    this.queue = this.queue.filter((u) => (u.ball ?? this.ballNo) >= this.ballNo);
+    const c = this.cur;
+    if (!c || (c.ball ?? this.ballNo) >= this.ballNo) return;
+    if (c.prio >= 3 && !this._inReply() && c.idx <= c.callLen) return;
+    if (c.started) { this.fading = this.now; this._hush(FADE); }
+    this.cur = null;
+    this.staleCuts += 1;
+  }
+
   // Can an exchange of this priority cut off the one playing?
   _interrupts(prio) {
     if (prio >= 3 && prio > this.cur.prio) return true;
@@ -616,6 +676,7 @@ export class Commentary {
 
   _enqueue(utt) {
     utt.until = this._curEnd() + QUEUE_LIFE;
+    utt.ball = this.ballNo;
     this.queue.push(utt);
     this.queue.sort((a, b) => b.prio - a.prio);
     if (this.queue.length > 3) this.queue.length = 3;
@@ -644,7 +705,9 @@ export class Commentary {
   }
 
   _start(utt, at) {
+    if (this.fading >= 0) at = Math.max(at, this.fading + FADE);   // never inside a fade
     Object.assign(utt, { nextAt: at, started: false, idx: 0, endAt: -Infinity, firstEnd: Infinity });
+    if (utt.ball == null) utt.ball = this.ballNo;
     this.cur = utt;
     this.ballSpoken = true;
     this.lastSaid[utt.event] = this.now;

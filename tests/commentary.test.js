@@ -3,7 +3,8 @@
 // one exchange at a time, a boundary / wicket cuts off a dot-ball line, notable exchanges
 // queue and expire, filler cools down, variants come from a bag, Geoff's reply follows
 // Kate's call, the between-ball chat follows the situation, numbers are whole sentences or
-// stitched, and the match's event kinds map to the right lines.
+// stitched, the match's event kinds map to the right lines, and the next ball cuts off what's
+// still being said about the last one.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
@@ -74,6 +75,10 @@ test('the manifest loads and has every part of the bank', async () => {
   }
   // Every exchange opens on its own line, and a later part's gap is a number.
   for (const exs of Object.values(MANIFEST.clips)) for (const ex of exs) ex.forEach((u, i) => assert.ok(i === 0 ? u[4] === 0 : Number.isFinite(u[4])));
+  // The context calls have varied lines, and a plain dot doesn't invent a missed shot.
+  for (const ev of ['beaten', 'keeper_fumble', 'overthrow_boundary', 'direct_miss', 'backed_up', 'relay', 'milestone_100',
+    'last_ball', 'around_wicket', 'over_wicket', 'misfield']) assert.ok(MANIFEST.clips[ev]?.length >= 3, ev);
+  for (const ex of MANIFEST.clips.dot) assert.ok(!/miss|beaten/i.test(ex[0][1]), ex[0][1]);
 });
 
 test('every clip id the manifest references exists on disk (and nothing is left over)', () => {
@@ -220,6 +225,7 @@ test('queued lines expire, and stop() silences everything', async () => {
 
 test("replies: Geoff follows Kate, gives way to a notable event, and answers every question", async () => {
   const { c } = await fresh();
+  c.bags.bowled = [0];                 // (some wicket calls are Kate's alone: take a two-voice one)
   c.say('bowled');
   const end = c._curEnd();
   assert.ok(c.cur.parts.length >= 2 && c.cur.parts[0][2] === 'pbp' && c.cur.parts[1][2] === 'col', 'a wicket: Kate calls it, Geoff replies');
@@ -476,6 +482,102 @@ test('match event kinds map to the right lines', async () => {
   for (const k of MATCH_KINDS) { reset(c); c.say(k, {}); c.say(k); c.update(0.05); }
 });
 
+test('context calls: fumbles, overthrows, a genuine miss, a hundred, the last ball, round the wicket', async () => {
+  const { c } = await fresh();
+  assert.equal(kind(c, 'drop', { fielder: 1, fumble: true }), 'keeper_fumble', "a keeper's fumble isn't a dropped catch");
+  assert.equal(kind(c, 'drop', { keeper: true, fumble: true }), 'keeper_fumble');
+  assert.equal(kind(c, 'drop', { fielder: 5, fumble: true }), 'misfield', "an outfielder's fumble is a misfield");
+  assert.equal(kind(c, 'drop', { fumble: false }), 'dropped', 'a chance in the air is still dropped');
+  c.say('release', { type: 0 });
+  assert.equal(kind(c, 'boundary', { runs: 4, overthrow: true }), 'overthrow_boundary', "overthrows to the rope aren't a shot");
+  c.say('ball', { runs: 5, boundary: 4 });
+  assert.ok(!c.history.slice(-2).some((e) => e.startsWith('four')) && !queued(c, 'four'), 'and the ball does not call a four as well');
+  for (const ev of ['direct_miss', 'backed_up', 'relay', 'misfield']) assert.equal(kind(c, ev), ev, `${ev} said directly`);
+  c.say('release', { type: 0 }); c.say('swing', { result: 'miss' });
+  assert.equal(kind(c, 'ball', { outcome: { runs: 0 }, report: { wicket: '' } }), 'beaten', 'a genuine miss gets its own call');
+  c.say('release', { type: 0 });
+  assert.equal(kind(c, 'ball', { outcome: { runs: 0 }, report: { wicket: '' } }), 'dot', 'an ordinary dot stays neutral');
+  reset(c); c.say('ball', { runs: 0, milestone: 100 });
+  assert.ok(c.cur?.event === 'milestone_100' || queued(c, 'milestone_100'), 'a hundred, from the scorer');
+  reset(c); c.say('ball', { runs: 4, boundary: 4, batterRuns: 102 });
+  assert.ok(queued(c, 'milestone_100') && !queued(c, 'milestone_50'), 'or from the batter passing it');
+  reset(c); c.say('ball', { runs: 1, need: { runs: 2, balls: 1 } });
+  assert.ok(c.cur?.event === 'last_ball' || queued(c, 'last_ball'), 'one ball left in a live chase: the build-up');
+  reset(c); c.say('ball', { runs: 1, inningsDone: true, need: { runs: 0, balls: 1 } });
+  assert.ok(c.cur?.event !== 'last_ball' && !queued(c, 'last_ball'), "a finished chase doesn't announce another ball");
+  reset(c); c.situation = { runs: 95, wickets: 4, balls: 59, ballsLimit: 60, target: 100 };
+  c.say('ball', { runs: 2 });
+  assert.ok(c.cur?.event === 'last_ball' || queued(c, 'last_ball'), 'the same from the situation');
+  c.situation = {};
+  assert.equal(kind(c, 'wicket_side', { side: 1 }), 'around_wicket');
+  assert.equal(kind(c, 'wicket_side', { side: 'around' }), 'around_wicket');
+  assert.equal(kind(c, 'wicket_side', { side: 0 }), 'over_wicket');
+});
+
+test('the next ball cuts off what is still being said about the last one', async () => {
+  const { c } = await fresh();
+  const release = { type: 0, pitch: [0, -4] };
+  c.say('runup'); c.say('release', release);
+  untilQuiet(c); run(c, 10.5);
+  c.say('dot'); run(c, 0.3);
+  assert.ok(c.speaking() && c.cur.event === 'dot', 'a line about the ball is playing');
+  const oldBall = c.cur.ball;
+  c.say('drs_review');
+  assert.ok(queued(c, 'drs_review'), 'something notable waits behind it');
+  c.say('runup');
+  assert.ok(c.queue.every((u) => u.ball >= c.ballNo), 'the run-up drops what was queued about the last ball');
+  assert.ok(c.speaking() && c.cur.ball === oldBall && c.cur.parts.length === c.cur.idx, "the dot's line finishes, without its reply");
+  c.say('release', release);
+  assert.ok(c.staleCuts === 1 && c.fading >= 0, 'at the release the old line fades out');
+  assert.ok(c.cur && c.cur.event.startsWith('deliv_') && c.cur.ball === c.ballNo, `and the delivery is called (${c.cur?.event})`);
+  run(c, 0.1);
+  assert.equal(c.cur.started, false, 'after the fade');
+  run(c, 0.1);
+  assert.ok(c.cur.started);
+  // A four's first line still finishes through the next release.
+  c.stop(); c.say('runup'); c.say('four', { region: 'cover' }); run(c, 0.2);
+  const four = c.cur.event;
+  c.say('runup'); c.say('release', release);
+  assert.equal(c.cur.event, four, "a big call's first line isn't cut");
+  // A game that sends no run-up: the over or the release starts the ball.
+  c.stop(); untilQuiet(c); run(c, 11);
+  c.say('dot'); run(c, 0.3);
+  const cuts = c.staleCuts;
+  c.say('release', release);
+  assert.ok(c.staleCuts === cuts + 1 && c.cur?.event.startsWith('deliv_'), 'without a run-up the release still cuts it');
+  c.stop(); run(c, 11);
+  c.say('over', { style: 'FAST' });
+  const bowler = c.cur?.event;
+  c.say('release', release);
+  assert.ok(bowler.startsWith('new_bowler') && c.cur.event === bowler, "the new bowler's line belongs to the coming ball");
+  // The welcome isn't cut off by the first ball either.
+  const d = (await fresh()).c;
+  d.say('toss', { choice: 'bat' }); d.say('innings', {}); run(d, 0.5);
+  d.say('release', release);
+  assert.ok(d.cur.event === 'match_start' && d.staleCuts === 0, 'the welcome plays on');
+});
+
+test('over a long run of balls the same line is never said twice running', async () => {
+  const { c } = await fresh({ always: false, seed: 11 });
+  const kinds = ['dot', 'defended', 'single', 'leave', 'four', 'two', 'dot', 'single', 'six', 'dot'];
+  let lines = 0, twice = 0, lastFirst = '', lastCur = null;
+  for (let k = 0; k < 300; k++) {
+    const ev = kinds[k % kinds.length];
+    c.say('runup'); c.say('release', { type: k % 4, pitch: [0, -4] });
+    for (let t = 0; t < 50; t++) {
+      if (t === 10) c.say(ev, ev === 'four' || ev === 'six' ? { region: 'cover' } : {});
+      c.update(0.1);
+      if (c.cur && c.cur !== lastCur) {
+        lastCur = c.cur;
+        const first = c.cur.parts[0][1];
+        if (first === lastFirst) twice++;
+        lastFirst = first; lines++;
+      }
+    }
+  }
+  assert.ok(lines > 150 && twice === 0, `${lines} lines, ${twice} repeats`);
+});
+
 test('the bouncer: hooks, top edges, ducks and being beaten', async () => {
   const { c } = await fresh();
   c.say('release', { type: 11, pitch: [0, -3] }); c.stop();
@@ -504,6 +606,7 @@ test('captions: each line as it starts, cleared when the exchange ends', async (
   const { c } = await fresh();
   const caps = [];
   c.onCaption = (text, speaker, voice) => caps.push([text, speaker, voice]);
+  c.bags.bowled = [0];
   c.say('bowled');
   const parts = c.cur.parts;
   untilQuiet(c);

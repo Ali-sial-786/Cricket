@@ -1,7 +1,33 @@
 # Commentary and recorded sounds: integration notes
 
-Ported from courtside (`game/cricket/commentary.gd`, cricket branch). Nothing is wired into the
-game yet: `src/audio/commentary.js` and `src/audio/samples.js` are standalone modules.
+Ported from courtside (`game/cricket/commentary.gd`). `src/audio/commentary.js` and
+`src/audio/samples.js` are standalone modules; the game drives them through `game.say(kind, ctx)`.
+
+## Source and update history
+
+- **Current bank and engine:** courtside branch `codex/cricket-british-commentary`, commit `dbfa16b9`
+  ("Render British cricket commentary with Cartesia Sonic", 2026-11-13), the most recent change to
+  `game/cricket/commentary.gd` and `assets/cricket/commentary/` on any branch (checked 2026-11-14).
+- **Previous port:** branch `codex/cricket-controls-hud`, commit `5354149` (Chatterbox voices cloned from a
+  CC BY broadcast, 112 events, 440 exchanges, 1180 clips, about 17 MB).
+
+What changed in this update:
+
+- Voices: the same fictional pair (Kate Marsden, play-by-play `pbp`; Geoff Hollins, summariser `col`), now
+  rendered with Cartesia Sonic 3.6 library voices, both native British English: Gemma (Kate) and Harrison
+  (Geoff), each line with its own emotional direction. No cloned broadcast voices any more.
+- Lines: the whole script was rewritten (punchier British calls and drier banter). 122 events, 588 exchanges,
+  1429 clips (was 112 / 440 / 1180); 180 whole chase sentences, numbers 0-200 and 19 fragments as before.
+  The welcome still names the ground "Courtside Oval". More calls are now Kate alone (no reply), e.g. 2 of
+  the 8 `bowled` exchanges and most `dot` / `single` ones.
+- New events: `beaten` (a genuine played-and-missed dot), `keeper_fumble`, `misfield` (now its own call),
+  `direct_miss`, `backed_up`, `relay`, `overthrow_boundary`, `milestone_100`, `last_ball`, `around_wicket`,
+  `over_wicket`. A plain `dot` no longer mentions a miss.
+- Engine (from courtside's rounds 12-14): see "Engine changes" at the end.
+- Clips: courtside's masters are 48 kHz Ogg Vorbis q4 (33 MB); here they are re-encoded with ffmpeg /
+  libvorbis to mono 24 kHz Vorbis q2 (the format of the previous port), about 20.9 MB for 1429 clips.
+  Decoded lengths match the manifest within 0.03 s. `manifest.gd` is converted to `manifest.json`
+  unchanged (same rows); `generation.json` (build provenance) is not copied.
 
 ## Wiring (sketch)
 
@@ -58,9 +84,10 @@ Field names work in snake_case (courtside) or camelCase. Unknown kinds are ignor
 | --- | --- | --- |
 | `toss` | `choice: 'bat'\|'bowl'` | `match_start` (first time), then `toss_bat` / `toss_bowl` |
 | `innings` | `innings` (>= 1 = chase) or `chase`, else `situation.target` | `chase_start`, or `match_start` + `innings_start`; resets streaks |
-| `over` | `style` (`FAST`/`PACE`, `SWING`, `...SPIN`), `balls`, `need.balls` | `last_over` (6 balls left), else `new_bowler[_pace\|_swing\|_spin]` |
-| `runup` | - | `new_batter` (within 2 balls of a wicket) |
-| `release` | `type` (0-11 or name: fast swing off_spin leg_spin seam outswing inswing slower arm_ball doosra googly bouncer yorker full_toss), `length: 'full_toss'\|'yorker'\|'bouncer'`, `pitch` (courtside metres, see below), `pace`, `no_ball` | `deliv_*` or `no_ball`; starts a new ball |
+| `over` | `style` (`FAST`/`PACE`, `SWING`, `...SPIN`), `balls`, `need.balls` | `last_over` (6 balls left), else `new_bowler[_pace\|_swing\|_spin]`; starts the next ball (see below) |
+| `wicket_side` | `side` (1 or `'around'` = round the wicket, else over) or `around: true` | `around_wicket` / `over_wicket` |
+| `runup` | - | `new_batter` (within 2 balls of a wicket); starts the next ball |
+| `release` (starts the next ball if no run-up / over did; cuts stale lines) | `type` (0-11 or name: fast swing off_spin leg_spin seam outswing inswing slower arm_ball doosra googly bouncer yorker full_toss), `length: 'full_toss'\|'yorker'\|'bouncer'`, `pitch` (courtside metres, see below), `pace`, `no_ball` | `deliv_*` or `no_ball`; starts a new ball |
 | `charge` | - | `charge` |
 | `duck` | - | (state: the `ball` then says `ducked`) |
 | `swing` | `result: 'leave'\|'miss'\|'duck'`, `shot`, `short`, `duck` | (state for the `ball`: `leave`, `beaten_bouncer`, `ducked`) |
@@ -73,12 +100,12 @@ Field names work in snake_case (courtside) or camelCase. Unknown kinds are ignor
 | `third_result` | `what: 'stumping'\|'run_out'`, `out` | `stumped` / `run_out` / `near_run_out` / `not_out` |
 | `catch_chance` | `time` (s in the air) | (state: under 1.1 s makes it a `great_catch`) |
 | `catch` | `fielder` (1 = keeper) or `keeper: true` | `caught_top_edge` / `caught_behind` / `great_catch` / `caught` |
-| `drop` | - | `dropped` |
+| `drop` | `fumble` (on the ground), `fielder` (1 = keeper) or `keeper: true` | `dropped`; with `fumble: true`: `keeper_fumble` (keeper) / `misfield` |
 | `run_out_chance` | `margin` (m, <= 0 = safe) | `near_run_out` when safe by 0.7-1.2 m (`thirdUmpireMargin`) |
 | `run_out` | - | `run_out` |
-| `boundary` | `runs` (4 / 6), optional `region` | `four[_cover\|_straight\|_pull\|_hook\|_cut\|_sweep\|_edge\|_top_edge]`, `six[_straight\|_cover\|_pull\|_hook\|_big\|_top_edge]` |
+| `boundary` | `runs` (4 / 6), optional `region`, `overthrow: true` (-> `overthrow_boundary`) | `four[_cover\|_straight\|_pull\|_hook\|_cut\|_sweep\|_edge\|_top_edge]`, `six[_straight\|_cover\|_pull\|_hook\|_big\|_top_edge]` |
 | `wicket` | `how: bowled\|caught\|lbw\|stumped\|run_out` | the wicket call, unless this ball's was already called |
-| `ball` | `outcome {runs, extras: ''\|'wide'\|'no_ball', boundary}`, `report {wicket, runs, over_done, innings_done, hat_trick, milestone, free_hit, maiden}` or the same flat (`runs, wide, noBall, boundary, wicket, overDone, inningsDone, hatTrick, milestone, freeHit, maiden`); `batterRuns`; `score`, `balls`, `need {runs, balls, wickets}` | `single two three wide dot leave defended ducked beaten_bouncer`; any uncalled four / six / wicket; `partnership_50`, `hat_trick`, `hat_trick_ball`, `milestone_25/50`, `free_hit`; at the over's end `maiden`, then `need` (+ `chase_close`) in a chase, else `end_over_score`; the running-gag payoffs; if nothing was said, maybe a `chat_*` exchange |
+| `ball` | `outcome {runs, extras: ''\|'wide'\|'no_ball', boundary}`, `report {wicket, runs, over_done, innings_done, hat_trick, milestone, free_hit, maiden}` or the same flat (`runs, wide, noBall, boundary, wicket, overDone, inningsDone, hatTrick, milestone, freeHit, maiden`); `batterRuns`; `score`, `balls`, `need {runs, balls, wickets}` | `single two three wide dot leave defended beaten ducked beaten_bouncer` (`beaten` after a `swing` with `result: 'miss'`); any uncalled four / six / wicket; `partnership_50`, `hat_trick`, `hat_trick_ball`, `milestone_25/50/100`, `free_hit`, `last_ball` (`need.runs > 0`, `need.balls === 1`, innings not done); at the over's end `maiden`, then `need` (+ `chase_close`) in a chase, else `end_over_score`; the running-gag payoffs; if nothing was said, maybe a `chat_*` exchange |
 | `innings_break` | - | `innings_end` |
 | `result` | `winner` (-1 tie, >= 0 a side) + `text` containing " RUN", or `by: 'runs'\|'wickets'`, or `tie: true` | `tie` / `won_runs` / `won_wickets` |
 
@@ -92,18 +119,19 @@ z < -8.3 yorker for pace). The JS game's axes differ, so prefer `length` / `angl
 
 ## `say(kind, ctx)`: bank events (played directly)
 
-Any key of `manifest.clips` (112 events). `ctx.region` picks a variant event (`four` + `cover`);
+Any key of `manifest.clips` (122 events). `ctx.region` picks a variant event (`four` + `cover`);
 `ctx.prio` overrides the priority.
 
 - Big (3): `four* six* bowled caught caught_behind great_catch caught_top_edge stumped run_out
-  out_lbw dropped hat_trick won_runs won_wickets tie`
+  out_lbw dropped hat_trick won_runs won_wickets tie overthrow_boundary`
 - Notable (2): `match_start toss_bat toss_bowl innings_start chase_start innings_end last_over
   chase_close chase_easy milestone_25 milestone_50 partnership_50 lbw_appeal not_out drs_review
   drs_umpires_call drs_overturned drs_stays third_umpire near_run_out hat_trick_ball free_hit
-  no_ball maiden top_edge gag_told_you gag_six_called gag_six_jinx gag_jinx`
+  no_ball maiden top_edge gag_told_you gag_six_called gag_six_jinx gag_jinx milestone_100 last_ball`
 - Minor (1): `single two three wide overthrow misfield good_fielding end_over new_bowler
-  new_bowler_pace new_bowler_swing new_bowler_spin new_batter ducked beaten_bouncer`
-- Filler (0): `dot leave defended charge deliv_seam deliv_outswing deliv_inswing deliv_slower
+  new_bowler_pace new_bowler_swing new_bowler_spin new_batter ducked beaten_bouncer around_wicket
+  over_wicket keeper_fumble direct_miss backed_up relay`
+- Filler (0): `dot beaten leave defended charge deliv_seam deliv_outswing deliv_inswing deliv_slower
   deliv_off_break deliv_leg_break deliv_arm_ball deliv_doosra deliv_googly deliv_bouncer
   deliv_yorker deliv_full_toss`, the chat (`chat_rate_fast/slow/steady chat_chase_ahead/behind/
   steep/level chat_tail chat_batter_set/new chat_partnership chat_pressure chat_bowler_hot/
@@ -113,8 +141,10 @@ Any key of `manifest.clips` (112 events). `ctx.region` picks a variant event (`f
   otherwise stitched; 1-200), `end_over_score {runs, wickets}`, `score {runs, wickets}`,
   `target {runs}` (runs 0-200, wickets 0-10; out of range = silent)
 
-Only reachable directly (no match event maps to them): `overthrow misfield good_fielding
-end_over chase_easy score target`.
+Only reachable directly (no match event maps to them): `overthrow good_fielding end_over chase_easy
+score target direct_miss backed_up relay` (and `misfield` / `keeper_fumble` without a `drop`). Courtside
+sends `misfield`, `direct_miss` (a shy at the stumps that missed), `backed_up` (the end's keeper / bowler
+gathers it), `relay` and `keeper_fumble` as their own match events, i.e. bank events here.
 
 ## Differences from the Godot original / not ported
 
@@ -133,10 +163,27 @@ end_over chase_easy score target`.
   clipped (web only); part lengths come from the decoded buffer when cached, else the manifest.
 - Clips: fetched on first use (an exchange's clips are requested when it is chosen), LRU of 120
   decoded buffers (`cacheSize` option), two attempts per clip, then skipped silently.
-- The welcome lines name the ground "Courtside Oval" (2 clips, `match_start_0_0`, `_4_0`): the
-  audio is as recorded.
+- The welcome lines name the ground "Courtside Oval" / "the Oval": the audio is as recorded.
 - Not ported from the courtside test: checking each .ogg's real duration against the manifest
   (no decoder in node). The WebAudio backend and `Samples` were checked by hand in headless
   Chrome, not by `node --test`.
 - Skipped assets: `assets/cricket/audio/source/`, `bat_*.wav` fallbacks, `bounce.wav`, `whoosh.wav`,
   `crowd-manifest.json` (not in the requested list).
+
+## Engine changes in this update (courtside rounds 12-14)
+
+- Each exchange remembers the ball it is about (`ballNo`). A new ball starts at the `runup`; this port
+  also starts it at `toss`, `innings`, `over` or, failing those, the `release` (counted once per ball,
+  so a game that never sends `runup` works). As it starts, queued exchanges about the last ball are
+  dropped and the line being said finishes without the rest of its exchange (a stitched sentence is
+  kept whole: a small deviation). At the `release`, an exchange about an earlier ball fades out
+  (0.12 s) unless it is still the first line of a big call; `staleCuts` counts these. Courtside
+  counted the ball only at the run-up, so its new-bowler line could be cut at the release; here the
+  `over` line and the toss / welcome belong to the coming ball.
+- A new exchange never starts inside a fade (it waits for the fade to end).
+- `drop` with `fumble`, `boundary` with `overthrow`, `beaten`, `milestone_100`, `last_ball`,
+  `wicket_side`: as in the tables above. `overthrow_boundary` counts as the ball's call (the `ball`
+  event won't add a four).
+- Not ported: courtside's background-thread clip loading and warm-up list (Godot only; the web
+  backend already fetches an exchange's clips when it is chosen and holds a line up to 1.5 s for them),
+  and the review-time caption placement (no captions here).
