@@ -12,14 +12,19 @@
 //
 // Frames: head — origin at the head bone, +Y up, +Z forward.
 //         knee — origin at the knee, the shin along -Y, +Z forward.
-//         hand — the wrist at the origin, the knuckles along -Y; a held bat
-//         handle runs along Z through the palm at y = -PALM (thumb/index side
-//         +Z, toward the blade). sx = +1 (left hand) / -1 (right) points to
-//         the back of the hand.
+//         hand — the wrist at the origin, the knuckles along -Y. A held bat
+//         handle passes through (0, -PALM, 0) and runs DIAGONALLY across the
+//         palm, the way a real batting (or golf) grip holds it: from the heel
+//         of the hand up to the base of the index finger, i.e. along
+//         GRIP_DIR = (0, -cos GRIP_BETA, sin GRIP_BETA), thumb/index end toward
+//         the blade. sx = +1 (left hand) / -1 (right) points to the back of
+//         the hand.
 import * as THREE from 'three';
 
 export const KIT = { shirt: 1, trim: 2, headgear: 3, trousers: 4, skin: 5, hair: 6, panel: 7 };
 const PALM = 0.075, HANDLE_R = 0.017;
+// The handle's angle across the palm (90 deg would be a hammer grip, straight across).
+export const GRIP_BETA = 62 * Math.PI / 180;
 const WHITE = 0xf4f4f0, PAD_WHITE = 0xf2f2ee, LEATHER = 0xd8d1c0, STEEL = 0xaeb6bf, STRAP = 0x24272c, TAN = 0xc9b48e;
 
 // ------------------------------------------------------------------ mesh builder
@@ -371,22 +376,29 @@ function battingGlove(P, part, s, S, lod) {
     const d = Math.hypot(x, y + G), side = Math.min(1, Math.abs(z - fz) / rf);
     return clamp(0.62 + 0.38 * sstep(HANDLE_R + 0.004, 0.042, d), 0, 1) * (1 - 0.3 * side * side);
   };
+  // The fist is built round a straight-across handle (along Z at y = -G) and
+  // then turned about the palm so it wraps the diagonal one.
+  const tilt = Math.PI / 2 - GRIP_BETA;
+  const fist = (geo) => geo.translate(0, G, 0).rotateX(tilt).translate(0, -G, 0);
+  const ct = Math.cos(tilt), st = Math.sin(tilt);
+  const unturn = (f) => (typeof f !== 'function' ? f : (x, y, z) => { const yy = y + G; return f(x, yy * ct + z * st - G, -yy * st + z * ct); });
+  const fpart = (geo, color, opts) => part(P, fist(geo), hand, color, [0, 0, 0], null, null, opts && { ...opts, ao: unturn(opts.ao) });
   if (lod) {
     // distant: a padded fist + thumb
-    part(P, pillow([0.034, 0.03, 0.046], 0.55, 8, 6), hand, WHITE, [0, -0.07, 0.001], null, null, { ao: 0.92 });
+    fpart(pillow([0.034, 0.03, 0.046], 0.55, 8, 6).translate(0, -0.07, 0.001), WHITE, { ao: 0.92 });
   } else {
     for (const [fz, rf, R] of fingers) {
       for (const [b0, b1] of [[-0.3, 1.18], [1.3, 2.42], [2.54, 3.85]]) {
         const pts = arc(sx, 0, -G, fz, R, b0, b1, 3);
-        part(P, tube(pts, rf * (b0 > 2 ? 0.93 : 1), 6, { caps: true, up: [0, 0, 1] }), hand, WHITE, [0, 0, 0], null, null, { ao: aoF(fz, rf) });
+        fpart(tube(pts, rf * (b0 > 2 ? 0.93 : 1), 6, { caps: true, up: [0, 0, 1] }), WHITE, { ao: aoF(fz, rf) });
       }
     }
     // padded back of the hand, palm, team stripe
     part(P, pillow([0.015, 0.043, 0.046], 0.45, 10, 6), hand, WHITE, [sx * 0.022, -0.037, 0.001], [0, 0, sx * 0.08], null, { ao: (x, y, z) => 0.85 + 0.15 * sstep(-0.07, -0.02, y) });
-    part(P, pillow([0.013, 0.036, 0.043], 0.5, 8, 6), hand, LEATHER, [-sx * 0.017, -0.035, 0.0], null, null, { ao: 0.82 });
+    fpart(pillow([0.013, 0.036, 0.043], 0.5, 8, 6).translate(-sx * 0.017, -0.035, 0.0), LEATHER, { ao: 0.82 });
     // thumb: from the palm's index side round the palm side of the handle
-    part(P, tube([[-sx * 0.014, -0.018, 0.038], [-sx * 0.028, -0.045, 0.05], [-sx * 0.031, -0.07, 0.056]], [0.0145, 0.014, 0.0132], 7), hand, WHITE, [0, 0, 0], null, null, { ao: 0.92 });
-    part(P, tube([[-sx * 0.031, -0.074, 0.0565], [-sx * 0.026, -0.086, 0.058], [-sx * 0.016, -0.097, 0.058]], [0.0124, 0.012, 0.0112], 7), hand, WHITE);
+    fpart(tube([[-sx * 0.014, -0.018, 0.038], [-sx * 0.028, -0.045, 0.05], [-sx * 0.031, -0.07, 0.056]], [0.0145, 0.014, 0.0132], 7), WHITE, { ao: 0.92 });
+    fpart(tube([[-sx * 0.031, -0.074, 0.0565], [-sx * 0.026, -0.086, 0.058], [-sx * 0.016, -0.097, 0.058]], [0.0124, 0.012, 0.0112], 7), WHITE);
   }
   // cuff: over the wrist and up the forearm, bending with the wrist
   const cuffN = S(16, 8), Bc = new Builder(), rows = [];

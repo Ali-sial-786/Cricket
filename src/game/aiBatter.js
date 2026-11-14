@@ -28,7 +28,7 @@ export function basisQuat(y, z) {
 }
 
 // Stance: toe grounded by the back foot, hands by the front thigh.
-const STANCE_POSE = new Pose(new Vec3(-0.02, 0.74, -1.2), basisQuat(new Vec3(-0.04, 0.71, -0.2), new Vec3(0, 0, -1)));
+const STANCE_POSE = new Pose(new Vec3(-0.05, 0.66, -1.2), basisQuat(new Vec3(-0.04, 0.71, -0.2), new Vec3(0, 0, -1)));
 // Backlift as the bowler delivers: hands by the back hip, the toe of the bat
 // lifted up toward second slip (about 45 degrees), face opened toward gully.
 const READY_POSE = new Pose(new Vec3(0.02, 1.05, -1.0), basisQuat(new Vec3(-0.22, -0.7, -0.68), new Vec3(0.92, -0.15, -0.15)));

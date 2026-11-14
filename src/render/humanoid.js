@@ -351,11 +351,11 @@ export class Humanoid {
   // Two-bone IK: limb = 'L' | 'R' arm, or 'legL' | 'legR'.
   ikArm(side, target, pole) {
     const b = this.bones;
-    solveTwoBone(b['shoulder' + side], b['elbow' + side], b['hand' + side], target, pole);
+    solveTwoBone(b['shoulder' + side], b['elbow' + side], b['hand' + side], target, pole, 1);
   }
   ikLeg(side, target, pole) {
     const b = this.bones;
-    solveTwoBone(b['hip' + side], b['knee' + side], b['ankle' + side], target, pole);
+    solveTwoBone(b['hip' + side], b['knee' + side], b['ankle' + side], target, pole, -1);
   }
 
   // Set a bone's world orientation.
@@ -413,8 +413,14 @@ function aimBone(bone, dirWorld) {
 }
 
 // Analytic two-bone IK in world space. `pole` is a world point the middle
-// joint bends toward.
-export function solveTwoBone(upper, lower, end, target, pole) {
+// joint bends toward. `flex` says which way the joint is a hinge in the
+// canonical pose: +1 for an elbow (the forearm folds toward the upper arm's
+// +Z), -1 for a knee (the shin folds toward the thigh's -Z). Both bones are
+// then turned about their own axes so that the bend happens about that hinge
+// (the upper bone's local X), the way a real elbow or knee bends: no sideways
+// kinks in the skin, and the joint's crease always faces into the bend.
+// flex = 0 keeps the old minimal-rotation aim.
+export function solveTwoBone(upper, lower, end, target, pole, flex = 0) {
   upper.parent.updateWorldMatrix(true, false);
   upper.updateMatrixWorld(true);
   upper.getWorldPosition(_S);
@@ -437,7 +443,31 @@ export function solveTwoBone(upper, lower, end, target, pole) {
   const sinA = Math.sqrt(1 - cosA * cosA);
   _E.copy(_S).addScaledVector(_dir, a * cosA).addScaledVector(_pv, a * sinA);
   _T.copy(_S).addScaledVector(_dir, d);
-  aimBone(upper, _v.subVectors(_E, _S));
-  aimBone(lower, _v.subVectors(_T, _E));
+  if (!flex) {
+    aimBone(upper, _v.subVectors(_E, _S));
+    aimBone(lower, _v.subVectors(_T, _E));
+    return;
+  }
+  // Hinge frames. u, l: the two bones' directions; the lower bone folds
+  // toward `fold` (perpendicular to u). Upper: -Y along u, +Z = flex * fold.
+  _hu.subVectors(_E, _S).normalize();
+  _hl.subVectors(_T, _E).normalize();
+  _hf.copy(_hl).addScaledVector(_hu, -_hl.dot(_hu));
+  if (_hf.lengthSq() < 1e-8) _hf.copy(_pv).negate().addScaledVector(_hu, _pv.dot(_hu));   // straight: fold away from the pole side
+  _hf.normalize().multiplyScalar(flex);
+  _hy.copy(_hu).negate();
+  _hx.crossVectors(_hy, _hf).normalize();
+  setBoneWorld(upper, _hx, _hy, _hf);
+  _hy.copy(_hl).negate();
+  _hf.crossVectors(_hx, _hy).normalize();
+  setBoneWorld(lower, _hx, _hy, _hf);
+}
+const _hu = new THREE.Vector3(), _hl = new THREE.Vector3(), _hf = new THREE.Vector3(), _hx = new THREE.Vector3(), _hy = new THREE.Vector3();
+const _hm = new THREE.Matrix4(), _hq = new THREE.Quaternion();
+function setBoneWorld(bone, x, y, z) {
+  _hq.setFromRotationMatrix(_hm.makeBasis(x, y, z));
+  bone.parent.getWorldQuaternion(_pq).invert();
+  bone.quaternion.copy(_pq).multiply(_hq);
+  bone.updateMatrixWorld(true);
 }
 Humanoid.all = [];

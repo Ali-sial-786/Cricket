@@ -146,7 +146,7 @@ const matColor = (m) => gltf.materials[m].pbrMetallicRoughness.baseColorFactor.s
 const MORPH = { HandGrip: RELAX, SupportGrip: RELAX };
 
 function newPart(name) { return { name, pos: [], nrm: [], w: [], kit: [], col: [], idx: [] }; }
-function loadMesh(meshName, kitFn, triKeep = null) {
+function loadMesh(meshName, kitFn, triKeep = null, dropBones = null) {
   const mesh = gltf.meshes.find((m) => m.name === meshName);
   const names = (mesh.extras && mesh.extras.targetNames) || [];
   const part = newPart(meshName);
@@ -161,6 +161,15 @@ function loadMesh(meshName, kitFn, triKeep = null) {
       const w = new Float32Array(NS);
       let sum = 0; for (let c = 0; c < 4; c++) { w[jn[v * 4 + c]] += jw[v * 4 + c]; sum += jw[v * 4 + c]; }
       for (let c = 0; c < NS; c++) w[c] /= sum || 1;
+      if (dropBones) {
+        // Cloth that must not follow these bones (MakeHuman's weights bleed a
+        // little hand / forearm into the shirt hem and the trousers, which
+        // drags slivers of cloth along when the hands move far from the hips).
+        let kept = 0;
+        for (const b of dropBones) w[si[b]] = 0;
+        for (let c = 0; c < NS; c++) kept += w[c];
+        if (kept > 1e-6) for (let c = 0; c < NS; c++) w[c] /= kept; else w[si.spine] = 1;
+      }
       let p = [pos[v * 3], pos[v * 3 + 1], pos[v * 3 + 2]], n = [nrm[v * 3], nrm[v * 3 + 1], nrm[v * 3 + 2]];
       const wh = w[si.head];
       const u = unHead(p, wh);
@@ -283,7 +292,8 @@ const body = loadMesh('Athlete_Body', (p, mat) => (mat === 'Lips' ? KIT.lips : K
 // chest band / rear badge (the cricket shirt gets its own trim).
 const shoes = loadMesh('Details_Shoe', () => KIT.fixed, (c) => c[1] < 0.142);
 const sole = loadMesh('Details_Sole', () => KIT.fixed);
-const polo = loadMesh('Performance_Polo', () => KIT.shirt);
+const CLOTH_DROP = ['forearm.L', 'forearm.R', 'hand.L', 'hand.R'];
+const polo = loadMesh('Performance_Polo', () => KIT.shirt, null, CLOTH_DROP);
 // Collar (trim), placket (shirt); the shoe tongues in this mesh go white.
 const shirtBits = loadMesh('Details_Shirt', (p) => (p[1] < 0.5 ? KIT.fixed : (Math.abs(p[0]) < 0.014 && p[1] < 1.446 ? KIT.shirt : KIT.trim)));
 for (let v = 0; v < shirtBits.kit.length; v++) if (shirtBits.kit[v] === KIT.fixed) shirtBits.col.splice(v * 3, 3, 0.93, 0.93, 0.92);
@@ -296,7 +306,9 @@ const iris = loadMesh('Details_Iris', () => KIT.fixed);
 const pupil = loadMesh('Details_Pupil', () => KIT.fixed);
 const mouth = loadMesh('Details_Mouth', () => KIT.fixed);
 const hairCap = loadMesh('HairCap', () => KIT.hair);
-const shorts = loadMesh('Tailored_Shorts', () => KIT.trousers);
+// (The source shorts mesh also carries Courtside's tennis wristbands, out at
+// the hands: drop them, they would show as dark bands under the gloves.)
+const shorts = loadMesh('Tailored_Shorts', () => KIT.trousers, (c) => !(Math.abs(c[0]) > 0.33 && c[1] > 0.95));
 // Sleeve cuffs: the polo's cuff block sits on the sleeve; keep.
 
 // ------------------------------------------------------------------ trousers

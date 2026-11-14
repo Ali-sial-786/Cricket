@@ -11,6 +11,7 @@ import * as THREE from 'three';
 import { Humanoid } from './humanoid.js';
 import { buildBatMesh } from './objects.js';
 import { swingAt } from './swingProfile.js';
+import { GRIP_BETA } from './gear.js';
 import {
   poseIdle, poseLocomotion, plantFeet, poseReady, poseThrow, poseDive, posePickup,
   poseCelebrate, strideFor, keys, sstep, clamp, mix,
@@ -618,6 +619,12 @@ const SWING_AMP = { pull: 0.85, hook: 0.85, slog: 0.9, cut: 0.5, drive: 0.5, fli
 const _sw = {};
 const ARM_STRETCH = 1;                 // (the arms are adult length in the asset now)
 const PALM = 0.075;                 // wrist to the middle of the palm (where a handle sits)
+const HAND_GAP = 0.105;
+// The batting stance (a crouch with the head out over the toes, cf. the classic side-on stance).
+const ELBOW_FWD = 0.2;               // elbows out in front of the shoulders, over the hands
+const STANCE_LEAN = 0.52, STANCE_KNEES = 0.05, STANCE_DROP = 0.18, FRONT_OPEN = 0.3;
+const FOOT_FRONT = 0.2, FOOT_BACK = 0.26;      // your feet: front foot ahead of your head, back foot behind it             // bottom hand to top hand, up the handle
+const GRIP_ROLL = 0.8;              // how far a hand may roll round the handle from the textbook grip (rad)
 
 export class BatterActor extends Actor {
   constructor(scene, opts = {}) {
@@ -654,7 +661,7 @@ export class BatterActor extends Actor {
     this.bat.quaternion.copy(batQuat);
     const fl = _a.set(STANCE.footL[0], 0, STANCE.footL[1]);
     const fr = _b.set(STANCE.footR[0], 0, STANCE.footR[1]);
-    let hipsDrop = 0.09, lean = 0.24, weight = 0.5, heel = 0, elbowUp = 0, swing = null;
+    let hipsDrop = STANCE_KNEES, lean = STANCE_LEAN, weight = 0.5, heel = 0, elbowUp = 0, swing = null, open = FRONT_OPEN;
     const p = opts.plan;
     const adv = opts.adv || 0;
     if (p && t >= p.t0) {
@@ -679,8 +686,8 @@ export class BatterActor extends Actor {
         const big = p.th && p.th[1] > 1 ? 1 : 0;
         weight = mix(0.5, p.weight ?? 0.5, kw) + (front ? 0.07 : 0.06) * kf * big;
         hipsDrop = mix(hipsDrop, p.drop ?? 0.08, kw) - 0.05 * kf * big;
-        lean = mix(lean, front ? 0.44 : type === 'cut' ? 0.34 : 0.1, kw) - (front ? 0.22 : 0.02) * kf * big;
-        if (front) { heel = kf * big; elbowUp = sstep(p.tCommit, Tc - 0.05, t) * (1 - 0.6 * kf); }
+        lean = mix(lean, front ? 0.66 : type === 'cut' ? 0.4 : 0.22, kw) - (front ? 0.26 : 0.02) * kf * big;   // head over the front knee on the drive
+        if (front) { heel = kf * big; elbowUp = sstep(p.tCommit, Tc - 0.05, t) * (1 - 0.6 * kf); open += 0.3 * kL; }
         // How a real hitter's body turns through a swing (measured from motion
         // capture): the hips coil, then lead the shoulders round; the back heel
         // comes up and the foot turns on its toe. Scaled to the shot.
@@ -695,7 +702,7 @@ export class BatterActor extends Actor {
         const tRest = Tc + (p.Tf || 0.2) + 0.5;
         if (t > tRest) {
           const kr = sstep(tRest, tRest + 0.8, t);
-          hipsDrop = mix(hipsDrop, 0.03, kr); lean = mix(lean, 0.08, kr); heel *= 1 - kr;
+          hipsDrop = mix(hipsDrop, 0.05, kr); lean = mix(lean, 0.16, kr); heel *= 1 - kr;
           weight = mix(weight, 0.5, kr);
         }
       } else if (p.shot.duck) {
@@ -715,13 +722,22 @@ export class BatterActor extends Actor {
     let heading = Math.PI / 2;
     const H = _H, sc = h.root.scale.x;
     if (opts.head) {
-      // You: the body stands under the headset and the feet step to keep up.
-      heading = this.stepFeet(dt, opts.head, opts.headFwd, batPos, fl, fr, !!(opts.sweep && opts.sweep.k > 0.05));
+      // You: side-on feet under where you stand (they step to keep up), and a
+      // batter's stance however you are really standing: the head comes down
+      // and forward over the toes (up to STANCE_DROP lower than you hold
+      // yours), the knees bend and the hips go back. Crouch lower yourself and
+      // the body follows you down.
+      // Across the pitch the body lines up on the hands (shoulders out over
+      // them, as in a real stance), wherever you hold them.
+      const realY = opts.head.y - 0.11, stand = this.headRestY * sc;           // head joint: a little below the eyes
+      const drop = clamp(realY - (stand - STANCE_DROP), 0, STANCE_DROP - 0.04);
+      this.handX = this.handX == null ? batPos.x : this.handX + (batPos.x - this.handX) * Math.min(1, dt * 2.5);
+      const hx = clamp(mix(opts.head.x + 0.05 + 0.6 * drop, this.handX + 0.14, 0.6), opts.head.x - 0.25, opts.head.x + 0.35);
+      H.set(hx, realY - drop, opts.head.z);
+      heading = this.stepFeet(dt, H, batPos, fl, fr, !!(opts.sweep && opts.sweep.k > 0.05));
+      open = this.step.open;
       const wide = Math.hypot(fl.x - fr.x, fl.z - fr.z) || 1;
-      weight = clamp(0.5 + ((opts.head.x - (fl.x + fr.x) / 2) * (fl.x - fr.x) + (opts.head.z - (fl.z + fr.z) / 2) * (fl.z - fr.z)) / (wide * wide) * 0.9, 0.2, 0.8);
-      // Head joint: a little below and behind the eyes.
-      const hf = opts.headFwd;
-      H.set(opts.head.x - (hf ? hf.x * 0.07 : 0), opts.head.y - 0.11, opts.head.z - (hf ? hf.z * 0.07 : 0));
+      weight = clamp(0.5 + ((H.x - (fl.x + fr.x) / 2) * (fl.x - fr.x) + (H.z - (fl.z + fr.z) / 2) * (fl.z - fr.z)) / (wide * wide) * 0.9, 0.2, 0.8);
     } else {
       // No headset (the AI, or you on a monitor): the head goes where the stance puts it.
       const sl = Math.sin(lean), px = mix(fr.x, fl.x, weight), pz = mix(fr.z, fl.z, weight);
@@ -739,51 +755,51 @@ export class BatterActor extends Actor {
       H.y = Math.min(H.y, mix(H.y, hy, k));
     }
     this.footL.copy(fl); this.footR.copy(fr);
-    this.solveBody({ heading, weight, head: H, batPos, batQuat, elbowUp, heel, sweep, swing, t });
+    this.solveBody({ heading, weight, head: H, batPos, batQuat, elbowUp, heel, sweep, swing, t, yawL: heading + open, yawR: heading - 0.04 });
     if (opts.ball) h.lookAt(opts.ball, 1, 1.7);
     else h.lookAt(_c.set(0.4, 1.9, -18.8), 1, 1.7);
     h.syncShadow();
   }
 
-  // Your feet: planted on the ground, stepping (one at a time) to stay under
-  // the body. Returns the heading the feet (and hips) point.
-  stepFeet(dt, head, headFwd, batPos, fl, fr, hold = false) {
-    const S = this.step || (this.step = { yaw: Math.PI / 2, turning: false, L: new THREE.Vector3(), R: new THREE.Vector3(), mL: null, mR: null, init: false, prev: new THREE.Vector3(), vel: new THREE.Vector3() });
-    // Which way the body faces: toward the hands, tempered by where you look.
-    // The feet only shuffle round when that is well away from where they point.
-    const hx = batPos.x - head.x, hz = batPos.z - head.z, hn = Math.hypot(hx, hz);
-    let bx = hn > 0.12 ? hx / hn * 0.7 : 0, bz = hn > 0.12 ? hz / hn * 0.7 : 0;
-    if (headFwd) { bx += headFwd.x * 0.5; bz += headFwd.z * 0.5; }
-    if (hold) S.turning = false;                      // kneeling: the feet stay where they are
-    else if (Math.hypot(bx, bz) > 0.15) {
-      const d = angDiff(S.yaw, Math.atan2(bx, bz));
-      if (Math.abs(d) > 0.75) S.turning = true;
-      if (S.turning) { S.yaw += clamp(d, -5 * dt, 5 * dt); if (Math.abs(d) < 0.15) S.turning = false; }
-    }
-    const fx = Math.sin(S.yaw), fz = Math.cos(S.yaw), lx = fz, lz = -fx;       // forward, and the body's left
-    const crouch = clamp(this.headRestY * this.h.root.scale.x + 0.11 - head.y, 0, 0.7);
-    const w = 0.22 + 0.2 * crouch, ax = head.x - fx * 0.1, az = head.z - fz * 0.1;
-    if (dt > 0) { S.vel.set((ax - S.prev.x) / dt, 0, (az - S.prev.z) / dt); if (S.vel.length() > 8) S.vel.set(0, 0, 0); }
-    S.prev.set(ax, 0, az);
-    const lead = 0.12;
-    _iL.set(ax + lx * w + S.vel.x * lead, 0, az + lz * w + S.vel.z * lead);
-    _iR.set(ax - lx * w + S.vel.x * lead, 0, az - lz * w + S.vel.z * lead);
-    if (!S.init || _iL.distanceTo(S.L) > 1.2 || _iR.distanceTo(S.R) > 1.2) { S.L.copy(_iL); S.R.copy(_iR); S.mL = S.mR = null; S.init = true; }
-    const far = S.turning ? 0.08 : 0.17;
-    for (const side of ['L', 'R']) {
-      const ideal = side === 'L' ? _iL : _iR, foot = S[side], key = 'm' + side, other = S[side === 'L' ? 'mR' : 'mL'];
-      let m = S[key];
-      if (!m && !other && !hold && ideal.distanceTo(foot) > far) m = S[key] = { from: foot.clone(), k: 0, dur: 0.17 };
-      if (m) {
-        m.k += dt / m.dur;
-        const e = sstep(0, 1, m.k);
-        foot.lerpVectors(m.from, ideal, e);
-        foot.y = 0.075 * Math.sin(Math.PI * clamp(m.k, 0, 1));
-        if (m.k >= 1) { foot.y = 0; S[key] = null; }
+  // Your feet. A batter stands side-on (toes toward point, the front foot
+  // opened a little toward the bowler), about shoulder width apart, whichever
+  // way you happen to be looking. They are planted and step one at a time:
+  // lean into a front-foot shot and the front foot strides out while the back
+  // foot stays where it is; go back and the back foot moves first. Returns
+  // the heading (side-on); the front foot's opening is left in this.step.open.
+  stepFeet(dt, head, batPos, fl, fr, hold = false) {
+    const S = this.step || (this.step = { L: new THREE.Vector3(), R: new THREE.Vector3(), mL: null, mR: null, init: false, ax: 0, open: FRONT_OPEN });
+    const yaw = Math.PI / 2;
+    // Across the pitch: the ankles a little behind the head (it is out over the toes).
+    const ax = head.x - 0.3;
+    S.ax = S.init ? S.ax + (ax - S.ax) * Math.min(1, dt * 2.5) : ax;
+    // Along it: the front foot a little ahead of the head, further the more you
+    // lean forward of your back foot; the back foot behind.
+    const lunge = clamp(S.R.z - FOOT_BACK - head.z, 0, 0.7);
+    _iL.set(S.ax + 0.03, 0, head.z - FOOT_FRONT - 0.45 * lunge);
+    _iR.set(S.ax, 0, head.z + FOOT_BACK);
+    if (!S.init || _iL.distanceTo(S.L) > 1.5 || _iR.distanceTo(S.R) > 1.5) { S.L.copy(_iL); S.R.copy(_iR); S.mL = S.mR = null; S.init = true; }
+    if (!hold && !S.mL && !S.mR) {
+      const eL = _iL.distanceTo(S.L) / 0.11, eR = _iR.distanceTo(S.R) / 0.24;
+      const wide = Math.hypot(S.L.x - S.R.x, S.L.z - S.R.z);
+      if (eL > 1 || eR > 1 || wide > 1.0 || wide < 0.22) {
+        if (eL >= eR) S.mL = { from: S.L.clone(), k: 0, dur: 0.15 }; else S.mR = { from: S.R.clone(), k: 0, dur: 0.17 };
       }
     }
+    for (const side of ['L', 'R']) {
+      const ideal = side === 'L' ? _iL : _iR, foot = S[side], key = 'm' + side, m = S[key];
+      if (!m) continue;
+      m.k += dt / m.dur;
+      const e = sstep(0, 1, m.k);
+      foot.lerpVectors(m.from, ideal, e);
+      foot.y = 0.07 * Math.sin(Math.PI * clamp(m.k, 0, 1));
+      if (m.k >= 1) { foot.y = 0; S[key] = null; }
+    }
     fl.copy(S.L); fr.copy(S.R);
-    return S.yaw;
+    // The front foot turns toward the bowler as it strides.
+    const stride = Math.max(0, S.R.z - S.L.z - 0.45);
+    S.open = clamp(FRONT_OPEN + 0.55 * stride, FRONT_OPEN, 0.8);
+    return yaw;
   }
 
   // Pose the whole body from where the feet are, where the head is and where
@@ -799,9 +815,10 @@ export class BatterActor extends Actor {
     this.apply();
     const T = this.spineLen * sc, hipTop = h.hipsRest.y * sc;
     const crouch = Math.max(0, this.headRestY * sc - H.y);
-    // Pelvis: between the feet and the head, pushed back as you bend.
-    const back = 0.03 + 0.55 * crouch;
-    let px = this.pos.x + (H.x - this.pos.x) * 0.35 - s * back, pz = this.pos.z + (H.z - this.pos.z) * 0.35 - c * back;
+    // Pelvis: between the feet and the head, pushed well back as you bend (a
+    // batter hinges at the hips with the knees only softly bent).
+    const back = 0.04 + 0.95 * crouch;
+    let px = this.pos.x + (H.x - this.pos.x) * 0.22 - s * back, pz = this.pos.z + (H.z - this.pos.z) * 0.22 - c * back;
     let d = Math.hypot(H.x - px, H.z - pz);
     if (d > 0.88 * T) { const k = 0.88 * T / d; px = H.x + (px - H.x) * k; pz = H.z + (pz - H.z) * k; d = 0.88 * T; }
     let py = clamp(H.y - Math.sqrt(T * T - d * d), 0.3, hipTop);
@@ -846,7 +863,7 @@ export class BatterActor extends Actor {
     // …and if the bat is still out of reach, go with it.
     h.update();
     const top = _top.copy(batPos).addScaledVector(_e.set(0, 1, 0).applyQuaternion(batQuat), 0.105);
-    const over = Math.max(h.worldPos('shoulderR', _a).distanceTo(batPos), h.worldPos('shoulderL', _b).distanceTo(top)) - this.armLen * sc / this.armScale0 * 0.985;
+    const over = Math.max(h.worldPos('shoulderR', _a).distanceTo(batPos), h.worldPos('shoulderL', _b).distanceTo(top)) - (this.armLen * sc / this.armScale0 + PALM * 0.8) * 0.985;   // the hands reach a palm past the wrist
     if (over > 0) {
       const sh = h.worldPos('chest', _c);
       _v1.set(batPos.x - sh.x, batPos.y - sh.y, batPos.z - sh.z).normalize().multiplyScalar(Math.min(0.35, over));
@@ -856,10 +873,23 @@ export class BatterActor extends Actor {
     this.forward(_fwd);
     _left.set(_fwd.z, 0, -_fwd.x);
     if (sw > 0.01) this.kneel(o.sweep, sw);
-    else plantFeet(h, fl, fr, _d.copy(_fwd).multiplyScalar(0.7));
+    else this.plantFeetYaw(fl, fr, o.yawL ?? o.heading, o.yawR ?? o.heading);
     if (o.swing && Math.abs(o.swing.pivot) > 0.01) h.addRot('ankleR', 0, clamp(o.swing.pivot, -0.3, 1.2), 0);   // the back foot turns on its toe
     if (o.heel > 0.01) h.addRot('ankleR', 0.75 * o.heel, 0, 0);       // up on the back toe
     this.gripBat(batPos, batQuat, o.elbowUp);
+  }
+
+  // Feet flat on the ground with their own toe directions, knees over the toes.
+  plantFeetYaw(fl, fr, yawL, yawR) {
+    const h = this.h;
+    h.update();
+    for (const [side, target, yaw] of [['L', fl, yawL], ['R', fr, yawR]]) {
+      h.worldPos('knee' + side, _pole).add(_e.set(Math.sin(yaw) * 0.7, 0, Math.cos(yaw) * 0.7));
+      _ft.copy(target); _ft.y += h.ankleHeight * h.root.scale.y;
+      h.ikLeg(side, _ft, _pole);
+    }
+    h.setWorldQuat('ankleL', _q.setFromAxisAngle(_up, yawL));
+    h.setWorldQuat('ankleR', _q.setFromAxisAngle(_up, yawR));
   }
 
   // Sweep: down on the back knee, front leg bent out in front.
@@ -878,41 +908,63 @@ export class BatterActor extends Actor {
     h.setWorldQuat('ankleR', _q.multiply(_toeDown));
   }
 
+  // Both hands on the handle the way a batter holds it: top (left) hand above
+  // the bottom one, the back of the top hand toward the face of the bat (the
+  // bowler), the bottom hand's palm behind the handle, both thumbs down the
+  // handle toward the blade and the handle running diagonally across each palm
+  // (GRIP_BETA). The hands are placed from the bat; the arms reach them by IK
+  // (elbows bending on their hinge), each hand may roll a little round the
+  // handle to keep its wrist from bending too far, and the forearm takes half
+  // of the hand's turn so the wrist doesn't wring.
   gripBat(batPos, batQuat, elbowUp = 0) {
     const h = this.h;
     h.update();
-    const up = _a.set(0, 1, 0).applyQuaternion(batQuat);
-    const bottom = _c.copy(batPos);
-    const top = _top.copy(batPos).addScaledVector(up, 0.105);
+    _bx.set(1, 0, 0).applyQuaternion(batQuat);
+    _by.set(0, 1, 0).applyQuaternion(batQuat);
+    _bz.set(0, 0, 1).applyQuaternion(batQuat);
     this.forward(_fwd);
     _left.set(_fwd.z, 0, -_fwd.x);
-    // Elbows: below the line from shoulder to hand and out from the ribs. The
-    // front (top-hand) elbow leads toward the bowler and rides high through a
-    // straight-bat shot.
     h.worldPos('shoulderR', _sR); h.worldPos('shoulderL', _sL);
     h.worldPos('chest', _ch);
-    const out = (sh, sign, lift) => _pole.copy(sh).lerp(sign < 0 ? bottom : top, 0.5).sub(_ch).setY(0).normalize().multiplyScalar(0.25)
-      .addScaledVector(_left, sign * 0.3).add(sh).add(_e.set(0, -0.5 + lift, 0));
-    // Each fist closes round the handle: the handle runs through the palm (a
-    // little beyond the wrist), the wrist stays in line with the forearm, and
-    // the V between thumb and forefinger points down the handle to the blade.
+    const sb = Math.sin(GRIP_BETA), cb = Math.cos(GRIP_BETA);
     for (const side of ['R', 'L']) {
-      const at = side === 'R' ? bottom : top, sh = side === 'R' ? _sR : _sL;
-      _pole.copy(out(sh, side === 'R' ? -1 : 1, side === 'R' ? 0 : 0.75 * elbowUp));
-      _wr.copy(at);
+      const at = side === 'R' ? _c.copy(batPos) : _top.copy(batPos).addScaledVector(_by, HAND_GAP), sh = side === 'R' ? _sR : _sL;
+      // Elbows: down and in, close to the ribs (only a little out along the
+      // pitch); the front (top-hand) elbow rises and leads toward the bowler
+      // through a straight-bat shot.
+      const sign = side === 'R' ? -1 : 1, lift = side === 'R' ? 0 : 0.75 * elbowUp;
+      _pole.copy(sh).addScaledVector(_fwd, ELBOW_FWD).addScaledVector(_left, sign * 0.1).add(_e.set(0, -0.6 + 1.0 * lift, 0))
+        .addScaledVector(_left, sign * 0.3 * lift);
+      let roll = 0;
       for (let pass = 0; pass < 2; pass++) {
+        // The grip frame, rolled `roll` round the handle.
+        const cr = Math.cos(roll), sr = Math.sin(roll);
+        _xr.copy(_bx).multiplyScalar(cr).addScaledVector(_bz, -sr);
+        _gx.copy(_bz).multiplyScalar(cr).addScaledVector(_bx, sr);          // back of the hand (left) / palm (right)
+        _gy.copy(_xr).multiplyScalar(-sb).addScaledVector(_by, cb);
+        _gz.copy(_xr).multiplyScalar(-cb).addScaledVector(_by, -sb);
+        _wr.copy(at).addScaledVector(_gy, PALM);                            // the wrist, a palm's length from the handle
         h.ikArm(side, _wr, _pole);
+        if (pass) break;
+        // Roll toward the forearm: the knuckles (-gy) as near its line as the grip allows.
         h.update();
-        _f.subVectors(at, h.worldPos('elbow' + side, _el));   // forearm on toward the handle…
-        _f.addScaledVector(up, -_f.dot(up));                  // …squared up across it
-        if (_f.lengthSq() < 1e-6) _f.copy(_fwd);
-        _f.normalize();
-        _wr.copy(at).addScaledVector(_f, -PALM);
+        _f.subVectors(_wr, h.worldPos('elbow' + side, _el)).normalize();
+        roll = clamp(Math.atan2(-_f.dot(_bz), _f.dot(_bx)), -GRIP_ROLL, GRIP_ROLL);
       }
-      _y.copy(_f).negate();                                   // the hand bone runs wrist -> knuckles along its -Y
-      _z.copy(up).negate();                                   // thumb side toward the blade
-      _x.crossVectors(_y, _z);
-      h.setWorldQuat('hand' + side, _q.setFromRotationMatrix(_m.makeBasis(_x, _y, _z)));
+      h.setWorldQuat('hand' + side, _q.setFromRotationMatrix(_m.makeBasis(_gx, _gy, _gz)));
+      // Share the hand's turn with the forearm.
+      const fore = h.bones['elbow' + side];
+      fore.getWorldQuaternion(_ql);
+      _v1.set(1, 0, 0).applyQuaternion(_ql);                                 // forearm's X
+      _v2.set(0, 1, 0).applyQuaternion(_ql);                                 // forearm's axis
+      _x.copy(_gx).addScaledVector(_v2, -_gx.dot(_v2));
+      if (_x.lengthSq() > 1e-6) {
+        _x.normalize();
+        const tw = Math.atan2(_y.crossVectors(_v1, _x).dot(_v2), _v1.dot(_x));
+        fore.quaternion.multiply(_qt.setFromAxisAngle(_up, tw * 0.5));
+        fore.updateMatrixWorld(true);
+        h.setWorldQuat('hand' + side, _q);
+      }
     }
   }
 
@@ -1050,6 +1102,6 @@ const _e = new THREE.Vector3(), _up = new THREE.Vector3(0, 1, 0), _hold = new TH
 const _H = new THREE.Vector3(), _iL = new THREE.Vector3(), _iR = new THREE.Vector3(), _v1 = new THREE.Vector3(), _v2 = new THREE.Vector3(), _top = new THREE.Vector3();
 const _ql = new THREE.Quaternion(), _ft = new THREE.Vector3(), _sR = new THREE.Vector3(), _sL = new THREE.Vector3(), _ch = new THREE.Vector3(), _pole = new THREE.Vector3();
 const _hp = new THREE.Vector3(), _el = new THREE.Vector3(), _f = new THREE.Vector3(), _x = new THREE.Vector3(), _y = new THREE.Vector3(), _z = new THREE.Vector3(), _m = new THREE.Matrix4();
-const _wr = new THREE.Vector3();
+const _wr = new THREE.Vector3(), _bx = new THREE.Vector3(), _by = new THREE.Vector3(), _bz = new THREE.Vector3(), _xr = new THREE.Vector3(), _gx = new THREE.Vector3(), _gy = new THREE.Vector3(), _gz = new THREE.Vector3(), _qt = new THREE.Quaternion();
 const _toeDown = new THREE.Quaternion().setFromEuler(new THREE.Euler(1.25, 0, 0));
 const _carryRot = new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2 + 0.3, 0, 0));

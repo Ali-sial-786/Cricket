@@ -1,6 +1,6 @@
 # Progress
 
-_Last updated after the ninth pass (rebuilt player models and gear, authored animation clips, nobody frozen after the ball is dead)._
+_Last updated after the tenth pass (batting grip, stance and footwork against a broadcast reference)._
 
 ## Done
 - **Phase 1: Nets (batting core)**
@@ -177,6 +177,22 @@ _Last updated after the ninth pass (rebuilt player models and gear, authored ani
 - **Own body** is much fainter, and is sized to your standing height in the headset.
 - 132 unit tests.
 
+## Tenth pass: grip, stance and footwork
+Checked against broadcast footage of a classic side-on stance and drive, and a coaching diagram of the grip.
+- **Grip:** each hand is placed from the bat in a real batting grip (hands together, top hand above, back of the top
+  hand toward the bowler, the handle running across the fingers at an angle, thumbs down the handle); a hand may roll
+  a little round the handle and the forearm takes half its turn. Wrists end up cocked ~30-40 deg instead of 55-80.
+  Gloves are re-shaped to wrap that handle line (`GRIP_BETA` in `src/render/gear.js`).
+- **Elbows and knees** bend about their real hinge axis (`solveTwoBone(..., flex)` in `humanoid.js`), so the skin
+  creases into the bend instead of twisting sideways. Elbows hang down and in, a little out in front over the hands.
+- **Stance:** hips hinged back, knees softly bent (~125 deg), trunk leaning ~30-40 deg with the head over the toes,
+  arms hanging to the hands at the front thigh, bat grounded by the back foot. Your own body takes this stance however
+  upright you stand (up to 18 cm lower than your head), and lines up across the pitch on your hands.
+- **Feet:** always side-on (toes to point, front foot opened ~17 deg toward the bowler), about shoulder width; the
+  front foot strides out as you lean into a shot while the back foot stays planted; the back foot moves first going back.
+- **Drive:** the head goes out over the front knee at contact.
+- Stray tennis wristband geometry removed from the athlete asset (it showed as slivers at the wrists).
+
 ## Known issues / not verified
 - **Not tested on a real headset.** All XR paths ran only under Meta's IWER emulator in headless Chromium
   (no pose velocities, haptics, hit-test or passthrough there). Haptics, `updateTargetFrameRate`, pose velocities
@@ -202,6 +218,8 @@ _Last updated after the ninth pass (rebuilt player models and gear, authored ani
   the clips used are general athletic motion.
 - The walk lifts the knees high at walk-in speed, the throw's follow-through bends deep, trousers are roomy at the
   thigh, and trouser stripes and the shirt yoke disappear on distant figures.
+- Grip/stance pass: compared with the reference in headless renders only. The AI's backlift is lower and its drive
+  stride shorter than in the reference; a VR player who stands tall with the hands high will still show bent elbows.
 - The AI batter defending a chest-high ball still lifts his hands above the helmet.
 - Batters running between the wickets still stop dead at the line and turn on the spot; fielders' throw and pick-up
   were not reworked in this pass.
