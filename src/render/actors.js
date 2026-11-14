@@ -225,7 +225,7 @@ export class FielderActor extends Actor {
       const at = act.at, k = sstep(at - 0.3, at - 0.06, t), back = sstep(at + 0.25, at + 0.8, t);
       poseReady(h, 0.65 * (1 - back * 0.7), true);
       const sx = act.stumps.x - this.pos.x, sz = act.stumps.z - this.pos.z, sd = Math.max(1e-3, Math.hypot(sx, sz));
-      const lunge = Math.max(0, sd - 0.42) * k * (1 - back);
+      const lunge = Math.max(0, sd - 0.5) * k * (1 - back);           // hips stop beside the stumps, the gloves do the rest
       this.heading = Math.atan2(sx, sz);
       this.apply(sx / sd * lunge, sz / sd * lunge);
       this.plant(0.26, true);

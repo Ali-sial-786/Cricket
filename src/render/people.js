@@ -7,6 +7,12 @@ import { toV3, toQ } from './util.js';
 import { sstep, clamp } from './anim.js';
 import { CONFIG } from '../config.js';
 
+// While the runner in your kit is this close to your head he is not drawn
+// (you are looking out through his eyes as he sets off / comes home).
+const RUNNER_HIDE = 1.5;
+// An AI batter standing about keeps this far from your head.
+const STAND_CLEAR = 1.4;
+
 const _p = new THREE.Vector3(), _q = new THREE.Quaternion(), _look = new THREE.Vector3(), _hf = new THREE.Vector3(), _ax = new THREE.Vector3(), _sw = new THREE.Vector3();
 
 // AI striker: posed around the AIBatter's analytic bat; runs when runs are taken.
@@ -17,14 +23,18 @@ export class BatterView {
     this.pose = new Pose();
     this.show(false);
     this.running = null;   // {x, z, speed, heading} supplied by RunningController
+    this.avoid = null;     // the player's head (world), when someone has set it
   }
   show(v) { this.shown = v; this.actor.visible = v; }
   setTeam(team) { this.actor.h.setTeam(team); }
   update(t, dt = 1 / 72, ball = null) {
-    if (!this.actor.visible) return;
+    if (!this.shown) return;
     const a = this.actor;
     if (this.running) {
       a.pos.set(this.running.x, 0, this.running.z);
+      // Your own runner is not drawn round your head.
+      if (this.runnerOnly) a.visible = !(this.avoid && Math.hypot(a.pos.x - this.avoid.x, a.pos.z - this.avoid.z) < RUNNER_HIDE);
+      if (!a.visible) return;
       a.speed = this.running.speed;
       a.turnToward(this.running.heading, dt, 9);
       if (this.running.dive) a.updateDive(dt, t, this.running.dive); else a.updateMoving(dt, t, ball, false);
@@ -105,6 +115,8 @@ export class NonStrikerView {
     this.running = null;
     this.backing = 0;
     this.visible = false;
+    this.avoid = null;                       // the player's head (world), when someone has set it
+    this.side = new THREE.Vector3();         // stepped aside out of the player's way
     this.show(false);
   }
   show(v) { this.visible = v; this.actor.visible = v; }
@@ -123,16 +135,36 @@ export class NonStrikerView {
     // Back up during the run-up, drift back afterwards.
     const target = opts.backingUp ? 1.6 : 0;
     this.backing += clamp(target - this.backing, -dt * 1.2, dt * 1.3);
-    const dz = this.home.z + this.backing - a.pos.z;
-    a.speed = Math.abs(dz) > 0.02 ? Math.min(1.5, Math.abs(dz) / Math.max(dt, 1e-3)) : 0;
-    a.pos.set(this.home.x, 0, this.home.z + this.backing);
+    // Out of the player's way: if you are where he would stand he steps aside
+    // (walking, not popping) to the edge of your space, and back when you go.
+    const { x: ox, z: oz } = this.clearOffset();
+    const sx = ox - this.side.x, sz = oz - this.side.z, sd = Math.hypot(sx, sz), step = 2.0 * dt;
+    if (sd > step) { this.side.x += sx / sd * step; this.side.z += sz / sd * step; } else this.side.set(ox, 0, oz);
+    const px = this.home.x + this.side.x, pz = this.home.z + this.backing + this.side.z;
+    const dz = Math.hypot(px - a.pos.x, pz - a.pos.z);
+    a.speed = dz > 0.02 ? Math.min(2.0, dz / Math.max(dt, 1e-3)) : 0;
+    a.pos.set(px, 0, pz);
     a.turnToward(0, dt, 4);
     if (a.speed > 0.3) a.updateMoving(dt, t, ball);
     else a.updateLeaning(dt, t, ball || _look.set(0, 1.0, -1));
   }
-  reset() { this.running = null; this.backing = 0; this.actor.place(this.home.x, this.home.z, 0); }
+  reset() {
+    this.running = null; this.backing = 0;
+    const o = this.clearOffset();
+    this.side.set(o.x, 0, o.z);
+    this.actor.place(this.home.x + o.x, this.home.z + o.z, 0);
+  }
+  // Offset from his mark that keeps him out of the player's space.
+  clearOffset() {
+    const hp = this.avoid, gx = this.home.x, gz = this.home.z + this.backing;
+    if (!hp) return { x: 0, z: 0 };
+    const dx = gx - hp.x, dz = gz - hp.z, d = Math.hypot(dx, dz);
+    if (d >= STAND_CLEAR) return { x: 0, z: 0 };
+    const ux = d > 1e-3 ? dx / d : (this.home.x >= hp.x ? 1 : -1), uz = d > 1e-3 ? dz / d : 0;
+    return { x: hp.x + ux * STAND_CLEAR - gx, z: hp.z + uz * STAND_CLEAR - gz };
+  }
   // Stand on the far side from the bowler's run-up (+1: bowler over the wicket on +X).
-  setSide(side) { this.home.x = -1.35 * side; if (!this.running) this.actor.place(this.home.x, this.home.z + this.backing, 0); }
+  setSide(side) { this.home.x = -1.35 * side; if (!this.running) { const o = this.clearOffset(); this.side.set(o.x, 0, o.z); this.actor.place(this.home.x + o.x, this.home.z + this.backing + o.z, 0); } }
 }
 
 // Both batters running between the wickets. Progress p counts runs (1.0 =

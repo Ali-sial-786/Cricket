@@ -104,6 +104,25 @@ export class UmpireView {
     this.side = side;
     this.main.place(playerBowling ? -1.9 * side : -0.95 * side, PITCH.bowlingStumpsZ - (playerBowling ? 0.6 : 1.9), 0);
     this.leg.place(-17.5, -1.3, Math.PI / 2);
+    for (const u of [this.main, this.leg]) { u.mark = u.pos.clone(); u.off = new THREE.Vector3(); }
+  }
+  // Keep out of the player's space: an umpire whose spot you are standing in
+  // (or next to) walks to the edge of it, and back to his mark once you go.
+  keepClear(head, dt, r = 1.3) {
+    for (const u of [this.main, this.leg]) {
+      if (!u.mark) continue;
+      let gx = 0, gz = 0;
+      if (head) {
+        const dx = u.mark.x - head.x, dz = u.mark.z - head.z, d = Math.hypot(dx, dz);
+        if (d < r) {
+          const ux = d > 1e-3 ? dx / d : (u.mark.x <= head.x ? -1 : 1), uz = d > 1e-3 ? dz / d : 0;
+          gx = head.x + ux * r - u.mark.x; gz = head.z + uz * r - u.mark.z;
+        }
+      }
+      const sx = gx - u.off.x, sz = gz - u.off.z, sd = Math.hypot(sx, sz), step = 1.6 * dt;
+      if (sd > step) { u.off.x += sx / sd * step; u.off.z += sz / sd * step; } else u.off.set(gx, 0, gz);
+      u.pos.set(u.mark.x + u.off.x, 0, u.mark.z + u.off.z);
+    }
   }
   show(v) { this.visible = v; this.main.visible = v; this.leg.visible = v; }
   // Ground positions (x, z) of both umpires (for the fielders to run round).
