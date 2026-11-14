@@ -406,7 +406,7 @@ export class BattingSession {
       const v = b.vel;
       const launch = Math.atan2(v.y, Math.hypot(v.x, v.z)) / (Math.PI / 180);
       this.hit = {
-        t: e.t, quality: e.quality, edge: e.isEdge, exit: v.length(), batSpeed: e.batSpeed, launch, carry,
+        t: e.t, quality: e.quality, edge: e.isEdge, exit: v.length(), batSpeed: e.batSpeed, launch, carry, dir: { x: v.x, y: v.y, z: v.z },
         sixOnFull: !!(pred.boundary && pred.boundary.onFull), pred, advanced: this.advance > 0.5,
       };
       if (e.isEdge) this.stats.edges++; else if (e.quality > 0.75) this.stats.middled++;
@@ -446,7 +446,7 @@ export class BattingSession {
     return {
       sweep: this.sweepK > 0.01 ? { k: this.sweepK * this.sweepK * (3 - 2 * this.sweepK), slog: !!this.sweepSlog, reverse: !!this.sweepReverse } : null,
       ball: bi ? { id: bi.id, live: this.state === 'live' && b.active && !b.batted && !this.hit, arrive: bi.arrive, y: bi.y, length: bi.length } : null,
-      hit: this.hit ? { t: this.hit.t, launch: this.hit.launch, name: this.shotName } : null,
+      hit: this.hit ? { t: this.hit.t, launch: this.hit.launch, name: this.shotName, dir: this.hit.dir } : null,
       // your real back foot (world z, headset only) and how far the figure's is held on it
       crease: this.footZ != null ? { z: this.footZ, pin: this.creasePin } : null,
     };

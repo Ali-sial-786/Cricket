@@ -194,6 +194,7 @@ export class PlayerBodyView {
   constructor(scene) {
     this.actor = new BatterActor(scene, { team: 'home', seed: 3 });
     this.actor.bat.visible = false;     // the real player bat mesh is drawn by the game
+    this.actor.stretchArms = true;      // your gloves are on your bat, always
     this.reader = new ShotReader();
     this.log = [];
     this.visible = false;
@@ -206,26 +207,25 @@ export class PlayerBodyView {
   // stores each pose. The live figure is put back as it was. Returns false if
   // there was no shot to re-play.
   resolve(t0, t1, write) {
-    const fin = this.reader.cur;
-    if (!fin || !fin.locked) return false;
+    const fin = this.reader.cur || this.reader.last;
+    if (!fin || !fin.locked || fin.Tc < t0 - 0.5 || fin.t0 > t1) return false;
     const A = this.actor, h = A.h;
     const saved = { snap: h.snapshot(), pos: A.pos.clone(), heading: A.heading, footL: A.footL.clone(), footR: A.footR.clone(),
       step: A.step ? { L: A.step.L.clone(), R: A.step.R.clone(), ax: A.step.ax, open: A.step.open, init: A.step.init, mL: A.step.mL && { ...A.step.mL, from: A.step.mL.from.clone() }, mR: A.step.mR && { ...A.step.mR, from: A.step.mR.from.clone() } } : null, handX: A.handX, ps: A._ps, root: h.root.position.clone(), rq: h.root.quaternion.clone() };
-    const rd = new ShotReader();
-    let any = false;
+    // The shot as it turned out, from the start of the swing (a shot only read
+    // at the hit starts at the top of the backlift here, not where live joined it).
+    const c = { ...fin, locked: true, t0: fin.late ? Math.max(fin.tTop, fin.Tc - 0.3) : Math.min(fin.t0, fin.Tc - 0.12) };
     // A stumping was judged in this clip: your back foot stays where it really was throughout.
     const pinned = this.log.some((e) => e.t >= t0 && e.t <= t1 && e.extra && e.extra.crease && e.extra.crease.pin > 0);
+    A._ps = null;
     for (const e of this.log) {
       if (e.t < t0 - 2 || e.t > t1) continue;
-      _ax.set(0, 1, 0).applyQuaternion(e.bq);
-      _sw.copy(e.bp).addScaledVector(_ax, -0.55);
-      const c = rd.update(e.t, _sw, _ax, e.head ? e.head.p : null, e.extra);
-      if (c && Math.abs(c.t0 - fin.t0) < 0.4) { c.cls = fin.cls; c.Tc = fin.Tc; c.hitT = fin.hitT; c.locked = true; any = true; }
+      const shot = e.t >= c.t0 - 0.05 && e.t <= c.Tc + 2.5 ? c : null;
       let hf = null;
       if (e.head) { _q.set(e.head.q.x, e.head.q.y, e.head.q.z, e.head.q.w); hf = _hf.set(0, 0, -1).applyQuaternion(_q); hf.y = 0; if (hf.lengthSq() < 1e-6) hf = null; else hf.normalize(); }
       const cr = e.extra && e.extra.crease;
       const crease = cr && cr.z != null ? { z: cr.z, pin: pinned ? 1 : cr.pin } : null;
-      A.updateBatting(e.dt, e.bp, e.bq, { t: e.t, plan: null, ball: e.ball, head: e.head ? e.head.p : null, headFwd: hf, sweep: e.extra && e.extra.sweep, crease, shot: c });
+      A.updateBatting(e.dt, e.bp, e.bq, { t: e.t, plan: null, ball: e.ball, head: e.head ? e.head.p : null, headFwd: hf, sweep: e.extra && e.extra.sweep, crease, shot });
       if (e.t >= t0) write(e.t, h);
     }
     // put the live figure back
@@ -234,7 +234,7 @@ export class PlayerBodyView {
     h.root.position.copy(saved.root); h.root.quaternion.copy(saved.rq);
     h.blendFrom(saved.snap, 0);
     h.update();
-    return any;
+    return true;
   }
 
   show(v) { this.visible = v; this.actor.visible = v; this.actor.bat.visible = false; }

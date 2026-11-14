@@ -60,3 +60,46 @@ test('ShotReader: no swing (a leave) is no shot; nothing between deliveries', ()
   const dead = { sweep: null, ball: { id: 1, live: false, arrive: 1.0 }, hit: null };
   assert.equal(drive(new ShotReader(), dead), null);
 });
+
+test('classify: where the ball went off the bat settles the shot', () => {
+  const D = (x, z, o = {}) => F({ dir: { x, y: 0.1, z }, ...o });
+  assert.equal(classify(D(0.05, -1)), 'straight');
+  assert.equal(classify(D(0.7, -0.7)), 'cover');
+  assert.equal(classify(D(-0.6, -0.8)), 'flick');
+  assert.equal(classify(D(0.1, -1, { lofted: true, front: -0.5 })), 'lofted');
+  assert.equal(classify(D(0.6, -0.8, { front: -0.5 })), 'punch');
+  assert.equal(classify(D(0.1, -1, { peak: 3 })), 'defend');
+  assert.equal(classify(D(-1, -0.2, { cross: 0.9 })), 'pull');
+  assert.equal(classify(D(-1, 0.2, { cross: 0.9, ballY: 1.5 })), 'hook');
+  assert.equal(classify(D(1, 0.05, { cross: 0.9, front: -0.5 })), 'cut');
+  assert.equal(classify(D(0.6, 0.8)), 'latecut');
+  // a sweep is your call (the button), whatever the direction
+  assert.equal(classify(D(1, 0.05, { sweep: { slog: false, reverse: false } })), 'sweep');
+});
+
+test('ShotReader: a hit with no swing read still plays a shot, joined at the hit', () => {
+  const r = new ShotReader();
+  const dt = 1 / 72;
+  let c = null;
+  for (let i = 0; i < 100; i++) {
+    const t = i * dt;
+    const hit = t >= 1.0 ? { t: 1.0, launch: 5, name: '', dir: { x: 0.7, y: 0.1, z: -0.7 } } : null;
+    // a short push: never fast enough to read as a swing
+    const z = -1.0 - 0.3 * Math.min(1, Math.max(0, (t - 0.8) / 0.3));
+    c = r.update(t, { x: 0.3, y: 0.3, z }, { x: 0, y: 1, z: 0 }, { x: 0, y: 1.6, z: -0.9 }, { sweep: null, ball: { id: 1, live: !hit, arrive: 1.0, y: 0.5, length: 3 }, hit }) || c;
+  }
+  assert.ok(c, 'a shot');
+  assert.ok(c.locked && c.late, 'settled, joined late');
+  assert.equal(c.Tc, 1.0);
+  assert.ok(c.t0 >= 1.0, 'it starts where it was read (no jump back in time)');
+});
+
+test('ShotReader: the last shot is kept for its replay after it is over', () => {
+  const r = new ShotReader();
+  const info = { sweep: null, ball: { id: 1, live: true, arrive: 1.05, y: 0.5, length: 3 }, hit: null };
+  const c = drive(r, info, { lunge: true });
+  assert.ok(c);
+  for (let i = 0; i < 300; i++) r.update(2 + i / 60, { x: 0.3, y: 0.3, z: -1 }, { x: 0, y: 1, z: 0 }, { x: 0, y: 1.6, z: -0.9 }, { ...info, ball: { ...info.ball, live: false } });
+  assert.equal(r.cur, null);
+  assert.equal(r.last, c);
+});

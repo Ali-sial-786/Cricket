@@ -618,6 +618,7 @@ export class Game {
       this.applyView();
       this.updateEye();
       this.playerBody.actor.h.setGhost(false); this.playerBowler.h.setGhost(false);
+      this.playerBody.actor.restArms();     // (the replay poses joints only: the arms at their own length)
       this.replay.placeVignette(this.eye);
       this.ballFinder.hide();
       Humanoid.updateLods(this.eye.p);
@@ -744,14 +745,21 @@ export class Game {
     this.batMesh.visible = show && !this.viewOverride && !(this.ui.menuOpen && this.input.xr && this.state !== 'calibrate' && !this.session);
     this.playerBat.enabled = batting && !!this.session && !paused && R.connected && R.tracked;
     if (!R.connected || !R.tracked) { this.snapBat = true; return; }
-    const off = this.batOffset();
-    _batPose.p.copy(R.gripPose.p);
-    _batPose.q.multiplyQuats(R.gripPose.q, off).normalize();
-    toV3(this.batMesh.position, _batPose.p);
-    toQ(this.batMesh.quaternion, _batPose.q);
+    this.poseBatMesh();
     if (paused) return;
     if (this.snapBat) { this.playerBatProvider.snap(this.simTime, _batPose, R.gripPose.p); this.snapBat = false; }
     else this.playerBatProvider.push(this.simTime, _batPose, R.gripPose.p, R.linVel, R.angVel);
+  }
+
+  // The bat where your controller is now (_batPose too). Posed again just
+  // before your figure, in case the rig moved since (a new ball resets it).
+  poseBatMesh() {
+    const R = this.input.right;
+    if (!R.connected || !R.tracked) return;
+    _batPose.p.copy(R.gripPose.p);
+    _batPose.q.multiplyQuats(R.gripPose.q, this.batOffset()).normalize();
+    toV3(this.batMesh.position, _batPose.p);
+    toQ(this.batMesh.quaternion, _batPose.q);
   }
 
   onPhysicsEvent(e) {
@@ -842,6 +850,7 @@ export class Game {
         }
       }
       if (batting || deskThird) {
+        if (this.input.xr) this.poseBatMesh();
         this.playerBody.update(pdt || 1e-4, this.simTime, this.batMesh.position, this.batMesh.quaternion, lookBall, this.input.xr ? this.input.headPose : null,
           this.session && this.session.bodyState ? this.session.bodyState() : null);
       }
