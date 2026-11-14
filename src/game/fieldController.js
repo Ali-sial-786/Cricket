@@ -6,19 +6,21 @@
 //     player in slow motion (reach a hand to the ball), and the player picks
 //     the end a fielder throws to
 import * as THREE from 'three';
-import { Fielding, PLAYER_CLEAR } from './fielding.js';
+import { Fielding, PLAYER_CLEAR, STUMP_CLEAR } from './fielding.js';
 import { planRuns, RUNNER_CLEAR } from './running.js';
-import { Vec3 } from '../physics/math.js';
+import { Vec3, clamp, smoothstep as sstep } from '../physics/math.js';
 import { PITCH } from '../physics/pitch.js';
 import { CONFIG } from '../config.js';
 import { HINTS } from '../ui/controllerHint.js';
 
-const _v = new THREE.Vector3(), _w = new THREE.Vector3();
+const _v = new THREE.Vector3(), _w = new THREE.Vector3(), _g = new THREE.Vector3();
 
 // The player's space: no fielder, keeper or umpire's feet within PLAYER_CLEAR
 // of your head (on the ground), no runner within RUNNER_CLEAR.
 // Fielders do not walk through the batters either.
-const BATTER_CLEAR = 0.8;
+const BATTER_CLEAR = 0.95;     // (a batter's stance / lean on the bat reaches forward)
+const UMPIRE_CLEAR = 0.9;      // (his signals reach out)
+const BOWLER_CLEAR = 0.8;
 
 export class FieldController {
   constructor(game, { spinner = false, bowlerFields = true, playerBatting = true } = {}) {
@@ -253,11 +255,24 @@ export class FieldController {
     g.nonStrikerView.avoid = hp;
     g.batterView.avoid = hp;
     if (g.umpires.keepClear) g.umpires.keepClear(g.umpires.visible ? hp : null, dt, PLAYER_CLEAR);
-    const obs = g.umpires.visible ? g.umpires.spots().slice() : [];
+    const obs = g.umpires.visible ? g.umpires.spots().map((u) => ({ x: u.x, z: u.z, r: UMPIRE_CLEAR })) : [];
     const bv = g.batterView, ns = g.nonStrikerView;
     if (bv.shown && bv.actor.visible) obs.push({ x: bv.actor.pos.x, z: bv.actor.pos.z, r: BATTER_CLEAR });
     if (ns.visible) obs.push({ x: ns.actor.pos.x, z: ns.actor.pos.z, r: BATTER_CLEAR });
+    // The AI bowler walking back (not running in: his line is his own) is in everyone's way too.
+    const bw = g.figures && g.figures.bowler.actor;
+    if (bw && bw.visible && bw.state !== 'runup') obs.push({ x: bw.pos.x, z: bw.pos.z, r: BOWLER_CLEAR });
     L.obstacles = obs;
+    // ... and he walks round the umpire, the batters and both sets of stumps.
+    if (bw) {
+      const bo = bw.obstacles || (bw.obstacles = []);
+      bo.length = 0;
+      if (g.umpires.visible) for (const u of g.umpires.spots()) bo.push({ x: u.x, z: u.z, r: UMPIRE_CLEAR });
+      if (bv.shown && bv.actor.visible) bo.push({ x: bv.actor.pos.x, z: bv.actor.pos.z, r: BATTER_CLEAR });
+      if (ns.visible) bo.push({ x: ns.actor.pos.x, z: ns.actor.pos.z, r: BATTER_CLEAR });
+      bo.push({ x: 0, z: PITCH.bowlingStumpsZ, r: STUMP_CLEAR }, { x: 0, z: PITCH.battingStumpsZ, r: STUMP_CLEAR });
+      if (hp) bo.push({ x: hp.x, z: hp.z, r: PLAYER_CLEAR });
+    }
   }
 
   update(dt, t) {
@@ -357,7 +372,12 @@ export class FieldController {
     const ballPos = b.active ? _v.set(b.pos.x, b.pos.y, b.pos.z) : (g.ballOverride ? _v.copy(g.ballOverride.pos) : null);
     const states = L.states();
     if (this.catch && this.catch.state === 'live') states[this.catch.fi].hidden = true;
-    g.fieldView.update(dt, states, { t, ball: ballPos, delivering: this.delivering, cam: g.input.headPose.p });
+    // (everyone else whose body a lunging fielder must not go into)
+    const others = this._others || (this._others = []);
+    others.length = 0;
+    if (g.umpires.visible) for (const u of g.umpires.spots()) others.push(u);
+    for (const a of [g.batterView.shown && g.batterView.actor, g.nonStrikerView.visible && g.nonStrikerView.actor, g.figures.bowler.actor]) if (a && a.visible) others.push(a.h.root.position);
+    g.fieldView.update(dt, states, { t, ball: ballPos, delivering: this.delivering, cam: g.input.headPose.p, others });
 
     // Stumps broken by a glove: they fly when the hand gets there.
     if (this.pendingBreak && t >= this.pendingBreak.t) {
@@ -373,14 +393,34 @@ export class FieldController {
       if (o.hand) _w.set(o.hand.x, o.hand.y, o.hand.z);
       else if (o.holder != null && o.holder >= 0) {
         const a = L.fielders[o.holder].action;
-        const both = a && (a.type === 'keep' || a.type === 'take' || a.type === 'catch') && t - a.t0 < 0.3;
+        // (between both hands only while they are together round it: half-way between two
+        // hands still on their way in would be in the chest)
+        const both = a && (a.type === 'keep' || a.type === 'take' || a.type === 'catch') && t - a.t0 < 0.3 && g.fieldView.handsApart(o.holder) < 0.22;
         if (both) g.fieldView.glovesPos(o.holder, _w); else g.fieldView.ballHandPos(o.holder, _w);
       } else if (L.throw && t < L.throw.tStart) {
         const i = L.fielders.indexOf(L.throw.f);
         const a = L.throw.f.action;
         const picked = !a || a.type !== 'pickup' || t - a.t0 > a.dur * 0.5;
         if (picked) g.fieldView.handPos(i, _w); else _w.copy(o.pos).setY(0.04);
-      } else _w.copy(o.pos);
+      } else {
+        _w.copy(o.pos);
+        // A throw leaves from the thrower's hand (where it was drawn a frame
+        // ago), not from the logic's point in his chest: the difference fades out along the flight.
+        const th = L.throw;
+        if (th && th.released && t < th.tArrive) {
+          if (!th.handFrom) { th.handFrom = new THREE.Vector3(); g.fieldView.handPos(L.fielders.indexOf(th.f), th.handFrom); }
+          const k = 1 - clamp((t - th.tStart) / Math.max(1e-3, th.tArrive - th.tStart), 0, 1);
+          _w.x += (th.handFrom.x - th.from.x) * k; _w.y += (th.handFrom.y - th.from.y) * k; _w.z += (th.handFrom.z - th.from.z) * k;
+          // ... and arrives in the receiver's gloves wherever he has got to (not at a
+          // fixed point he may still be running to, through his arm or chest).
+          const ri = th.receiver ? L.fielders.indexOf(th.receiver) : -1;
+          if (ri >= 0 && g.fieldView.actors[ri].visible) {
+            const e = sstep(0.4, 1, 1 - k);
+            g.fieldView.glovesPos(ri, _g);
+            _w.x += (_g.x - th.to.x) * e; _w.y += (_g.y - th.to.y) * e; _w.z += (_g.z - th.to.z) * e;
+          }
+        }
+      }
       g.ballOverride = { pos: { x: _w.x, y: _w.y, z: _w.z } };
       g.ballView.setVisible(true);
     } else if (!b.active) {

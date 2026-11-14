@@ -388,8 +388,8 @@ export function buildEnvironment(scene) {
   }, { aniso: 4 });
   ledTex.wrapS = THREE.RepeatWrapping;
   ledTex.repeat.set(-4, 1);              // negative: read correctly from inside the cylinder
-  const ledR = CONFIG.field.boundaryRadius + 3.2;
-  const led = new THREE.Mesh(new THREE.CylinderGeometry(ledR, ledR, 0.95, 160, 1, true),
+  const ledR = CONFIG.field.boundaryRadius + CONFIG.field.boardsOffset;
+  const led = new THREE.Mesh(new THREE.CylinderGeometry(ledR, ledR, CONFIG.field.boardsHeight - 0.025, 160, 1, true),
     new THREE.MeshBasicMaterial({ map: ledTex, side: THREE.BackSide, toneMapped: false }));
   led.position.set(0, 0.5, CZ);
   stadium.add(led);

@@ -205,6 +205,16 @@ export class PhysicsWorld {
       this.emit({ type: 'wicket', t: t0 + s * h, end: w.end, speed, pos: b.pos.clone(), batted: b.batted, stump: w.stumpIndexAt(b.pos.x) });
     }
 
+    // The advertising boards: a ball along the ground (or below their top)
+    // stops against them and drops back, instead of rolling on through.
+    const F = this.cfg.field, rB = F.boundaryRadius + (F.boardsOffset ?? 3.2) - R, gd = groundDistance(b.pos.x, b.pos.z);
+    if (gd > rB && b.pos.y < (F.boardsHeight ?? 0.975)) {
+      const nx = b.pos.x / gd, nz = (b.pos.z - PITCH.centerZ) / gd;
+      b.pos.x = nx * rB; b.pos.z = PITCH.centerZ + nz * rB;
+      const vr = b.vel.x * nx + b.vel.z * nz;
+      if (vr > 0) { b.vel.x -= 1.3 * vr * nx; b.vel.z -= 1.3 * vr * nz; }     // (coefficient of restitution 0.3)
+    }
+
     // Boundary.
     if (!b.crossedBoundary && groundDistance(b.pos.x, b.pos.z) > this.cfg.field.boundaryRadius) {
       b.crossedBoundary = true;

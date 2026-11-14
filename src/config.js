@@ -184,6 +184,8 @@ export const CONFIG = {
 
   field: {
     boundaryRadius: 65,      // m from the centre of the pitch
+    boardsOffset: 3.2,       // the advertising boards stand this far beyond the rope (m)
+    boardsHeight: 0.975,     // top of the boards (m)
     groundRadius: 80,
     fielderSpeed: 6.5,       // m/s top speed
     fielderAccel: 7.5,
