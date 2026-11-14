@@ -181,6 +181,27 @@ Bowl a few overs in **Bowl an Over** or a **Match** and watch the batter from yo
   - **Report:** whether the ball ever sits somewhere odd (it should be in the gloves / right hand), and whether
     the bails come off when the glove gets there.
 
+## 11. Bowling by feel, finding the ball, recentering (10 min)
+- [ ] **Pace:** bowl with a slow, a medium and a very fast downswing for each bowler type (no button presses).
+  - **Report:** the km/h you get; whether full effort reaches the top of the range (`bowling.effortHandSpeed`).
+- [ ] **Line:** with no floor marker, aim at off stump, middle and leg by throwing that way.
+  - **Report:** whether the ball goes where you throw it, and whether line is too twitchy (`bowling.lineGain`).
+- [ ] **Bounce:** bowl a good length and then a bouncer (let go late) with the fast bowler at full pace.
+  - **Report:** where the ball passes the batter (stumps / waist / chest / head) and whether you get wides for
+    going over his head too often (`surfaces.pitch.restitution`, bowler `maxLength`, `match.wideHeight`).
+- [ ] **Seam angle:** with the medium-pacer, turn the wrist for an away-seamer and an in-seamer.
+  - **Report:** whether the movement off the pitch is visible and goes the right way.
+- [ ] **Ball finder:** hit some balls in the air behind you or high. **Report:** whether the arrow, halo and
+      landing ring help you find it quickly, and whether they get in the way.
+- [ ] **Stick:** point your left controller somewhere and push the stick forward. You should move that way.
+- [ ] **Recenter:** walk away from your mark, look somewhere else, hold the left grip. You should be put back on
+      your mark with the pitch still pointing the same way in your room. Then try Menu → *Face this way*.
+- [ ] **Stumping:** come down the pitch (trigger), miss a ball, then reach back and put the bat down behind the
+      line. **Report:** whether you are given not out when the bat is down behind the line.
+- [ ] **Players:** watch the umpire, non-striker and bowler for a few overs (over and round the wicket).
+  - **Report:** anyone passing through anyone, poses that still snap, and how the faces and kits look up close.
+- [ ] **Commentary:** the new voices (Kate and Geoff). **Report:** lines that don't match what happened.
+
 ## What to send back
 1. The numbers above: frame rate, velocity source, bat m/s, exit km/h, hand m/s, elev °, roll rad/s.
 2. A "too much / too little" list for: bat power, bounce, swing, seam, spin, bowling pace, AI difficulty, fielders.

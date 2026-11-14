@@ -1,6 +1,6 @@
 # Progress
 
-_Last updated after the sixth pass (contact, views, replays, keeper, hints, crowd)._
+_Last updated after the seventh pass (bowling by feel, bounce, ball finder, recentering, commentary, players)._
 
 ## Done
 - **Phase 1: Nets (batting core)**
@@ -122,6 +122,22 @@ _Last updated after the sixth pass (contact, views, replays, keeper, hints, crow
 - **Crowd:** about 25,000 fans (cheaper to draw than the old 3,000), cheering, Mexican wave; 25 recorded crowd
   reactions and synthesised chants, drums and whistles.
 - 100 unit tests.
+
+## Seventh pass
+- **Bowling by feel:** no floor marker; line from where you throw, pace from the downswing across the bowler's
+  range, length from when you let go. The seam angle now moves the ball both in the air and off the pitch.
+- **Bounce physics:** release height mostly from the bowler type, pitch bounce 0.62: good length at bail height,
+  short balls at chest height at 140 km/h (measured); length caps per bowler; over head height = wide.
+- **Ball finder** after a hit: arrow to an out-of-sight ball, halo when far, landing ring.
+- **Stick** moves you the way your left controller points; **recenter** keeps the pitch's direction in your room
+  (look anywhere), with *Face this way* to re-aim.
+- **Stumpings** honour a grounded bat behind the line.
+- **No collisions:** the umpire and non-striker stand on the far side of the bowler's run (over or round the wicket).
+- **Commentary:** Courtside's latest British voices and rewritten script (1,429 clips); new calls for
+  played-and-missed, round the wicket, last ball, hundreds.
+- **Players:** smooth blends between poses, idle weight shifts, cleaner kits, slightly smaller heads.
+- The crowd is drawn as four merged meshes (much cheaper than 25,000 instances).
+- 107 unit tests.
 
 ## Known issues / not verified
 - **Not tested on a real headset.** All XR paths ran only under Meta's IWER emulator in headless Chromium

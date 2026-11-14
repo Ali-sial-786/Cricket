@@ -14,7 +14,8 @@ tested without a headset.
 * **A live ground:** about 25,000 spectators who stand, bounce and do the Mexican wave, recorded crowd reactions
   (oohs, gasps, cheers, groans) and a terrace of clapping chants, drums and whistles.
 * **Full match rules:** bowled, caught, LBW (with DRS ball tracking), stumped and run out; wides, no-balls and free
-  hits; a third umpire for close run-outs and stumpings; manual running; player-taken catches in slow motion;
+  hits; a third umpire for close run-outs and stumpings (your bat grounded behind the line counts, even after
+  coming down the pitch); manual running; player-taken catches in slow motion;
   two-voice commentary.
 * **First person throughout:** you see the game through the batter's eyes when you bat and the bowler's (or the
   catching fielder's) when you field. There are no broadcast cameras in the headset.
@@ -58,38 +59,45 @@ bigger sweet spot. *Hard* is real time and real size.
 | Hold **right trigger** | Stride down the pitch (about 1.6 m). The sweet spot shrinks, but a clean hit goes up to 32% harder and carries further. Miss and the keeper can stump you. |
 | Hold **right grip** (side button) | Sweep. Swing toward the leg side for a sweep, toward the off side for a **reverse sweep**. |
 | **Trigger + grip** | Come down the pitch and slog-sweep. |
-| **Left stick**, or really stepping | Move around in your crease. |
+| **Left stick**, or really stepping | Move around in your crease: stick forward = the way your left controller points. |
 | **X** | Call a run. The batters stop after each run; press **X** again once they are home for another. |
 | **Left trigger** | Turn back mid-run. |
 | **Y** | Dive for the crease. |
 | **A** | Review an LBW decision (1 review per innings) while the prompt is up. |
 | — | **No-ball:** the AI bowler oversteps now and then. One run, the ball is bowled again and the next one is a **free hit** (you can only be run out). |
-| **Left stick click** | Menu (also **Y** between balls). Hold **left grip** 1 s to recenter. |
+| **Left stick click** | Menu (also **Y** between balls). |
+| Hold **left grip** 1 s | Recenter: puts you back on your mark wherever you are looking (the pitch keeps its direction in your room). Menu → **Face this way** re-aims the pitch to where you look. |
 
 ### Bowling (right controller is your bowling hand)
 
 Hold the **trigger** to grip the ball, bowl overarm, let go to release.
 
-* **Pace** comes from how fast your hand is moving at release, scaled into your bowler's range.
-* **Line** comes from the direction of the hand. **Length** from *when* you let go: early = full (very early = a
-  full toss), late = short, very late = a bouncer.
+* **Pace:** how quickly you bring the ball down in the moment before you let go (the fastest your hand moved in the
+  last quarter-second), spread across your bowler's pace range.
+* **Line:** where you throw it — the direction your hand is travelling across the ground as you let go. There is no
+  aim marker on the floor (Settings can bring the old marker and assist back).
+* **Length:** *when* you let go: early = full (very early = a full toss), late = short, very late = a bouncer.
+* **Bounce** comes from pace and length together, as on a real pitch: at 140 km/h a good length arrives about bail
+  height and a ball pitched 10–11 m from the batter about chest height; slower balls and spinners bounce less.
+  Lengths stop at 12 m (fast), 11.5 m (medium) and 10.5 m (spin), and a ball that passes over the batter's head
+  is called a **wide**.
 * **Your bowler:** flick the **right stick left / right** (start of an over in a match, any time in the nets) to
   bowl as a fast, medium-fast, off-spin or leg-spin bowler. A bowler only bowls their own deliveries:
 
 | Bowler | Pace | What the action does |
 |---|---|---|
-| Fast | 118–152 km/h | Seam position → **out-swinger / in-swinger** (most swing). Wrist roll at release → **off-cutter** (seams in) / **leg-cutter** (seams away). Back of the hand → **slower ball**. |
-| Medium-fast | 100–132 km/h | The same deliveries with less swing and more movement off the seam. |
+| Fast | 118–152 km/h | Seam angle → moves **away** (out-swinger) or **in** (in-swinger), mostly in the air, a little off the pitch. Wrist roll at release → **off-cutter** (seams in) / **leg-cutter** (seams away). Back of the hand → **slower ball**. |
+| Medium-fast | 100–132 km/h | Seam angle → **away-seamer / in-seamer**: mostly off the pitch, some swing. Cutters and slower ball as above. |
 | Off-spin | 62–98 km/h | Clockwise roll → **off-break**. Back of the hand → **doosra**. No roll (or the wrong roll) → **arm ball**. No leg-breaks. |
 | Leg-spin | 60–96 km/h | Anticlockwise roll → **leg-break**. Back of the hand → **googly**. Clockwise roll → **top-spinner**. No roll → **slider**. No off-breaks or doosras. |
 
 * **Setting the seam (fast and medium):** once the ball is in your hand, turn your wrist **left** (seam toward the
-  slips) for out-swing or **right** (toward fine leg) for in-swing. About 10° does nothing, 30° is full swing. The
+  slips) to move it away or **right** (toward fine leg) to move it in; the same angle swings it in the air and
+  nips it off the pitch. About 10° does nothing, 30° is full swing. The
   ball in your hand shows the seam angle, a prompt shows the setting and the controller ticks as it changes. It
   locks when your arm starts moving. **A** / **B** set full out-swing / in-swing directly if you prefer buttons.
 * Rolls are judged as seen from behind your hand; "back of the hand" means the back of your hand faces the batter
   as you let go.
-* The left stick moves the aim marker (the assist nudges you toward it; turn it off in Settings).
 * Stay behind the popping crease: if your head is more than 30 cm past it when you let go, it is a **no-ball** (one
   run, bowled again, and the next ball is a free hit). A full toss above the waist is a no-ball too.
 * The keeper stands up to the stumps for your spinners, and batters come down the pitch to them. Beat the bat and
@@ -101,9 +109,12 @@ Hold the **trigger** to grip the ball, bowl overarm, let go to release.
   the ball. No button.
 * **Throws:** when a fielder picks up, **A** throws to the keeper's end and **B** to the bowler's end. Beat the
   batter home for a run out.
+* **Finding the ball:** after a hit, a yellow arrow at the edge of your view points to the ball when it's out of
+  sight, a halo marks it when it's far away, and a ring shows where it will land (Settings → Ball finder).
 * **Reviews:** if an LBW appeal is turned down, press **A** to send it upstairs (ball tracking, umpire's call).
   Close run-outs and stumpings go to the third umpire automatically.
-* Umpires signal fours, sixes, wides and wickets. Two commentators call the game (audio only, no captions; Settings → Sound).
+* Umpires signal fours, sixes, wides and wickets. Two commentators, Kate Marsden and Geoff Hollins, call the game
+  (audio only, no captions; Settings → Sound).
 
 ### On-screen help, views and replays
 
