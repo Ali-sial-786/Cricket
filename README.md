@@ -210,7 +210,7 @@ src/game/             game.js (orchestrator + frame loop), batting.js / bowling.
                       squad.js, bowlerTypes.js + bowlingInput.js (your bowlers and their deliveries),
                       replay.js (recording and replays)
                       calibration.js, settings.js
-src/render/           env (stadium), objects (bat/ball/stumps/machine), humanoid (skinned athlete + IK),
+src/render/           env (stadium), objects (bat/ball/stumps/machine), humanoid (skinned athlete + IK), gear (helmets, pads, gloves),
                       actors + people + anim, clips (authored animation clips), umpires, drsView (review board + ball tracking),
                       viewModes (helmet grille, your bowling body, hiding bodies inside your head)
 src/ui/               canvas-texture panels: menus, HUD, scoreboard, laser pointer

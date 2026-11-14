@@ -616,7 +616,7 @@ const STANCE = { footL: [-0.31, -1.43], footR: [-0.35, -0.95] };
 // How much of a full (baseball-style) body turn each cricket shot uses.
 const SWING_AMP = { pull: 0.85, hook: 0.85, slog: 0.9, cut: 0.5, drive: 0.5, flick: 0.45, defend: 0.12, leave: 0 };
 const _sw = {};
-const ARM_STRETCH = 1.2;
+const ARM_STRETCH = 1;                 // (the arms are adult length in the asset now)
 const PALM = 0.075;                 // wrist to the middle of the palm (where a handle sits)
 
 export class BatterActor extends Actor {
