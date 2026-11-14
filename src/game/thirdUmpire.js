@@ -8,14 +8,17 @@ export class ThirdUmpireFlow {
   constructor(game) { this.g = game; this.active = false; this.done = true; this.out = false; }
 
   // kind: 'run_out' | 'stumping'; end: 'batting' | 'bowling'; margin (m): > 0
-  // short of the crease (out), < 0 home.
-  start({ kind, end, margin }) {
+  // short of the crease (out), < 0 home: the margin the decision was made on.
+  // out: the decision itself, if the caller has it (it wins over the margin's
+  // sign, so the board can never disagree with the result); by: what was
+  // grounded, 'foot' | 'bat' (shown on the board), if known.
+  start({ kind, end, margin, out = null, by = null }) {
     const g = this.g;
-    this.kind = kind; this.out = margin > -1e-6;
+    this.kind = kind; this.out = out == null ? margin > -1e-6 : !!out;
     this.active = true; this.done = false; this.t = 0; this.phase = 'board';
     const hp = g.input.headPose.p;
     _head.set(hp.x, hp.y, hp.z);
-    g.drs.startThird({ kind, end, margin, viewerPos: _head });
+    g.drs.startThird({ kind, end, margin, out: this.out, by, viewerPos: _head });
     // Seen from the far end the board is made big and hung over the pitch.
     const farEnd = end === 'batting' ? hp.z < -9 : hp.z > -9;
     if (farEnd) g.drs.placeBoard(_head, { distance: 9, scale: 2.2, height: 3.4 });

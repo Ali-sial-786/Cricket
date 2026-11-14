@@ -379,7 +379,7 @@ export class BowlingSession {
     }
     if (margin == null) return false;
     this.pendingRes = res; this.reviewFlow = this.third; this.state = 'review';
-    this.third.start({ kind: 'run_out', end: res.end || 'batting', margin });
+    this.third.start({ kind: 'run_out', end: res.end || 'batting', margin, out: res.kind === 'runout' });
     return true;
   }
 
@@ -503,7 +503,7 @@ export class BowlingSession {
           : atk.kind === 'break' ? { kind: 'stumped' } : { kind: 'runout', runs: 0, margin, end: 'batting', who: 'striker' };
         if (Math.abs(margin) < lim) {
           this.pendingRes = res; this.reviewFlow = this.third; this.state = 'review';
-          this.third.start({ kind: atk.kind === 'break' ? 'stumping' : 'run_out', end: 'batting', margin });
+          this.third.start({ kind: atk.kind === 'break' ? 'stumping' : 'run_out', end: 'batting', margin, out: margin > 0 });
         } else this.finish(res);
         return;
       }

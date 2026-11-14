@@ -17,6 +17,7 @@ import { machineDelivery } from '../physics/bowlingMachine.js';
 import { predict, crossingAtZ } from '../physics/trajectory.js';
 import { LbwFlow, padHit, deflectOffPad } from './lbwFlow.js';
 import { ThirdUmpireFlow } from './thirdUmpire.js';
+import { BackFoot, creaseShort } from './crease.js';
 import { HINTS } from '../ui/controllerHint.js';
 
 const _fw = new Vec3(), _toe = new Vec3();
@@ -26,7 +27,6 @@ import { Innings } from './scoring.js';
 const KMH = (v) => Math.round(msToKmh(v));
 const _hand = new THREE.Vector3();
 const STANCE = { x: -0.4, z: -1.05 };
-const FOOT_HALF = 0.06;            // half the width of a boot (you stand side-on to the crease)
 
 export class BattingSession {
   constructor(game, { kind = 'nets', title = 'Nets · Batting', innings = null, bowler = 'machine', fielders = null, aiBowler = null, onDone = null } = {}) {
@@ -46,6 +46,8 @@ export class BattingSession {
     this.done = false;
     this.crease = { x: 0, z: 0 };
     this.advance = 0;
+    this.backFoot = new BackFoot();  // where your real back foot is (headset), src/game/crease.js
+    this.creasePin = 0;              // 0..1: your figure's back foot held on it (a stumping being judged)
     this.reviews = { player: CONFIG.match.reviews, ai: CONFIG.match.reviews };
     this.lbw = new LbwFlow(game, this.reviews);
     this.third = new ThirdUmpireFlow(game);
@@ -176,6 +178,9 @@ export class BattingSession {
   update(dt, t) {
     const g = this.game;
     if (this.done) return;
+    // Your real back foot follows your head every frame (it is planted unless your head moves it).
+    this.ground();
+    this.creasePin = clamp(this.creasePin + (this.stumpAt && (this.state === 'live' || this.state === 'review') ? 6 : -3) * (g.realDt || dt), 0, 1);
     g.timeScaleTarget = this.state === 'live' && !this.hit && !this.byes && !g.world.ball.padded && g.world.ball.active ? g.diff.timeScale : 1;
     if (this.state === 'idle') {
       if (this.autoNext() || this.timer <= 0) this.timer -= dt;
@@ -238,6 +243,7 @@ export class BattingSession {
     this.hit = null; this.byes = null; this.firstBounce = null; this.wide = false; this.crossedCrease = false;
     this.maxBatSpeedNear = 0; this.stumpAt = 0; this.stumpBroke = false; this.path.length = 0; this.shotName = '';
     this.pendingRes = null; this.reviewFlow = null;
+    this.backFoot.reset();           // taking guard
     // Extras: the AI bowler oversteps now and then; the ball after a no-ball is a free hit.
     this.freeHit = !!(this.innings && this.innings.freeHit);
     this.noBall = !!(this.innings && this.bowler === 'ai' && g.rng() < (CONFIG.match.noBallChance[g.settings.difficulty] ?? 0.03));
@@ -332,7 +338,7 @@ export class BattingSession {
           : atk.kind === 'break' ? { kind: 'stumped' } : { kind: 'runout', runs: 0, margin, end: 'batting', who: 'striker' };
         if (Math.abs(margin) < lim) {                                  // close ones go upstairs
           this.pendingRes = res; this.reviewFlow = this.third; this.state = 'review';
-          this.third.start({ kind: atk.kind === 'break' ? 'stumping' : 'run_out', end: 'batting', margin });
+          this.third.start({ kind: atk.kind === 'break' ? 'stumping' : 'run_out', end: 'batting', margin, out: margin > 0, by: this.groundBy });
         } else this.finish(res);
         return;
       }
@@ -441,27 +447,26 @@ export class BattingSession {
       sweep: this.sweepK > 0.01 ? { k: this.sweepK * this.sweepK * (3 - 2 * this.sweepK), slog: !!this.sweepSlog, reverse: !!this.sweepReverse } : null,
       ball: bi ? { id: bi.id, live: this.state === 'live' && b.active && !b.batted && !this.hit, arrive: bi.arrive, y: bi.y, length: bi.length } : null,
       hit: this.hit ? { t: this.hit.t, launch: this.hit.launch, name: this.shotName } : null,
+      // your real back foot (world z, headset only) and how far the figure's is held on it
+      crease: this.footZ != null ? { z: this.footZ, pin: this.creasePin } : null,
     };
   }
 
-  // How far (m) you are short of the popping crease. Some part of a foot
-  // grounded behind the line, or the bat grounded (the toe near the ground)
-  // behind it, and you are in — whichever is better. <= 0: in your ground.
-  shortOfGround() {
-    const g = this.game;
-    let body = battingPoppingZ - 0.05 - this.body().z;
-    if (g.input.xr) {
-      // The feet you see when you look down are the ones the umpire judges.
-      const A = g.playerBody.actor;
-      body = Infinity;
-      for (const f of [A.footL, A.footR]) if (f.y < 0.04) body = Math.min(body, battingPoppingZ - (f.z + FOOT_HALF));
-      if (body === Infinity) body = battingPoppingZ - Math.max(A.footL.z, A.footR.z);
-    }
-    if (!g.input.xr || !g.input.right.connected) return body;      // (the desktop bat doesn't come down the pitch with you)
-    const toe = g.batToe(_toe);
-    const bat = toe.y < 0.25 ? battingPoppingZ - toe.z : Infinity;
-    return Math.min(body, bat);
+  // How far (m) you are short of the popping crease (<= 0: in your ground),
+  // judged on where you really are (src/game/crease.js): in the headset your
+  // real back foot (planted where you took guard; your head moves it when you
+  // step or charge) or the real bat grounded behind the line, whichever is
+  // better; never the figure's animated feet, which play a captured shot's
+  // stride. On a monitor, where your legs are (body()).
+  ground() {
+    const g = this.game, xr = !!g.input.xr;
+    const bat = xr && g.input.right.connected ? g.batToe(_toe) : null;   // (the desktop bat doesn't come down the pitch with you)
+    const r = creaseShort({ xr, headZ: xr ? g.input.headPose.p.z : 0, rigZ: g.rigOffset ? g.rigOffset.z : 0, foot: this.backFoot, legsZ: this.body().z, bat });
+    this.footZ = r.footZ; this.groundBy = r.by;
+    return r;
   }
+
+  shortOfGround() { return this.ground().margin; }
 
   // Close run-outs go to the third umpire. Returns true if the result waits for the verdict.
   upstairs(res) {
@@ -476,7 +481,7 @@ export class BattingSession {
     if (margin == null) return false;
     this.pendingRes = res; this.reviewFlow = this.third; this.state = 'review';
     g.timeScaleTarget = 1;
-    this.third.start({ kind: 'run_out', end: res.end || 'batting', margin });
+    this.third.start({ kind: 'run_out', end: res.end || 'batting', margin, out: res.kind === 'runout' });
     return true;
   }
 

@@ -475,7 +475,7 @@ export class DRSView {
   // far the bat / foot was SHORT of the popping crease when the wicket was
   // broken: > 0 short (OUT), 0 on the line (OUT: the line belongs to the
   // umpire), < 0 grounded behind it (NOT OUT). `out` overrides that.
-  startThird({ kind = 'run_out', end = 'batting', margin = 0, viewerPos = null, out = null } = {}) {
+  startThird({ kind = 'run_out', end = 'batting', margin = 0, viewerPos = null, out = null, by = null } = {}) {
     kind = kind === 'stumping' ? 'stumping' : 'run_out';
     this._begin(kind, viewerPos);
     const isOut = out == null ? margin > -1e-6 : !!out;
@@ -487,6 +487,8 @@ export class DRSView {
       { label: 'CHECKING', text: end === 'bowling' ? "BOWLER'S END" : "STRIKER'S END", colour: 'white' },
       { label: 'GROUNDING', text: grounding, colour: isOut ? 'red' : 'green' },
     ];
+    // what the margin was measured to (by: 'bat' | 'foot', the one that counted)
+    if (by === 'bat' || by === 'foot') this._rows.push({ label: 'JUDGED ON', text: by === 'bat' ? 'THE BAT' : 'BACK FOOT', colour: 'white' });
 
     const batting = end !== 'bowling';
     const creaseZ = batting ? battingPoppingZ : bowlingPoppingZ;
@@ -506,6 +508,7 @@ export class DRSView {
     this._at(0.3, 'row', 0);
     this._at(T.check, 'phase', 'tracking');
     this._at(T.freeze, 'row', 1);
+    if (this._rows.length > 2) this._at(T.freeze + 0.3, 'row', 2);
     this._at(T.decide, 'decision', null);
     this._at(T.end, 'done', null);
     this._drawBoard();

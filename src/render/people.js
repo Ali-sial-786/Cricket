@@ -213,6 +213,8 @@ export class PlayerBodyView {
       step: A.step ? { L: A.step.L.clone(), R: A.step.R.clone(), ax: A.step.ax, open: A.step.open, init: A.step.init, mL: A.step.mL && { ...A.step.mL, from: A.step.mL.from.clone() }, mR: A.step.mR && { ...A.step.mR, from: A.step.mR.from.clone() } } : null, handX: A.handX, ps: A._ps, root: h.root.position.clone(), rq: h.root.quaternion.clone() };
     const rd = new ShotReader();
     let any = false;
+    // A stumping was judged in this clip: your back foot stays where it really was throughout.
+    const pinned = this.log.some((e) => e.t >= t0 && e.t <= t1 && e.extra && e.extra.crease && e.extra.crease.pin > 0);
     for (const e of this.log) {
       if (e.t < t0 - 2 || e.t > t1) continue;
       _ax.set(0, 1, 0).applyQuaternion(e.bq);
@@ -221,7 +223,9 @@ export class PlayerBodyView {
       if (c && Math.abs(c.t0 - fin.t0) < 0.4) { c.cls = fin.cls; c.Tc = fin.Tc; c.hitT = fin.hitT; c.locked = true; any = true; }
       let hf = null;
       if (e.head) { _q.set(e.head.q.x, e.head.q.y, e.head.q.z, e.head.q.w); hf = _hf.set(0, 0, -1).applyQuaternion(_q); hf.y = 0; if (hf.lengthSq() < 1e-6) hf = null; else hf.normalize(); }
-      A.updateBatting(e.dt, e.bp, e.bq, { t: e.t, plan: null, ball: e.ball, head: e.head ? e.head.p : null, headFwd: hf, sweep: e.extra && e.extra.sweep, shot: c });
+      const cr = e.extra && e.extra.crease;
+      const crease = cr && cr.z != null ? { z: cr.z, pin: pinned ? 1 : cr.pin } : null;
+      A.updateBatting(e.dt, e.bp, e.bq, { t: e.t, plan: null, ball: e.ball, head: e.head ? e.head.p : null, headFwd: hf, sweep: e.extra && e.extra.sweep, crease, shot: c });
       if (e.t >= t0) write(e.t, h);
     }
     // put the live figure back
@@ -246,7 +250,7 @@ export class PlayerBodyView {
     _ax.set(0, 1, 0).applyQuaternion(batQuat);
     _sw.copy(batPos).addScaledVector(_ax, -0.55);                 // the sweet spot
     const shot = this.reader.update(t, _sw, _ax, head ? head.p : null, extra);
-    this.actor.updateBatting(dt, batPos, batQuat, { t, plan: null, ball, head: head ? head.p : null, headFwd: hf, sweep: extra && extra.sweep, shot });
+    this.actor.updateBatting(dt, batPos, batQuat, { t, plan: null, ball, head: head ? head.p : null, headFwd: hf, sweep: extra && extra.sweep, crease: extra && extra.crease, shot });
     // what went in, for re-playing the shot in a replay once it is known
     const L = this.log;
     if (L.length && t < L[L.length - 1].t) L.length = 0;

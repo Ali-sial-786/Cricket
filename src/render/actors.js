@@ -615,6 +615,14 @@ export class BowlerActor extends Actor {
 const LIFT = [[-0.3, 0], [0, 1], [0.2, 0]];
 
 // ---------------------------------------------------------------- batters
+// While a stumping is judged (and in its replay) your figure's back foot (R)
+// is put where your real back foot is (src/game/crease.js BackFoot), so the
+// stride a captured shot plays cannot show it over the line when you were in.
+// crease: { z (world), pin 0..1 } from BattingSession.bodyState(), or null.
+function pinBack(foot, crease) {
+  if (!crease || crease.z == null || !(crease.pin > 0)) return;
+  foot.z = mix(foot.z, crease.z, Math.min(1, crease.pin));
+}
 const STANCE = { footL: [-0.31, -1.43], footR: [-0.35, -0.95] };
 const STANCE_MID = [(STANCE.footL[0] + STANCE.footR[0]) / 2, (STANCE.footL[1] + STANCE.footR[1]) / 2];
 const _mi = new THREE.Matrix4(), _yq = new THREE.Vector3(), _zAxis = new THREE.Vector3(0, 0, 1);
@@ -761,6 +769,8 @@ export class BatterActor extends Actor {
     }
     const ankleY = h.ankleHeight * sc;
     M.L.y = Math.max(M.L.y, ankleY * 0.95); M.R.y = Math.max(M.R.y, ankleY * 0.95);
+    // a stumping being judged: the back foot where yours really is, not where the capture strides it
+    const kz = M.R.z; pinBack(M.R, opts.crease); M.kR.z += M.R.z - kz;
     // the pelvis takes up most of the difference between the capture's head and yours
     const Hg = _hp.copy(M.H);
     if (opts.head) {
@@ -1088,6 +1098,7 @@ export class BatterActor extends Actor {
       H.set(hx, realY - drop, opts.head.z);
       heading = this.stepFeet(dt, H, batPos, fl, fr, !!(opts.sweep && opts.sweep.k > 0.05));
       open = this.step.open;
+      pinBack(fr, opts.crease);
       const wide = Math.hypot(fl.x - fr.x, fl.z - fr.z) || 1;
       weight = clamp(0.5 + ((H.x - (fl.x + fr.x) / 2) * (fl.x - fr.x) + (H.z - (fl.z + fr.z) / 2) * (fl.z - fr.z)) / (wide * wide) * 0.9, 0.2, 0.8);
     } else {
