@@ -745,9 +745,8 @@ export class Game {
     const runnerOut = this.batterView.runnerOnly && this.batterView.shown;     // a runner has taken over
     if (!replaying) {
       if (batting || deskThird) {
-        const hp = this.input.headPose.p;
-        const shift = this.input.xr ? { x: clamp(hp.x + 0.4, -1.2, 1.2), z: clamp(hp.z + 1.05, -2.2, 1.2), crouch: clamp(1.62 - hp.y, 0, 0.5) } : null;
-        this.playerBody.update(pdt || 1e-4, this.simTime, this.batMesh.position, this.batMesh.quaternion, lookBall, shift);
+        this.playerBody.update(pdt || 1e-4, this.simTime, this.batMesh.position, this.batMesh.quaternion, lookBall, this.input.xr ? this.input.headPose : null,
+          this.session && this.session.bodyState ? this.session.bodyState() : null);
       }
       this.playerBody.show((deskThird || (behind && batting)) && !runnerOut);
       this.playerBody.actor.h.replayVisible = batting && !runnerOut;      // replays show your body

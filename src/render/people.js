@@ -6,7 +6,7 @@ import { toV3, toQ } from './util.js';
 import { sstep, clamp } from './anim.js';
 import { CONFIG } from '../config.js';
 
-const _p = new THREE.Vector3(), _q = new THREE.Quaternion(), _look = new THREE.Vector3();
+const _p = new THREE.Vector3(), _q = new THREE.Quaternion(), _look = new THREE.Vector3(), _hf = new THREE.Vector3();
 
 // AI striker: posed around the AIBatter's analytic bat; runs when runs are taken.
 export class BatterView {
@@ -197,9 +197,15 @@ export class PlayerBodyView {
     this.actor.visible = false;
   }
   show(v) { this.visible = v; this.actor.visible = v; this.actor.bat.visible = false; }
-  // shift: {x, z, crouch} — follow where you are standing (VR); null on desktop.
-  update(dt, t, batPos, batQuat, ball, shift = null) {
-    this.actor.updateBatting(dt, batPos, batQuat, { t, plan: null, ball, shift });
+  // head: your headset pose {p, q} (VR), or null on a monitor. extra: { sweep }.
+  update(dt, t, batPos, batQuat, ball, head = null, extra = null) {
+    let hf = null;
+    if (head) {
+      _q.set(head.q.x, head.q.y, head.q.z, head.q.w);
+      hf = _hf.set(0, 0, -1).applyQuaternion(_q); hf.y = 0;
+      if (hf.lengthSq() < 1e-6) hf = null; else hf.normalize();
+    }
+    this.actor.updateBatting(dt, batPos, batQuat, { t, plan: null, ball, head: head ? head.p : null, headFwd: hf, sweep: extra && extra.sweep });
     this.actor.bat.visible = false;
   }
 }
