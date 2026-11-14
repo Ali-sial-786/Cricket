@@ -4,11 +4,12 @@ import * as THREE from 'three';
 import { CONFIG } from '../config.js';
 import { trackLbw, umpireDecision, reviewOutcome, lawOut } from './lbw.js';
 
-// Has an unbatted ball reached the batter's legs? (bx, bz) = where the batter stands.
-export function padHit(ball, bx, bz) {
+// Has an unbatted ball reached the batter's legs? (bx, bz) = where the batter
+// stands. The box reaches `front` m toward the bowler and `back` m behind.
+export function padHit(ball, bx, bz, { halfX = 0.2, front = 0.24, back = 0.24, top = 0.74 } = {}) {
   if (!ball.active || ball.batted || ball.padded || ball.vel.z <= 0) return false;
   const p = ball.pos;
-  return p.y < 0.74 && Math.abs(p.x - bx) < 0.2 && Math.abs(p.z - bz) < 0.24;
+  return p.y < top && Math.abs(p.x - bx) < halfX && p.z > bz - front && p.z < bz + back;
 }
 
 // Take the pace off the ball after it hits the pad.

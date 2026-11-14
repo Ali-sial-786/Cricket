@@ -16,6 +16,7 @@ import { loadSettings, saveSettings, loadCalibration, saveCalibration } from './
 import { computeBatOffset, defaultBatOffset, computeRig, computeRigFacing, headForward } from './calibration.js';
 import { LENGTH_PRESETS, LINE_PRESETS } from '../physics/bowlingMachine.js';
 import { createSession, startMatch } from './modes.js';
+import { buildHelmetGrille, PlayerBowlerActor, NearCull } from '../render/viewModes.js';
 import { MRPlacer } from '../xr/mr.js';
 import { AIBatter } from './aiBatter.js';
 import { BatterView, BowlerView, FieldView, NonStrikerView, PlayerBodyView } from '../render/people.js';
@@ -82,7 +83,18 @@ export class Game {
     this.umpires = new UmpireView(scene);
     this.drs = new DRSView(scene);
     this.playerBody = new PlayerBodyView(scene);
+    this.playerBowler = new PlayerBowlerActor(scene);   // your body when you bowl (third person / replays)
     this.particles = new Particles(scene);
+    // The headset camera hangs off its own rig so it can sit behind your
+    // player while the controllers (and the game) stay at the crease.
+    this.camRig = new THREE.Group();
+    this.camRig.name = 'cameraRig';
+    rig.add(this.camRig);
+    this.camRig.add(camera);
+    this.eye = { p: new THREE.Vector3(0, 1.6, 0), q: new THREE.Quaternion() };
+    this.grille = buildHelmetGrille();
+    scene.add(this.grille);
+    this.nearCull = new NearCull();
     this.ballOverride = null;   // fielding drives the ball view after a catch / pick-up
 
     this.input = new InputManager(renderer, rig, camera, dom);
@@ -108,6 +120,7 @@ export class Game {
     });
     this._hands = [new Vec3(), new Vec3()];
     this.applyDifficulty();
+    this._lastView = this.settings.view;
 
     this.simTime = 0;
     this.lastNow = null;
@@ -148,9 +161,21 @@ export class Game {
 
   // Difficulty changes the player's bat hit-zone (invisible assist).
   applyDifficulty() {
-    const a = this.diff.batAssist;
-    const c = { ...CONFIG.bat, bladeWidth: CONFIG.bat.bladeWidth * a, bladeThickness: CONFIG.bat.bladeThickness * (1 + (a - 1) * 0.6), sweetSpotSigma: CONFIG.bat.sweetSpotSigma * (1 + (a - 1) * 0.8) };
+    const a = this.diff.batAssist, B = CONFIG.bat;
+    const lvl = CONFIG.contactAssist[this.settings.contactAssist] || CONFIG.contactAssist.normal;
+    const c = {
+      ...B, bladeWidth: B.bladeWidth * a, bladeThickness: B.bladeThickness * (1 + (a - 1) * 0.6), sweetSpotSigma: B.sweetSpotSigma * (1 + (a - 1) * 0.8),
+      bladeLength: B.bladeLength + lvl.toe, sweetSpotFromToe: B.sweetSpotFromToe + lvl.toe,     // invisible extra toe
+    };
     this.playerBat.geom = new BatGeometry(c);
+    this.playerBat.assist = lvl.capture > 0 || lvl.magnet > 0 ? { capture: lvl.capture, magnet: lvl.magnet } : null;
+  }
+
+  // Distance (m) from a world point to the surface of your bat as the physics sees it.
+  batDistance(p) {
+    const pose = this.playerBatProvider.curr.pose;
+    pose.toLocal(_bd, p);
+    return this.playerBat.geom.sdf(_bd);
   }
 
   // Unit vector out of the right palm (world), from the calibrated bat face.
@@ -171,6 +196,60 @@ export class Game {
     _off.copy(base);
     if (this.settings.batAngleDeg) _off.multiply(_tilt.setFromAxisAngle(_xAxis, this.settings.batAngleDeg * DEG));
     return _off;
+  }
+
+  // ------------------------------------------------------------- view modes
+  // 'eyes' | 'helmet' | 'behind', as it applies right now (menus, catches
+  // and replays are always seen through your own eyes).
+  viewMode() {
+    const v = this.settings.view;
+    if (v !== 'behind') return v;
+    const live = this.state === 'play' && this.session && !this.ui.menuOpen && !this.viewOverride && !(this.replay && this.replay.active) && !this.mr;
+    return live ? 'behind' : 'eyes';
+  }
+
+  // Put the camera rig where the view mode wants it (called every frame).
+  applyView() {
+    const mode = this.viewMode();
+    if (this.input.xr) {
+      let x = 0, y = 0, z = 0;
+      if (mode === 'behind') {
+        const D = this.session.isBowling ? CONFIG.view.behindBowling : CONFIG.view.behindBatting;
+        const yaw = this.rig.rotation.y, c = Math.cos(yaw), s = Math.sin(yaw);
+        x = D[0] * c - D[2] * s; y = D[1]; z = D[0] * s + D[2] * c;    // world offset -> rig space
+      }
+      const cp = this.camRig.position;
+      if (cp.x !== x || cp.y !== y || cp.z !== z) { cp.set(x, y, z); this.camRig.updateMatrixWorld(true); }
+    } else {
+      if (this.camRig.position.lengthSq() > 0) this.camRig.position.set(0, 0, 0);
+      if (this.settings.view !== this._lastView) {
+        // On a monitor the setting picks the matching camera (C still cycles).
+        this.desktopView = this.settings.view === 'behind' ? (this.end === 'bowling' ? 3 : 0) : this.end === 'bowling' ? 0 : 1;
+        this.placeDesktopCamera();
+      }
+    }
+    this._lastView = this.settings.view;
+  }
+
+  // Where your eyes really are this frame (after the camera rig moved).
+  updateEye() {
+    if (this.input.xr) {
+      this.rig.updateMatrixWorld(true);
+      const hr = this.input.headRef;
+      this.eye.p.set(hr.p.x, hr.p.y, hr.p.z).applyMatrix4(this.camRig.matrixWorld);
+      this.camRig.getWorldQuaternion(_eq);
+      this.eye.q.set(hr.q.x, hr.q.y, hr.q.z, hr.q.w).premultiply(_eq);
+    } else {
+      this.camera.updateMatrixWorld(true);
+      this.camera.getWorldPosition(this.eye.p);
+      this.camera.getWorldQuaternion(this.eye.q);
+    }
+    // Helmet grille: only when batting, through your own eyes.
+    const batting = this.state === 'play' && this.session && !this.session.isBowling;
+    const firstPerson = this.input.xr ? this.viewMode() === 'helmet' : this.settings.view === 'helmet' && (this.desktopView % 5) === 1 && this.end === 'batting';
+    const g = this.grille;
+    g.visible = !!(firstPerson && batting && !this.viewOverride && !(this.replay && this.replay.active));
+    if (g.visible) { g.position.copy(this.eye.p); g.quaternion.copy(this.eye.q); }
   }
 
   footerText() {
@@ -277,7 +356,7 @@ export class Game {
     this.rig.rotation.set(0, 0, 0);
     const c = this.camera;
     const views = this.end === 'bowling'
-      ? [[[0.75, 1.72, -20.3], [0.0, 0.9, 0.0]], [[9, 3.5, -14], [0, 0.8, -6]], [[0.4, 2.6, 6.0], [0, 0.8, -12]]]
+      ? [[[0.75, 1.72, -20.3], [0.0, 0.9, 0.0]], [[9, 3.5, -14], [0, 0.8, -6]], [[0.4, 2.6, 6.0], [0, 0.8, -12]], [[1.1, 2.5, -23.6], [0.0, 0.8, -2.0]]]
       : [[[0.7, 3.3, 7.2], [0.0, 0.9, -12]], [[-0.42, 1.62, -0.85], [0.25, 1.35, -19]], [[6.5, 1.6, -1.6], [-0.2, 0.9, -1.4]], [[0.4, 2.6, -24], [0, 0.8, -2]], [[0, 55, -10], [0, 0, -10.01]]];
     const v = views[this.desktopView % views.length];
     c.position.set(...v[0]);
@@ -424,6 +503,8 @@ export class Game {
       this.world.advanceTo(this.simTime);
       for (const e of this.world.drainEvents()) this.onPhysicsEvent(e);
     }
+    this.applyView();
+    this.updateEye();
     this.updateViews(sdt, paused);
     this.umpires.update(paused ? 0 : realDt, this.clock);
     this.ui.updatePointer(this.input);
@@ -560,9 +641,29 @@ export class Game {
     if (!this.session || !this.session.field) {
       if (!this.session || this.session.isBowling || this.session.bowler !== 'ai') this.figures.bowler.show(false);
     }
-    const thirdPerson = !this.input.xr && (this.desktopView % 5) !== 1 && !(this.session && this.session.isBowling) && this.end === 'batting';
-    this.playerBody.show(thirdPerson);
-    if (thirdPerson) this.playerBody.update(pdt || 1e-4, this.simTime, this.batMesh.position, this.batMesh.quaternion, lookBall);
+    // Your own body: posed every frame you play (replays show it) but only
+    // drawn when you are not looking out through its eyes.
+    const behind = this.viewMode() === 'behind';
+    const replaying = !!(this.replay && this.replay.active);
+    const batting = !!(this.session && !this.session.isBowling && this.end === 'batting');
+    const deskThird = !this.input.xr && (this.desktopView % 5) !== 1 && !(this.session && this.session.isBowling) && this.end === 'batting';
+    const runnerOut = this.batterView.runnerOnly && this.batterView.shown;     // a runner has taken over
+    if (!replaying) {
+      if (batting || deskThird) {
+        const hp = this.input.headPose.p;
+        const shift = this.input.xr ? { x: clamp(hp.x + 0.4, -1.2, 1.2), z: clamp(hp.z + 1.05, -2.2, 1.2), crouch: clamp(1.62 - hp.y, 0, 0.5) } : null;
+        this.playerBody.update(pdt || 1e-4, this.simTime, this.batMesh.position, this.batMesh.quaternion, lookBall, shift);
+      }
+      this.playerBody.show((deskThird || (behind && batting)) && !runnerOut);
+      const bowling = !!(this.session && this.session.isBowling);
+      if (bowling) {
+        const R = this.input.right, L = this.input.left;
+        this.playerBowler.update(pdt || 1e-4, this.simTime, this.input.headPose, R.connected ? R.gripPose.p : null, L.connected && this.input.xr ? L.gripPose.p : null, lookBall);
+      }
+      this.playerBowler.visible = bowling && (behind || (!this.input.xr && (this.desktopView % 4) === 3));
+    }
+    // Nobody (and no bat) is ever drawn inside your head.
+    this.nearCull.update(this.eye.p, Humanoid.all);
   }
 
   // Kit colours: the player's team is 'home'.
@@ -642,6 +743,8 @@ export class Game {
 const _identity = new Quat();
 const _off = new Quat(), _tilt = new Quat(), _xAxis = new Vec3(1, 0, 0);
 const _batPose = new Pose();
+const _bd = new Vec3();
+const _eq = new THREE.Quaternion();
 const _render = new Vec3();
 const _look = new THREE.Vector3();
 const _dbs = new THREE.Vector2();
@@ -710,6 +813,13 @@ function makeActions(game) {
       else { s.sound = true; s.commentary = true; }
       g.sfx.setEnabled(s.sound);
       if (!s.sound || !s.commentary) g.commentary.stop();
+      persist();
+    },
+    cycle: (key, values, dir) => {
+      const i = values.indexOf(g.settings[key]);
+      g.settings[key] = values[(Math.max(0, i) + dir + values.length) % values.length];
+      if (key === 'contactAssist') g.applyDifficulty();
+      if (key === 'view') g.applyView();
       persist();
     },
     toggle: (key) => { g.settings[key] = !g.settings[key]; if (key === 'sound') g.sfx.setEnabled(g.settings.sound); persist(); },

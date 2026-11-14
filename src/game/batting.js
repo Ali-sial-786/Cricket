@@ -17,6 +17,8 @@ import { machineDelivery } from '../physics/bowlingMachine.js';
 import { predict } from '../physics/trajectory.js';
 import { LbwFlow, padHit, deflectOffPad } from './lbwFlow.js';
 import { ThirdUmpireFlow } from './thirdUmpire.js';
+
+const PLAYER_PAD = { halfX: 0.15, front: 0.1, back: 0.26, top: 0.7 };
 import { Innings } from './scoring.js';
 
 const KMH = (v) => Math.round(msToKmh(v));
@@ -258,8 +260,10 @@ export class BattingSession {
     }
     // Struck on the pad: LBW appeal (match modes, not on easy).
     if (this.field && g.diff.lbwAgainstPlayer && !this.hit) {
+      // Your head stands in for your legs, so the box is kept tight and sits
+      // under / behind it, and the bat always gets the first go at the ball.
       const body = this.body();
-      if (padHit(b, body.x, body.z)) {
+      if (padHit(b, body.x, body.z, PLAYER_PAD) && g.batDistance(b.pos) > 0.3) {
         const impact = b.clone();
         deflectOffPad(b, g.rng);
         if (this.noBall || this.freeHit) { this.finish({ kind: 'beaten', padded: true }); return; }

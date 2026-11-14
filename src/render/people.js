@@ -188,9 +188,9 @@ export class PlayerBodyView {
     this.actor.visible = false;
   }
   show(v) { this.visible = v; this.actor.visible = v; this.actor.bat.visible = false; }
-  update(dt, t, batPos, batQuat, ball) {
-    if (!this.visible) return;
-    this.actor.updateBatting(dt, batPos, batQuat, { t, plan: null, ball });
+  // shift: {x, z, crouch} — follow where you are standing (VR); null on desktop.
+  update(dt, t, batPos, batQuat, ball, shift = null) {
+    this.actor.updateBatting(dt, batPos, batQuat, { t, plan: null, ball, shift });
     this.actor.bat.visible = false;
   }
 }

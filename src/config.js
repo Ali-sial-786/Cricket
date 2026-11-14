@@ -51,13 +51,13 @@ export const CONFIG = {
   bat: {
     // Geometry (bat local frame: origin = controller grip point, +Y toward
     // handle top, +Z = hitting face normal, +X across the face).
-    bladeLength: 0.56,
-    bladeWidth: 0.125,       // a touch wider than a real bat (10.8 cm) so contact is easier in VR
+    bladeLength: 0.61,       // a little longer than a real blade (0.56) so low balls don't sneak under the toe
+    bladeWidth: 0.14,        // wider than a real bat (10.8 cm) so contact is easier in VR
     bladeThickness: 0.050,
     edgeRadius: 0.012,       // rounding of the blade edges (affects edge deflection)
     handleLength: 0.30,
     handleRadius: 0.017,
-    gripFromHandleTop: 0.14, // where your hand (controller) sits below the handle top
+    gripFromHandleTop: 0.12, // where your hand (controller) sits below the handle top
     sweetSpotFromToe: 0.17,
 
     // Response
@@ -133,6 +133,13 @@ export const CONFIG = {
     ballHoldOffset: [0, -0.02, -0.06], // ball position in grip space while held
   },
 
+  view: {
+    // Settings -> View 'behind the player': where the headset camera sits
+    // relative to you (world metres: x across, y up, z along the pitch).
+    behindBatting: [-0.6, 0.35, 2.1],    // behind and to the leg side of the batter
+    behindBowling: [0.55, 0.4, -2.4],    // behind the bowler, over the left shoulder
+  },
+
   render: {
     ballMinAngleDeg: 0.34,   // visibility assist: ball is drawn at least this big (physics unchanged)
     crowdMax: 3000,          // instanced spectators (36 triangles each)
@@ -182,6 +189,18 @@ export const CONFIG = {
   },
 
   // What each difficulty changes for the PLAYER.
+  // Contact assist for YOUR bat (Settings -> Contact assist). The physics bat is
+  // the one you see plus an invisible margin:
+  //   capture  m around the blade in which a passing ball still counts as hit
+  //   magnet   0..1, how far such a contact is pulled toward the sweet spot
+  //   toe      m of invisible blade below the toe (low balls)
+  contactAssist: {
+    off:    { capture: 0,    magnet: 0,    toe: 0 },
+    low:    { capture: 0.05, magnet: 0.15, toe: 0.06 },
+    normal: { capture: 0.08, magnet: 0.3,  toe: 0.12 },
+    high:   { capture: 0.12, magnet: 0.45, toe: 0.18 },
+  },
+
   difficulty: {
     //         ball flight slowed    bat hit-zone   AI pace    fielders   AI batter aggression
     easy:   { timeScale: 0.70, batAssist: 1.55, paceScale: 0.88, fieldScale: 0.85, chase: 1.7, lbwAgainstPlayer: false },

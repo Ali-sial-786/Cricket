@@ -7,6 +7,12 @@ import { CONFIG } from '../config.js';
 const fmt1 = (v) => (Math.round(v * 10) / 10).toFixed(1);
 const signed = (v, d = 2) => (v > 0 ? '+' : '') + v.toFixed(d);
 
+const CONTACT = ['off', 'low', 'normal', 'high'];
+const VIEWS = ['eyes', 'helmet', 'behind'];
+const VIEW_NAMES = { eyes: 'your eyes', helmet: 'eyes + helmet grille', behind: 'behind the player' };
+const REPLAYS = ['off', 'bowler', 'batter'];
+const REPLAY_NAMES = { off: 'off', bowler: "bowler's view", batter: "batter's view" };
+
 export class UI {
   constructor(game) {
     this.game = game;
@@ -284,26 +290,30 @@ export class UI {
       btn('back', { x: r.x + half + 12, y: r.y, w: half, h: r.h }, 'Back', () => this.go('main'));
       P.set(W, 'Bowling machine');
     } else if (this.page === 'settings') {
-      const L = grid(P, { top: 0.165, bottom: 0.05, cols: 2, rows: 6 });
+      const L = grid(P, { top: 0.165, bottom: 0.05, cols: 2, rows: 8 });
       const xrRate = g.xrManager && g.xrManager.frameRate ? `${g.xrManager.frameRate} Hz target` : 'no target';
       const vel = g.input.xr ? (g.input.right.hasXRVel ? 'XR' : 'pose') : 'desktop';
       label(P.W / 2, P.H * 0.122, `Frame ${Math.round(g.stats.fps)} Hz (${xrRate}) · controller velocity: ${vel} · v${g.version}`, { align: 'center', size: 22, color: '#8fb3d1' });
       step('diff', L(0, 0), 'Difficulty', s.difficulty, () => g.actions.difficulty(-1), () => g.actions.difficulty(1));
       step('overs', L(1, 0), 'Overs', String(s.overs), () => g.actions.setting('overs', -1, 1, 5), () => g.actions.setting('overs', 1, 1, 5));
-      step('batAngle', L(0, 1), 'Bat angle', `${signed(s.batAngleDeg, 0)}°`, () => g.actions.setting('batAngleDeg', -2, -30, 30), () => g.actions.setting('batAngleDeg', 2, -30, 30));
-      step('batSpeed', L(1, 1), 'Bat power', `×${s.batSpeedMultiplier.toFixed(2)}`, () => g.actions.setting('batSpeedMultiplier', -0.05, 0.7, 2.5), () => g.actions.setting('batSpeedMultiplier', 0.05, 0.7, 2.5));
-      step('pace', L(0, 2), 'Bowl pace', `×${s.paceMultiplier.toFixed(2)}`, () => g.actions.setting('paceMultiplier', -0.1, 1.0, 5), () => g.actions.setting('paceMultiplier', 0.1, 1.0, 5));
-      step('hap', L(1, 2), 'Haptics', `${Math.round(s.hapticsScale * 100)}%`, () => g.actions.setting('hapticsScale', -0.25, 0, 1), () => g.actions.setting('hapticsScale', 0.25, 0, 1));
-      btn('assist', L(0, 3), `Bowling aim assist: ${s.aimAssist ? 'ON' : 'OFF'}`, () => g.actions.toggle('aimAssist'), { active: s.aimAssist });
-      btn('marker', L(1, 3), `Aim marker: ${s.aimMarker ? 'ON' : 'OFF'}`, () => g.actions.toggle('aimMarker'), { active: s.aimMarker });
-      const hw = (L(0, 4).w - 12) / 2, r4 = L(0, 4);
-      btn('trail', { x: r4.x, y: r4.y, w: hw, h: r4.h }, `Trail: ${s.trail ? 'ON' : 'OFF'}`, () => g.actions.toggle('trail'), { active: s.trail });
-      btn('boost', { x: r4.x + hw + 12, y: r4.y, w: hw, h: r4.h }, `Ball boost: ${s.ballBoost ? 'ON' : 'OFF'}`, () => g.actions.toggle('ballBoost'), { active: s.ballBoost });
-      btn('sound', L(1, 4), !s.sound ? 'Sound: OFF' : s.commentary ? 'Sound + commentary' : 'Sound, no commentary', () => g.actions.soundCycle(), { active: s.sound });
-      btn('relcal', L(0, 5), 'Calibrate bowling release', () => g.actions.bowlCalib());
+      step('contact', L(0, 1), 'Contact assist', s.contactAssist, () => g.actions.cycle('contactAssist', CONTACT, -1), () => g.actions.cycle('contactAssist', CONTACT, 1));
+      step('view', L(1, 1), 'View', VIEW_NAMES[s.view] || s.view, () => g.actions.cycle('view', VIEWS, -1), () => g.actions.cycle('view', VIEWS, 1));
+      step('replay', L(0, 2), 'Replays', REPLAY_NAMES[s.replay] || s.replay, () => g.actions.cycle('replay', REPLAYS, -1), () => g.actions.cycle('replay', REPLAYS, 1));
+      step('batAngle', L(1, 2), 'Bat angle', `${signed(s.batAngleDeg, 0)}°`, () => g.actions.setting('batAngleDeg', -2, -30, 30), () => g.actions.setting('batAngleDeg', 2, -30, 30));
+      step('batSpeed', L(0, 3), 'Bat power', `×${s.batSpeedMultiplier.toFixed(2)}`, () => g.actions.setting('batSpeedMultiplier', -0.05, 0.7, 2.5), () => g.actions.setting('batSpeedMultiplier', 0.05, 0.7, 2.5));
+      step('pace', L(1, 3), 'Bowl pace', `×${s.paceMultiplier.toFixed(2)}`, () => g.actions.setting('paceMultiplier', -0.1, 1.0, 5), () => g.actions.setting('paceMultiplier', 0.1, 1.0, 5));
+      step('hap', L(0, 4), 'Haptics', `${Math.round(s.hapticsScale * 100)}%`, () => g.actions.setting('hapticsScale', -0.25, 0, 1), () => g.actions.setting('hapticsScale', 0.25, 0, 1));
       const gx = s.guardX;
       const guardName = gx < -0.08 ? 'leg' : gx < -0.02 ? 'mid-leg' : gx < 0.03 ? 'middle' : 'mid-off';
-      step('guard', L(1, 5), 'Guard', `${guardName} ${gx >= 0 ? '+' : ''}${Math.round(gx * 100)}cm`, () => g.actions.setting('guardX', -0.03, -0.2, 0.15), () => g.actions.setting('guardX', 0.03, -0.2, 0.15));
+      step('guard', L(1, 4), 'Guard', `${guardName} ${gx >= 0 ? '+' : ''}${Math.round(gx * 100)}cm`, () => g.actions.setting('guardX', -0.03, -0.2, 0.15), () => g.actions.setting('guardX', 0.03, -0.2, 0.15));
+      btn('assist', L(0, 5), `Bowling aim assist: ${s.aimAssist ? 'ON' : 'OFF'}`, () => g.actions.toggle('aimAssist'), { active: s.aimAssist });
+      btn('marker', L(1, 5), `Aim marker: ${s.aimMarker ? 'ON' : 'OFF'}`, () => g.actions.toggle('aimMarker'), { active: s.aimMarker });
+      const hw = (L(0, 6).w - 12) / 2, r4 = L(0, 6);
+      btn('trail', { x: r4.x, y: r4.y, w: hw, h: r4.h }, `Trail: ${s.trail ? 'ON' : 'OFF'}`, () => g.actions.toggle('trail'), { active: s.trail });
+      btn('boost', { x: r4.x + hw + 12, y: r4.y, w: hw, h: r4.h }, `Ball boost: ${s.ballBoost ? 'ON' : 'OFF'}`, () => g.actions.toggle('ballBoost'), { active: s.ballBoost });
+      btn('sound', L(1, 6), !s.sound ? 'Sound: OFF' : s.commentary ? 'Sound + commentary' : 'Sound, no commentary', () => g.actions.soundCycle(), { active: s.sound });
+      btn('relcal', L(0, 7), 'Calibrate bowling release', () => g.actions.bowlCalib());
+      btn('recal', L(1, 7), 'Calibrate bat', () => g.actions.calibrate());
       label(P.W * 0.5, P.H * 0.975, 'Y / Esc: back to the game', { align: 'center', size: 20, color: '#7f8fa0' });
       btn('back', { x: P.W - 150, y: 14, w: 130, h: 56 }, 'Back', () => this.go('main'));
       P.set(W, 'Settings');

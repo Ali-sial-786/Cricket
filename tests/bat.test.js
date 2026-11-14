@@ -118,7 +118,7 @@ test('edge contact deflects the ball sideways and kills pace', () => {
   const v = kmh(130);
   // Bat local +X is world -X for this pose; offset the ball to the world -X edge.
   const middle = runExact({ cfg, motion, tStart: 0, tEnd: 0.6, launch: { pos: new Vec3(0, 0.6, -12), vel: new Vec3(0, 0, v) } }).bat;
-  const edge = runExact({ cfg, motion, tStart: 0, tEnd: 0.6, launch: { pos: new Vec3(-0.051, 0.6, -12), vel: new Vec3(0, 0, v) } }).bat;
+  const edge = runExact({ cfg, motion, tStart: 0, tEnd: 0.6, launch: { pos: new Vec3(-geom.bladeHalf.x * 0.82, 0.6, -12), vel: new Vec3(0, 0, v) } }).bat;
   assert.ok(edge, 'edge contact expected');
   assert.ok(edge.isEdge, 'flagged as edge');
   const dev = Math.asin(Math.abs(edge.vel.x) / edge.vel.length()) * 180 / Math.PI;
@@ -202,4 +202,32 @@ test('interpolated provider lerps position and slerps rotation between frames', 
   assert.ok(Math.abs(mid.p.x - 0.5) < 1e-9);
   const expect = new Quat().setFromAxisAngle(new Vec3(0, 1, 0), Math.PI / 4);
   assert.ok(mid.q.angleTo(expect) < 1e-6);
+});
+
+test('contact assist: a ball passing just under the toe or beside the blade is still played', async () => {
+  const { PhysicsWorld, InterpolatedBatProvider } = await import('../src/physics/world.js');
+  const { Pose, Quat } = await import('../src/physics/math.js');
+  const cfg = noGravity();
+  const geom = new BatGeometry(cfg.bat);
+  // Bat hanging still, face to the bowler (+Z of the bat = -Z world).
+  const q = new Quat(0, 1, 0, 0);
+  const hand = new Vec3(0, 0.95, -1.5);
+  const toeY = hand.y + geom.toeY;
+  const shot = (pos, assist) => {
+    const w = new PhysicsWorld(cfg, 1);
+    const prov = new InterpolatedBatProvider();
+    const bat = w.addBat('player', prov, geom);
+    bat.assist = assist;
+    prov.snap(0, new Pose(hand.clone(), q.clone()), hand.clone());
+    w.launch({ pos, vel: new Vec3(0, 0, kmh(130)) });
+    for (let t = 1 / 90; t < 0.6; t += 1 / 90) { prov.push(t, new Pose(hand.clone(), q.clone()), hand, new Vec3(), new Vec3()); w.advanceTo(t); }
+    return w.drainEvents().find((e) => e.type === 'bat');
+  };
+  const under = new Vec3(0, toeY - 0.036 - 0.03, -12);         // 3 cm under the toe
+  const beside = new Vec3(geom.bladeHalf.x + 0.036 + 0.03, 0.6, -12);
+  assert.equal(shot(under, null), undefined, 'misses without assist');
+  assert.equal(shot(beside, null), undefined, 'misses without assist');
+  assert.ok(shot(under, { capture: 0.08, magnet: 0.3 }), 'played with assist');
+  assert.ok(shot(beside, { capture: 0.08, magnet: 0.3 }), 'played with assist');
+  assert.equal(shot(new Vec3(0, toeY - 0.036 - 0.15, -12), { capture: 0.08, magnet: 0.3 }), undefined, 'a clear miss is still a miss');
 });

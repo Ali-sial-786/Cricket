@@ -87,7 +87,11 @@ export class FieldController {
     L.onHit(ball, t, pred);
     this.pred = pred;
     this.delivering = false;
-    const striker = g.batterView.runnerOnly ? new Vec3(-0.4, 0, -1.1) : new Vec3(g.batterView.actor.pos.x, 0, g.batterView.actor.pos.z);
+    // When you bat, a runner in your kit sets off from where you are standing.
+    const hp = g.input.headPose.p;
+    const striker = g.batterView.runnerOnly
+      ? (g.input.xr ? new Vec3(hp.x, 0, hp.z) : new Vec3(-0.4, 0, -1.1))
+      : new Vec3(g.batterView.actor.pos.x, 0, g.batterView.actor.pos.z);
     if (g.batterView.runnerOnly) g.batterView.show(true);
     this.runs.begin(t, striker, g.nonStrikerView.visible ? g.nonStrikerView.actor.pos : null);
     if (!this.playerBatting) {

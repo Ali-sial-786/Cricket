@@ -32,7 +32,10 @@ export function defaultSettings() {
     ballBoost: true,               // draw the ball at a minimum angular size far away
     sound: true,
     overs: 5,
-  bowlerType: 'fast',          // your bowler: fast | medium | offspin | legspin
+    bowlerType: 'fast',            // your bowler: fast | medium | offspin | legspin
+    contactAssist: 'normal',       // off | low | normal | high (see CONFIG.contactAssist)
+    view: 'eyes',                  // eyes | helmet (eyes behind a helmet grille) | behind (third person)
+    replay: 'bowler',              // off | bowler | batter: replay after every ball
     commentary: true,
     seenHowTo: false,
     captions: true,

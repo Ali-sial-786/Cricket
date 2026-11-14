@@ -56,6 +56,26 @@ function makeSample() {
   return { t: 0, pose: new Pose(), grip: new Vec3(), lin: new Vec3(), ang: new Vec3() };
 }
 
+// Contact assist: move the (bat-local) ball centre toward the sweet spot by
+// `k` and onto the bat surface (exactly one ball radius out), so a near miss
+// is played as a real contact rather than a fresh-air shot or a feather edge.
+const _mn = new Vec3(), _swept = new Vec3();
+export function magnetize(geom, c, R, k) {
+  if (c.y > geom.shoulderY + 0.02) return c;                       // the handle: no help
+  const hx = geom.bladeHalf.x;
+  c.x *= 1 - k;
+  if (Math.abs(c.x) > hx + R * 0.8) c.x = Math.sign(c.x) * (hx + R * 0.8);
+  c.y = geom.sweetY + (c.y - geom.sweetY) * (1 - k);
+  c.y = Math.min(Math.max(c.y, geom.toeY + 0.012), geom.shoulderY);
+  for (let i = 0; i < 3; i++) {
+    const d = geom.sdf(c) - R;
+    if (Math.abs(d) < 1e-4) break;
+    geom.normalAt(_mn, c);
+    c.addScaled(_mn, -d);
+  }
+  return c;
+}
+
 const _pa = new Vec3(), _l0 = new Vec3(), _l1 = new Vec3(), _lc = new Vec3(),
   _lin = new Vec3(), _ang = new Vec3(), _grip = new Vec3();
 const _pose0 = new Pose(), _pose1 = new Pose(), _poseC = new Pose();
@@ -80,7 +100,10 @@ export class PhysicsWorld {
 
   // speedScale: null = use CONFIG.bat.speedMultiplier (player); AI bats pass 1.
   addBat(id, provider, geom = new BatGeometry(this.cfg.bat), speedScale = null) {
-    const bat = { id, provider, geom, enabled: true, cooldownUntil: -Infinity, speedScale, mods: null };
+    // assist: null, or { capture (m added to the ball radius when looking for
+    // contact), magnet (0..1: how far the contact is pulled toward the sweet
+    // spot) } — the player's bat only.
+    const bat = { id, provider, geom, enabled: true, cooldownUntil: -Infinity, speedScale, mods: null, assist: null };
     this.bats.push(bat);
     return bat;
   }
@@ -139,14 +162,18 @@ export class PhysicsWorld {
       bat.provider.poseAt(t1, _pose1);
       _pose0.toLocal(_l0, _pa);
       _pose1.toLocal(_l1, b.pos);
-      const s = bat.geom.sweep(_l0, _l1, R);
+      const A = bat.assist;
+      const s = bat.geom.sweep(_l0, _l1, A ? R + A.capture : R);
       if (s < 0) continue;
       const tc = t0 + s * h;
       _poseC.lerpPoses(_pose0, _pose1, s);
       _lc.lerpVectors(_l0, _l1, s);
+      _poseC.toWorld(_swept, _lc);
+      if (A) magnetize(bat.geom, _lc, R, A.magnet);
       _poseC.toWorld(b.pos, _lc);
       bat.provider.velAt(tc, _lin, _ang, _grip);
       const res = resolveBatContact(bat.geom, b, _poseC, _lc, _lin, _ang, _grip, R, this.cfg, bat.speedScale ?? this.cfg.bat.speedMultiplier, bat.mods || null);
+      if (!res && A) b.pos.copy(_swept);           // no contact after all: the ball stays on its path
       if (res) {
         bat.cooldownUntil = tc + this.cfg.bat.cooldown;
         b.batted = true;

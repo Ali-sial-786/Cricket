@@ -324,6 +324,7 @@ export class BatterActor extends Actor {
     super(scene, { headgear: 'helmet', pads: true, gloves: true, ...opts });
     this.bat = buildBatMesh();
     scene.add(this.bat);
+    this.h.extras = [this.bat];          // hidden with the figure when it is inside your head
     this.batPose = { p: new THREE.Vector3(), q: new THREE.Quaternion() };
     this.footL = new THREE.Vector3(); this.footR = new THREE.Vector3();
     this.mode = 'bat';        // 'bat' (driven by a bat pose) | 'run' | 'idle'
@@ -386,6 +387,10 @@ export class BatterActor extends Actor {
         fl.x += 0.05 * k; fl.z -= 0.14 * k; fl.y = 0.05 * Math.sin(Math.PI * k);
         hipsDrop -= 0.04 * k; lean -= 0.12 * k; weight = 0.5 + 0.08 * k;
       }
+    }
+    if (opts.shift) {                                // your body follows where you stand in the room
+      fl.x += opts.shift.x; fl.z += opts.shift.z; fr.x += opts.shift.x; fr.z += opts.shift.z;
+      hipsDrop += opts.shift.crouch || 0;
     }
     if (adv > 0.001) {                               // skipping down the pitch (and scrambling back)
       const ph = adv / 0.55 * Math.PI * 2;
