@@ -15,7 +15,13 @@ const OGG = ['bat_sweet_1', 'bat_sweet_2', 'bat_sweet_3', 'bat_edge_1', 'bat_edg
 const WAV = ['stumps', 'bails', 'gloves', 'pad', 'catch', 'drs_stinger', 'chime', 'umpire_out', 'umpire_not_out',
   'coin', 'footstep_1', 'footstep_2', 'cam_whoosh'];
 // A group name plays one of its variants at random.
-const GROUPS = { bat_sweet: 3, bat_edge: 2, bat_block: 2, applause_polite: 2, footstep: 2 };
+// Crowd reactions (assets/audio/crowd).
+const CROWD = ['crowd_aah_1', 'crowd_aah_2', 'crowd_aah_3', 'crowd_applause', 'crowd_applause_loud', 'crowd_applause_short',
+  'crowd_aww', 'crowd_cheer', 'crowd_cheer_big', 'crowd_gasp_1', 'crowd_gasp_2', 'crowd_gasp_3', 'crowd_gasp_4',
+  'crowd_gasp_voiced_1', 'crowd_gasp_voiced_2', 'crowd_groan', 'crowd_inhale', 'crowd_laugh_1', 'crowd_laugh_2',
+  'crowd_ooh_1', 'crowd_ooh_2', 'crowd_ooh_3', 'crowd_ovation', 'crowd_whoa', 'crowd_whoa_cheer'];
+const GROUPS = { bat_sweet: 3, bat_edge: 2, bat_block: 2, applause_polite: 2, footstep: 2,
+  crowd_aah: 3, crowd_gasp: 4, crowd_gasp_voiced: 2, crowd_laugh: 2, crowd_ooh: 3 };
 
 export class Samples {
   constructor(sfx) {
@@ -23,6 +29,7 @@ export class Samples {
     this.files = {};                   // name -> file
     for (const n of OGG) this.files[n] = `${n}.ogg`;
     for (const n of WAV) this.files[n] = `${n}.wav`;
+    for (const n of CROWD) this.files[n] = `crowd/${n}.ogg`;
     this.buffers = new Map();          // name -> AudioBuffer
     this.pending = new Map();          // name -> Promise<AudioBuffer | null>
     this.failed = new Set();           // names whose file is missing or won't decode

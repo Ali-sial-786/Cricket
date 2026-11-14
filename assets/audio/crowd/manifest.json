@@ -1,0 +1,240 @@
+{
+ "note": "Crowd reactions copied from the Courtside project (assets/audio/crowd). Cuts of the recordings listed below.",
+ "clips": {
+  "crowd_gasp_1": {
+   "use": "Quick gasp: dives, net cords, close calls",
+   "source_file": "crowd-gsc24-763867.mp3",
+   "seconds": 1.58
+  },
+  "crowd_gasp_2": {
+   "use": "Quick gasp",
+   "source_file": "crowd-gsc24-763869.mp3",
+   "seconds": 1.49
+  },
+  "crowd_gasp_3": {
+   "use": "Quick gasp",
+   "source_file": "crowd-gsc24-763870.mp3",
+   "seconds": 1.39
+  },
+  "crowd_gasp_4": {
+   "use": "Quick gasp",
+   "source_file": "crowd-gsc24-763871.mp3",
+   "seconds": 1.43
+  },
+  "crowd_gasp_voiced_1": {
+   "use": "Voiced gasp: saves, overhead saves",
+   "source_file": "crowd-gsc24-763875.mp3",
+   "seconds": 2.47
+  },
+  "crowd_gasp_voiced_2": {
+   "use": "Voiced gasp",
+   "source_file": "crowd-gsc24-763876.mp3",
+   "seconds": 2.23
+  },
+  "crowd_ooh_1": {
+   "use": "Unison ooh: long rallies, great gets",
+   "source_file": "crowd-oohs-264499.mp3",
+   "seconds": 1.62
+  },
+  "crowd_ooh_2": {
+   "use": "Unison ooh",
+   "source_file": "crowd-oohs-264499.mp3",
+   "seconds": 1.77
+  },
+  "crowd_ooh_3": {
+   "use": "Unison ooh",
+   "source_file": "crowd-oohs-264499.mp3",
+   "seconds": 1.86
+  },
+  "crowd_aah_1": {
+   "use": "Unison aah: admiring a long rally or a touch winner",
+   "source_file": "crowd-oohs-264499.mp3",
+   "seconds": 2.08
+  },
+  "crowd_aah_2": {
+   "use": "Unison aah",
+   "source_file": "crowd-oohs-264499.mp3",
+   "seconds": 1.66
+  },
+  "crowd_aah_3": {
+   "use": "Unison aah",
+   "source_file": "crowd-oohs-264499.mp3",
+   "seconds": 1.77
+  },
+  "crowd_whoa": {
+   "use": "Unison surprise: smashes",
+   "source_file": "crowd-gsc24-763827.mp3",
+   "seconds": 2.54
+  },
+  "crowd_whoa_cheer": {
+   "use": "Surprise into cheering: spectacular winners",
+   "source_file": "crowd-gsc24-763828.mp3",
+   "seconds": 5.66
+  },
+  "crowd_cheer": {
+   "use": "Short affirmative cheer: winners and aces",
+   "source_file": "crowd-gsc24-763830.mp3",
+   "seconds": 2.86
+  },
+  "crowd_cheer_big": {
+   "use": "Cheering and whistling: games, sets, the match",
+   "source_file": "crowd-gsc24-763829.mp3",
+   "seconds": 5.7
+  },
+  "crowd_applause_short": {
+   "use": "Brief applause: routine points",
+   "source_file": "crowd-gsc24-763811.mp3",
+   "seconds": 2.36
+  },
+  "crowd_applause": {
+   "use": "Applause: good points",
+   "source_file": "crowd-gsc24-763811.mp3",
+   "seconds": 4.5
+  },
+  "crowd_applause_loud": {
+   "use": "Loud applause: games and big points",
+   "source_file": "crowd-gsc24-763814.mp3",
+   "seconds": 7.25
+  },
+  "crowd_ovation": {
+   "use": "Applause, cheering and whistling: the match",
+   "source_file": "crowd-gsc24-763815.mp3",
+   "seconds": 11.44
+  },
+  "crowd_aww": {
+   "use": "Sigh of disappointment: errors",
+   "source_file": "crowd-gsc24-763880.mp3",
+   "seconds": 2.72
+  },
+  "crowd_groan": {
+   "use": "Groan: double faults",
+   "source_file": "crowd-gsc24-763809.mp3",
+   "seconds": 3.08
+  },
+  "crowd_inhale": {
+   "use": "Group inhale: a smash is coming",
+   "source_file": "crowd-gsc24-763855.mp3",
+   "seconds": 1.4
+  },
+  "crowd_laugh_1": {
+   "use": "Audience laugh: airballs and backboard-only bricks",
+   "source_file": "crowd-laugh-lachkonserve-1.ogg",
+   "seconds": 2.9
+  },
+  "crowd_laugh_2": {
+   "use": "Audience laugh, layered take: airballs and backboard-only bricks",
+   "source_file": "crowd-laugh-lachkonserve-1.ogg",
+   "seconds": 2.93
+  }
+ },
+ "recordings": {
+  "crowd-gsc24-763809.mp3": {
+   "title": "CRWDAngr_Crowd Groans At Bad Joke 01_ShaneVincent_GSC24_XY-AKG214-96k.wav",
+   "author": "Shane Vincent (Freesound: ShangusBurger), GameSoundCon 2024 walla session",
+   "license": "CC0-1.0",
+   "source_page": "https://freesound.org/people/ShangusBurger/sounds/763809/"
+  },
+  "crowd-gsc24-763811.mp3": {
+   "title": "CRWDApls_Generic Applause_ShaneVincent_GSC24_XY-AKG214-96k.wav",
+   "author": "Shane Vincent (Freesound: ShangusBurger), GameSoundCon 2024 walla session",
+   "license": "CC0-1.0",
+   "source_page": "https://freesound.org/people/ShangusBurger/sounds/763811/"
+  },
+  "crowd-gsc24-763814.mp3": {
+   "title": "CRWDApls_Loud Applause That Dwindles_ShaneVincent_GSC24_XY-AKG214-96k.wav",
+   "author": "Shane Vincent (Freesound: ShangusBurger), GameSoundCon 2024 walla session",
+   "license": "CC0-1.0",
+   "source_page": "https://freesound.org/people/ShangusBurger/sounds/763814/"
+  },
+  "crowd-gsc24-763815.mp3": {
+   "title": "CRWDApls_Loud Applause, Cheering, Whistling_ShaneVincent_GSC24_XY-AKG214-96k.wav",
+   "author": "Shane Vincent (Freesound: ShangusBurger), GameSoundCon 2024 walla session",
+   "license": "CC0-1.0",
+   "source_page": "https://freesound.org/people/ShangusBurger/sounds/763815/"
+  },
+  "crowd-gsc24-763827.mp3": {
+   "title": "CRWDCele_Large Crowd, Unison Surprise_ShaneVincent_GSC24_XY-AKG214-96k.wav",
+   "author": "Shane Vincent (Freesound: ShangusBurger), GameSoundCon 2024 walla session",
+   "license": "CC0-1.0",
+   "source_page": "https://freesound.org/people/ShangusBurger/sounds/763827/"
+  },
+  "crowd-gsc24-763828.mp3": {
+   "title": "CRWDCele_Large Crowd, Unison Surprise, Cheering_ShaneVincent_GSC24_XY-AKG214-96k.wav",
+   "author": "Shane Vincent (Freesound: ShangusBurger), GameSoundCon 2024 walla session",
+   "license": "CC0-1.0",
+   "source_page": "https://freesound.org/people/ShangusBurger/sounds/763828/"
+  },
+  "crowd-gsc24-763829.mp3": {
+   "title": "CRWDCheer_Cheering, Whistling, No Clapping_ShaneVincent_GSC24_XY-AKG214-96k.wav",
+   "author": "Shane Vincent (Freesound: ShangusBurger), GameSoundCon 2024 walla session",
+   "license": "CC0-1.0",
+   "source_page": "https://freesound.org/people/ShangusBurger/sounds/763829/"
+  },
+  "crowd-gsc24-763830.mp3": {
+   "title": "CRWDCheer_Short Affirmative Cheer_ShaneVincent_GSC24_XY-AKG214-96k.wav",
+   "author": "Shane Vincent (Freesound: ShangusBurger), GameSoundCon 2024 walla session",
+   "license": "CC0-1.0",
+   "source_page": "https://freesound.org/people/ShangusBurger/sounds/763830/"
+  },
+  "crowd-gsc24-763855.mp3": {
+   "title": "CRWDMisc_Group Inhale, Mouth_ShaneVincent_GSC24_XY-AKG214-96k.wav",
+   "author": "Shane Vincent (Freesound: ShangusBurger), GameSoundCon 2024 walla session",
+   "license": "CC0-1.0",
+   "source_page": "https://freesound.org/people/ShangusBurger/sounds/763855/"
+  },
+  "crowd-gsc24-763867.mp3": {
+   "title": "CRWDReac_Crowd Gasping In Surprise, Quick 01_ShaneVincent_GSC24_XY-AKG214-96k.wav",
+   "author": "Shane Vincent (Freesound: ShangusBurger), GameSoundCon 2024 walla session",
+   "license": "CC0-1.0",
+   "source_page": "https://freesound.org/people/ShangusBurger/sounds/763867/"
+  },
+  "crowd-gsc24-763869.mp3": {
+   "title": "CRWDReac_Crowd Gasping In Surprise, Quick 03_ShaneVincent_GSC24_XY-AKG214-96k.wav",
+   "author": "Shane Vincent (Freesound: ShangusBurger), GameSoundCon 2024 walla session",
+   "license": "CC0-1.0",
+   "source_page": "https://freesound.org/people/ShangusBurger/sounds/763869/"
+  },
+  "crowd-gsc24-763870.mp3": {
+   "title": "CRWDReac_Crowd Gasping In Surprise, Quick 04_ShaneVincent_GSC24_XY-AKG214-96k.wav",
+   "author": "Shane Vincent (Freesound: ShangusBurger), GameSoundCon 2024 walla session",
+   "license": "CC0-1.0",
+   "source_page": "https://freesound.org/people/ShangusBurger/sounds/763870/"
+  },
+  "crowd-gsc24-763871.mp3": {
+   "title": "CRWDReac_Crowd Gasping In Surprise, Quick 05_ShaneVincent_GSC24_XY-AKG214-96k.wav",
+   "author": "Shane Vincent (Freesound: ShangusBurger), GameSoundCon 2024 walla session",
+   "license": "CC0-1.0",
+   "source_page": "https://freesound.org/people/ShangusBurger/sounds/763871/"
+  },
+  "crowd-gsc24-763875.mp3": {
+   "title": "CRWDReac_Crowd Gasping In Surprise, Voiced 01_ShaneVincent_GSC24_XY-AKG214-96k.wav",
+   "author": "Shane Vincent (Freesound: ShangusBurger), GameSoundCon 2024 walla session",
+   "license": "CC0-1.0",
+   "source_page": "https://freesound.org/people/ShangusBurger/sounds/763875/"
+  },
+  "crowd-gsc24-763876.mp3": {
+   "title": "CRWDReac_Crowd Gasping In Surprise, Voiced 02_ShaneVincent_GSC24_XY-AKG214-96k.wav",
+   "author": "Shane Vincent (Freesound: ShangusBurger), GameSoundCon 2024 walla session",
+   "license": "CC0-1.0",
+   "source_page": "https://freesound.org/people/ShangusBurger/sounds/763876/"
+  },
+  "crowd-gsc24-763880.mp3": {
+   "title": "CRWDReac_Crowd Sigh In Disappointment_ShaneVincent_GSC24_XY-AKG214-96k.wav",
+   "author": "Shane Vincent (Freesound: ShangusBurger), GameSoundCon 2024 walla session",
+   "license": "CC0-1.0",
+   "source_page": "https://freesound.org/people/ShangusBurger/sounds/763880/"
+  },
+  "crowd-laugh-lachkonserve-1.ogg": {
+   "title": "Lachkonserve 1.ogg (audience laughter)",
+   "author": "Sleepytomcat (Jens Kraglund), German Wikipedia user; transferred to Wikimedia Commons",
+   "license": "Public-Domain",
+   "source_page": "https://commons.wikimedia.org/wiki/File:Lachkonserve_1.ogg"
+  },
+  "crowd-oohs-264499.mp3": {
+   "title": "Crowd Ooohs and Ahhhs in Excitement",
+   "author": "noah0189",
+   "license": "CC0-1.0",
+   "source_page": "https://freesound.org/people/noah0189/sounds/264499/"
+  }
+ }
+}

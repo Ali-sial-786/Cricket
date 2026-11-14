@@ -142,7 +142,7 @@ export const CONFIG = {
 
   render: {
     ballMinAngleDeg: 0.34,   // visibility assist: ball is drawn at least this big (physics unchanged)
-    crowdMax: 3000,          // instanced spectators (36 triangles each)
+    crowdMax: 26000,         // instanced cut-out spectators (2 triangles each); lower this if the headset struggles
     animLodDistance: 32,     // fielders farther than this skip foot IK / head tracking
   },
 

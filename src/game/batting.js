@@ -364,6 +364,8 @@ export class BattingSession {
       g.say('hit', { shot: this.shotName.includes('sweep') ? 'sweep' : launch > 20 ? 'loft' : 'drive', edge: e.isEdge, top_edge: e.isEdge && launch > 35, speed: v.length(), vel: { x: v.x, y: v.y, z: v.z } });
       if (this.field) this.field.onHit(b, e.t, pred);
       if (!e.isEdge && e.quality > 0.8 && v.length() > 30) g.cheer(0.3);
+      if (e.isEdge) g.crowdReact('edge');
+      else if (launch > 22 && v.length() > 22) g.crowdReact('skied');
     }
     if (e.type === 'wicket' && e.end === 'batting' && this.state === 'live') {
       if (!this.field || (!this.field.fielded && !this.hit)) this.finish({ kind: 'bowled', wicket: 'bowled' });
@@ -449,16 +451,21 @@ export class BattingSession {
     // Umpires, crowd, commentary.
     if (outcome.boundary) {
       g.umpires.signal(outcome.boundary === 6 ? 'six' : 'four', now);
-      g.sample(outcome.boundary === 6 ? 'roar_six' : 'cheer_four');
+      g.crowdReact(outcome.boundary === 6 ? 'six' : 'four');
       g.say('boundary', { runs: outcome.boundary });
     } else if (outcome.wicket) {
       if (res.kind !== 'lbw') g.umpires.signal('out', now);
-      g.sample('roar_wicket', { gain: 0.7 }); g.sfx.groan();
+      g.crowdReact('wicketAgainst');
       if (res.kind === 'caught') g.say('catch', { keeper: res.by === 'Keeper' });
       else if (res.kind === 'runout') g.say('run_out');
       else if (res.kind === 'stumped') g.say('third_result', { what: 'stumping', out: true });
       g.say('wicket', { how: res.kind === 'runout' ? 'run_out' : res.kind });
-    } else if (outcome.runs > 0) g.sample('applause_polite', { gain: 0.8 });
+    } else if (outcome.runs > 0) {
+      g.sample('applause_polite', { gain: 0.7 });
+      if (res.closeCall != null && res.closeCall < 0.9) g.crowdReact('close');
+    } else if (res.kind === 'beaten' && !res.padded && !res.backInTime) g.crowdReact(this.maxBatSpeedNear > 9 ? 'miss' : 'beaten');
+    else if (res.backInTime || (res.kind === 'beaten' && res.padded)) g.crowdReact('close');
+    else if (outcome.wide || outcome.noBall) { /* nothing */ } else g.crowdReact('dot');
 
     let overDone = false;
     if (this.innings) {
@@ -466,7 +473,7 @@ export class BattingSession {
       overDone = r.overDone;
       if (overDone) big += '  · over';
       if (r.card) {
-        for (const m of r.card.milestones) { g.ui.prompt(`${m.name} reaches ${m.runs}!`, 2.5, '#ffd34d'); g.sample('applause_warm', { gain: 0.8 }); g.cheer(0.5); }
+        for (const m of r.card.milestones) { g.ui.prompt(`${m.name} reaches ${m.runs}!`, 2.5, '#ffd34d'); g.crowdReact('milestone'); g.cheer(0.5); }
         if (r.card.newBatter && !this.innings.complete) this.newBatter = r.card.newBatter.name;
       }
       this.partnership = outcome.wicket ? 0 : this.partnership + outcome.runs;

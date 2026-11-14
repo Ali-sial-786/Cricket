@@ -424,7 +424,8 @@ export class BowlingSession {
     if (e.type === 'bat' && e.batId === 'ai' && !this.hit) {
       const pred = predict(g.world.ball, { maxTime: 8, h: 1 / 240 });
       this.hit = { t: e.t, quality: e.quality, edge: e.isEdge, exit: e.speedOut, sixOnFull: !!(pred.boundary && pred.boundary.onFull), pred };
-      if (e.isEdge) { this.stats.edges++; g.ui.setHud({ big: 'Edged!', bigColor: '#ff9f43' }); }
+      if (e.isEdge) { this.stats.edges++; g.ui.setHud({ big: 'Edged!', bigColor: '#ff9f43' }); g.crowdReact('edge'); }
+      else if (e.vel.y > 7 && e.speedOut > 20) g.crowdReact('skied');
       const v = g.world.ball.vel;
       g.say('hit', { shot: plan0(g), edge: e.isEdge, top_edge: e.isEdge && v.y > 6, speed: v.length(), vel: { x: v.x, y: v.y, z: v.z } });
       if (this.field) this.field.onHit(g.world.ball, e.t, pred);
@@ -467,17 +468,22 @@ export class BowlingSession {
     else if (this.wide && !this.hit && !outcome.wicket) { outcome.wide = true; big = 'Wide'; color = '#ffb347'; g.umpires.signal('wide', now); }
     if (outcome.boundary) {
       g.umpires.signal(outcome.boundary === 6 ? 'six' : 'four', now);
-      g.sample(outcome.boundary === 6 ? 'roar_six' : 'cheer_four', { gain: 0.7 });
+      g.crowdReact('boundaryAgainst');
       g.say('boundary', { runs: outcome.boundary });
     } else if (outcome.wicket) {
       if (res.kind !== 'lbw') g.umpires.signal('out', now);
-      g.sample('roar_wicket'); g.cheer(0.9);
+      g.crowdReact('wicketFor'); g.cheer(0.9);
       if (res.kind === 'caught') g.say('catch', { keeper: res.by === 'Keeper' });
       else if (res.kind === 'runout') g.say('run_out');
       else if (res.kind === 'stumped') g.say('third_result', { what: 'stumping', out: true });
       g.say('wicket', { how: res.kind === 'runout' ? 'run_out' : res.kind });
     }
     const extra = outcome.wide || outcome.noBall;
+    if (!outcome.wicket && !outcome.boundary) {
+      if (res.backInTime || res.padded) g.crowdReact('close');
+      else if (!this.hit && g.aiBatter.plan && g.aiBatter.plan.shot.type !== 'leave') g.crowdReact('beaten');
+      else if (!outcome.runs) g.crowdReact('dot');
+    }
     this.stats.balls += extra ? 0 : 1;
     this.stats.runs += outcome.runs + (extra ? 1 : 0);
     if (outcome.wicket) this.stats.wickets++;
@@ -503,7 +509,7 @@ export class BowlingSession {
   cardNews(c) {
     const g = this.game;
     if (!c) return;
-    for (const m of c.milestones) { g.ui.prompt(`${m.name} reaches ${m.runs}`, 2.5, '#ffd34d'); g.sample('applause_warm', { gain: 0.8 }); }
+    for (const m of c.milestones) { g.ui.prompt(`${m.name} reaches ${m.runs}`, 2.5, '#ffd34d'); g.sample('applause_warm', { gain: 0.6 }); }
     if (c.newBatter && !this.innings.complete) {
       const prof = batProfile(c.newBatter.position);
       g.ui.setHud({ detail: `New batter: ${c.newBatter.name} (${prof.role})` });

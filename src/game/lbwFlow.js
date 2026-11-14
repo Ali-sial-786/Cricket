@@ -44,6 +44,7 @@ export class LbwFlow {
     g.sample('appeal') || g.sample('howzat');
     g.sample('howzat', { gain: 0.9 });
     g.say('appeal');
+    g.crowdReact('appeal');
     g.ui.prompt('HOWZAT?!', 1.6, '#ffd34d');
     g.sample('pad', { gain: 0.9 });
   }

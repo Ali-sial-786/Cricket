@@ -14,41 +14,82 @@ import { poseIdle, poseLocomotion, plantFeet, clamp } from './anim.js';
 export function buildHelmetGrille() {
   const g = new THREE.Group();
   g.name = 'helmetGrille';
-  const steel = new THREE.MeshBasicMaterial({ color: 0x30353d, transparent: true, opacity: 0.9 });
-  const shell = new THREE.MeshBasicMaterial({ color: 0x14285a, side: THREE.DoubleSide });
+  // Titanium grille: smooth round bars, lit, with a soft highlight.
+  const steel = new THREE.MeshPhongMaterial({ color: 0x5d646d, specular: 0xe8eef5, shininess: 70 });
+  const weld = new THREE.MeshPhongMaterial({ color: 0x3b4048, specular: 0x9aa4ae, shininess: 40 });
+  // Shell: glossy navy outside, dark padded lining inside.
+  const shell = new THREE.MeshPhongMaterial({ color: 0x172d63, specular: 0x5a6f9e, shininess: 55, side: THREE.DoubleSide });
+  const lining = new THREE.MeshLambertMaterial({ map: liningTexture(), color: 0xffffff, side: THREE.DoubleSide });
   const R = 0.12;                                    // grille radius around the face
   const arc = 2.0;                                   // radians of wrap
   // Torus arcs start on +X and turn toward +Z once laid flat; this yaw puts
   // the middle of the arc straight ahead (-Z).
   const AHEAD = arc / 2 + Math.PI / 2;
-  const bar = (y, r = R, tube = 0.0026) => {
-    const t = new THREE.TorusGeometry(r, tube, 5, 28, arc);
+  const levels = [[-0.042, R], [-0.074, R + 0.004], [-0.106, R + 0.008]];
+  for (const [y, r] of levels) {
+    const t = new THREE.TorusGeometry(r, 0.0028, 10, 72, arc);
     t.rotateX(Math.PI / 2);
     t.rotateY(AHEAD);
     const m = new THREE.Mesh(t, steel);
     m.position.y = y;
-    return m;
-  };
-  g.add(bar(-0.042), bar(-0.074, R + 0.004), bar(-0.106, R + 0.008));
-  // Vertical bars: centre and either side.
-  for (const a of [0, -0.6, 0.6]) {
-    const m = new THREE.Mesh(new THREE.CylinderGeometry(0.0026, 0.0026, 0.07, 5), steel);
-    m.position.set(Math.sin(a) * (R + 0.004), -0.076, -Math.cos(a) * (R + 0.004));
     g.add(m);
   }
-  // Peak: a thin edge of the shell and a short brim above the eyes.
-  const rim = new THREE.CylinderGeometry(R + 0.01, R + 0.012, 0.014, 28, 1, true, Math.PI - 1.15, 2.3);
+  // Vertical bars, and a small weld where each crosses a horizontal one.
+  for (const a of [0, -0.6, 0.6]) {
+    const r = R + 0.004;
+    const m = new THREE.Mesh(new THREE.CylinderGeometry(0.0028, 0.0028, 0.072, 10), steel);
+    m.position.set(Math.sin(a) * r, -0.075, -Math.cos(a) * r);
+    g.add(m);
+    for (const [y, rr] of levels) {
+      const w = new THREE.Mesh(new THREE.SphereGeometry(0.0042, 10, 8), weld);
+      w.position.set(Math.sin(a) * rr, y, -Math.cos(a) * rr);
+      g.add(w);
+    }
+  }
+  // The grille's side mounts where it bolts to the shell (at the edge of vision).
+  for (const sx of [-1, 1]) {
+    const a = sx * (arc / 2 - 0.05);
+    const m = new THREE.Mesh(new THREE.BoxGeometry(0.006, 0.07, 0.012), shell);
+    m.position.set(Math.sin(a) * (R + 0.004), -0.07, -Math.cos(a) * (R + 0.004));
+    m.rotation.y = -a;
+    g.add(m);
+  }
+  // Peak: smooth shell edge, the brim, and the padded lining just above the eyes.
+  const rim = new THREE.CylinderGeometry(R + 0.01, R + 0.012, 0.016, 64, 1, true, Math.PI - 1.15, 2.3);
   const rimM = new THREE.Mesh(rim, shell);
-  rimM.position.y = 0.078;
+  rimM.position.y = 0.1;
   g.add(rimM);
-  const brim = new THREE.RingGeometry(R + 0.008, R + 0.034, 28, 1, Math.PI + Math.PI / 2 - 0.95, 1.9);
+  const pad = new THREE.CylinderGeometry(R - 0.002, R - 0.002, 0.022, 64, 1, true, Math.PI - 1.1, 2.2);
+  const padM = new THREE.Mesh(pad, lining);
+  padM.position.y = 0.088;
+  g.add(padM);
+  const brim = new THREE.RingGeometry(R + 0.008, R + 0.034, 64, 1, Math.PI + Math.PI / 2 - 0.95, 1.9);
   brim.rotateX(-Math.PI / 2 + 0.2);
   const brimM = new THREE.Mesh(brim, shell);
-  brimM.position.y = 0.072;
+  brimM.position.y = 0.094;
   g.add(brimM);
   g.traverse((o) => { if (o.isMesh) { o.renderOrder = 10; o.frustumCulled = false; } });
   g.visible = false;
   return g;
+}
+
+// Quilted foam with a stitched seam, for the inside of the peak.
+function liningTexture() {
+  const c = document.createElement('canvas');
+  c.width = 256; c.height = 32;
+  const x = c.getContext('2d');
+  x.fillStyle = '#1d2026'; x.fillRect(0, 0, 256, 32);
+  for (let i = 0; i < 256; i += 16) {
+    const gr = x.createLinearGradient(i, 0, i + 16, 0);
+    gr.addColorStop(0, '#16181d'); gr.addColorStop(0.5, '#2a2e36'); gr.addColorStop(1, '#16181d');
+    x.fillStyle = gr; x.fillRect(i, 4, 16, 24);
+  }
+  x.strokeStyle = '#5a6170'; x.setLineDash([3, 3]); x.lineWidth = 1;
+  x.beginPath(); x.moveTo(0, 5.5); x.lineTo(256, 5.5); x.moveTo(0, 26.5); x.lineTo(256, 26.5); x.stroke();
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 4;
+  return t;
 }
 
 // ---------------------------------------------------------------- your bowler

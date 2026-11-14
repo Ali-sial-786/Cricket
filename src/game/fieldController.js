@@ -52,6 +52,7 @@ export class FieldController {
   reset() {
     this.logic.newBall();
     this.pendingBreak = null;
+    this.droppedTold = false;
     this.game.ballOverride = null;
     this.delivering = false;
     this.keeperTold = false;
@@ -256,6 +257,7 @@ export class FieldController {
 
     // ---- outcomes ----
     if (!this.outcome) {
+      if (L.dropped && !this.droppedTold) { this.droppedTold = true; g.crowdReact(this.playerBatting ? 'close' : 'dropped'); }
       if (L.outcome) {                                   // boundary or catch
         this.outcome = L.outcome;
         r.close();

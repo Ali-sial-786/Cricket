@@ -401,53 +401,132 @@ export function buildEnvironment(scene) {
   return env;
 }
 
+// Spectators: one instanced, camera-facing cut-out per seat (2 triangles),
+// drawn from an atlas of 4 people x 2 poses (sitting / up and cheering).
+// The texture is a mask, not colours: R = shading, G = shirt, B = skin,
+// A = cut-out; each fan gets their own shirt, skin and hair colour. They
+// stand and bounce when the ground cheers, and a Mexican wave goes round now
+// and then (uWave / uWaveOn).
+function crowdAtlas() {
+  const CW = 128, CH = 320, PPM = CH / 1.5;           // cell = 0.6 m x 1.5 m
+  const c = document.createElement('canvas');
+  c.width = CW * 8; c.height = CH;
+  const g = c.getContext('2d');
+  const col = (r, gg, b, a = 1) => `rgba(${Math.round(r * 255)},${Math.round(gg * 255)},${Math.round(b * 255)},${a})`;
+  const SHIRT = (sh) => col(sh, 1, 0), SKIN = (sh) => col(sh, 0, 1), HAIR = (sh) => col(sh, 0, 0);
+  const Y = (m) => CH - m * PPM;                     // metres above the seat -> canvas y
+  const rrect = (x, y, w, h, r) => { g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r); g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath(); };
+  const shirtGrad = (x0, x1) => { const gr = g.createLinearGradient(x0, 0, x1, 0); gr.addColorStop(0, SHIRT(0.68)); gr.addColorStop(0.35, SHIRT(1)); gr.addColorStop(0.7, SHIRT(0.95)); gr.addColorStop(1, SHIRT(0.62)); return gr; };
+  for (let cell = 0; cell < 8; cell++) {
+    const v = cell % 4, up = cell >= 4;
+    const cx = cell * CW + CW / 2;
+    const base = up ? 0.42 : 0;                      // standing lifts the body
+    // Torso.
+    const tw = (v === 1 ? 0.34 : 0.4) * PPM, top = Y(base + 0.5), bot = Y(base - 0.05);
+    g.fillStyle = shirtGrad(cx - tw / 2, cx + tw / 2);
+    rrect(cx - tw / 2, top, tw, bot - top, 14); g.fill();
+    // Arms: down by the sides, or raised in a V.
+    g.lineCap = 'round';
+    if (up) {
+      for (const sx of [-1, 1]) {
+        const shx = cx + sx * tw * 0.42, shy = top + 10;
+        const hx = cx + sx * (0.27 + 0.03 * v) * PPM, hy = Y(base + 1.0 + 0.04 * v);
+        g.strokeStyle = SHIRT(0.85); g.lineWidth = 0.1 * PPM;
+        g.beginPath(); g.moveTo(shx, shy); g.lineTo((shx + hx) / 2, (shy + hy) / 2); g.stroke();
+        g.strokeStyle = SKIN(0.9); g.lineWidth = 0.075 * PPM;
+        g.beginPath(); g.moveTo((shx + hx) / 2, (shy + hy) / 2); g.lineTo(hx, hy); g.stroke();
+        g.fillStyle = SKIN(1); g.beginPath(); g.arc(hx, hy, 0.05 * PPM, 0, Math.PI * 2); g.fill();
+      }
+    } else {
+      for (const sx of [-1, 1]) {
+        g.strokeStyle = SHIRT(0.72); g.lineWidth = 0.09 * PPM;
+        g.beginPath(); g.moveTo(cx + sx * tw * 0.46, top + 12); g.lineTo(cx + sx * tw * 0.5, Y(base + 0.12)); g.stroke();
+        g.fillStyle = SKIN(0.85); g.beginPath(); g.arc(cx + sx * tw * 0.42, Y(base + 0.08), 0.045 * PPM, 0, Math.PI * 2); g.fill();
+      }
+    }
+    // Neck and head.
+    const hy = Y(base + 0.68), hr = 0.105 * PPM;
+    g.fillStyle = SKIN(0.8); g.fillRect(cx - 0.05 * PPM, Y(base + 0.58), 0.1 * PPM, 0.08 * PPM);
+    const sg = g.createRadialGradient(cx - hr * 0.3, hy - hr * 0.3, hr * 0.2, cx, hy, hr);
+    sg.addColorStop(0, SKIN(1)); sg.addColorStop(1, SKIN(0.78));
+    g.fillStyle = sg; g.beginPath(); g.ellipse(cx, hy, hr * 0.92, hr, 0, 0, Math.PI * 2); g.fill();
+    // Hair / headwear by variant.
+    if (v === 0) { g.fillStyle = HAIR(0.9); g.beginPath(); g.ellipse(cx, hy - hr * 0.45, hr * 0.95, hr * 0.62, 0, Math.PI, 0); g.fill(); }
+    if (v === 1) {                                     // long hair
+      g.fillStyle = HAIR(0.95); g.beginPath(); g.ellipse(cx, hy - hr * 0.3, hr * 1.05, hr * 0.85, 0, Math.PI, 0); g.fill();
+      g.fillRect(cx - hr * 1.05, hy - hr * 0.35, hr * 0.42, hr * 1.9); g.fillRect(cx + hr * 0.63, hy - hr * 0.35, hr * 0.42, hr * 1.9);
+    }
+    if (v === 2) { g.fillStyle = HAIR(0.85); g.beginPath(); g.ellipse(cx, hy - hr * 0.55, hr * 0.9, hr * 0.48, 0, Math.PI, 0); g.fill(); }
+    if (v === 3) {                                     // cap in the shirt colour
+      g.fillStyle = SHIRT(0.9); g.beginPath(); g.ellipse(cx, hy - hr * 0.42, hr * 1.0, hr * 0.7, 0, Math.PI, 0); g.fill();
+      g.fillStyle = SHIRT(0.7); g.fillRect(cx - hr * 1.15, hy - hr * 0.48, hr * 2.3, hr * 0.22);
+    }
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.NoColorSpace;                 // a data mask, not colours
+  t.anisotropy = 4;
+  t.minFilter = THREE.LinearMipmapLinearFilter;
+  return t;
+}
+
 function buildCrowd(rows, R0, lowerRows) {
-  // One person: torso + head + an "arms" bar the shader raises when cheering.
-  // Indexed boxes (24 verts each) merged with BufferGeometryUtils.
-  const boxes = [];
-  const mk = (w, h, d, x, y, z, arm) => {
-    const g = new THREE.BoxGeometry(w, h, d);
-    g.translate(x, y, z);
-    g.deleteAttribute('uv');
-    g.setAttribute('aArm', new THREE.Float32BufferAttribute(new Array(g.attributes.position.count).fill(arm), 1));
-    boxes.push(g);
-  };
-  mk(0.44, 0.62, 0.3, 0, 0.31, 0, 0);
-  mk(0.2, 0.22, 0.2, 0, 0.75, 0.02, 0);
-  mk(0.62, 0.1, 0.12, 0, 0.5, 0.04, 1);
-  const geo = mergeGeometries(boxes, false);
-  const mat = new THREE.MeshLambertMaterial();
-  const uniforms = { uTime: { value: 0 }, uCheer: { value: 0 } };
+  void R0;
+  const geo = new THREE.PlaneGeometry(0.6, 1.5);
+  geo.translate(0, 0.75, 0);
+  const uniforms = { uTime: { value: 0 }, uCheer: { value: 0 }, uWave: { value: 0 }, uWaveOn: { value: 0 } };
+  const mat = new THREE.MeshBasicMaterial({ map: crowdAtlas(), alphaTest: 0.45, side: THREE.DoubleSide });
+  mat.alphaToCoverage = true;
   mat.onBeforeCompile = (shader) => {
-    shader.uniforms.uTime = uniforms.uTime;
-    shader.uniforms.uCheer = uniforms.uCheer;
+    Object.assign(shader.uniforms, uniforms);
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\nuniform float uTime;\nuniform float uCheer;\nattribute float aArm;')
+      .replace('#include <common>', `#include <common>
+        uniform float uTime; uniform float uCheer; uniform float uWave; uniform float uWaveOn;
+        attribute vec3 aShirt; attribute vec3 aSkin; attribute vec3 aHair; attribute vec3 aMeta;   // meta: variant, random, angle
+        varying vec3 vShirt; varying vec3 vSkin; varying vec3 vHair;
+        float crowdLift;`)
+      .replace('#include <uv_vertex>', `#include <uv_vertex>
+        {
+          float rnd = aMeta.y, ph = rnd * 37.0;
+          float d = mod(aMeta.z - uWave + 3.14159, 6.28318) - 3.14159;
+          float wave = uWaveOn * exp(-d * d * 30.0);
+          float stand = max(step(rnd, uCheer * 1.15 - 0.08), step(0.3, wave));
+          crowdLift = stand * (uCheer * 0.16 * abs(sin(uTime * 7.5 + ph)) + wave * 0.3) + 0.01 * sin(uTime * 1.3 + ph);
+          #ifdef USE_MAP
+            vMapUv.x = (vMapUv.x + aMeta.x + 4.0 * stand) / 8.0;
+          #endif
+          vShirt = aShirt; vSkin = aSkin; vHair = aHair;
+        }`)
       .replace('#include <begin_vertex>', `#include <begin_vertex>
-        float ph = float(gl_InstanceID) * 1.37 + instanceMatrix[3].x * 0.31;
-        float jump = uCheer * 0.22 * abs(sin(uTime * 8.0 + ph));
-        float sway = 0.025 * sin(uTime * 1.3 + ph);
-        transformed.y += (jump + sway) * step(0.05, position.y);
-        transformed.y += aArm * (uCheer * (0.42 + 0.08 * sin(uTime * 11.0 + ph)));`);
+        transformed.y += crowdLift;`);
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vShirt; varying vec3 vSkin; varying vec3 vHair;')
+      .replace('#include <map_fragment>', `
+        vec4 tx = texture2D(map, vMapUv);
+        vec3 crowdCol = mix(mix(vHair, vSkin, tx.b), vShirt, tx.g) * tx.r;
+        diffuseColor.rgb = crowdCol;
+        diffuseColor.a *= tx.a;`);
   };
-  mat.customProgramCacheKey = () => 'crowd-v3';
-  const perRowSpacing = 0.85;
+  mat.customProgramCacheKey = () => 'crowd-cutout-v1';
+  // Seats: packed, a few empty ones.
+  const perRowSpacing = 0.56;
   const list = [];
   rows.forEach((row, ri) => {
     const n = Math.floor((Math.PI * 2 * row.r) / perRowSpacing);
-    const occ = ri < lowerRows ? 0.46 : 0.36;
+    const occ = ri < lowerRows ? 0.94 : 0.9;
     for (let i = 0; i < n; i++) {
-      const a = (i / n) * Math.PI * 2;
+      const a = (i / n) * Math.PI * 2 + (ri % 2) * (0.5 / n);
       if (Math.abs(Math.sin(a)) < 0.17) continue;                // behind the sightscreens
       if (Math.abs(a - Math.PI / 2) < 0.2 && ri < lowerRows) continue; // pavilion front
       if (rand() > occ) continue;
       list.push({ a, r: row.r, y: row.y, ri });
     }
   });
-  const shirts = [0x1f4fa8, 0xf2c12e, 0x1f4fa8, 0xb3221c, 0xf4f4f4, 0xd94a3d, 0x2d8a57, 0x222222, 0x8f4bb5, 0xe57c2a, 0x7fb7e6, 0xffffff];
+  const shirts = [0x1f4fa8, 0xf2c12e, 0x1f4fa8, 0xb3221c, 0xf4f4f4, 0xd94a3d, 0x2d8a57, 0x222222, 0x8f4bb5, 0xe57c2a, 0x7fb7e6, 0xffffff, 0x14285a, 0xffd34d];
+  const skins = [0xf3cfae, 0xe0b088, 0xc68e62, 0x9a6a46, 0x6b4630];
+  const hairs = [0x1d1510, 0x3b2a1c, 0x5a4330, 0x0e0e0e, 0x8a6a40, 0xc9a050, 0x9a9a9a];
   const group = new THREE.Group();
   group.userData.uniforms = uniforms;
-  const m = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3(), p = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0);
+  const m = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = new THREE.Vector3(), p = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0);
   const color = new THREE.Color();
   const maxTotal = CONFIG.render.crowdMax;
   const stride = Math.max(1, list.length / maxTotal);
@@ -459,24 +538,37 @@ function buildCrowd(rows, R0, lowerRows) {
       const qa = Math.floor(((it.a + Math.PI / 4) % (Math.PI * 2)) / (Math.PI / 2)) % 4;
       if (qa === quad) sel.push(it);
     }
-    const mesh = new THREE.InstancedMesh(geo, mat, sel.length);
+    const n = sel.length;
+    const mesh = new THREE.InstancedMesh(geo, mat, n);
+    const aShirt = new Float32Array(n * 3), aSkin = new Float32Array(n * 3), aHair = new Float32Array(n * 3), aMeta = new Float32Array(n * 3);
     sel.forEach((it, i) => {
-      p.set(Math.sin(it.a) * it.r, it.y, Math.cos(it.a) * it.r);
-      q.setFromAxisAngle(up, it.a + Math.PI + (rand() - 0.5) * 0.3);
-      const k = 0.9 + rand() * 0.22;
-      s.set(k, k * (0.92 + rand() * 0.16), k);
-      m.compose(p, q, s);
+      p.set(Math.sin(it.a) * it.r, it.y - 0.05, Math.cos(it.a) * it.r);
+      q.setFromAxisAngle(up, it.a + Math.PI + (rand() - 0.5) * 0.25);
+      const k = 0.92 + rand() * 0.16;
+      sc.set(k, k * (0.94 + rand() * 0.12), 1);
+      m.compose(p, q, sc);
       mesh.setMatrixAt(i, m);
-      const sec = Math.floor(((it.a + Math.PI) / (Math.PI * 2)) * 6);
-      const pool = sec % 3 === 0 ? [0, 1, 2, 10] : sec % 3 === 1 ? [3, 4, 5] : [6, 7, 8, 9, 11];
-      color.setHex(shirts[rand() < 0.75 ? pool[Math.floor(rand() * pool.length)] : Math.floor(rand() * shirts.length)]);
-      mesh.setColorAt(i, color);
+      // Sections of the ground lean to one team's colours.
+      const sec = Math.floor(((it.a + Math.PI) / (Math.PI * 2)) * 8);
+      const pool = sec % 3 === 0 ? [0, 1, 2, 12, 13] : sec % 3 === 1 ? [3, 4, 5] : [6, 7, 8, 9, 10, 11];
+      color.setHex(shirts[rand() < 0.72 ? pool[Math.floor(rand() * pool.length)] : Math.floor(rand() * shirts.length)]);
+      aShirt.set([color.r, color.g, color.b], i * 3);
+      color.setHex(skins[Math.floor(rand() * skins.length)]);
+      aSkin.set([color.r, color.g, color.b], i * 3);
+      color.setHex(hairs[Math.floor(rand() * hairs.length)]);
+      aHair.set([color.r, color.g, color.b], i * 3);
+      aMeta.set([Math.floor(rand() * 4), rand(), (it.a + Math.PI * 2) % (Math.PI * 2)], i * 3);
     });
+    mesh.geometry = geo.clone();
+    mesh.geometry.setAttribute('aShirt', new THREE.InstancedBufferAttribute(aShirt, 3));
+    mesh.geometry.setAttribute('aSkin', new THREE.InstancedBufferAttribute(aSkin, 3));
+    mesh.geometry.setAttribute('aHair', new THREE.InstancedBufferAttribute(aHair, 3));
+    mesh.geometry.setAttribute('aMeta', new THREE.InstancedBufferAttribute(aMeta, 3));
     mesh.instanceMatrix.needsUpdate = true;
-    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
     mesh.computeBoundingSphere();
     mesh.frustumCulled = true;
     group.add(mesh);
   }
+  group.userData.count = Math.round(list.length / stride);
   return group;
 }

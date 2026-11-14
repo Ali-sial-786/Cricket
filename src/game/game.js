@@ -18,6 +18,7 @@ import { LENGTH_PRESETS, LINE_PRESETS } from '../physics/bowlingMachine.js';
 import { createSession, startMatch } from './modes.js';
 import { buildHelmetGrille, PlayerBowlerActor, NearCull } from '../render/viewModes.js';
 import { Replay } from './replay.js';
+import { CrowdAudio } from '../audio/crowd.js';
 import { MRPlacer } from '../xr/mr.js';
 import { AIBatter } from './aiBatter.js';
 import { BatterView, BowlerView, FieldView, NonStrikerView, PlayerBodyView } from '../render/people.js';
@@ -103,6 +104,7 @@ export class Game {
     this.sfx = new Sfx();
     this.sfx.setEnabled(this.settings.sound);
     this.samples = new Samples(this.sfx);
+    this.crowd = new CrowdAudio(this.sfx, this.samples, () => this.rng());
     this.commentary = new Commentary({ sfx: this.sfx, rng: () => this.rng() });
     this.commentary.load().catch((e) => console.warn('Commentary unavailable', e));
     this.commentary.setEnabled(this.settings.commentary && this.settings.sound);
@@ -198,6 +200,7 @@ export class Game {
   // Short commentary / crowd helpers (never throw).
   say(kind, ctx) { try { this.commentary.say(kind, ctx || {}); } catch { /* optional */ } }
   sample(name, opts) { try { return this.samples.play(name, opts); } catch { return false; } }
+  crowdReact(kind, strength) { try { if (this.settings.sound) this.crowd.react(kind, strength); } catch { /* optional */ } }
 
   get difficulty() { return this.settings.difficulty; }
 
@@ -535,6 +538,7 @@ export class Game {
     this.ui.updatePointer(this.input);
     this.ui.update();
     this.env.update(dt, now);
+    if (this.settings.sound && this.state === 'play') this.crowd.update(realDt);
     // Recorded crowd bed (ducked under the commentary) once audio is unlocked.
     if (!this.bed && this.sfx.ctx) {
       this.samples.preload();
@@ -545,6 +549,17 @@ export class Game {
     const cu = this.env.crowd.userData.uniforms;
     cu.uTime.value = now;
     cu.uCheer.value = Math.max(0, cu.uCheer.value - dt * 0.35);
+    // Now and then a Mexican wave goes round the ground.
+    this.waveIn = (this.waveIn ?? 45) - dt;
+    if (this.waveIn <= 0 && !(this.waveLeft > 0) && this.state === 'play') {
+      this.waveLeft = 16; this.waveIn = 80 + this.rng() * 70;
+      if (this.settings.sound) this.sample('crowd_whoa', { gain: 0.35 });
+    }
+    if (this.waveLeft > 0) {
+      this.waveLeft -= dt;
+      cu.uWave.value = (cu.uWave.value + dt * 0.7) % (Math.PI * 2);
+      cu.uWaveOn.value = Math.max(0, Math.min(1, this.waveLeft / 2, (16 - this.waveLeft) / 2));
+    } else cu.uWaveOn.value = 0;
     this.input.desktop.endFrame();
   }
 
