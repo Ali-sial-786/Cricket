@@ -177,6 +177,12 @@ export class Game {
     this.playerBat.assist = lvl.capture > 0 || lvl.magnet > 0 ? { capture: lvl.capture, magnet: lvl.magnet } : null;
   }
 
+  // Where the toe of your (visible) bat is, world space.
+  batToe(out) {
+    if (!this._toeY) this._toeY = new BatGeometry(CONFIG.bat).toeY;
+    return out.set(0, this._toeY, 0).applyQuat(this.playerBatProvider.curr.pose.q).add(this.playerBatProvider.curr.pose.p);
+  }
+
   // Distance (m) from a world point to the surface of your bat as the physics sees it.
   batDistance(p) {
     const pose = this.playerBatProvider.curr.pose;

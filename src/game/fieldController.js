@@ -210,6 +210,7 @@ export class FieldController {
   // ------------------------------------------------------------- per frame
   update(dt, t) {
     const g = this.game, w = g.world, L = this.logic, b = w.ball, r = this.runs;
+    L.obstacles = g.umpires.visible ? g.umpires.spots() : null;
     L.update(dt, t, b.active ? b : null, w);
     this.updateCatch(t);
     this.endCatchView();

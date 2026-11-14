@@ -19,7 +19,7 @@ import { LbwFlow, padHit, deflectOffPad } from './lbwFlow.js';
 import { ThirdUmpireFlow } from './thirdUmpire.js';
 import { HINTS } from '../ui/controllerHint.js';
 
-const _fw = new Vec3();
+const _fw = new Vec3(), _toe = new Vec3();
 const PLAYER_PAD = { halfX: 0.15, front: 0.1, back: 0.26, top: 0.7 };
 import { Innings } from './scoring.js';
 
@@ -214,6 +214,12 @@ export class BattingSession {
       ? new Vec3((settings.release === 'around' ? -1 : 1) * CONFIG.machine.releaseX, settings.spinner ? CONFIG.bowlerAI.releaseHeight : CONFIG.bowlerAI.releaseHeightPace, CONFIG.machine.releaseZ)
       : null;
     this.delivery = machineDelivery(settings, g.rng, CONFIG, rel);
+    // The umpire and the non-striker stay out of the bowler's way.
+    if (this.bowler === 'ai') {
+      const side = settings.release === 'around' ? -1 : 1;
+      g.umpires.place(false, side);
+      if (this.innings) g.nonStrikerView.setSide(side);
+    }
     this.settingsUsed = settings;
     this.hit = null; this.firstBounce = null; this.wide = false; this.crossedCrease = false;
     this.maxBatSpeedNear = 0; this.stumpAt = 0; this.stumpBroke = false; this.path.length = 0; this.shotName = '';
@@ -291,7 +297,7 @@ export class BattingSession {
     // Through to the keeper (or past the stumps in the nets).
     if (!b.batted && (b.pos.z > 2.4 || (this.field && this.field.keeperHold))) {
       if (this.field && !this.field.keeperHold) this.field.keeperTakes(b);
-      const out = this.body().z < battingPoppingZ - 0.12;          // out of your ground
+      const out = this.shortOfGround() > 0.07;                     // out of your ground
       if (this.field && out && !this.stumpAt) {
         this.stumpAt = t + (this.settingsUsed.spinner ? 0.3 : 0.85);
         this.field.keeperBreak(t, this.stumpAt);                    // he goes for the stumps…
@@ -300,7 +306,7 @@ export class BattingSession {
       }
       if (this.stumpAt) {
         if (t < this.stumpAt) return;
-        const margin = battingPoppingZ - 0.05 - this.body().z;       // m short of your ground
+        const margin = this.shortOfGround();                          // m short of your ground
         const lim = CONFIG.match.thirdUmpire;
         if (margin > -lim * 0.6) {                                    // the bails come off; close ones go upstairs
           if (!this.stumpBroke) { this.stumpBroke = true; this.field.breakStumps('batting', t, 0); }
@@ -394,6 +400,18 @@ export class BattingSession {
 
   // Non-striker backs up while the ball is being bowled.
   backingUp() { return this.state === 'runup' || this.state === 'cue' || (this.state === 'live' && !this.game.world.ball.batted); }
+
+  // How far (m) you are short of the popping crease: your body, or your bat
+  // if it is grounded (the toe near the ground) behind the line — whichever is
+  // better. <= 0: in your ground.
+  shortOfGround() {
+    const g = this.game;
+    const body = battingPoppingZ - 0.05 - this.body().z;
+    if (!g.input.xr && !g.input.right.connected) return body;
+    const toe = g.batToe(_toe);
+    const bat = toe.y < 0.25 ? battingPoppingZ - toe.z : Infinity;
+    return Math.min(body, bat);
+  }
 
   // Close run-outs go to the third umpire. Returns true if the result waits for the verdict.
   upstairs(res) {

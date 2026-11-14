@@ -130,6 +130,8 @@ export class NonStrikerView {
     else a.updateLeaning(dt, t, ball || _look.set(0, 1.0, -1));
   }
   reset() { this.running = null; this.backing = 0; this.actor.place(this.home.x, this.home.z, 0); }
+  // Stand on the far side from the bowler's run-up (+1: bowler over the wicket on +X).
+  setSide(side) { this.home.x = -1.35 * side; if (!this.running) this.actor.place(this.home.x, this.home.z + this.backing, 0); }
 }
 
 // Both batters running between the wickets. Progress p counts runs (1.0 =

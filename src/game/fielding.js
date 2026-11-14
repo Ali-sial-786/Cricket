@@ -471,9 +471,16 @@ export class Fielding {
     ball.bouncesSinceBat = Math.max(1, ball.bouncesSinceBat);
   }
 
-  // Two fielders never stand inside each other.
+  // Two fielders never stand inside each other (nor inside an umpire).
   separate(min = 0.8) {
     const F = this.fielders;
+    for (const o of this.obstacles || []) {
+      for (const f of F) {
+        if (f.playerControlled || (f.bowler && !this.bowlerFields)) continue;
+        const dx = f.pos.x - o.x, dz = f.pos.z - o.z, d = Math.hypot(dx, dz);
+        if (d < min && d > 1e-6) { f.pos.x += dx / d * (min - d); f.pos.z += dz / d * (min - d); }
+      }
+    }
     for (let i = 0; i < F.length; i++) {
       const a = F[i];
       if (a.bowler && !this.bowlerFields) continue;

@@ -76,11 +76,16 @@ export class UmpireView {
     this.look = new THREE.Vector3(0, 1, -1);
   }
   // When the player bowls, the bowler's-end umpire stands a little wider so he is in view.
-  place(playerBowling) {
-    this.main.place(playerBowling ? -1.9 : -0.05, PITCH.bowlingStumpsZ - (playerBowling ? 0.6 : 1.9), 0);
+  // side: which side of the stumps the bowler runs in on (+1 = +X, i.e. right-arm
+  // over the wicket; -1 = around). The umpire stands on the other side.
+  place(playerBowling, side = 1) {
+    this.side = side;
+    this.main.place(playerBowling ? -1.9 * side : -0.6 * side, PITCH.bowlingStumpsZ - (playerBowling ? 0.6 : 1.9), 0);
     this.leg.place(-17.5, -1.3, Math.PI / 2);
   }
   show(v) { this.visible = v; this.main.visible = v; this.leg.visible = v; }
+  // Ground positions (x, z) of both umpires (for the fielders to run round).
+  spots() { return [this.main.pos, this.leg.pos]; }
   signal(type, now) { if (!this.visible) return; this.main.signal(type, now); if (type !== 'review') this.leg.signal(type, now, 2.2); }
   setLook(v) { if (v) this.look.copy(v); }
   update(dt, now) {
