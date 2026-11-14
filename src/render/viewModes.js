@@ -5,7 +5,7 @@
 //   NearCull              hides any body (or bat) that would be inside your head
 import * as THREE from 'three';
 import { Actor } from './actors.js';
-import { poseIdle, poseLocomotion, plantFeet, clamp } from './anim.js';
+import { plantFeet, clamp } from './anim.js';
 
 // ---------------------------------------------------------------- helmet
 // Built in eye space: x right, y up, -z forward, metres from the point
@@ -119,14 +119,14 @@ export class PlayerBowlerActor extends Actor {
     this.turnToward(yaw, dt, 9);
     this.gait(dt);
     h.reset();
-    if (this.speed > 0.35) poseLocomotion(h, this.phase, this.speed);
-    else poseIdle(h, t, 1);
+    if (this.speed > 0.35) this.locomote(t);
+    else this.idle(t);
     // Crouch with the player.
     const drop = clamp(1.62 - head.p.y, 0, 0.5);
-    h.bones.hips.position.y = h.hipsRest.y - drop / h.root.scale.y * 0.9;
+    h.bones.hips.position.y -= drop / h.root.scale.y * 0.9;
     if (drop > 0.05) h.rot('spine', 0.2 + drop * 0.8, 0, 0);
     this.apply();
-    if (this.speed <= 0.35) {
+    if (this.speed <= 0.35) {                      // (feet stay down when you crouch)
       this.footWorld(_a, 0.14, 0.04); this.footWorld(_b, -0.14, 0);
       plantFeet(h, _a, _b, this.forward(_c).multiplyScalar(0.6));
     }

@@ -15,6 +15,7 @@ import {
   poseIdle, poseLocomotion, plantFeet, poseReady, poseThrow, poseDive, posePickup,
   poseCelebrate, strideFor, keys, sstep, clamp, mix,
 } from './anim.js';
+import { clipsReady, applyClip, applyLocomotion, strideAt, clipInfo, MASK_ALL, MASK_LEGS } from './clips.js';
 
 const TAU = Math.PI * 2;
 const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3(), _d = new THREE.Vector3();
@@ -38,6 +39,9 @@ export class Actor {
     this.heading = 0;
     this.speed = 0;
     this.phase = Math.random() * TAU;
+    this.idleOff = Math.random() * 40;         // each figure's idle runs on its own clock
+    this.foldArms = 0;                         // chance of standing with the arms folded (idle clip variant)
+    this.poseKey = '';                         // which kind of pose: a change cross-fades (see smooth())
     this.visible = true;
   }
   set visible(v) { this._vis = v; if (this.h) this.h.visible = v; }
@@ -47,7 +51,32 @@ export class Actor {
     const d = angDiff(this.heading, target);
     this.heading += clamp(d, -rate * dt, rate * dt);
   }
-  gait(dt) { this.phase = (this.phase + dt * TAU * this.speed / strideFor(this.speed)) % TAU; }
+  // Stride phase from distance travelled: with the clips the stride is the
+  // one the blended walk / jog / sprint covers per cycle, so planted feet stay put.
+  gait(dt) {
+    const stride = clipsReady() ? strideAt(this.h, this.speed) : strideFor(this.speed);
+    this.phase = (this.phase + dt * TAU * this.speed / stride) % TAU;
+  }
+  // Standing about: the idle clip on this figure's own clock, now and then
+  // with the arms folded (procedural sway without the clips).
+  idle(t) {
+    const h = this.h;
+    if (!clipsReady()) { poseIdle(h, t + this.idleOff, 1); return; }
+    const T = t + this.idleOff, slot = Math.floor(T / 9), u = T / 9 - slot;
+    const fold = (n) => this.foldArms > 0 && ((Math.sin(n * 91.7 + this.idleOff * 13.1) * 43758.5) % 1 + 1) % 1 < this.foldArms;
+    const a = fold(slot), b = fold(slot + 1);
+    applyClip(h, a ? 'idle_fold_arms' : 'idle', T);
+    if (a !== b && u > 0.88) applyClip(h, b ? 'idle_fold_arms' : 'idle', T, sstep(0.88, 1, u));
+  }
+  // Walk / jog / sprint for the current speed and stride phase (lean: extra
+  // forward lean of the trunk). Falls back to the procedural cycle.
+  locomote(t, lean = 0) {
+    const h = this.h;
+    if (!clipsReady()) { poseLocomotion(h, this.phase, this.speed, lean); return; }
+    if (this.speed < 0.75) applyClip(h, 'idle', t + this.idleOff);     // the walk fades in over the idle
+    applyLocomotion(h, this.phase, this.speed);
+    if (lean) h.addRot('spine', lean, 0, 0);
+  }
   apply(offX = 0, offZ = 0) {
     this.h.root.position.set(this.pos.x + offX, 0, this.pos.z + offZ);
     this.h.root.rotation.set(0, this.heading, 0);
@@ -61,14 +90,17 @@ export class Actor {
   // No snapping between poses: if any joint jumped further this frame than a
   // body can move, blend over 0.18 s from where it was. Call after posing.
   // allow = false only records the pose (e.g. while a hand must hit an exact point).
+  // A change of `poseKey` (e.g. clip -> procedural, run -> throw) always cross-fades.
   smooth(dt, dur = 0.18, allow = true) {
     const h = this.h;
     const raw = this._raw;
+    const switched = this.poseKey !== this._key;
+    this._key = this.poseKey;
     if (!allow) this._from = null;
     else if (raw && dt > 0) {
       let jump = 0;
       h.boneList.forEach((b, i) => { const d = b.quaternion.angleTo(raw.q[i]); if (d > jump) jump = d; });
-      if (jump > Math.max(0.7, 25 * dt)) { this._from = copySnap(this._shown || raw, this._from || undefined); this._bt = 0; }
+      if (jump > Math.max(0.7, 25 * dt) || (switched && jump > 0.02)) { this._from = copySnap(this._shown || raw, this._from || undefined); this._bt = 0; }
     }
     this._raw = h.snapshot(this._raw);
     if (this._from) {
@@ -92,6 +124,7 @@ export class FielderActor extends Actor {
     super(scene, opts);
     this.keeper = !!opts.keeper;
     this.ready = 0;
+    this.foldArms = this.keeper ? 0 : 0.25;
   }
   // s = logic state {x, z, face, speed, state, action, crouch, armsUp}; ctx = {t, ball, delivering}
   update(dt, s, ctx) {
@@ -106,6 +139,8 @@ export class FielderActor extends Actor {
     h.reset();
     const act = s.action;
     const ta = act ? t - act.t0 : 0;
+    const clips = clipsReady();
+    this.poseKey = act ? act.type : s.state;
     // The keeper going for a ball that is high or wide: timed so that he is
     // at full stretch as it reaches him (whether or not he gets there).
     const lp = this.keeper && s.leap && s.leap.how !== 'take' ? s.leap : null;
@@ -146,17 +181,39 @@ export class FielderActor extends Actor {
       this.apply();
       this.plant(0.16, true);
       if (act.ball && ta < act.dur * 0.6) { h.update(); h.ikArm('R', act.ball, h.worldPos('shoulderR', _a).add(_b.set(0, -0.2, 0)).add(this.forward(_c).multiplyScalar(-0.3))); }
-    } else if (act && act.type === 'throw' && ta < 0.9) {
-      poseIdle(h, t, 1);
-      poseThrow(h, ta / 0.75);
+    } else if (act && act.type === 'throw' && ta < (clips ? THROW_LEAD + this.throwTail() : 0.9) && (ta < THROW_LEAD + 0.15 || this.speed < 0.4)) {
+      if (clips) {
+        // The authored throw, time-warped so its release frame lands on the
+        // logic's release (THROW_LEAD s after the action starts); the
+        // follow-through then runs a little quicker than authored.
+        const rel = clipInfo('throw').events.release;
+        applyClip(h, 'throw', ta < THROW_LEAD ? ta * rel / THROW_LEAD : rel + (ta - THROW_LEAD) * THROW_FOLLOW);
+      } else {
+        poseIdle(h, t, 1);
+        poseThrow(h, ta / 0.75);
+      }
       this.apply();
     } else if (s.state === 'celebrate' || (act && act.type === 'catch' && act.success && ta > 0.45)) {
-      if (this.speed > 0.3) poseLocomotion(h, this.phase, this.speed);
-      poseCelebrate(h, t, sstep(0.3, 0.7, act ? ta : 1));
+      const k = sstep(0.3, 0.7, act ? ta : 1);
+      if (clips) {
+        // Both arms up and pumping, over whatever the legs are doing (so the
+        // feet don't shuffle into the clip's stance). Hands on the ball first.
+        this.poseKey = 'celebrate';
+        if (this.speed > 0.3) this.locomote(t); else applyClip(h, 'idle', t + this.idleOff);
+        applyClip(h, 'cheer', t + this.idleOff, k, MASK_ALL & ~MASK_LEGS);
+        if (act && act.type === 'catch' && act.target && ta < 0.3 && !this.far) { this.apply(); this.reachBoth(act.target, 1); }
+      } else {
+        if (this.speed > 0.3) poseLocomotion(h, this.phase, this.speed);
+        poseCelebrate(h, t, k);
+      }
+      this.apply();
+    } else if (clips && act && act.type === 'catch' && !act.success && !act.dive && ta > 0.7 && ta < 3.2 && this.speed < 0.3) {
+      // Put it down: head goes down.
+      applyClip(h, 'idle', t + this.idleOff);
+      applyClip(h, 'sad', ta - 0.7, sstep(0.7, 1.1, ta) * (1 - sstep(2.7, 3.2, ta)), MASK_ALL & ~MASK_LEGS);
       this.apply();
     } else if (act && act.type === 'catch' && ta < 0.6) {
-      poseIdle(h, t, 1);
-      if (this.speed > 0.3) poseLocomotion(h, this.phase, this.speed);
+      if (this.speed > 0.3) this.locomote(t); else this.idle(t);
       this.apply();
       if (act.target) this.reachBoth(act.target, 1);
       else if (ta > 0.15) this.handsToChest();
@@ -198,9 +255,21 @@ export class FielderActor extends Actor {
       this.plant(0.26 + 0.05 * Math.sin(this.phase), true);
       if (s.leap && t > s.leap.t - 0.22) this.reachBoth(_e.set(s.leap.x, clamp(s.leap.y, 0.15, 2.0), this.pos.z - 0.25), 1);
     } else if (this.speed > 0.25) {
-      poseLocomotion(h, this.phase, this.speed, this.keeper ? 0.05 : 0);
+      this.poseKey = 'move';
+      this.locomote(t, this.keeper ? 0.05 : 0);
+      this.apply();
+    } else if (clips && !this.keeper) {
+      // Standing at his mark; as the bowler runs in, down into a low, wide set.
+      this.poseKey = 'stand';
+      this.idle(t);
+      if (this.ready > 0.01) {
+        const k = sstep(0, 1, this.ready);
+        applyClip(h, 'set', t + this.idleOff, k, MASK_LEGS);
+        for (const [b, x, z] of READY_TOP) { _e2.set(x, 0, z); _q.setFromEuler(_e2); h.bones[b].quaternion.slerp(_q, k); }
+      }
       this.apply();
     } else {
+      this.poseKey = 'stand';
       poseIdle(h, t + this.phase * 3, 1);
       if (this.ready > 0.01) poseReady(h, this.ready, this.keeper);
       this.apply();
@@ -211,6 +280,8 @@ export class FielderActor extends Actor {
     if (!this.far) this.smooth(dt);
     h.syncShadow();
   }
+  // Seconds of the authored throw after the release (at the follow-through rate).
+  throwTail() { const c = clipInfo('throw'); return (c.dur - c.events.release) / THROW_FOLLOW; }
   plant(halfWidth, flat) {
     if (this.far) return;                       // animation LOD: no foot IK far away
     this.footWorld(_a, halfWidth, 0.03);
@@ -238,6 +309,14 @@ export class FielderActor extends Actor {
     this.reachBoth(target, 0.6);
   }
 }
+
+const THROW_LEAD = 0.47;            // the logic starts the throw this long before the ball leaves the hand
+const THROW_FOLLOW = 1.3;           // follow-through playback rate
+// Over the clip's low, wide legs: leaning in, eyes up, hands out in front
+// ready to move either way (local x / z rotations, slerped in).
+const READY_TOP = [['spine', 0.36, 0], ['chest', 0.12, 0], ['neck', -0.22, 0], ['head', -0.18, 0],
+  ['shoulderL', -0.62, 0.2], ['shoulderR', -0.62, -0.2], ['elbowL', -0.75, 0], ['elbowR', -0.75, 0], ['handL', 0, 0], ['handR', 0, 0]];
+const _e2 = new THREE.Euler();
 
 // ---------------------------------------------------------------- bowler
 // Delivery actions keyed on u = time relative to release (s). Two styles:
@@ -440,13 +519,15 @@ export class BowlerActor extends Actor {
       let released = false;
       if (!r.released && u >= 0) { r.released = true; released = true; u = 0; }
       if (u <= st.ft) {
+        this.poseKey = 'runup';
         this.pos.set(r.rootX, 0, this.zAt(u));
         this.speed = r.vAt(u);
         this.heading = 0;
         if (u < -0.56) {
           this.gait(dt);
           h.reset();
-          poseLocomotion(h, this.phase, this.speed, 0.08 * (1 - sstep(-1.2, -0.7, u)));
+          // (Taller through the trunk than a sprinter: a bowler's approach is upright.)
+          this.locomote(t, 0.08 * (1 - sstep(-1.2, -0.7, u)) - (clipsReady() ? 0.16 : 0));
           if (st === BOWL.spin) {                    // ball cupped in both hands at the chest
             h.rot('shoulderR', -0.55 + 0.12 * Math.sin(this.phase), 0, 0.12); h.rot('elbowR', -1.75, 0, 0);
             h.rot('shoulderL', -0.5 - 0.12 * Math.sin(this.phase), 0, -0.12); h.rot('elbowL', -1.65, 0, 0);
@@ -467,7 +548,10 @@ export class BowlerActor extends Actor {
             this.gait(dt);
             this.snap = h.snapshot(this.snap || undefined);
             h.reset();
-            poseLocomotion(h, this.phase, Math.max(this.speed, 1.2));
+            const v = this.speed;
+            this.speed = Math.max(v, 1.2);
+            this.locomote(t);
+            this.speed = v;
             h.blendFrom(this.snap, sstep(st.gaitAt, st.ft, u));
           }
           this.apply();
@@ -505,15 +589,16 @@ export class BowlerActor extends Actor {
       this.pos.x += Math.sin(this.heading) * this.speed * dt;
       this.pos.z += Math.cos(this.heading) * this.speed * dt;
       this.gait(dt);
-      poseLocomotion(h, this.phase, this.speed);
+      this.locomote(t);
     } else {
       this.state = 'idle';
       this.speed = 0;
       this.turnToward(0, dt, 2.5);
-      poseIdle(h, t, 1);
+      this.idle(t);
     }
+    this.poseKey = this.state === 'idle' ? 'idle' : 'move';
     this.apply();
-    if (this.state === 'idle') {
+    if (this.state === 'idle' && !clipsReady()) {
       this.footWorld(_a, 0.13, 0.03); this.footWorld(_b, -0.13, 0);
       plantFeet(h, _a, _b, this.forward(_c).multiplyScalar(0.6));
     } else if (this.state === 'runoff') h.lookAt(_gaze, 0.6);
@@ -837,10 +922,11 @@ export class BatterActor extends Actor {
     this.mode = 'run';
     this.gait(dt);
     h.reset();
-    if (this.speed > 0.2) poseLocomotion(h, this.phase, this.speed);
-    else poseIdle(h, t, 1);
+    if (this.speed > 0.2) this.locomote(t);
+    else this.idle(t);
+    this.poseKey = diving ? 'dive' : this.speed > 0.2 ? 'move' : 'stand';
     this.apply();
-    if (this.speed <= 0.2) {
+    if (this.speed <= 0.2 && !clipsReady()) {
       this.footWorld(_a, 0.14, 0.04); this.footWorld(_b, -0.14, 0);
       plantFeet(h, _a, _b, this.forward(_c).multiplyScalar(0.6));
     }
@@ -864,6 +950,7 @@ export class BatterActor extends Actor {
   updateDive(dt, t, dv) {
     const h = this.h, sc = h.root.scale.y;
     this.mode = 'run';
+    this.poseKey = 'dive';
     const u = dv.t, up = dv.down > 0 ? sstep(0.3, 0.85, dv.down) : 0;
     const go = sstep(0, 0.2, u) * (1 - up);                 // committing: arms and bat thrown forward
     const flat = sstep(0.08, 0.36, u) * (1 - up);           // body horizontal
@@ -932,11 +1019,14 @@ export class BatterActor extends Actor {
   updateLeaning(dt, t, look) {
     const h = this.h;
     this.mode = 'idle';
+    this.poseKey = 'lean';
     h.reset();
-    poseIdle(h, t, 1);
+    this.idle(t);
     this.apply();
-    this.footWorld(_a, 0.13, 0.03); this.footWorld(_b, -0.13, -0.02);
-    plantFeet(h, _a, _b, this.forward(_c).multiplyScalar(0.6));
+    if (!clipsReady()) {
+      this.footWorld(_a, 0.13, 0.03); this.footWorld(_b, -0.13, -0.02);
+      plantFeet(h, _a, _b, this.forward(_c).multiplyScalar(0.6));
+    }
     // Bat: toe grounded ~45 cm ahead to the right, handle up toward the hand.
     this.forward(_fwd);
     _left.set(_fwd.z, 0, -_fwd.x);

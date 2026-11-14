@@ -211,15 +211,34 @@ src/game/             game.js (orchestrator + frame loop), batting.js / bowling.
                       replay.js (recording and replays)
                       calibration.js, settings.js
 src/render/           env (stadium), objects (bat/ball/stumps/machine), humanoid (skinned athlete + IK),
-                      actors + people + anim, umpires, drsView (review board + ball tracking),
+                      actors + people + anim, clips (authored animation clips), umpires, drsView (review board + ball tracking),
                       viewModes (helmet grille, your bowling body, hiding bodies inside your head)
 src/ui/               canvas-texture panels: menus, HUD, scoreboard, laser pointer
 src/xr/               session.js (VR/MR, frame rate, foveation), input.js (controllers + desktop emulation), mr.js
 src/audio/            sfx.js (synthesised), samples.js (recorded effects), commentary.js (two-voice engine),
                       crowd.js (crowd reactions and terrace)
-assets/               athlete model, commentary clips, recorded effects (see assets/CREDITS.md)
-tools/                build_athlete.mjs (converts the Courtside athlete for this game)
+assets/               athlete model, animation clips (anim/), commentary clips, recorded effects (see assets/CREDITS.md)
+tools/                build_athlete.mjs (converts the Courtside athlete for this game),
+                      build_clips.mjs (retargets the animation clips onto the game's 17-bone rig)
 tests/                node:test suites
 ```
+
+### Animation clips
+
+Walking, jogging, sprinting, standing about (idle, arms folded), the fielders'
+ready set (legs), the overarm throw and the celebrations are authored clips from
+Quaternius' *Universal Animation Library* (CC0), retargeted offline by
+`tools/build_clips.mjs` onto the 17-bone rig and stored as 30 Hz int16
+quaternions (`assets/anim/clips.bin` + `clips.json`, ~65 KB):
+
+```
+node tools/build_clips.mjs <courtside>/assets/basketball/spocco/characters/sportsmate.glb <dir with node_modules/three>
+```
+
+`src/render/clips.js` samples and blends them (`applyClip`, `applyLocomotion`,
+`strideAt`); the stride phase comes from distance travelled with the clips' own
+stride length, so planted feet stay put. Everything IK-driven stays procedural
+(the bowling action, batting, dives, the keeper's takes, catches, the pick-up),
+and if the clips fail to load the old procedural poses in `anim.js` take over.
 
 See also [TESTING.md](TESTING.md) (headset checklist), [PROGRESS.md](PROGRESS.md) and [DECISIONS.md](DECISIONS.md).
