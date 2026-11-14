@@ -11,6 +11,8 @@ tested without a headset.
 * **Animated players:** skinned athletes (model from the Courtside project, re-rigged for IK) with helmets, pads and
   gloves. The bowler's arm passes exactly through the physics release point; fielders walk in, chase, dive, pick up
   and throw; batters run, turn and dive; umpires signal.
+* **A live ground:** about 25,000 spectators who stand, bounce and do the Mexican wave, recorded crowd reactions
+  (oohs, gasps, cheers, groans) and a terrace of clapping chants, drums and whistles.
 * **Full match rules:** bowled, caught, LBW (with DRS ball tracking), stumped and run out; wides, no-balls and free
   hits; a third umpire for close run-outs and stumpings; manual running; player-taken catches in slow motion;
   two-voice commentary.
@@ -101,7 +103,22 @@ Hold the **trigger** to grip the ball, bowl overarm, let go to release.
   batter home for a run out.
 * **Reviews:** if an LBW appeal is turned down, press **A** to send it upstairs (ball tracking, umpire's call).
   Close run-outs and stumpings go to the third umpire automatically.
-* Umpires signal fours, sixes, wides and wickets. Two commentators call the game (toggle in Settings, with captions).
+* Umpires signal fours, sixes, wides and wickets. Two commentators call the game (audio only, no captions; Settings → Sound).
+
+### On-screen help, views and replays
+
+* **Control hints:** a small picture of the controller with the button to press lit up. Each one appears the
+  first time that control is needed in a game, and the running ones (RUN / GO BACK / DIVE), the throw choice and
+  the review stay up for as long as you can use them. The menu's *How to play* page lists everything.
+* **Settings → View:** *your eyes* (plain first person), *eyes + helmet grille* (first person from inside a
+  batting helmet), or *behind the player* (third person: the camera sits behind and beside your player, who copies
+  your bat, head and hands; menus and catches always switch back to your own eyes).
+* **Settings → Replays:** after every ball a short replay plays, from the *bowler's view* (default) or the
+  *batter's view*; once the ball is hit the camera chases it. In the headset you are moved through it with a dimmed
+  edge to the view; press any button to skip. *Off* turns them off.
+* **Settings → Contact assist** (off / low / normal / high, default normal): an invisible margin around your bat so a
+  ball that would have just missed is still played (and pulled toward the middle of the bat). The bat itself is
+  14 cm wide with a 61 cm blade.
 
 ## Desktop debug mode
 
@@ -122,6 +139,7 @@ Open the page in any WebGL2 browser without a headset. The page starts on the me
 | `Z` / `X` | Review (`Z`) | Seam for out-swing / in-swing · throw to keeper / bowler's end |
 | `Esc` or `M` | Menu (click buttons with the mouse) | Menu |
 | `C` / `T` | Cycle cameras / toggle ball trail | |
+| `Space` during a replay | Skip it | Skip it |
 
 `window.__game` exposes the game object in the console, for example `__game.world.ball`,
 `__game.settings` and `__game.actions.start('chase')`.
@@ -158,12 +176,15 @@ src/game/             game.js (orchestrator + frame loop), batting.js / bowling.
                       aiBatter.js, aiBowler.js (bowler types), fielding.js (+fieldController), running.js,
                       lbw.js + lbwFlow.js (appeal, decision, review), thirdUmpire.js, scoring.js, scorecard.js,
                       squad.js, bowlerTypes.js + bowlingInput.js (your bowlers and their deliveries),
+                      replay.js (recording and replays)
                       calibration.js, settings.js
 src/render/           env (stadium), objects (bat/ball/stumps/machine), humanoid (skinned athlete + IK),
-                      actors + people + anim, umpires, drsView (review board + ball tracking)
+                      actors + people + anim, umpires, drsView (review board + ball tracking),
+                      viewModes (helmet grille, your bowling body, hiding bodies inside your head)
 src/ui/               canvas-texture panels: menus, HUD, scoreboard, laser pointer
 src/xr/               session.js (VR/MR, frame rate, foveation), input.js (controllers + desktop emulation), mr.js
-src/audio/            sfx.js (synthesised), samples.js (recorded effects), commentary.js (two-voice engine)
+src/audio/            sfx.js (synthesised), samples.js (recorded effects), commentary.js (two-voice engine),
+                      crowd.js (crowd reactions and terrace)
 assets/               athlete model, commentary clips, recorded effects (see assets/CREDITS.md)
 tools/                build_athlete.mjs (converts the Courtside athlete for this game)
 tests/                node:test suites

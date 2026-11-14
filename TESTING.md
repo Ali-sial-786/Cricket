@@ -147,7 +147,11 @@ Bowl a few overs in **Bowl an Over** or a **Match** and watch the batter from yo
 - [ ] **Run Chase** and one **Match** (toss, then 5 overs and 5 wickets each; try bowling first once).
   - **Report:** any point where the game got stuck (no ball coming, no way forward), and whether targets are
     fair on each difficulty.
-- [ ] Commentary and captions (Settings → Sound cycles all / effects only / off).
+- [ ] Commentary (Settings → Sound cycles all / effects only / off). There should be no captions on screen.
+- [ ] The crowd: fans stand and cheer on boundaries and wickets, there's a Mexican wave now and then, oohs on a
+      play-and-miss, gasps on edges and close run-outs, groans when you're out, clapping chants between balls.
+  - **Report:** whether it's too loud / too busy (`src/audio/crowd.js`) and the frame rate with the full crowd
+    (`render.crowdMax`, 26000).
   - **Report:** lines that are wrong for what happened, clipped, or too frequent.
 
 ## 9. Mixed reality nets (3 min)
@@ -156,6 +160,26 @@ Bowl a few overs in **Bowl an Over** or a **Match** and watch the batter from yo
 - [ ] Point the **left** controller at the floor; a green ring and arrow follow it. Pull the trigger to drop the
       stumps. The pitch runs the way you are facing. Walk to the crease, then open **Nets: Batting**.
   - **Report:** whether the ring sits on the real floor (hit-test) and whether the stumps stay put when you move.
+
+## 10. Contact, views, replays, keeper (10 min)
+- [ ] **Contact:** Run Chase on *hard*, 12 balls with your normal swing. Count how many you hit.
+  Then Settings → Contact assist *off*, *low* and *high* for 6 balls each.
+  - **Report:** contact count per setting, and whether *normal* feels fair or still lets balls through
+    (`contactAssist` in `src/config.js`: `capture`, `magnet`, `toe`). Also say if the bat is now too big.
+- [ ] **Your own body:** after a hit, call a run in first person. You should never find yourself inside a
+      helmet or a body (the runner who runs for you appears once it is clear of your head).
+- [ ] **Settings → View → eyes + helmet grille:** is the grille comfortable or does it get in the way? Is it crisp?
+- [ ] **Settings → View → behind the player:** bat a few balls and bowl a few.
+  - **Report:** whether the camera position works (`view.behindBatting` / `behindBowling`), whether you can still
+    time the ball, and whether your player copies you believably.
+- [ ] **Replays:** after each ball, watch one bowler's-view and one batter's-view replay, including a big hit.
+  - **Report:** any sickness from the moving camera (it slows to 75% after the shot and dims the edges), whether
+    you want them shorter, and whether *any button skips* works.
+- [ ] **Hints:** start a new Run Chase. The controller pictures should appear for the first ball and while running.
+  - **Report:** are they easy to read, and is the lit button the right one on your controller?
+- [ ] **Keeper and fielders:** watch the keeper take a few balls, a run-out at each end and a stumping.
+  - **Report:** whether the ball ever sits somewhere odd (it should be in the gloves / right hand), and whether
+    the bails come off when the glove gets there.
 
 ## What to send back
 1. The numbers above: frame rate, velocity source, bat m/s, exit km/h, hand m/s, elev °, roll rad/s.

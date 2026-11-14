@@ -1,6 +1,6 @@
 # Progress
 
-_Last updated after the fifth pass (your bowler types, swing and seam by action)._
+_Last updated after the sixth pass (contact, views, replays, keeper, hints, crowd)._
 
 ## Done
 - **Phase 1: Nets (batting core)**
@@ -75,7 +75,7 @@ _Last updated after the fifth pass (your bowler types, swing and seam by action)
   bowler's end (B).
 - **LBW and DRS:** pad contact, the LBW law, an umpire with an error rate, one review per innings, a review board
   with pitching / impact / wickets and ball tracking (ported from Courtside).
-- **Presentation:** umpire signals, two-voice commentary with captions, recorded bat / crowd / stumps samples,
+- **Presentation:** umpire signals, two-voice commentary, recorded bat / crowd / stumps samples,
   a How to play page, floating prompts.
 - **Format:** 5 overs, 5 wickets.
 - 84 unit tests.
@@ -105,6 +105,24 @@ _Last updated after the fifth pass (your bowler types, swing and seam by action)
 - The bowler is changed with the right stick at the start of an over; the keeper stands up to your spinners.
 - 99 unit tests.
 
+## Sixth pass
+- **Bat contact:** measured with simulated swings (timing and placement error at headset frame rate): with
+  ±45 ms / ±7 cm the old bat connected 57% of the time. The bat is now 14 x 61 cm, the grip a little higher, and a
+  contact assist (normal: 8 cm capture, contact pulled 30% toward the sweet spot, 12 cm invisible toe) brings that
+  to about 80%. The pad check (LBW) was also stealing balls from the bat; it is tighter and the bat goes first.
+- **No more seeing inside your own helmet:** any figure within reach of your eyes is hidden (the runner who runs
+  for you used to stand inside your head).
+- **View setting:** your eyes / eyes + helmet grille / behind the player (third person, with a body that copies you
+  when batting and when bowling).
+- **Replays after every ball** (bowler's or batter's view, then the camera chases the hit; skippable).
+- **Keeper and ball handling:** a bug aimed every "hold the ball" pose at the elbow pole, so held balls sat at the
+  keeper's crotch; fixed. Balls are held in the right hand; throws are taken over the stumps and the bails come off
+  with the glove; stumpings lunge in. Fielders no longer stand inside each other. New gloves and pads.
+- **Controller hints** with the button drawn; commentary captions removed.
+- **Crowd:** about 25,000 fans (cheaper to draw than the old 3,000), cheering, Mexican wave; 25 recorded crowd
+  reactions and synthesised chants, drums and whistles.
+- 100 unit tests.
+
 ## Known issues / not verified
 - **Not tested on a real headset.** All XR paths ran only under Meta's IWER emulator in headless Chromium
   (no pose velocities, haptics, hit-test or passthrough there). Haptics, `updateTargetFrameRate`, pose velocities
@@ -113,7 +131,10 @@ _Last updated after the fifth pass (your bowler types, swing and seam by action)
   (the game prompts you).
 - Headless checks covered: all modes, running and run-outs, umpire signals, slow-motion catch, LBW appeal and both
   kinds of review, sweep, stride, stumping (both sides), the third umpire, no-ball and free hit, the toss,
-  bowling first, crease movement, the emulated VR and MR flows, and frame strips of every AI batting shot. **Not** checkable without
+  bowling first, crease movement, the emulated VR and MR flows, and frame strips of every AI batting shot,
+  view modes, replays (desktop and emulated headset), keeper holding / taking throws, hints, the crowd.
+- Not checkable without a headset: how the contact assist *feels*, replay comfort, the behind-the-player view's
+  feel, helmet grille comfort in stereo, crowd audio balance, frame rate with 25,000 spectators. **Not** checkable without
   a headset: palm / back-of-hand detection for doosra and googly, whether the wrist turn for swing feels natural
   and stays put through a real wind-up (it works under the emulator), the feel of the stride and of catching, the
   in-VR switch to mixed reality, commentary timing by ear.
