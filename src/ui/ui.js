@@ -390,10 +390,10 @@ export class UI {
       btn('back', { x: r.x + half + 12, y: r.y, w: half, h: r.h }, 'Back', () => this.go('main'));
       P.set(W, 'Bowling machine');
     } else if (this.page === 'settings') {
-      const L = grid(P, { top: 0.175, bottom: 0.075, cols: 2, rows: 8 });
+      const L = grid(P, { top: 0.2, bottom: 0.09, cols: 2, rows: 8 });
       const xrRate = g.xrManager && g.xrManager.frameRate ? `${g.xrManager.frameRate} Hz target` : 'no target';
       const vel = g.input.xr ? (g.input.right.hasXRVel ? 'XR' : 'pose') : 'desktop';
-      label(P.W / 2, P.H * 0.142, `Frame ${Math.round(g.stats.fps)} Hz (${xrRate}) · controller velocity: ${vel} · v${g.version}`, { align: 'center', size: 22, color: '#8fb3d1' });
+      label(P.W / 2, P.H * 0.162, `Frame ${Math.round(g.stats.fps)} Hz (${xrRate}) · controller velocity: ${vel} · v${g.version}`, { align: 'center', size: 22, color: '#8fb3d1' });
       step('diff', L(0, 0), 'Difficulty', s.difficulty, () => g.actions.difficulty(-1), () => g.actions.difficulty(1));
       step('overs', L(1, 0), 'Overs', String(s.overs), () => g.actions.setting('overs', -1, 1, 5), () => g.actions.setting('overs', 1, 1, 5));
       step('contact', L(0, 1), 'Contact assist', s.contactAssist, () => g.actions.cycle('contactAssist', CONTACT, -1), () => g.actions.cycle('contactAssist', CONTACT, 1));
@@ -421,7 +421,7 @@ export class UI {
         btn('turn', { x: r.x + hw + 12, y: r.y, w: hw, h: r.h }, `R-stick turn: ${s.turn}`, () => g.actions.cycle('turn', TURNS, 1), { size: 24 }); }
       btn('runup', L(0, 7), `Run-up: ${s.runUp ? 'on' : 'off (bowl from the crease)'}`, () => g.actions.toggle('runUp'), { active: s.runUp, size: 26 });
       btn('feel', L(1, 7), `Deliveries: ${s.bowlByFeel ? 'by wrist action' : 'pick with A/B'}`, () => g.actions.toggle('bowlByFeel'), { size: 26 });
-      label(P.W * 0.5, P.H * 0.958, 'Y / Esc: back to the game', { align: 'center', size: 20, color: '#7f8fa0' });
+      label(P.W * 0.5, P.H * 0.968, 'Y / Esc: back to the game', { align: 'center', size: 18, color: '#7f8fa0' });
       btn('back', { x: P.W - 150, y: 14, w: 130, h: 56 }, 'Back', () => this.go('main'));
       P.set(W, 'Settings');
     } else if (this.page === 'bowler') {
