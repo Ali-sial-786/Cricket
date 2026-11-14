@@ -1,0 +1,176 @@
+{
+ "source": "Quaternius Universal Animation Library (CC0), via Courtside's sportsmate.glb; retargeted by tools/build_clips.mjs",
+ "bones": [
+  "hips",
+  "spine",
+  "chest",
+  "neck",
+  "head",
+  "shoulderL",
+  "elbowL",
+  "handL",
+  "shoulderR",
+  "elbowR",
+  "handR",
+  "hipL",
+  "kneeL",
+  "ankleL",
+  "hipR",
+  "kneeR",
+  "ankleR"
+ ],
+ "stride": 71,
+ "qScale": 32767,
+ "posScale": 0.00006103701895199438,
+ "units": "hips offset in leg lengths (hip joint to ankle)",
+ "clips": [
+  {
+   "name": "idle",
+   "src": "idle",
+   "frames": 75,
+   "fps": 30,
+   "dur": 2.5,
+   "loop": true,
+   "offset": 0,
+   "grounded": 0.0081,
+   "check": {
+    "footLow": 0.009,
+    "footHigh": 0.021,
+    "handInTorsoFrames": 0
+   }
+  },
+  {
+   "name": "idle_fold_arms",
+   "src": "idle_fold_arms",
+   "frames": 75,
+   "fps": 30,
+   "dur": 2.5,
+   "loop": true,
+   "offset": 5325,
+   "grounded": 0.0081,
+   "check": {
+    "footLow": 0.009,
+    "footHigh": 0.021,
+    "handInTorsoFrames": 0
+   }
+  },
+  {
+   "name": "walk",
+   "src": "walk",
+   "frames": 40,
+   "fps": 29.999999105930353,
+   "dur": 1.3333,
+   "loop": true,
+   "offset": 10650,
+   "grounded": 0.0036,
+   "speed": 1.1391,
+   "stride": 1.5188,
+   "phase0": 0.975,
+   "check": {
+    "footLow": 0.008,
+    "footHigh": 0.261,
+    "handInTorsoFrames": 0
+   }
+  },
+  {
+   "name": "jog",
+   "src": "jog",
+   "frames": 28,
+   "fps": 30.545453883399663,
+   "dur": 0.9167,
+   "loop": true,
+   "offset": 13490,
+   "grounded": 0.0027,
+   "speed": 6.7585,
+   "stride": 6.1953,
+   "phase0": 0.0714,
+   "check": {
+    "footLow": 0.039,
+    "footHigh": 0.408,
+    "handInTorsoFrames": 0
+   }
+  },
+  {
+   "name": "sprint",
+   "src": "sprint",
+   "frames": 20,
+   "fps": 29.999999105930353,
+   "dur": 0.6667,
+   "loop": true,
+   "offset": 15478,
+   "grounded": 0.0315,
+   "speed": 9.9316,
+   "stride": 6.621,
+   "phase0": 0.05,
+   "check": {
+    "footLow": 0.04,
+    "footHigh": 0.442,
+    "handInTorsoFrames": 0
+   }
+  },
+  {
+   "name": "set",
+   "src": "bb_defense",
+   "frames": 38,
+   "fps": 30.4,
+   "dur": 1.25,
+   "loop": true,
+   "offset": 16898,
+   "grounded": -0.0414,
+   "check": {
+    "footLow": 0.006,
+    "footHigh": 0.009,
+    "handInTorsoFrames": 0
+   }
+  },
+  {
+   "name": "throw",
+   "src": "overhand_throw",
+   "frames": 41,
+   "fps": 29.999999105930353,
+   "dur": 1.3333,
+   "loop": false,
+   "offset": 19596,
+   "grounded": 0.0139,
+   "events": {
+    "release": 0.35,
+    "hand": "R"
+   },
+   "check": {
+    "footLow": 0.013,
+    "footHigh": 0.073,
+    "handInTorsoFrames": 0
+   }
+  },
+  {
+   "name": "cheer",
+   "src": "bb_cheer",
+   "frames": 16,
+   "fps": 29.538460454997267,
+   "dur": 0.5417,
+   "loop": true,
+   "offset": 22507,
+   "grounded": -0.0139,
+   "check": {
+    "footLow": 0.002,
+    "footHigh": 0.02,
+    "handInTorsoFrames": 0
+   }
+  },
+  {
+   "name": "sad",
+   "src": "bb_sad",
+   "frames": 76,
+   "fps": 30,
+   "dur": 2.5,
+   "loop": false,
+   "offset": 23643,
+   "grounded": -0.0139,
+   "check": {
+    "footLow": 0.002,
+    "footHigh": 0.002,
+    "handInTorsoFrames": 0
+   }
+  }
+ ]
+}

@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { Game } from './game/game.js';
 import { XRSessionManager } from './xr/session.js';
 import { loadAthlete } from './render/humanoid.js';
+import { loadClips } from './render/clips.js';
 
 const container = document.getElementById('app');
 const statusEl = document.getElementById('status');
@@ -26,7 +27,8 @@ rig.add(camera);
 scene.add(rig);
 
 try {
-  await loadAthlete();
+  // The clips fail soft (the procedural poses take over), the model does not.
+  await Promise.all([loadAthlete(), loadClips()]);
 } catch (e) {
   console.error(e);
   setStatus('Could not load the player model: ' + (e.message || e));

@@ -3,7 +3,8 @@
 // (the TV square). Between signals the hands are clasped behind the back.
 import * as THREE from 'three';
 import { Actor } from './actors.js';
-import { poseIdle, plantFeet, keys, sstep } from './anim.js';
+import { plantFeet, keys, sstep } from './anim.js';
+import { clipsReady } from './clips.js';
 import { PITCH } from '../physics/pitch.js';
 
 const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3();
@@ -27,8 +28,9 @@ class UmpireActor extends Actor {
   update(dt, now, look) {
     const h = this.h;
     h.reset();
-    poseIdle(h, now, 1);
+    this.idle(now);
     const s = this.sig;
+    this.poseKey = s ? s.type : 'idle';
     let busyL = false, busyR = false;          // arms the current signal uses
     if (s) {
       const u = (now - s.t0) / s.dur;
@@ -74,8 +76,9 @@ class UmpireActor extends Actor {
     this.apply();
     if (!this.far) {
       this.footWorld(_a, 0.13, 0.02); this.footWorld(_b, -0.13, 0);
+      // (With the idle clip the feet are already planted where it stands them.)
       const legBye = s && s.type === 'legbye';
-      plantFeet(h, _a, legBye ? null : _b, this.forward(_c).multiplyScalar(0.6));
+      if (!clipsReady()) plantFeet(h, _a, legBye ? null : _b, this.forward(_c).multiplyScalar(0.6));
       // Hands clasped behind the back (whichever hands the signal is not using).
       if (!busyL || !busyR) this.clasp(!busyL, !busyR);
     }

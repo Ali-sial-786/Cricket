@@ -9,3 +9,8 @@
   re-encoded here to 24 kHz Ogg Vorbis.
 - `assets/audio/crowd/` — crowd reactions copied from Courtside's `assets/audio/crowd` (cuts of CC0 and public-domain
   recordings; provenance per clip in `assets/audio/crowd/manifest.json`).
+- `assets/anim/clips.*` — animation clips from Quaternius' *Universal Animation Library* (CC0-1.0,
+  https://quaternius.com), as carried by the Universal Base Character in Courtside's
+  `assets/basketball/spocco/characters/sportsmate.glb`; retargeted onto the game's 17-bone rig by
+  `tools/build_clips.mjs` (idle, idle_fold_arms, walk, jog, sprint, bb_defense, overhand_throw, bb_cheer and
+  bb_sad).
