@@ -27,6 +27,35 @@ function canvasTex(w, h, draw, { repeat = null, srgb = true, aniso = 8 } = {}) {
   return t;
 }
 
+// The sightscreen's face: vertical slats (panels with seams), a soft sheen
+// that is lighter toward the top, and faint weathering. Its own random
+// stream, so the rest of the ground is laid out as before.
+function sightscreenTexture() {
+  const r = mulberry(1234);
+  return canvasTex(1024, 512, (g, w, h) => {
+    const grad = g.createLinearGradient(0, 0, 0, h);
+    grad.addColorStop(0, '#2e3744'); grad.addColorStop(0.45, '#222a35'); grad.addColorStop(1, '#171c24');
+    g.fillStyle = grad; g.fillRect(0, 0, w, h);
+    const n = 16, pw = w / n;
+    for (let i = 0; i < n; i++) {
+      // Each panel a touch different, darker at its edges (slightly curved slats).
+      const v = (r() - 0.5) * 0.06;
+      g.fillStyle = v > 0 ? `rgba(255,255,255,${v})` : `rgba(0,0,0,${-v * 1.5})`;
+      g.fillRect(i * pw, 0, pw, h);
+      const s = g.createLinearGradient(i * pw, 0, (i + 1) * pw, 0);
+      s.addColorStop(0, 'rgba(0,0,0,0.22)'); s.addColorStop(0.5, 'rgba(255,255,255,0.03)'); s.addColorStop(1, 'rgba(0,0,0,0.22)');
+      g.fillStyle = s; g.fillRect(i * pw, 0, pw, h);
+      g.fillStyle = 'rgba(0,0,0,0.55)'; g.fillRect(i * pw, 0, 3, h);                 // seam
+      g.fillStyle = 'rgba(255,255,255,0.07)'; g.fillRect(i * pw + 3, 0, 2, h);     // its lit lip
+    }
+    // Horizontal stiffeners showing through.
+    for (const y of [0.33, 0.66]) { g.fillStyle = 'rgba(0,0,0,0.25)'; g.fillRect(0, y * h - 2, w, 4); g.fillStyle = 'rgba(255,255,255,0.05)'; g.fillRect(0, y * h + 2, w, 2); }
+    // Weathering: faint streaks and grain.
+    for (let i = 0; i < 160; i++) { g.fillStyle = `rgba(255,255,255,${r() * 0.035})`; g.fillRect(r() * w, r() * h, 1 + r() * 2, 20 + r() * 120); }
+    for (let i = 0; i < 9000; i++) { const l = r() < 0.5; g.fillStyle = l ? `rgba(255,255,255,${r() * 0.05})` : `rgba(0,0,0,${r() * 0.12})`; g.fillRect(r() * w, r() * h, 1.5, 1.5); }
+  }, { aniso: 4 });
+}
+
 function speckle(g, w, h, n, a, light, size = 2) {
   for (let i = 0; i < n; i++) {
     const v = light ? 255 : 0;
@@ -311,12 +340,37 @@ export function buildEnvironment(scene) {
   stadium.add(new THREE.Mesh(merge(pav), vertexColorMat()));
 
   // ---------------------------------------------------------- sightscreens
+  // Black for a white ball, but a real structure: a lit, slatted face (dark
+  // charcoal-navy with panel seams, a soft top-to-bottom sheen and a little
+  // weathering) in a galvanised frame, on posts with back braces and wheeled
+  // bogies, so it reads as a screen and not as a hole in the world.
+  const SW = 26, SH = 10.2, SB = 0.6;                         // face width, height, bottom edge
+  const ssTex = sightscreenTexture();
+  const ssFaceMat = new THREE.MeshLambertMaterial({ map: ssTex, color: 0xffffff });
   const ss = [];
   for (const dir of [-1, 1]) {
     const z = CZ + dir * (CONFIG.field.boundaryRadius + 6);
-    ss.push(part(new THREE.BoxGeometry(26, 10.5, 0.4), 0x0e1218, [0, 5.4, z]));
-    ss.push(part(new THREE.BoxGeometry(26.4, 0.35, 0.7), 0x2a303a, [0, 10.8, z]));
-    for (const x of [-12, -6, 0, 6, 12]) ss.push(part(new THREE.BoxGeometry(0.3, 0.6, 1.4), 0x30363f, [x, 0.3, z - dir * 0.5]));
+    const face = new THREE.Mesh(new THREE.PlaneGeometry(SW, SH), ssFaceMat);
+    face.position.set(0, SB + SH / 2, z);
+    if (dir > 0) face.rotation.y = Math.PI;                    // face the pitch
+    stadium.add(face);
+    const back = z + dir * 0.18;                              // behind the face
+    ss.push(part(new THREE.BoxGeometry(SW, SH, 0.3), 0x3a4049, [0, SB + SH / 2, back]));
+    // Frame: top, bottom and side rails, standing a little proud of the face.
+    const fz = z - dir * 0.06, rail = 0x7d858f;
+    ss.push(part(new THREE.BoxGeometry(SW + 0.5, 0.28, 0.24), rail, [0, SB + SH + 0.1, fz]));
+    ss.push(part(new THREE.BoxGeometry(SW + 0.5, 0.24, 0.24), rail, [0, SB - 0.08, fz]));
+    for (const sx of [-1, 1]) ss.push(part(new THREE.BoxGeometry(0.26, SH + 0.5, 0.24), rail, [sx * (SW / 2 + 0.12), SB + SH / 2, fz]));
+    // A cap along the top.
+    ss.push(part(new THREE.BoxGeometry(SW + 0.8, 0.12, 0.9), 0x2b3038, [0, SB + SH + 0.3, back]));
+    // Posts, back braces and wheeled bogies.
+    for (const x of [-12.4, -6.2, 0, 6.2, 12.4]) {
+      ss.push(part(new THREE.BoxGeometry(0.22, SB + SH + 0.4, 0.22), 0x6b737d, [x, (SB + SH + 0.4) / 2, back + dir * 0.28]));
+      const brace = new THREE.BoxGeometry(0.12, 7.6, 0.12);
+      ss.push(part(brace, 0x5d646e, [x, 3.4, back + dir * 2.2], [-dir * 0.62, 0, 0]));
+      ss.push(part(new THREE.BoxGeometry(0.3, 0.25, 4.6), 0x4a5059, [x, 0.42, back + dir * 2.0]));
+      for (const wz of [0.4, 3.9]) ss.push(part(new THREE.CylinderGeometry(0.28, 0.28, 0.16, 12), 0x1d2025, [x, 0.28, back + dir * wz], [0, 0, Math.PI / 2]));
+    }
   }
   stadium.add(new THREE.Mesh(merge(ss), vertexColorMat()));
 

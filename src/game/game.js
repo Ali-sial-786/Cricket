@@ -274,8 +274,9 @@ export class Game {
       this.camera.getWorldPosition(this.eye.p);
       this.camera.getWorldQuaternion(this.eye.q);
     }
-    // Helmet grille: only when batting, through your own eyes.
-    const batting = this.state === 'play' && this.session && !this.session.isBowling;
+    // Helmet grille: only when batting, through your own eyes (and not while a
+    // menu or result card is open: its buttons would sit behind the bars).
+    const batting = this.state === 'play' && this.session && !this.session.isBowling && !(this.ui && this.ui.menuOpen);
     const firstPerson = this.input.xr ? this.viewMode() === 'helmet' : this.settings.view === 'helmet' && (this.desktopView % 5) === 1 && this.end === 'batting';
     const g = this.grille;
     g.visible = !!(firstPerson && batting && !this.viewOverride && !(this.replay && this.replay.active));

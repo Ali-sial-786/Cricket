@@ -4,6 +4,7 @@
 // hint = { hand: 'L' | 'R', button: 'trigger' | 'grip' | 'a' | 'b' | 'ab' | 'stick' |
 //          'stickX' | 'stickY' | 'click', label: 'RUN', sub: 'press X', key: 'Space' }
 // (On the left controller 'a' / 'b' are drawn as X / Y.)
+import { fillFit } from './panel.js';
 
 const LIT = '#ffd34d', LIT_GLOW = 'rgba(255,211,77,0.55)';
 const BODY = '#232a33', EDGE = '#8a96a3', DIM = '#46505c', TXT = '#e8eef5';
@@ -128,11 +129,9 @@ export function drawHintCard(g, x, y, w, h, hint, desktop) {
   if (desktop && hint.key) drawKey(g, x + w / 2, y + pic * 0.55, pic, hint.key);
   else drawController(g, x + w / 2, y + pic * 0.52, pic * 1.12, hint.hand || 'R', hint.button);
   g.fillStyle = TXT; g.textAlign = 'center'; g.textBaseline = 'middle';
-  g.font = `800 ${Math.round(h * 0.13)}px system-ui, sans-serif`;
-  g.fillText(hint.label, x + w / 2, y + h * 0.77);
+  fillFit(g, hint.label, x + w / 2, y + h * 0.77, w - 20, 800, h * 0.13, 14, 'hints');
   g.fillStyle = '#9fb2c4';
-  g.font = `600 ${Math.round(h * 0.075)}px system-ui, sans-serif`;
-  g.fillText(desktop && hint.key ? `key ${hint.key}` : hint.sub || '', x + w / 2, y + h * 0.9);
+  fillFit(g, desktop && hint.key ? `key ${hint.key}` : hint.sub || '', x + w / 2, y + h * 0.9, w - 20, 600, h * 0.08, 12, 'hints');
   g.restore();
 }
 

@@ -84,3 +84,57 @@ test('tail-enders are worse than the top order', () => {
   assert.ok(batProfile(6).sigma > batProfile(2).sigma);
   assert.equal(batProfile(99).role, 'tail-ender');
 });
+
+// Parse "Name 12* (7)" back out of the result card's batting lines.
+const parseBatters = (lines) => lines.filter((l) => !/^Extras|\//.test(l)).flatMap((l) => l.split(' · ')).map((t) => {
+  const m = t.match(/^(.+) (\d+)(\*?) \((\d+)\)$/);
+  assert.ok(m, `batter entry "${t}"`);
+  return { name: m[1], runs: +m[2], notOut: !!m[3], balls: +m[4] };
+});
+
+test('the result card lists every batter who batted and adds up to the total', () => {
+  const names = ['J. Carter', 'K. Mensah', 'R. Tanaka', 'D. Okafor', 'S. Whitlock', 'A. Rahimi', 'T. Vance'];
+  const c = new Scorecard(names); c.setBowler('C. Warrick');
+  const inn = new Innings({ balls: 18, wickets: 5, card: c });
+  const balls = [
+    { runs: 0, wicket: 'bowled' },                          // Carter b, first ball
+    { runs: 1 },                                            // Mensah's single: Tanaka on strike
+    { runs: 4, boundary: 4 },
+    { wide: true, runs: 1 },                                // 2 wides, ran one: ends change
+    { runs: 2, byes: true },                                // byes: to extras, a ball faced
+    { noBall: true, runs: 1 },                              // a no-ball: one off the bat and one extra
+    { runs: 1, wicket: 'run out', who: 'nonStriker' },      // the non-striker run out going for the second
+    { runs: 0, wicket: 'stumped' },
+    { runs: 0 },
+    { runs: 3, byes: true },
+    { runs: 0, wicket: 'caught', fielder: 'Keeper' },
+    { runs: 4, boundary: 4 },
+    { runs: 0, wicket: 'lbw' },
+  ];
+  for (const b of balls) { if (inn.complete) break; inn.record(b); }
+  assert.ok(inn.complete, 'five down');
+  assert.equal(inn.wickets, 5);
+  const lines = c.lines({ bowlers: 1 });
+  const bats = parseBatters(lines);
+  // Everyone who went in, once each, in batting order; no one walks in after the last wicket.
+  assert.deepEqual(bats.map((b) => b.name), names.slice(0, 6));
+  assert.equal(bats.filter((b) => !b.notOut).length, 5);
+  assert.equal(bats.filter((b) => b.notOut).length, 1);
+  // Runs off the bat + extras = the total; balls faced = legal balls + no-balls.
+  const extras = lines.find((l) => l.startsWith('Extras'));
+  assert.ok(extras, 'extras line');
+  const ex = +extras.match(/^Extras (\d+)/)[1];
+  assert.equal(bats.reduce((t, b) => t + b.runs, 0) + ex, inn.runs);
+  assert.equal(c.total(), inn.runs);
+  assert.equal(bats.reduce((t, b) => t + b.balls, 0), inn.legal + c.extras.noBalls);
+  assert.equal(inn.extras, ex);
+  assert.match(lines[lines.length - 1], /^C\. Warrick 4\//);
+});
+
+test('openers who have not faced yet are on the card (not out)', () => {
+  const c = card();
+  const inn = new Innings({ balls: 6, wickets: 3, card: c });
+  inn.record({ runs: 0, wicket: 'bowled' });
+  const bats = parseBatters(c.lines());
+  assert.deepEqual(bats.map((b) => `${b.name}${b.notOut ? '*' : ''}${b.balls}`), ['A1', 'B*0', 'C*0']);
+});

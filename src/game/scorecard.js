@@ -32,7 +32,7 @@ export class Scorecard {
   swap() { if (this.nonStriker >= 0) { const s = this.striker; this.striker = this.nonStriker; this.nonStriker = s; } }
 
   // outcome: { runs, wide, noBall, wicket, boundary, who: 'striker' | 'nonStriker', fielder }
-  // info: { overDone, score ("23/1"), overs ("2.3") }
+  // info: { overDone, score ("23/1"), overs ("2.3"), final (the innings ends on this ball) }
   // Returns { dismissed, newBatter, milestones: [{ type: 'fifty' | 'twentyfive', name }] }.
   record(o, info = {}) {
     const s0 = this.striker, n0 = this.nonStriker;
@@ -69,7 +69,8 @@ export class Scorecard {
       this.fow.push({ wicket: this.fow.length + 1, score: info.score || '', name: b.name, overs: info.overs || '' });
       this.partnership = 0;
       out.dismissed = b;
-      const nb = this.batters[this.nextIn] || null;
+      // No one comes in after the last ball of the innings.
+      const nb = info.final ? null : this.batters[this.nextIn] || null;
       const slot = this.striker === idx ? 'striker' : 'nonStriker';
       if (nb) { nb.batted = true; this[slot] = this.nextIn; this.nextIn++; out.newBatter = nb; } else this[slot] = -1;
       if (this.striker < 0 && this.nonStriker >= 0) { this.striker = this.nonStriker; this.nonStriker = -1; }
@@ -89,12 +90,24 @@ export class Scorecard {
     return this.bowlers.filter((b) => b.balls > 0).sort((a, b) => b.wickets - a.wickets || a.runs / Math.max(1, a.balls) - b.runs / Math.max(1, b.balls)).slice(0, n).map((b) => `${b.name} ${b.wickets}/${b.runs} (${overs(b.balls)})`);
   }
   extrasText() { const e = this.extras; return e.wides + e.noBalls + e.byes ? `Extras ${e.wides + e.noBalls + e.byes} (b ${e.byes}, w ${e.wides}, nb ${e.noBalls})` : ''; }
-  // Full card lines (for a result page).
-  lines(maxBatters = 3, maxBowlers = 2) {
+  // Everyone who went in, in batting order: the dismissed, and the two at
+  // the crease (even before they have faced a ball).
+  battedList() {
+    const atCrease = (b) => b === this.onStrike || b === this.offStrike;
+    return this.batters.filter((b) => b.batted && (b.balls > 0 || b.out || atCrease(b)));
+  }
+  extrasTotal() { const e = this.extras; return e.wides + e.noBalls + e.byes; }
+  // Runs off the bat + extras: the innings total.
+  total() { return this.batters.reduce((t, b) => t + b.runs, 0) + this.extrasTotal(); }
+  // Full card lines (for a result page): every batter who batted with runs
+  // and balls faced (perLine to a line), the extras, then the best bowlers.
+  lines({ bowlers = 2, perLine = 3 } = {}) {
     const out = [];
-    const bats = this.topBatters(maxBatters);
-    if (bats.length) out.push(bats.join(' · '));
-    const bowls = this.topBowlers(maxBowlers);
+    const bats = this.battedList().map((b) => this.batterText(b));
+    for (let i = 0; i < bats.length; i += perLine) out.push(bats.slice(i, i + perLine).join(' · '));
+    const ex = this.extrasText();
+    if (ex) out.push(ex);
+    const bowls = this.topBowlers(bowlers);
     if (bowls.length) out.push(bowls.join(' · '));
     return out;
   }

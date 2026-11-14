@@ -1,6 +1,6 @@
 // Menus (laser-pointer driven), HUD, scoreboard, safety + calibration screens.
 import * as THREE from 'three';
-import { CanvasPanel, grid } from './panel.js';
+import { CanvasPanel, grid, fitText, fillFit, reportOverflow, FONT } from './panel.js';
 import { drawHintCard, drawController, drawKey } from './controllerHint.js';
 import { PLAYER_BOWLERS, PLAYER_BOWLER_ORDER } from '../game/bowlerTypes.js';
 import { LENGTH_PRESETS, LINE_PRESETS } from '../physics/bowlingMachine.js';
@@ -15,18 +15,39 @@ const VIEW_NAMES = { eyes: 'your eyes', helmet: 'eyes + helmet grille', behind: 
 const REPLAYS = ['off', 'bowler', 'batter'];
 const REPLAY_NAMES = { off: 'off', bowler: "bowler's view", batter: "batter's view" };
 const TURNS = ['snap', 'smooth', 'off'];
+const DEG = Math.PI / 180;
+// Running controls: only while the ball is live.
+const RUN_HINTS = new Set(['RUN', 'ANOTHER', 'GO BACK', 'DIVE']);
+
+// Where the floating panels sit, as seen from your eyes: yaw (degrees, + to
+// the right of where you face), elevation (degrees, + up), distance (m).
+// Batting: off to the left of the line to the bowler, clear of the pitch, the
+// ball's path and the HUD (which is up and to the right); the prompt above the
+// control hints, both above the helmet grille's top bar (~19° down).
+// Bowling: the delivery card low-left beside the run-up, the prompt and hints
+// low-right (the HUD is above them, beside the pitch).
+const LAYOUT = {
+  batting: { prompt: [-24, -2, 1.6], hints: [-24, -12.5, 1.45] },
+  bowling: { prompt: [22, -13, 1.5], hints: [22, -23, 1.4], card: [-25, -9, 1.15] },
+};
+// The panels stay put while you look around them; they follow once you turn
+// more than this far from where they were put.
+const FOLLOW_CONE = 32;
 
 export class UI {
   constructor(game) {
     this.game = game;
     this.scene = game.scene;
-    this.menu = new CanvasPanel({ width: 1.1, height: 0.78, ppm: 760, name: 'menu' });
+    // Menus and result cards draw over everything else (world panels included).
+    this.menu = new CanvasPanel({ width: 1.1, height: 0.78, ppm: 760, name: 'menu', bg: 'rgba(14,20,30,0.97)' });
     this.menu.mesh.visible = false;
+    this.menu.mesh.renderOrder = 30;
+    this.menu.mesh.material.depthTest = false;
     this.scene.add(this.menu.mesh);
     this.page = 'main';
 
     // HUD (world-locked, beside the pitch).
-    this.hud = new CanvasPanel({ width: 1.3, height: 0.72, ppm: 600, name: 'hud', bg: 'rgba(10,16,26,0.78)', interactive: false });
+    this.hud = new CanvasPanel({ width: 1.3, height: 0.8, ppm: 600, name: 'hud', bg: 'rgba(10,16,26,0.78)', interactive: false });
     this.scene.add(this.hud.mesh);
     this.hudData = { title: 'Crease VR', score: '', sub: '', players: '', last: '', big: '', bigColor: '#ffd34d', detail: '', footer: '' };
 
@@ -43,8 +64,9 @@ export class UI {
     this.laser = new THREE.Line(lg, new THREE.LineBasicMaterial({ color: 0x7fd3ff, transparent: true, opacity: 0.8 }));
     this.laser.frustumCulled = false;
     this.laser.visible = false;
-    this.dot = new THREE.Mesh(new THREE.SphereGeometry(0.008, 8, 6), new THREE.MeshBasicMaterial({ color: 0xffffff }));
+    this.dot = new THREE.Mesh(new THREE.SphereGeometry(0.008, 8, 6), new THREE.MeshBasicMaterial({ color: 0xffffff, depthTest: false }));
     this.dot.visible = false;
+    this.dot.renderOrder = 31;
     this.scene.add(this.laser, this.dot);
     this.ray = new THREE.Raycaster();
     this._o = new THREE.Vector3(); this._d = new THREE.Vector3();
@@ -53,19 +75,20 @@ export class UI {
 
     // Message strip that floats in front of the player ("CATCH IT!",
     // decisions). Commentary is never captioned.
-    this.promptPanel = new CanvasPanel({ width: 1.05, height: 0.26, ppm: 640, name: 'prompt', bg: 'rgba(8,12,20,0.62)', interactive: false });
+    // 640 ppm at 1.6 m: ~28 px a degree.
+    this.promptPanel = new CanvasPanel({ width: 0.9, height: 0.26, ppm: 640, name: 'prompt', bg: 'rgba(8,12,20,0.7)', interactive: false });
     this.promptPanel.mesh.visible = false;
     this.promptPanel.mesh.renderOrder = 11;
     this.scene.add(this.promptPanel.mesh);
     this.promptText = ''; this.promptColor = '#ffffff'; this.promptUntil = 0;
     // Control hints: small controller pictures with the button to press lit.
-    this.hintPanel = new CanvasPanel({ width: 0.78, height: 0.3, ppm: 1000, name: 'hints', bg: null, interactive: false });
+    this.hintPanel = new CanvasPanel({ width: 0.78, height: 0.25, ppm: 1000, name: 'hints', bg: null, interactive: false });
     this.hintPanel.mesh.visible = false;
     this.hintPanel.mesh.renderOrder = 11;
     this.scene.add(this.hintPanel.mesh);
     this.hintList = []; this.hintKey = ''; this.hintUntil = 0;
     // Delivery card (bowling, at your mark): bowler, deliveries, target, controls.
-    // ~30 px text subtends ~1° at 1.3 m (ppm 1300).
+    // ~30 px text subtends ~1.1° at 1.15 m (ppm 1300).
     this.card = new CanvasPanel({ width: 900 / 1300, height: 640 / 1300, ppm: 1300, name: 'bowlCard', bg: 'rgba(8,12,20,0.8)', interactive: false });
     this.card.mesh.visible = false;
     this.card.mesh.renderOrder = 10;
@@ -73,6 +96,8 @@ export class UI {
     this.cardData = null;
     this._pt = new THREE.Vector3(); this._pq = new THREE.Quaternion(); this._pf = new THREE.Vector3();
     this.clock = 0;
+    this.anchorYaw = null;       // where the floating panels were put (see updatePrompt)
+    this.pendingPick = null;     // bowler page: the bowler just picked, confirmed before it closes
   }
 
   // Big hint line (stays `secs`, or until replaced). Empty string clears it.
@@ -85,10 +110,8 @@ export class UI {
     const P = this.promptPanel, W = [];
     const p = this.clock < this.promptUntil ? this.promptText : '';
     if (p) {
-      // One line (shrunk to fit), or two lines when the text has a line break.
-      const lines = p.split('\n'), long = Math.max(...lines.map((l) => l.length));
-      const size = Math.min(40, lines.length > 1 ? 36 : 40, Math.floor(P.W * 0.95 / (long * 0.52)));
-      W.push({ type: 'label', x: P.W / 2, y: lines.length > 1 ? 60 : 82, text: p, size, bold: true, align: 'center', color: this.promptColor });
+      // One line, or wrapped onto two, shrunk until it fits; centred on the strip.
+      W.push(fitLabel(P, p, { x: P.W / 2, cy: P.H / 2, maxW: P.W - 56, maxH: P.H - 36, size: 42, min: 22, bold: true, align: 'center', color: this.promptColor, wrap: true }));
     }
     P.set(W, '');
     this.promptShown = !!p;
@@ -100,6 +123,7 @@ export class UI {
     this.hintUntil = this.clock + secs;
     if (key === this.hintKey) return;
     this.hintKey = key; this.hintList = list.slice(0, 3);
+    this.hintRunning = this.hintList.every((h) => RUN_HINTS.has(h.label));
     const P = this.hintPanel, n = this.hintList.length, desktop = !this.game.input.xr;
     const cw = 240, ch = P.H - 12, gap = 16, x0 = (P.W - (n * cw + (n - 1) * gap)) / 2;
     P.set(this.hintList.map((h, i) => ({ type: 'custom', draw: (g) => drawHintCard(g, x0 + i * (cw + gap), 6, cw, ch, h, desktop) })), '');
@@ -117,33 +141,54 @@ export class UI {
   updatePrompt(dt) {
     this.clock += dt;
     if (this.promptShown && this.clock >= this.promptUntil) this.drawPrompt();
+    if (this.pendingPick && this.clock >= this.pendingPick.at) {
+      const k = this.pendingPick.key;
+      this.pendingPick = null;
+      if (this.menuOpen && this.page === 'bowler') this.game.actions.pickBowler(k);
+    }
     const head = this.game.input.headPose;
     this._pq.set(head.q.x, head.q.y, head.q.z, head.q.w);
     this._pf.set(0, 0, -1).applyQuaternion(this._pq); this._pf.y = 0;
     if (this._pf.lengthSq() < 1e-6) this._pf.set(0, 0, -1);
     this._pf.normalize();
+    const yaw = Math.atan2(this._pf.x, -this._pf.z);
     const eye = this.game.eye ? this.game.eye.p : head.p;
-    const follow = (panel, show, dist, drop, side = 0) => {
-      panel.mesh.visible = show;
+    const g = this.game, replay = !!(g.replay && g.replay.active);
+    const ses = g.session;
+    const bowling = !!(ses && ses.isBowling);
+    const card = !!this.cardData && !this.menuOpen && !replay && g.state === 'play';
+    // Running controls go as soon as the ball is dead (or a result is up).
+    const live = !ses || ses.state === 'live' || replay;
+    const hints = this.hintList.length > 0 && this.clock < this.hintUntil && !this.menuOpen && !card && !(this.hintRunning && !live);
+    const prompt = this.promptShown && !this.menuOpen;
+    // Tag-along: put the panels where you face when they appear; keep them
+    // there while you look around, and drag them along past FOLLOW_CONE.
+    const any = prompt || hints || card;
+    if (!any) this.anchorYaw = null;
+    else if (this.anchorYaw == null) this.anchorYaw = yaw;
+    else {
+      const d = Math.atan2(Math.sin(yaw - this.anchorYaw), Math.cos(yaw - this.anchorYaw)), cone = FOLLOW_CONE * DEG;
+      if (Math.abs(d) > cone) this.anchorYaw += d - Math.sign(d) * cone;
+    }
+    const L = LAYOUT[bowling ? 'bowling' : 'batting'];
+    const follow = (panel, show, at) => {
+      const m = panel.mesh, wasShown = m.visible;
+      m.visible = show;
       if (!show) return;
-      // side: metres to the right (+) of straight ahead.
-      this._pt.set(eye.x + this._pf.x * dist - this._pf.z * side, eye.y - drop, eye.z + this._pf.z * dist + this._pf.x * side);
-      const m = panel.mesh;
-      if (m.position.distanceTo(this._pt) > 3) m.position.copy(this._pt);
+      const [yd, el, dist] = at, a = this.anchorYaw + yd * DEG, c = Math.cos(el * DEG);
+      this._pt.set(eye.x + Math.sin(a) * c * dist, eye.y + Math.sin(el * DEG) * dist, eye.z - Math.cos(a) * c * dist);
+      if (!wasShown || m.position.distanceTo(this._pt) > 3) m.position.copy(this._pt);
       else m.position.lerp(this._pt, Math.min(1, dt * 5));
-      m.lookAt(eye.x, eye.y - 0.1, eye.z);
+      // Square on to your eyes (no roll): upright and easy to read.
+      m.lookAt(eye.x, eye.y, eye.z);
       panel.update();
     };
-    const g = this.game, replay = !!(g.replay && g.replay.active);
-    const card = !!this.cardData && !this.menuOpen && !replay && g.state === 'play';
-    // Bowling: just below where a good length pitches (about -7° from the crease), clear of the card.
-    const bowling = !!(g.session && g.session.isBowling);
-    follow(this.promptPanel, this.promptShown && !this.menuOpen, 1.5, bowling ? 0.36 : 0.5, card ? 0.25 : 0);
+    follow(this.promptPanel, prompt, L.prompt);
     // The card already shows the bowling controls: no hint row while it is up.
-    follow(this.hintPanel, this.hintList.length > 0 && this.clock < this.hintUntil && !this.menuOpen && !card, 1.35, 0.56);
+    follow(this.hintPanel, hints, L.hints);
     // Low and to the left: from the bowler's mark the pitch (and the HUD) are to your right.
-    // (Upright: turned only about the vertical toward you, not tipped to face the eye, which reads as tilted.)
-    follow(this.card, card, 1.3, 0.4, -0.62);
+    // Upright: turned only about the vertical toward you, not tipped to face the eye, which reads as tilted.
+    follow(this.card, card, L.card || LAYOUT.bowling.card);
     if (card) this.card.mesh.rotation.set(0, Math.atan2(eye.x - this.card.mesh.position.x, eye.z - this.card.mesh.position.z), 0);
   }
 
@@ -188,7 +233,9 @@ export class UI {
       fwd.y = 0;
       if (fwd.lengthSq() < 1e-6) fwd.set(0, 0, -1);
       fwd.normalize();
-      m.position.set(head.p.x + fwd.x * 1.1, Math.max(1.0, head.p.y - 0.15), head.p.z + fwd.z * 1.1);
+      // Centred just below eye level: the whole card (its buttons too) sits
+      // above the helmet grille's top bar, which is hidden while a menu is open.
+      m.position.set(head.p.x + fwd.x * 1.1, Math.max(1.0, head.p.y - 0.04), head.p.z + fwd.z * 1.1);
       m.lookAt(head.p.x, m.position.y, head.p.z);
     } else {
       // Desktop: centre it in front of the camera.
@@ -202,6 +249,7 @@ export class UI {
   }
 
   closeMenu() {
+    this.pendingPick = null;
     this.menu.mesh.visible = false;
     this.laser.visible = false;
     this.dot.visible = false;
@@ -342,10 +390,10 @@ export class UI {
       btn('back', { x: r.x + half + 12, y: r.y, w: half, h: r.h }, 'Back', () => this.go('main'));
       P.set(W, 'Bowling machine');
     } else if (this.page === 'settings') {
-      const L = grid(P, { top: 0.165, bottom: 0.05, cols: 2, rows: 8 });
+      const L = grid(P, { top: 0.175, bottom: 0.075, cols: 2, rows: 8 });
       const xrRate = g.xrManager && g.xrManager.frameRate ? `${g.xrManager.frameRate} Hz target` : 'no target';
       const vel = g.input.xr ? (g.input.right.hasXRVel ? 'XR' : 'pose') : 'desktop';
-      label(P.W / 2, P.H * 0.122, `Frame ${Math.round(g.stats.fps)} Hz (${xrRate}) · controller velocity: ${vel} · v${g.version}`, { align: 'center', size: 22, color: '#8fb3d1' });
+      label(P.W / 2, P.H * 0.142, `Frame ${Math.round(g.stats.fps)} Hz (${xrRate}) · controller velocity: ${vel} · v${g.version}`, { align: 'center', size: 22, color: '#8fb3d1' });
       step('diff', L(0, 0), 'Difficulty', s.difficulty, () => g.actions.difficulty(-1), () => g.actions.difficulty(1));
       step('overs', L(1, 0), 'Overs', String(s.overs), () => g.actions.setting('overs', -1, 1, 5), () => g.actions.setting('overs', 1, 1, 5));
       step('contact', L(0, 1), 'Contact assist', s.contactAssist, () => g.actions.cycle('contactAssist', CONTACT, -1), () => g.actions.cycle('contactAssist', CONTACT, 1));
@@ -373,29 +421,38 @@ export class UI {
         btn('turn', { x: r.x + hw + 12, y: r.y, w: hw, h: r.h }, `R-stick turn: ${s.turn}`, () => g.actions.cycle('turn', TURNS, 1), { size: 24 }); }
       btn('runup', L(0, 7), `Run-up: ${s.runUp ? 'on' : 'off (bowl from the crease)'}`, () => g.actions.toggle('runUp'), { active: s.runUp, size: 26 });
       btn('feel', L(1, 7), `Deliveries: ${s.bowlByFeel ? 'by wrist action' : 'pick with A/B'}`, () => g.actions.toggle('bowlByFeel'), { size: 26 });
-      label(P.W * 0.5, P.H * 0.975, 'Y / Esc: back to the game', { align: 'center', size: 20, color: '#7f8fa0' });
+      label(P.W * 0.5, P.H * 0.958, 'Y / Esc: back to the game', { align: 'center', size: 20, color: '#7f8fa0' });
       btn('back', { x: P.W - 150, y: 14, w: 130, h: 56 }, 'Back', () => this.go('main'));
       P.set(W, 'Settings');
     } else if (this.page === 'bowler') {
+      // The tick marks who bowls: the bowler you just picked (shown for a
+      // moment before the page closes), else the current one. Hover is blue.
       const ses = g.session, cur = s.bowlerType;
+      const chosen = this.pendingPick ? this.pendingPick.key : cur;
+      const canChange = !ses || !ses.canChangeBowler || ses.canChangeBowler();
       const L = grid(P, { top: 0.14, bottom: 0.17, cols: 2, rows: 2 });
       PLAYER_BOWLER_ORDER.forEach((k, i) => {
-        const b = PLAYER_BOWLERS[k], r = L(i % 2, Math.floor(i / 2)), here = k === cur;
-        const ru = CONFIG.bowling.runUp[k];
-        btn('bw-' + k, r, '', () => g.actions.pickBowler(k), { active: here });
-        label(r.x + 22, r.y + 38, `${i + 1}  ${b.label}${here ? '  ✓' : ''}`, { size: 38, bold: true, color: here ? '#ffffff' : '#ffd34d' });
-        label(r.x + 22, r.y + 82, `${b.pace[0]}–${b.pace[1]} km/h · run-up ${ru.length} m`, { size: 25, color: '#e8eef5' });
+        const b = PLAYER_BOWLERS[k], r = L(i % 2, Math.floor(i / 2)), here = k === chosen;
+        const ru = CONFIG.bowling.runUp[k], tw = r.w - 44;
+        btn('bw-' + k, r, '', () => this.pickBowler(k), { active: here, disabled: !canChange && k !== cur });
+        label(r.x + 22, r.y + 38, `${i + 1}  ${b.label}`, { size: 38, bold: true, color: here ? '#ffffff' : '#ffd34d', maxW: tw - 110 });
+        if (here) label(r.x + r.w - 22, r.y + 38, '✓', { size: 40, bold: true, align: 'right', color: '#7dff8a' });
+        label(r.x + 22, r.y + 82, `${b.pace[0]}–${b.pace[1]} km/h · run-up ${ru.length} m`, { size: 25, color: '#e8eef5', maxW: tw });
         const names = b.deliveryList.map((d) => d.label);
         const lines = names.length > 4 ? [names.slice(0, 3).join(' · '), names.slice(3).join(' · ')] : [names.slice(0, 2).join(' · '), names.slice(2).join(' · ')];
-        label(r.x + 22, r.y + 120, lines.filter(Boolean).join('\n'), { size: 20, color: '#b8c8d8' });
+        label(r.x + 22, r.y + 120, lines.filter(Boolean).join('\n'), { size: 21, color: '#b8c8d8', maxW: tw, maxH: r.h - 120 + 10 });
       });
-      label(P.W / 2, P.H * 0.9, ses && ses.innings ? 'Pick for this over · your mark is behind you' : 'Pick a bowler · change any time from the menu', { align: 'center', size: 24, color: '#9fb2c4' });
+      const note = !canChange ? 'You can change bowler at the start of the next over'
+        : ses && ses.innings ? 'Pick for this over · your mark is behind you' : 'Pick a bowler · change any time from the menu';
+      label(P.W / 2, P.H * 0.9, note, { align: 'center', size: 26, color: canChange ? '#9fb2c4' : '#ffb347', maxW: P.W - 60 });
       P.set(W, 'Choose your bowler');
     } else if (this.page === 'result') {
       const r = g.resultInfo || { title: 'Done', lines: [] };
-      label(P.W / 2, P.H * 0.22, r.title, { align: 'center', size: 56, bold: true, color: r.color || '#ffd34d' });
+      label(P.W / 2, P.H * 0.13, r.title, { align: 'center', size: 56, bold: true, color: r.color || '#ffd34d', maxW: P.W - 80 });
+      // The card (score, every batter, extras, bowlers): wrapped and shrunk to
+      // fit between the title and the buttons, centred in that space.
       const lines = r.lines.filter(Boolean);
-      label(P.W / 2, P.H * (lines.length > 4 ? 0.31 : 0.36), lines.join('\n'), { align: 'center', size: lines.length > 4 ? 25 : lines.length > 3 ? 28 : 32 });
+      if (lines.length) W.push(fitLabel(P, lines.join('\n'), { x: P.W / 2, top: P.H * 0.22, bottom: P.H * 0.71, maxW: P.W - 80, size: 32, min: 18, align: 'center', wrap: true }));
       const L = grid(P, { top: 0.74, bottom: 0.06, cols: 2, rows: 1 });
       if (r.choices) {
         const C = grid(P, { top: 0.74, bottom: 0.06, cols: Math.max(2, r.choices.length + 1), rows: 1 });
@@ -411,6 +468,14 @@ export class UI {
   }
 
   go(page) { this.page = page; this.buildPage(); }
+
+  // Bowler page: show the tick on the pick for a moment, then take it.
+  pickBowler(k) {
+    const ses = this.game.session;
+    if (ses && ses.canChangeBowler && !ses.canChangeBowler() && k !== this.game.settings.bowlerType) { this.refresh(); return; }
+    this.pendingPick = { key: k, at: this.clock + 0.35 };
+    this.refresh();
+  }
 
   // ---------------------------------------------------------------- pointer
   updatePointer(input) {
@@ -456,22 +521,32 @@ export class UI {
   // ---------------------------------------------------------------- HUD
   setHud(patch) {
     Object.assign(this.hudData, patch);
-    const d = this.hudData, P = this.hud;
+    const d = this.hudData, P = this.hud, M = 34, tw = P.W - 2 * M;
     const W = [];
-    W.push({ type: 'label', x: 34, y: 46, text: d.title, size: 40, bold: true, color: '#ffd34d' });
-    if (d.score) W.push({ type: 'label', x: P.W - 34, y: 46, text: d.score, size: 44, bold: true, align: 'right' });
-    if (d.sub) W.push({ type: 'label', x: 34, y: 104, text: d.sub, size: 30, color: '#c9d6e3' });
-    if (d.players) W.push({ type: 'label', x: 34, y: 140, text: d.players, size: 25, color: '#ffe9a8' });
-    if (d.big) W.push({ type: 'label', x: P.W / 2, y: d.players ? 204 : 188, text: d.big, size: d.players ? 68 : 76, bold: true, align: 'center', color: d.bigColor });
-    if (d.last) W.push({ type: 'label', x: 34, y: 268, text: d.last, size: 28 });
-    if (d.detail) W.push({ type: 'label', x: 34, y: 312, text: d.detail, size: 24, color: '#aab8c6' });
-    if (d.footer) W.push({ type: 'label', x: 34, y: P.H - 30, text: d.footer, size: 22, color: '#7f8fa0' });
+    // Title and score share the top line: the score keeps its size, the title shrinks.
+    let scoreW = 0;
+    if (d.score) { const r = fitText(P.ctx, d.score, { maxW: tw * 0.5, size: 44, weight: 700 }); scoreW = r.width; W.push({ type: 'label', x: P.W - M, y: 46, text: d.score, size: r.size, bold: true, align: 'right' }); }
+    W.push({ type: 'label', x: M, y: 46, text: d.title, size: 40, bold: true, color: '#ffd34d', maxW: tw - scoreW - (scoreW ? 24 : 0) });
+    if (d.sub) W.push({ type: 'label', x: M, y: 104, text: d.sub, size: 30, color: '#c9d6e3', maxW: tw });
+    if (d.players) W.push({ type: 'label', x: M, y: 140, text: d.players, size: 25, color: '#ffe9a8', maxW: tw });
+    if (d.big) W.push({ type: 'label', x: P.W / 2, y: d.players ? 204 : 188, text: d.big, size: d.players ? 68 : 76, min: 30, bold: true, align: 'center', color: d.bigColor, maxW: tw });
+    // Lower lines flow down (each may wrap onto a second line); the footer
+    // keeps to the bottom.
+    let y = 252;
+    const foot = d.footer ? fitLabel(P, d.footer, { x: M, bottom: P.H - 24, maxW: tw, size: 22, min: 18, color: '#7f8fa0', wrap: true, maxLines: 2 }) : null;
+    const floor = foot ? foot.top - 8 : P.H - 24;
+    for (const [text, size, color] of [[d.last, 28, '#e8eef5'], [d.detail, 24, '#aab8c6']]) {
+      if (!text || y >= floor - 18) continue;
+      const l = fitLabel(P, text, { x: M, top: y, maxW: tw, maxH: Math.min(floor - y, size * 2.4), size, min: 20, color, wrap: true });
+      W.push(l); y = l.bottom + 10;
+    }
+    if (foot) W.push(foot);
     P.set(W, '');
   }
 
   setBoard(lines) {
     const P = this.board;
-    const W = lines.map((t, i) => ({ type: 'label', x: P.W / 2, y: 60 + i * 72, text: t, size: i === 0 ? 64 : 52, bold: i < 2, align: 'center', color: i === 0 ? '#ffd34d' : '#ffffff' }));
+    const W = lines.map((t, i) => ({ type: 'label', x: P.W / 2, y: 60 + i * 72, text: t, size: i === 0 ? 64 : 52, bold: i < 2, align: 'center', color: i === 0 ? '#ffd34d' : '#ffffff', maxW: P.W - 60, maxH: 68 }));
     P.set(W, '');
   }
 
@@ -483,45 +558,60 @@ export class UI {
   }
 }
 
-// Word-wrap `text` to `w` px with the current font; returns the lines.
-function wrap(g, text, w) {
-  const out = []; let line = '';
-  for (const word of String(text).split(' ')) {
-    const t = line ? line + ' ' + word : word;
-    if (line && g.measureText(t).width > w) { out.push(line); line = word; } else line = t;
-  }
-  if (line) out.push(line);
-  return out;
+// A label fitted (shrunk, wrapped) into a box on panel P, measured now so it
+// can be placed: o.cy centres it, o.top hangs it from a line, o.bottom stands
+// it on one (o.top + o.bottom: centred between). Returns the label widget,
+// with .top / .bottom (its extent in px).
+function fitLabel(P, text, o) {
+  const size = o.size || 30;
+  const maxLines = o.maxLines || Infinity;
+  let maxH = o.maxH || (o.top != null && o.bottom != null ? o.bottom - o.top : P.H);
+  if (maxLines < Infinity) maxH = Math.min(maxH, size + (maxLines - 1) * size * 1.25);
+  const r = fitText(P.ctx, text, { maxW: o.maxW, maxH, size, min: o.min, weight: o.bold ? 700 : 500, wrap: !!o.wrap });
+  const h = r.size + (r.lines.length - 1) * r.lh;
+  const top = o.cy != null ? o.cy - h / 2
+    : o.top != null && o.bottom != null ? (o.top + o.bottom) / 2 - h / 2
+    : o.top != null ? o.top : o.bottom - h;
+  return { type: 'label', x: o.x, y: top + r.size / 2, text: r.lines.join('\n'), size: r.size, min: r.size, bold: !!o.bold, align: o.align || 'left', color: o.color, maxW: o.maxW, top, bottom: top + h };
 }
 
 // The delivery card. d: { title, pace, list: [{label, sel}], effect, target, byFeel, runUp }.
+// Every line is fitted to its column (shrunk, or wrapped where it may run on).
 function drawBowlCard(g, W, H, d, desktop) {
-  const F = (wt, px) => `${wt} ${px}px system-ui, sans-serif`;
+  const N = 'bowlCard';
+  const lines = (text, x, y, w, weight, size, maxLines, lh) => {
+    const r = fitText(g, text, { maxW: w, maxH: size + (maxLines - 1) * lh, size, min: Math.round(size * 0.75), weight, wrap: true, lineHeight: lh / size });
+    if (!r.fits) reportOverflow(N, text, r.width, w);
+    r.lines.forEach((ln, i) => g.fillText(ln, x, y + i * r.lh));
+    return r.lines.length;
+  };
   g.textBaseline = 'middle';
   // Bowler + pace.
-  g.textAlign = 'left'; g.fillStyle = '#ffd34d'; g.font = F(800, 44);
-  g.fillText(d.title.toUpperCase(), 32, 52);
-  g.textAlign = 'right'; g.fillStyle = '#e8eef5'; g.font = F(600, 32);
-  g.fillText(d.pace, W - 32, 54);
+  g.textAlign = 'right'; g.fillStyle = '#e8eef5';
+  g.font = FONT(600, 34);
+  const pw = Math.min(g.measureText(d.pace).width, W * 0.4);
+  fillFit(g, d.pace, W - 32, 54, W * 0.4, 600, 34, 22, N);
+  g.textAlign = 'left'; g.fillStyle = '#ffd34d';
+  fillFit(g, d.title.toUpperCase(), 32, 52, W - 64 - pw - 24, 800, 46, 26, N);
   g.fillStyle = 'rgba(255,255,255,0.18)'; g.fillRect(28, 88, W - 56, 3);
   // Deliveries, the picked one lit.
   const top = 104, bot = 420, n = d.list.length, rh = Math.min(56, (bot - top) / n);
   d.list.forEach((it, i) => {
     const y = top + i * rh + rh / 2;
     if (it.sel) { g.fillStyle = '#ffd34d'; roundRect(g, 24, y - rh / 2 + 3, 380, rh - 6, 12); g.fill(); }
-    g.textAlign = 'left'; g.fillStyle = it.sel ? '#141414' : '#c9d6e3'; g.font = F(it.sel ? 800 : 600, it.sel ? 34 : 30);
-    g.fillText(`${it.sel ? '▸ ' : '   '}${it.label}`, 36, y + 1);
+    g.textAlign = 'left'; g.fillStyle = it.sel ? '#141414' : '#c9d6e3';
+    fillFit(g, `${it.sel ? '▸ ' : '   '}${it.label}`, 36, y + 1, 360, it.sel ? 800 : 600, Math.min(it.sel ? 36 : 32, rh * 0.62), 18, N);
   });
   // This ball + target.
   const x = 432, w = W - x - 30;
-  g.textAlign = 'left'; g.fillStyle = '#8fa3b6'; g.font = F(700, 24);
-  g.fillText(d.byFeel ? 'BY FEEL' : 'THIS BALL', x, 118);
-  g.fillStyle = '#ffffff'; g.font = F(600, 30);
-  wrap(g, d.effect, w).slice(0, 4).forEach((ln, i) => g.fillText(ln, x, 160 + i * 38));
-  g.fillStyle = '#8fa3b6'; g.font = F(700, 24);
-  g.fillText('TARGET', x, 330);
-  g.fillStyle = '#9dff9f'; g.font = F(700, 32);
-  wrap(g, d.target, w).slice(0, 2).forEach((ln, i) => g.fillText(ln, x, 370 + i * 40));
+  g.textAlign = 'left'; g.fillStyle = '#8fa3b6';
+  fillFit(g, d.byFeel ? 'BY FEEL' : 'THIS BALL', x, 118, w, 700, 26, 18, N);
+  g.fillStyle = '#ffffff';
+  lines(d.effect, x, 160, w, 600, 31, 4, 38);
+  g.fillStyle = '#8fa3b6';
+  fillFit(g, 'TARGET', x, 330, w, 700, 26, 18, N);
+  g.fillStyle = '#9dff9f';
+  lines(d.target, x, 370, w, 700, 32, 2, 40);
   // Controls.
   const items = [];
   if (d.runUp) items.push({ hand: 'R', button: 'grip', key: 'R', head: desktop ? 'HOLD R' : 'HOLD GRIP', text: 'run in' });
@@ -534,13 +624,13 @@ function drawBowlCard(g, W, H, d, desktop) {
   items.forEach((it, i) => {
     const cx = 24 + i * (cw + gap), mx = cx + cw / 2;
     g.fillStyle = 'rgba(255,255,255,0.07)'; roundRect(g, cx, cy, cw, ch, 14); g.fill();
-    if (desktop) drawKey(g, mx, cy + 48, 150, it.key);
-    else drawController(g, mx, cy + 50, 96, it.hand, it.button);
+    if (desktop) drawKey(g, mx, cy + 46, 140, it.key);
+    else drawController(g, mx, cy + 48, 90, it.hand, it.button);
     g.textAlign = 'center'; g.textBaseline = 'middle';
-    g.fillStyle = '#ffd34d'; g.font = F(800, 25);
-    g.fillText(it.head, mx, cy + 112);
-    g.fillStyle = '#e8eef5'; g.font = F(600, 23);
-    wrap(g, it.text, cw - 16).slice(0, 2).forEach((ln, j) => g.fillText(ln, mx, cy + 142 + j * 26));
+    g.fillStyle = '#ffd34d';
+    fillFit(g, it.head, mx, cy + 108, cw - 14, 800, 27, 16, N);
+    g.fillStyle = '#e8eef5';
+    lines(it.text, mx, cy + 140, cw - 14, 600, 25, 2, 27);
   });
 }
 

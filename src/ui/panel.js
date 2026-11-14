@@ -1,6 +1,69 @@
 // In-world UI panel rendered to a canvas texture. Widgets are laid out in
 // canvas pixels; hit testing uses the raycast UV. Redraws only when dirty.
+//
+// Every piece of text is fitted to its box: labels shrink (and, with
+// `wrap: true`, word-wrap) until they fit `maxW` x `maxH` (by default the
+// room left on the panel from the label's anchor). Anything that still does
+// not fit, and any text drawn past the panel's edge (custom widgets too), is
+// logged once with console.warn and kept in `UI_OVERFLOW` (window.__uiOverflow).
 import * as THREE from 'three';
+
+export const FONT = (weight, px) => `${weight} ${Math.round(px)}px system-ui, sans-serif`;
+export const UI_OVERFLOW = [];
+if (typeof window !== 'undefined') window.__uiOverflow = UI_OVERFLOW;
+const _seen = new Set();
+export function reportOverflow(panel, text, width, box) {
+  const key = `${panel}|${text}`;
+  if (_seen.has(key)) return;
+  _seen.add(key);
+  UI_OVERFLOW.push({ panel, text: String(text), width: Math.round(width), box: Math.round(box) });
+  console.warn(`[ui] text overflows its box on '${panel}': "${text}" is ${Math.round(width)} px, box ${Math.round(box)} px`);
+}
+
+// Word-wrap one line of `text` to `maxW` px with the current font. A line
+// made of ' · '-separated items breaks between items, not inside one.
+export function wrapWords(g, text, maxW) {
+  const out = []; let line = '';
+  const sep = String(text).includes(' · ') ? ' · ' : ' ';
+  for (const word of String(text).split(sep)) {
+    const t = line ? line + sep + word : word;
+    if (line && g.measureText(t).width > maxW) { out.push(line); line = word; } else line = t;
+  }
+  out.push(line);
+  return out;
+}
+
+// Largest font size (<= size, >= min) at which `text` fits maxW x maxH, word-
+// wrapped when `wrap`. Leaves g.font set. Returns { size, lines, width, lh, fits }.
+export function fitText(g, text, opts) {
+  const { size = 30, min = Math.min(size, 14), wrap = false } = opts;
+  // Wrapping text: shrink it a little first, wrap only if that is not enough.
+  if (wrap) {
+    const r = fitOnce(g, text, { ...opts, wrap: false, min: Math.max(min, Math.round(size * 0.82)) });
+    if (r.fits) return r;
+  }
+  return fitOnce(g, text, opts);
+}
+function fitOnce(g, text, { maxW, maxH = Infinity, size = 30, min = Math.min(size, 14), weight = 500, wrap = false, lineHeight = 1.25 }) {
+  let s = size, res;
+  for (;;) {
+    g.font = FONT(weight, s);
+    const lines = String(text).split('\n').flatMap((l) => (wrap ? wrapWords(g, l, maxW) : [l]));
+    const width = Math.max(0, ...lines.map((l) => g.measureText(l).width));
+    const lh = s * lineHeight, height = s + (lines.length - 1) * lh;
+    res = { size: s, lines, width, lh, fits: width <= maxW + 0.5 && height <= maxH + 0.5 };
+    if (res.fits || s <= min) return res;
+    s = Math.max(min, Math.floor(s * 0.94));
+  }
+}
+
+// One line of text shrunk to fit `maxW` (custom widgets).
+export function fillFit(g, text, x, y, maxW, weight, size, min = Math.min(size, 14), name = 'panel') {
+  const r = fitText(g, text, { maxW, size, min, weight });
+  if (!r.fits) reportOverflow(name, text, r.width, maxW);
+  g.fillText(text, x, y);
+  return r.size;
+}
 
 export class CanvasPanel {
   constructor({ width = 1.0, height = 0.62, ppm = 700, name = 'panel', bg = 'rgba(14,20,30,0.88)', interactive = true } = {}) {
@@ -79,14 +142,27 @@ export class CanvasPanel {
       g.lineWidth = 3;
       g.stroke();
     }
-    if (this.title) {
-      g.fillStyle = '#ffd34d';
-      g.font = `700 ${Math.round(H * 0.075)}px system-ui, sans-serif`;
-      g.textAlign = 'center';
-      g.textBaseline = 'middle';
-      g.fillText(this.title, W / 2, H * 0.08);
+    // Debug check: any text drawn past the panel's edge is reported.
+    const fill = g.fillText, name = this.mesh.name;
+    g.fillText = function (text, x, y, maxWidth) {
+      const tw = Math.min(this.measureText(text).width, maxWidth || Infinity);
+      const a = this.textAlign;
+      const x0 = a === 'center' ? x - tw / 2 : a === 'right' || a === 'end' ? x - tw : x;
+      if (tw > 0 && (x0 < -0.5 || x0 + tw > W + 0.5 || y < 0 || y > H)) reportOverflow(name, text, tw, a === 'center' ? 2 * Math.min(x, W - x) : a === 'right' || a === 'end' ? x : W - x);
+      return fill.call(this, text, x, y, maxWidth);
+    };
+    try {
+      if (this.title) {
+        g.fillStyle = '#ffd34d';
+        g.textAlign = 'center';
+        g.textBaseline = 'middle';
+        // Leave room for a corner button (Settings: Back).
+        fillFitCentered(g, this.title, W / 2, H * 0.08, W - 2 * (this.titleInset || 40), 700, H * 0.075, name);
+      }
+      for (const w of this.widgets) this.drawWidget(g, w);
+    } finally {
+      delete g.fillText;
     }
-    for (const w of this.widgets) this.drawWidget(g, w);
   }
 
   drawWidget(g, w) {
@@ -94,12 +170,15 @@ export class CanvasPanel {
     g.textBaseline = 'middle';
     if (w.type === 'custom') { g.save(); w.draw(g); g.restore(); return; }
     if (w.type === 'label') {
+      const align = w.align || 'left', M = PAD, size = w.size || 30;
+      const room = align === 'left' ? this.W - M - w.x : align === 'right' ? w.x - M : 2 * Math.min(w.x - M, this.W - M - w.x);
+      const maxW = Math.min(w.maxW || Infinity, room);
+      const maxH = Math.min(w.maxH || Infinity, this.H - PAD_Y - (w.y - size / 2));
+      const r = fitText(g, w.text, { maxW, maxH, size, min: w.min || Math.min(size, 16), weight: w.bold ? 700 : 500, wrap: !!w.wrap });
+      if (!r.fits) reportOverflow(this.mesh.name, w.text, r.width, maxW);
       g.fillStyle = w.color || '#e8eef5';
-      g.font = `${w.bold ? 700 : 500} ${w.size || 30}px system-ui, sans-serif`;
-      g.textAlign = w.align || 'left';
-      const lines = String(w.text).split('\n');
-      const lh = (w.size || 30) * 1.25;
-      lines.forEach((ln, i) => g.fillText(ln, w.x, w.y + i * lh));
+      g.textAlign = align;
+      r.lines.forEach((ln, i) => g.fillText(ln, w.x, w.y + i * r.lh));
       return;
     }
     if (w.type === 'button' || w.type === 'toggle') {
@@ -108,12 +187,9 @@ export class CanvasPanel {
       roundRect(g, w.x, w.y, w.w, w.h, 16);
       g.fill();
       if (active) { g.strokeStyle = '#7dff8a'; g.lineWidth = 4; g.stroke(); }
+      if (!w.text) return;
       g.fillStyle = w.disabled ? '#999' : '#ffffff';
-      let fs = w.size || Math.round(w.h * 0.42);
-      g.font = `600 ${fs}px system-ui, sans-serif`;
-      while (fs > 12 && g.measureText(w.text).width > w.w - 20) { fs = Math.round(fs * 0.92); g.font = `600 ${fs}px system-ui, sans-serif`; }
-      g.textAlign = 'center';
-      g.fillText(w.text, w.x + w.w / 2, w.y + w.h / 2 + 1);
+      fillFitCentered(g, w.text, w.x + w.w / 2, w.y + w.h / 2 + 1, w.w - 24, 600, w.size || Math.round(w.h * 0.42), this.mesh.name);
       return;
     }
     if (w.type === 'stepper') {
@@ -151,6 +227,14 @@ export class CanvasPanel {
       g.fillText(w.value, w.x + w.w - bw - 16, w.y + w.h / 2);
     }
   }
+}
+
+const PAD = 22;            // text keeps this far from the panel's sides
+const PAD_Y = 8;           // ... and from its bottom edge
+
+function fillFitCentered(g, text, x, y, maxW, weight, size, name) {
+  g.textAlign = 'center';
+  fillFit(g, text, x, y, maxW, weight, size, Math.min(size, 12), name);
 }
 
 export function roundRect(g, x, y, w, h, r) {

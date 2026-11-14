@@ -31,7 +31,7 @@ export function createSession(game, kind) {
           game.showResult({
             title: won ? 'Over defended!' : 'They got there',
             color: won ? '#7dff8a' : '#ff8080',
-            lines: [`${inn.runs} runs conceded · ${inn.wickets} wicket${inn.wickets === 1 ? '' : 's'}`, `Over: ${inn.log.map((l) => l.sym).join('  ')}`, ...inn.card.lines(2, 1)],
+            lines: [`${inn.runs} runs conceded · ${inn.wickets} wicket${inn.wickets === 1 ? '' : 's'}`, `Over: ${inn.log.map((l) => l.sym).join('  ')}`, ...inn.card.lines({ bowlers: 1 })],
           });
         },
       });
@@ -49,7 +49,7 @@ export function createSession(game, kind) {
           game.showResult({
             title: r === 'won' ? 'Chased it down!' : r === 'tied' ? 'Tied!' : 'Fell short',
             color: r === 'won' ? '#7dff8a' : r === 'tied' ? '#ffd34d' : '#ff8080',
-            lines: [`${i.scoreText} in ${i.overs} overs (target ${target})`, `4s: ${i.fours} · 6s: ${i.sixes}`, ...i.card.lines(3, 2)],
+            lines: [`${i.scoreText} in ${i.overs} overs (target ${target})`, `4s: ${i.fours} · 6s: ${i.sixes}`, ...i.card.lines({ bowlers: 2 })],
           });
         },
       });
@@ -126,7 +126,7 @@ function battingInnings(game, first) {
       game.say('innings_break');
       game.showResult({
         title: `You made ${i.scoreText}`,
-        lines: [`${i.overs} overs · 4s: ${i.fours} · 6s: ${i.sixes}`, ...i.card.lines(3, 2), `Now bowl — ${AWAY.name} need ${i.runs + 1} to win.`],
+        lines: [`${i.overs} overs · 4s: ${i.fours} · 6s: ${i.sixes}`, ...i.card.lines({ bowlers: 2 }), `Now bowl — ${AWAY.name} need ${i.runs + 1} to win.`],
         nextText: 'Bowl 2nd innings',
         next: () => game.startSessionObj(bowlingInnings(game, i)),
       });
@@ -148,7 +148,7 @@ function bowlingInnings(game, first) {
       game.say('innings_break');
       game.showResult({
         title: `${AWAY.name} made ${i.scoreText}`,
-        lines: [`${i.overs} overs · 4s: ${i.fours} · 6s: ${i.sixes}`, ...i.card.lines(3, 1), `Now bat — you need ${i.runs + 1} to win.`],
+        lines: [`${i.overs} overs · 4s: ${i.fours} · 6s: ${i.sixes}`, ...i.card.lines({ bowlers: 1 }), `Now bat — you need ${i.runs + 1} to win.`],
         nextText: 'Bat 2nd innings',
         next: () => game.startSessionObj(battingInnings(game, i)),
       });

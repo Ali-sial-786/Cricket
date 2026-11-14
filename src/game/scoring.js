@@ -40,7 +40,7 @@ export class Innings {
     const overDone = !extra && this.legal % 6 === 0;
     const prevOver = overDone ? this.thisOver.slice() : null;
     if (overDone) this.thisOver = [];
-    const card = this.card ? this.card.record(o, { overDone, score: this.scoreText, overs: this.overs }) : null;
+    const card = this.card ? this.card.record(o, { overDone, score: this.scoreText, overs: this.overs, final: this.complete }) : null;
     return { total, overDone, prevOver, card };
   }
 
