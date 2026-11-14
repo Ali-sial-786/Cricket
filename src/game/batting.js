@@ -217,6 +217,8 @@ export class BattingSession {
     // The umpire and the non-striker stay out of the bowler's way.
     if (this.bowler === 'ai') {
       const side = settings.release === 'around' ? -1 : 1;
+      if (this.lastSide != null && side !== this.lastSide && !settings.newBowler) g.say('wicket_side', { around: side < 0 });
+      this.lastSide = side;
       g.umpires.place(false, side);
       if (this.innings) g.nonStrikerView.setSide(side);
     }
@@ -506,6 +508,7 @@ export class BattingSession {
       this.dots = outcome.runs || outcome.wide || outcome.noBall ? 0 : this.dots + 1;
       const inn = this.innings;
       g.commentary.situation = { runs: inn.runs, wickets: inn.wickets, balls: inn.legal, ballsLimit: inn.ballsLimit, target: inn.target, wicketsLimit: inn.wicketsLimit, partnershipRuns: this.partnership, dotsInRow: this.dots, battingIsPlayer: true };
+      if (!this.hit && !outcome.wicket) g.say('swing', { result: res.kind === 'beaten' && !res.padded ? 'miss' : 'leave' });
       g.say('ball', { runs: outcome.runs, wide: outcome.wide, boundary: outcome.boundary, wicket: outcome.wicket, overDone });
     }
     if (this.hit && res.kind === 'hit' && this.hit.carry > this.stats.bestCarry) this.stats.bestCarry = this.hit.carry;

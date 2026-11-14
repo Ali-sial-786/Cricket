@@ -504,6 +504,8 @@ export class BowlingSession {
       this.dots = outcome.runs || extra ? 0 : this.dots + 1;
       const inn = this.innings;
       g.commentary.situation = { runs: inn.runs, wickets: inn.wickets, balls: inn.legal, ballsLimit: inn.ballsLimit, target: inn.target, wicketsLimit: inn.wicketsLimit, partnershipRuns: this.partnership, dotsInRow: this.dots, battingIsPlayer: false };
+      const pl = g.aiBatter.plan;
+      if (!this.hit && !outcome.wicket && pl) g.say('swing', { result: pl.shot.duck ? 'duck' : pl.shot.type === 'leave' ? 'leave' : 'miss', shot: pl.shot.type, short: pl.info && pl.info.yb > 1.3 });
       g.say('ball', { runs: outcome.runs, wide: outcome.wide, boundary: outcome.boundary, wicket: outcome.wicket, overDone: r.overDone });
     }
     g.ui.setHud({ big, bigColor: color });
