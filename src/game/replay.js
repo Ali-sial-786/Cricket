@@ -166,9 +166,12 @@ export class Replay {
   update(dt) {
     const g = this.g;
     if (!this.active) {
-      if (this.pending && g.clock >= this.pending.at) {
-        if (g.settings.replay === 'off' || g.ui.menuOpen || !g.session) this.pending = null;
-        else this.start(this.pending.clip, g.settings.replay);
+      if (this.pending) {
+        // Only while that ball's aftermath is still on: if play has moved on
+        // (next ball requested, a review under way) the replay is dropped.
+        const still = g.session && g.session.state === 'settle' && g.state === 'play';
+        if (g.settings.replay === 'off' || !still) this.pending = null;
+        else if (g.clock >= this.pending.at && !g.ui.menuOpen) this.start(this.pending.clip, g.settings.replay);
       }
       return;
     }

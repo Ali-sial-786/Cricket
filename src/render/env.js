@@ -401,7 +401,7 @@ export function buildEnvironment(scene) {
   return env;
 }
 
-// Spectators: one instanced, camera-facing cut-out per seat (2 triangles),
+// Spectators: one cut-out per seat (2 triangles, facing the pitch, all merged),
 // drawn from an atlas of 4 people x 2 poses (sitting / up and cheering).
 // The texture is a mask, not colours: R = shading, G = shirt, B = skin,
 // A = cut-out; each fan gets their own shirt, skin and hair colour. They
@@ -464,26 +464,28 @@ function crowdAtlas() {
   }
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.NoColorSpace;                 // a data mask, not colours
-  t.anisotropy = 4;
+  t.anisotropy = 1;
   t.minFilter = THREE.LinearMipmapLinearFilter;
   return t;
 }
 
 function buildCrowd(rows, R0, lowerRows) {
   void R0;
-  const geo = new THREE.PlaneGeometry(0.6, 1.5);
-  geo.translate(0, 0.75, 0);
   const uniforms = { uTime: { value: 0 }, uCheer: { value: 0 }, uWave: { value: 0 }, uWaveOn: { value: 0 } };
   const mat = new THREE.MeshBasicMaterial({ map: crowdAtlas(), alphaTest: 0.45, side: THREE.DoubleSide });
   mat.alphaToCoverage = true;
+  // Every fan is 4 vertices sharing their seat position; the vertex shader
+  // spreads them into a quad facing the pitch (narrow and short when seated,
+  // full size when standing), bounces them and picks the atlas cell.
   mat.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, uniforms);
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', `#include <common>
         uniform float uTime; uniform float uCheer; uniform float uWave; uniform float uWaveOn;
+        attribute vec2 aCorner; attribute vec2 aRight; attribute vec2 aSize;
         attribute vec3 aShirt; attribute vec3 aSkin; attribute vec3 aHair; attribute vec3 aMeta;   // meta: variant, random, angle
         varying vec3 vShirt; varying vec3 vSkin; varying vec3 vHair;
-        float crowdLift;`)
+        float crowdLift; float crowdStand;`)
       .replace('#include <uv_vertex>', `#include <uv_vertex>
         {
           float rnd = aMeta.y, ph = rnd * 37.0;
@@ -491,13 +493,20 @@ function buildCrowd(rows, R0, lowerRows) {
           float wave = uWaveOn * exp(-d * d * 30.0);
           float stand = max(step(rnd, uCheer * 1.15 - 0.08), step(0.3, wave));
           crowdLift = stand * (uCheer * 0.16 * abs(sin(uTime * 7.5 + ph)) + wave * 0.3) + 0.01 * sin(uTime * 1.3 + ph);
+          crowdStand = stand;
           #ifdef USE_MAP
-            vMapUv.x = (vMapUv.x + aMeta.x + 4.0 * stand) / 8.0;
+            vec2 cu = vec2(aCorner.x * 0.5 + 0.5, aCorner.y);
+            if (stand < 0.5) cu = vec2(0.5 + (cu.x - 0.5) * 0.767, cu.y * 0.567);   // seated: lower-middle of the cell
+            vMapUv = vec2((cu.x + aMeta.x + 4.0 * stand) / 8.0, cu.y);
           #endif
           vShirt = aShirt; vSkin = aSkin; vHair = aHair;
         }`)
       .replace('#include <begin_vertex>', `#include <begin_vertex>
-        transformed.y += crowdLift;`);
+        {
+          float sx = crowdStand < 0.5 ? 0.767 : 1.0, sy = crowdStand < 0.5 ? 0.567 : 1.0;
+          transformed += vec3(aRight.x, 0.0, aRight.y) * (aCorner.x * aSize.x * sx);
+          transformed.y += aCorner.y * aSize.y * sy + crowdLift;
+        }`);
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', '#include <common>\nvarying vec3 vShirt; varying vec3 vSkin; varying vec3 vHair;')
       .replace('#include <map_fragment>', `
@@ -506,7 +515,7 @@ function buildCrowd(rows, R0, lowerRows) {
         diffuseColor.rgb = crowdCol;
         diffuseColor.a *= tx.a;`);
   };
-  mat.customProgramCacheKey = () => 'crowd-cutout-v1';
+  mat.customProgramCacheKey = () => 'crowd-merged-v1';
   // Seats: packed, a few empty ones.
   const perRowSpacing = 0.56;
   const list = [];
@@ -526,11 +535,12 @@ function buildCrowd(rows, R0, lowerRows) {
   const hairs = [0x1d1510, 0x3b2a1c, 0x5a4330, 0x0e0e0e, 0x8a6a40, 0xc9a050, 0x9a9a9a];
   const group = new THREE.Group();
   group.userData.uniforms = uniforms;
-  const m = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = new THREE.Vector3(), p = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0);
   const color = new THREE.Color();
   const maxTotal = CONFIG.render.crowdMax;
   const stride = Math.max(1, list.length / maxTotal);
-  // Four quadrants so the ones behind you are frustum-culled.
+  const CORNERS = [[-1, 0], [1, 0], [-1, 1], [1, 1]];
+  let total = 0;
+  // Four quadrants (one draw call each) so the ones behind you are culled.
   for (let quad = 0; quad < 4; quad++) {
     const sel = [];
     for (let f = 0; f < list.length; f += stride) {
@@ -538,37 +548,50 @@ function buildCrowd(rows, R0, lowerRows) {
       const qa = Math.floor(((it.a + Math.PI / 4) % (Math.PI * 2)) / (Math.PI / 2)) % 4;
       if (qa === quad) sel.push(it);
     }
-    const n = sel.length;
-    const mesh = new THREE.InstancedMesh(geo, mat, n);
-    const aShirt = new Float32Array(n * 3), aSkin = new Float32Array(n * 3), aHair = new Float32Array(n * 3), aMeta = new Float32Array(n * 3);
+    const n = sel.length, nv = n * 4;
+    total += n;
+    const pos = new Float32Array(nv * 3), corner = new Float32Array(nv * 2), right = new Float32Array(nv * 2), size = new Float32Array(nv * 2);
+    const shirt = new Uint8Array(nv * 3), skin = new Uint8Array(nv * 3), hair = new Uint8Array(nv * 3), meta = new Float32Array(nv * 3);
+    const index = new Uint32Array(n * 6);
+    const col3 = (arr, i, hex) => { color.setHex(hex); arr[i] = Math.round(color.r * 255); arr[i + 1] = Math.round(color.g * 255); arr[i + 2] = Math.round(color.b * 255); };
     sel.forEach((it, i) => {
-      p.set(Math.sin(it.a) * it.r, it.y - 0.05, Math.cos(it.a) * it.r);
-      q.setFromAxisAngle(up, it.a + Math.PI + (rand() - 0.5) * 0.25);
-      const k = 0.92 + rand() * 0.16;
-      sc.set(k, k * (0.94 + rand() * 0.12), 1);
-      m.compose(p, q, sc);
-      mesh.setMatrixAt(i, m);
-      // Sections of the ground lean to one team's colours.
+      const x = Math.sin(it.a) * it.r, z = Math.cos(it.a) * it.r, y = it.y - 0.05;
+      const yaw = it.a + Math.PI + (rand() - 0.5) * 0.25;           // facing the pitch, roughly
+      const rx = Math.cos(yaw), rz = -Math.sin(yaw);
+      const k = 0.92 + rand() * 0.16, hk = k * (0.94 + rand() * 0.12);
       const sec = Math.floor(((it.a + Math.PI) / (Math.PI * 2)) * 8);
       const pool = sec % 3 === 0 ? [0, 1, 2, 12, 13] : sec % 3 === 1 ? [3, 4, 5] : [6, 7, 8, 9, 10, 11];
-      color.setHex(shirts[rand() < 0.72 ? pool[Math.floor(rand() * pool.length)] : Math.floor(rand() * shirts.length)]);
-      aShirt.set([color.r, color.g, color.b], i * 3);
-      color.setHex(skins[Math.floor(rand() * skins.length)]);
-      aSkin.set([color.r, color.g, color.b], i * 3);
-      color.setHex(hairs[Math.floor(rand() * hairs.length)]);
-      aHair.set([color.r, color.g, color.b], i * 3);
-      aMeta.set([Math.floor(rand() * 4), rand(), (it.a + Math.PI * 2) % (Math.PI * 2)], i * 3);
+      const sh = shirts[rand() < 0.72 ? pool[Math.floor(rand() * pool.length)] : Math.floor(rand() * shirts.length)];
+      const sk = skins[Math.floor(rand() * skins.length)], hr = hairs[Math.floor(rand() * hairs.length)];
+      const variant = Math.floor(rand() * 4), rnd = rand(), ang = (it.a + Math.PI * 2) % (Math.PI * 2);
+      for (let c = 0; c < 4; c++) {
+        const v = i * 4 + c;
+        pos.set([x, y, z], v * 3);
+        corner.set(CORNERS[c], v * 2);
+        right.set([rx, rz], v * 2);
+        size.set([0.3 * k, 1.5 * hk], v * 2);
+        col3(shirt, v * 3, sh); col3(skin, v * 3, sk); col3(hair, v * 3, hr);
+        meta.set([variant, rnd, ang], v * 3);
+      }
+      index.set([i * 4, i * 4 + 1, i * 4 + 2, i * 4 + 2, i * 4 + 1, i * 4 + 3], i * 6);
     });
-    mesh.geometry = geo.clone();
-    mesh.geometry.setAttribute('aShirt', new THREE.InstancedBufferAttribute(aShirt, 3));
-    mesh.geometry.setAttribute('aSkin', new THREE.InstancedBufferAttribute(aSkin, 3));
-    mesh.geometry.setAttribute('aHair', new THREE.InstancedBufferAttribute(aHair, 3));
-    mesh.geometry.setAttribute('aMeta', new THREE.InstancedBufferAttribute(aMeta, 3));
-    mesh.instanceMatrix.needsUpdate = true;
-    mesh.computeBoundingSphere();
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    geo.setAttribute('aCorner', new THREE.BufferAttribute(corner, 2));
+    geo.setAttribute('aRight', new THREE.BufferAttribute(right, 2));
+    geo.setAttribute('aSize', new THREE.BufferAttribute(size, 2));
+    geo.setAttribute('aShirt', new THREE.BufferAttribute(shirt, 3, true));
+    geo.setAttribute('aSkin', new THREE.BufferAttribute(skin, 3, true));
+    geo.setAttribute('aHair', new THREE.BufferAttribute(hair, 3, true));
+    geo.setAttribute('aMeta', new THREE.BufferAttribute(meta, 3));
+    geo.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(nv * 2), 2));   // (map chunks expect it; the shader sets the real UV)
+    geo.setIndex(new THREE.BufferAttribute(index, 1));
+    geo.computeBoundingSphere();
+    geo.boundingSphere.radius += 2;
+    const mesh = new THREE.Mesh(geo, mat);
     mesh.frustumCulled = true;
     group.add(mesh);
   }
-  group.userData.count = Math.round(list.length / stride);
+  group.userData.count = total;
   return group;
 }
