@@ -104,9 +104,10 @@ export class PlayerBowlerActor extends Actor {
 // objects keep their own `visible` flags, so game logic is unaffected.
 const HIDDEN_LAYER = 7;
 export class NearCull {
-  constructor() { this.hidden = new Set(); }
+  constructor() { this.hidden = new Map(); }
   // humans: Humanoid list; extras(h) -> extra objects that go with a figure (its bat).
-  update(eye, humans, radius = 0.6) {
+  // keepExtras: leave the bats drawn (replays through a batter's eyes).
+  update(eye, humans, radius = 0.6, keepExtras = false) {
     for (const h of humans) {
       let near = false;
       if (h.root.visible && eye) {
@@ -114,11 +115,11 @@ export class NearCull {
         const dx = _a.x - eye.x, dz = _a.z - eye.z, dy = _a.y - eye.y;
         near = Math.hypot(dx, dz) < radius && dy > -0.9 && dy < 0.5;
       }
-      if (near !== this.hidden.has(h)) {
-        const layer = near ? HIDDEN_LAYER : 0;
-        h.root.traverse((o) => o.layers.set(layer));
-        for (const x of h.extras || []) x.traverse((o) => o.layers.set(layer));
-        if (near) this.hidden.add(h); else this.hidden.delete(h);
+      const key = near ? (keepExtras ? 1 : 2) : 0;
+      if (key !== (this.hidden.get(h) || 0)) {
+        h.root.traverse((o) => o.layers.set(near ? HIDDEN_LAYER : 0));
+        for (const x of h.extras || []) x.traverse((o) => o.layers.set(key === 2 ? HIDDEN_LAYER : 0));
+        if (near) this.hidden.set(h, key); else this.hidden.delete(h);
       }
     }
   }

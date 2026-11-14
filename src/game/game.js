@@ -17,6 +17,7 @@ import { computeBatOffset, defaultBatOffset, computeRig, computeRigFacing, headF
 import { LENGTH_PRESETS, LINE_PRESETS } from '../physics/bowlingMachine.js';
 import { createSession, startMatch } from './modes.js';
 import { buildHelmetGrille, PlayerBowlerActor, NearCull } from '../render/viewModes.js';
+import { Replay } from './replay.js';
 import { MRPlacer } from '../xr/mr.js';
 import { AIBatter } from './aiBatter.js';
 import { BatterView, BowlerView, FieldView, NonStrikerView, PlayerBodyView } from '../render/people.js';
@@ -95,6 +96,7 @@ export class Game {
     this.grille = buildHelmetGrille();
     scene.add(this.grille);
     this.nearCull = new NearCull();
+    this.replay = new Replay(this);
     this.ballOverride = null;   // fielding drives the ball view after a catch / pick-up
 
     this.input = new InputManager(renderer, rig, camera, dom);
@@ -462,6 +464,7 @@ export class Game {
 
   endSession() {
     if (!this.session) return;
+    if (this.replay) { this.replay.stop(); this.replay.pending = null; this.replay.count = 0; }
     this.session.exit();
     this.session = null;
     this.world.removeBall();
@@ -494,7 +497,7 @@ export class Game {
     this.clock += dt;
     const sdt = dt * (this.session ? this.timeScale : 1);
     this.realDt = realDt;
-    if (!paused) this.simTime += sdt;
+    if (!paused && !(this.replay && this.replay.active)) this.simTime += sdt;
     this.input.update(this.simTime, xrFrame);
 
     if (this.pendingRecenter != null && this.input.xr) {
@@ -502,21 +505,33 @@ export class Game {
     }
 
     this.handleGlobalInput(dt);
-    this.updatePlayerBat(paused);
-
-    if (this.state === 'calibrate') this.updateCalibration(dt);
-    if (this.mrPlacer && this.state === 'mrplace') this.mrPlacer.update(xrFrame, dt);
-
-    if (!paused) {
-      if (this.session) this.session.update(sdt, this.simTime);
+    this.replay.update(realDt);
+    if (this.replay.active) {
+      // Replay: play is frozen; the recording poses everything.
+      this.applyView();
+      this.updateEye();
+      this.replay.placeVignette(this.eye);
+      Humanoid.updateLods(this.eye.p);
+      this.nearCull.update(this.eye.p, Humanoid.all, 0.6, true);
       this.commentary.update(realDt);
-      this.world.advanceTo(this.simTime);
-      for (const e of this.world.drainEvents()) this.onPhysicsEvent(e);
+    } else {
+      this.updatePlayerBat(paused);
+
+      if (this.state === 'calibrate') this.updateCalibration(dt);
+      if (this.mrPlacer && this.state === 'mrplace') this.mrPlacer.update(xrFrame, dt);
+
+      if (!paused) {
+        if (this.session) this.session.update(sdt, this.simTime);
+        this.commentary.update(realDt);
+        this.world.advanceTo(this.simTime);
+        for (const e of this.world.drainEvents()) this.onPhysicsEvent(e);
+      }
+      this.applyView();
+      this.updateEye();
+      this.updateViews(sdt, paused);
+      this.umpires.update(paused ? 0 : realDt, this.clock);
+      if (this.session && this.state === 'play' && !paused) this.recordForReplay();
     }
-    this.applyView();
-    this.updateEye();
-    this.updateViews(sdt, paused);
-    this.umpires.update(paused ? 0 : realDt, this.clock);
     this.ui.updatePointer(this.input);
     this.ui.update();
     this.env.update(dt, now);
@@ -531,6 +546,21 @@ export class Game {
     cu.uTime.value = now;
     cu.uCheer.value = Math.max(0, cu.uCheer.value - dt * 0.35);
     this.input.desktop.endFrame();
+  }
+
+  // Record this frame for the replay and spot the moments it needs.
+  recordForReplay() {
+    const R = this.replay, ses = this.session, m = R.marks;
+    if (m.release != null) {
+      if (this.ballOverride) R.mark('held', this.simTime);
+      if (this.world.ball.padded) R.mark('pad', this.simTime);
+      if (ses.field && ses.field.logic.caught) R.mark('caught', this.simTime);
+    }
+    R.record(this.simTime);
+    // The ball is over: a replay shortly after the result is shown.
+    const st = ses.state;
+    if (st === 'settle' && this._prevSessState !== 'settle' && this.settings.replay !== 'off') R.schedule(0.9, this.simTime);
+    this._prevSessState = st;
   }
 
   afterXRSettled() {
@@ -564,7 +594,7 @@ export class Game {
       if (D.took('KeyC')) { this.desktopView++; this.placeDesktopCamera(); }
       if (D.took('KeyT')) { this.settings.trail = !this.settings.trail; this.saveSettings(); }
     }
-    if (this.session && this.state === 'play' && !this.ui.menuOpen) this.session.handleInput(this.input);
+    if (this.session && this.state === 'play' && !this.ui.menuOpen && !(this.replay && this.replay.active)) this.session.handleInput(this.input);
   }
 
   updatePlayerBat(paused) {
@@ -586,6 +616,9 @@ export class Game {
 
   onPhysicsEvent(e) {
     const s = this.sfx;
+    if (e.type === 'launch') { this.replay.mark('release', e.t); this.replay.marks.playerBatting = !!(this.session && !this.session.isBowling); }
+    else if (e.type === 'bat') this.replay.mark('hit', e.t);
+    else if (e.type === 'wicket') this.replay.mark('wicket', e.t);
     if (e.type === 'bounce') {
       if (e.speedIn > 1.5) s.bounce(e.speedIn, e.surface);
       if (e.speedIn > 3) this.particles.dust(e.pos, e.speedIn, e.surface !== 'pitch');
@@ -665,12 +698,14 @@ export class Game {
         this.playerBody.update(pdt || 1e-4, this.simTime, this.batMesh.position, this.batMesh.quaternion, lookBall, shift);
       }
       this.playerBody.show((deskThird || (behind && batting)) && !runnerOut);
+      this.playerBody.actor.h.replayVisible = batting && !runnerOut;      // replays show your body
       const bowling = !!(this.session && this.session.isBowling);
       if (bowling) {
         const R = this.input.right, L = this.input.left;
         this.playerBowler.update(pdt || 1e-4, this.simTime, this.input.headPose, R.connected ? R.gripPose.p : null, L.connected && this.input.xr ? L.gripPose.p : null, lookBall);
       }
       this.playerBowler.visible = bowling && (behind || (!this.input.xr && (this.desktopView % 4) === 3));
+      this.playerBowler.h.replayVisible = bowling;
     }
     // Nobody (and no bat) is ever drawn inside your head.
     this.nearCull.update(this.eye.p, Humanoid.all);
