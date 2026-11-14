@@ -56,6 +56,9 @@ export class Fielding {
     const back = this.cfg.keeper.standBack;
     k.home.set(0, 0, on ? 0.75 : back);
     s.home.set(on ? 0.9 : 1.5, 0, on ? 1.8 : back + 1.1);
+    // Between balls they simply take up the new position (up to the stumps for
+    // spin, back for pace) rather than being caught halfway when the ball is bowled.
+    if (this.keeperUp !== !!on && this.hitT == null && !this.keeperHold) for (const f of [k, s]) { f.pos.copy(f.home); f.state = 'set'; f.target = null; f.speed = 0; }
     this.keeperUp = !!on;
   }
 

@@ -10,6 +10,7 @@
 import * as THREE from 'three';
 import { Humanoid } from './humanoid.js';
 import { buildBatMesh } from './objects.js';
+import { swingAt } from './swingProfile.js';
 import {
   poseIdle, poseLocomotion, plantFeet, poseReady, poseThrow, poseDive, posePickup,
   poseCelebrate, strideFor, keys, sstep, clamp, mix,
@@ -527,6 +528,9 @@ const LIFT = [[-0.3, 0], [0, 1], [0.2, 0]];
 
 // ---------------------------------------------------------------- batters
 const STANCE = { footL: [-0.31, -1.43], footR: [-0.35, -0.95] };
+// How much of a full (baseball-style) body turn each cricket shot uses.
+const SWING_AMP = { pull: 0.85, hook: 0.85, slog: 0.9, cut: 0.5, drive: 0.5, flick: 0.45, defend: 0.12, leave: 0 };
+const _sw = {};
 const ARM_STRETCH = 1.2;
 const PALM = 0.075;                 // wrist to the middle of the palm (where a handle sits)
 
@@ -565,7 +569,7 @@ export class BatterActor extends Actor {
     this.bat.quaternion.copy(batQuat);
     const fl = _a.set(STANCE.footL[0], 0, STANCE.footL[1]);
     const fr = _b.set(STANCE.footR[0], 0, STANCE.footR[1]);
-    let hipsDrop = 0.09, lean = 0.24, weight = 0.5, heel = 0, elbowUp = 0;
+    let hipsDrop = 0.09, lean = 0.24, weight = 0.5, heel = 0, elbowUp = 0, swing = null;
     const p = opts.plan;
     const adv = opts.adv || 0;
     if (p && t >= p.t0) {
@@ -592,6 +596,16 @@ export class BatterActor extends Actor {
         hipsDrop = mix(hipsDrop, p.drop ?? 0.08, kw) - 0.05 * kf * big;
         lean = mix(lean, front ? 0.44 : type === 'cut' ? 0.34 : 0.1, kw) - (front ? 0.22 : 0.02) * kf * big;
         if (front) { heel = kf * big; elbowUp = sstep(p.tCommit, Tc - 0.05, t) * (1 - 0.6 * kf); }
+        // How a real hitter's body turns through a swing (measured from motion
+        // capture): the hips coil, then lead the shoulders round; the back heel
+        // comes up and the foot turns on its toe. Scaled to the shot.
+        const amp = SWING_AMP[type] ?? 0.4;
+        if (amp > 0) {
+          swingAt(t - Tc, _sw);
+          const fade = 1 - sstep(Tc + (p.Tf || 0.2) + 0.5, Tc + (p.Tf || 0.2) + 1.3, t);
+          swing = { hips: _sw.pelvisYaw * amp * fade, chest: _sw.chestYaw * amp * fade, pivot: _sw.pivot * amp * fade };
+          heel = Math.max(heel, clamp(_sw.heel * 2 * amp, 0, 1) * fade);
+        }
         // Relax once the shot is played.
         const tRest = Tc + (p.Tf || 0.2) + 0.5;
         if (t > tRest) {
@@ -640,7 +654,7 @@ export class BatterActor extends Actor {
       H.y = Math.min(H.y, mix(H.y, hy, k));
     }
     this.footL.copy(fl); this.footR.copy(fr);
-    this.solveBody({ heading, weight, head: H, batPos, batQuat, elbowUp, heel, sweep, t });
+    this.solveBody({ heading, weight, head: H, batPos, batQuat, elbowUp, heel, sweep, swing, t });
     if (opts.ball) h.lookAt(opts.ball, 1, 1.7);
     else h.lookAt(_c.set(0.4, 1.9, -18.8), 1, 1.7);
     h.syncShadow();
@@ -727,9 +741,17 @@ export class BatterActor extends Actor {
     const chest = h.worldPos('chest', _c);
     const hx = batPos.x - chest.x, hz = batPos.z - chest.z;
     const yaw = clamp(Math.atan2(hx * c - hz * s, Math.max(0.05, hx * s + hz * c)), -1.3, 1.45);
-    h.addRot('hips', 0, yaw * 0.2, 0);
-    h.addRot('spine', 0, yaw * 0.3, 0);
-    h.addRot('chest', 0.018 * Math.sin(o.t * 1.6), yaw * 0.44, 0);
+    let yh = yaw * 0.2, ys = yaw * 0.3, yc = yaw * 0.44;
+    if (o.swing) {
+      // The hips turn as a real hitter's do (they lead); the shoulders settle
+      // between that and where the hands are, so the arms still reach the bat.
+      const total = clamp(mix(yaw * 0.94, o.swing.chest, 0.5), -1.4, 1.9);
+      yh = clamp(o.swing.hips, -0.7, 1.5);
+      ys = (total - yh) * 0.4; yc = (total - yh) * 0.6;
+    }
+    h.addRot('hips', 0, yh, 0);
+    h.addRot('spine', 0, ys, 0);
+    h.addRot('chest', 0.018 * Math.sin(o.t * 1.6), yc, 0);
     // Slide the pelvis so the head lands exactly on its target…
     h.update();
     h.worldPos('head', _d);
@@ -750,6 +772,7 @@ export class BatterActor extends Actor {
     _left.set(_fwd.z, 0, -_fwd.x);
     if (sw > 0.01) this.kneel(o.sweep, sw);
     else plantFeet(h, fl, fr, _d.copy(_fwd).multiplyScalar(0.7));
+    if (o.swing && Math.abs(o.swing.pivot) > 0.01) h.addRot('ankleR', 0, clamp(o.swing.pivot, -0.3, 1.2), 0);   // the back foot turns on its toe
     if (o.heel > 0.01) h.addRot('ankleR', 0.75 * o.heel, 0, 0);       // up on the back toe
     this.gripBat(batPos, batQuat, o.elbowUp);
   }

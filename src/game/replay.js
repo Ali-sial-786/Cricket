@@ -95,6 +95,13 @@ export class Replay {
     const m = this.marks;
     if (m.release == null || !this.count) return null;
     const first = this.timeAt(0), last = this.timeAt(this.count - 1);
+    // The wicket was broken with a batter near the line (a stumping, a run-out,
+    // or a close call): show it square-on from the crease, the way television
+    // does — the take, the hands going to the stumps, the bat or boot at the line.
+    if (m.break != null) {
+      const s0 = Math.max(first, m.break - 1.4), e0 = Math.min(last, m.break + 1.0, endT + 1.0);
+      if (e0 - s0 >= 0.8) return { start: s0, end: e0, hit: null, release: m.release, arrive: null, key: m.break, crease: m.breakEnd || 'batting', playerBatting: !!m.playerBatting };
+    }
     const start = Math.max(first, m.release - 1.0);
     let end;
     if (m.hit != null) end = Math.min(m.hit + (m.caught != null ? 1.4 : 3.2), m.held != null && m.held > m.hit ? m.held + 1.0 : Infinity);
@@ -112,9 +119,9 @@ export class Replay {
 
   // Schedule a replay `delay` real seconds from now.
   schedule(delay, endT) {
-    const clip = this.plan(endT);
-    if (!clip) return false;
-    this.pending = { at: this.g.clock + delay, clip };
+    if (!this.plan(endT)) return false;
+    // The clip itself is cut when it starts, so it includes what happened in the meantime.
+    this.pending = { at: this.g.clock + delay, endT };
     return true;
   }
 
@@ -133,8 +140,8 @@ export class Replay {
       menuWasOpen: g.ui.menuOpen,
     };
     this.cam = null; this.yaw = null;
-    g.ui.prompt('REPLAY', 1.6, '#7fd3ff');
-    g.hint([{ hand: 'R', button: 'trigger', label: 'SKIP', sub: 'any button', key: 'Space' }], 2.5);
+    g.ui.prompt(clip.crease ? 'REPLAY — at the crease' : 'REPLAY', 1.0, '#7fd3ff');
+    g.hint([{ hand: 'R', button: 'trigger', label: 'SKIP', sub: 'any button', key: 'Space' }], 1.4);
     if (g.ballView.trail) g.ballView.clearTrail?.();
   }
 
@@ -155,6 +162,7 @@ export class Replay {
   // Speed of the replay clock: slow motion around the moment that matters.
   speedAt(t) {
     const c = this.clip;
+    if (c.crease) return 0.22 + 0.78 * (1 - sstep(c.key - 0.6, c.key - 0.35, t) * (1 - sstep(c.key + 0.3, c.key + 0.6, t)));
     const key = c.hit ?? c.arrive;
     if (key == null) return 1;
     const slow = 1 - sstep(key - 0.45, key - 0.15, t) * (1 - sstep(key + 0.3, key + 0.6, t));
@@ -171,7 +179,7 @@ export class Replay {
         // (next ball requested, a review under way) the replay is dropped.
         const still = g.session && g.session.state === 'settle' && g.state === 'play';
         if (g.settings.replay === 'off' || !still) this.pending = null;
-        else if (g.clock >= this.pending.at && !g.ui.menuOpen) this.start(this.pending.clip, g.settings.replay);
+        else if (g.clock >= this.pending.at && !g.ui.menuOpen) { const clip = this.plan(this.pending.endT + 1.5); if (clip) this.start(clip, g.settings.replay); else this.pending = null; }
       }
       return;
     }
@@ -239,6 +247,14 @@ export class Replay {
   shot(t) {
     const c = this.clip;
     const pos = new THREE.Vector3(), look = new THREE.Vector3();
+    if (c.crease) {
+      // Square of the wicket, low, looking along the popping crease.
+      const zs = c.crease === 'batting' ? PITCH.battingStumpsZ : PITCH.bowlingStumpsZ, dir = c.crease === 'batting' ? -1 : 1;
+      const zc = zs + dir * PITCH.poppingOffset;
+      pos.set(this.g.input.xr ? 3.4 : 4.4, 1.0, zc + dir * 0.15);
+      look.set(0, 0.5, (zs + zc) / 2 + dir * 0.2);
+      return { pos, look };
+    }
     // Before the hit: the bowler's end, or the batter's eyes.
     if (this.view === 'batter') {
       if (c.playerBatting && this.g.input.xr) this.headAt(Math.min(t, c.hit ?? t), pos);
@@ -246,7 +262,7 @@ export class Replay {
       look.set(0.4, 1.4, PITCH.bowlingStumpsZ);
     } else {
       // Above the umpire's hat, just wide of the bowler's arm.
-      pos.set(0.95, 2.55, PITCH.bowlingStumpsZ - 4.2);
+      pos.set(1.75, 3.05, PITCH.bowlingStumpsZ - 5.2);          // clear of the bowler's head and the umpire's hat
       look.set(0, 0.9, -1.0);
       // A miss: glide down the pitch behind the ball to see what happened.
       if (c.hit == null && c.arrive != null) {
