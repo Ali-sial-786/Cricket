@@ -320,9 +320,10 @@ export class UI {
       step('guard', L(1, 4), 'Guard', `${guardName} ${gx >= 0 ? '+' : ''}${Math.round(gx * 100)}cm`, () => g.actions.setting('guardX', -0.03, -0.2, 0.15), () => g.actions.setting('guardX', 0.03, -0.2, 0.15));
       btn('assist', L(0, 5), `Bowling aim assist: ${s.aimAssist ? 'ON' : 'OFF'}`, () => g.actions.toggle('aimAssist'), { active: s.aimAssist });
       btn('marker', L(1, 5), `Aim marker: ${s.aimMarker ? 'ON' : 'OFF'}`, () => g.actions.toggle('aimMarker'), { active: s.aimMarker });
-      const hw = (L(0, 6).w - 12) / 2, r4 = L(0, 6);
-      btn('trail', { x: r4.x, y: r4.y, w: hw, h: r4.h }, `Trail: ${s.trail ? 'ON' : 'OFF'}`, () => g.actions.toggle('trail'), { active: s.trail });
-      btn('boost', { x: r4.x + hw + 12, y: r4.y, w: hw, h: r4.h }, `Ball boost: ${s.ballBoost ? 'ON' : 'OFF'}`, () => g.actions.toggle('ballBoost'), { active: s.ballBoost });
+      const r4 = L(0, 6), tw3 = (r4.w - 20) / 3;
+      btn('trail', { x: r4.x, y: r4.y, w: tw3, h: r4.h }, `Trail ${s.trail ? 'ON' : 'OFF'}`, () => g.actions.toggle('trail'), { active: s.trail, size: 24 });
+      btn('boost', { x: r4.x + tw3 + 10, y: r4.y, w: tw3, h: r4.h }, `Big ball ${s.ballBoost ? 'ON' : 'OFF'}`, () => g.actions.toggle('ballBoost'), { active: s.ballBoost, size: 24 });
+      btn('finder', { x: r4.x + 2 * (tw3 + 10), y: r4.y, w: tw3, h: r4.h }, `Ball finder ${s.ballFinder ? 'ON' : 'OFF'}`, () => g.actions.toggle('ballFinder'), { active: s.ballFinder, size: 24 });
       btn('sound', L(1, 6), !s.sound ? 'Sound: OFF' : s.commentary ? 'Sound + commentary' : 'Sound, no commentary', () => g.actions.soundCycle(), { active: s.sound });
       btn('relcal', L(0, 7), 'Calibrate bowling release', () => g.actions.bowlCalib());
       btn('recal', L(1, 7), 'Calibrate bat', () => g.actions.calibrate());

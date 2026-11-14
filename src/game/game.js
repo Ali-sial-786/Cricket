@@ -18,6 +18,7 @@ import { LENGTH_PRESETS, LINE_PRESETS } from '../physics/bowlingMachine.js';
 import { createSession, startMatch } from './modes.js';
 import { buildHelmetGrille, PlayerBowlerActor, NearCull } from '../render/viewModes.js';
 import { Replay } from './replay.js';
+import { BallFinder } from '../render/ballFinder.js';
 import { CrowdAudio } from '../audio/crowd.js';
 import { MRPlacer } from '../xr/mr.js';
 import { AIBatter } from './aiBatter.js';
@@ -98,6 +99,7 @@ export class Game {
     scene.add(this.grille);
     this.nearCull = new NearCull();
     this.replay = new Replay(this);
+    this.ballFinder = new BallFinder(scene);
     this.ballOverride = null;   // fielding drives the ball view after a catch / pick-up
 
     this.input = new InputManager(renderer, rig, camera, dom);
@@ -514,6 +516,7 @@ export class Game {
       this.applyView();
       this.updateEye();
       this.replay.placeVignette(this.eye);
+      this.ballFinder.hide();
       Humanoid.updateLods(this.eye.p);
       this.nearCull.update(this.eye.p, Humanoid.all, 0.6, true);
       this.commentary.update(realDt);
@@ -561,6 +564,22 @@ export class Game {
       cu.uWaveOn.value = Math.max(0, Math.min(1, this.waveLeft / 2, (16 - this.waveLeft) / 2));
     } else cu.uWaveOn.value = 0;
     this.input.desktop.endFrame();
+  }
+
+  // After a hit: an arrow to the ball when it's out of view, a halo when it's
+  // far away, and where it will land while it's in the air.
+  updateBallFinder(dt) {
+    const ses = this.session, b = this.world.ball;
+    const hit = ses && this.state === 'play' && ses.hit && (ses.state === 'live' || ses.state === 'settle') && !this.viewOverride;
+    let ball = null, landing = null;
+    if (hit && this.settings.ballFinder !== false) {
+      if (b.active && b.batted) {
+        ball = this.ballView.mesh.position;
+        const first = ses.hit.pred && ses.hit.pred.bounces && ses.hit.pred.bounces[0];
+        if (first && b.bouncesSinceBat === 0 && !b.crossedBoundary) landing = first.pos;
+      } else if (this.ballOverride && ses.state === 'live') ball = this.ballView.mesh.position;   // in a fielder's hand / being thrown
+    }
+    this.ballFinder.update(dt, this.eye, ball, landing);
   }
 
   // Record this frame for the replay and spot the moments it needs.
@@ -724,6 +743,7 @@ export class Game {
     }
     // Nobody (and no bat) is ever drawn inside your head.
     this.nearCull.update(this.eye.p, Humanoid.all);
+    this.updateBallFinder(paused ? 0 : dt);
   }
 
   // Kit colours: the player's team is 'home'.
