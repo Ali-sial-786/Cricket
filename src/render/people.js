@@ -2,11 +2,12 @@
 import * as THREE from 'three';
 import { Pose } from '../physics/math.js';
 import { FielderActor, BowlerActor, BatterActor } from './actors.js';
+import { ShotReader } from './playerShot.js';
 import { toV3, toQ } from './util.js';
 import { sstep, clamp } from './anim.js';
 import { CONFIG } from '../config.js';
 
-const _p = new THREE.Vector3(), _q = new THREE.Quaternion(), _look = new THREE.Vector3(), _hf = new THREE.Vector3();
+const _p = new THREE.Vector3(), _q = new THREE.Quaternion(), _look = new THREE.Vector3(), _hf = new THREE.Vector3(), _ax = new THREE.Vector3(), _sw = new THREE.Vector3();
 
 // AI striker: posed around the AIBatter's analytic bat; runs when runs are taken.
 export class BatterView {
@@ -193,9 +194,45 @@ export class PlayerBodyView {
   constructor(scene) {
     this.actor = new BatterActor(scene, { team: 'home', seed: 3 });
     this.actor.bat.visible = false;     // the real player bat mesh is drawn by the game
+    this.reader = new ShotReader();
+    this.log = [];
     this.visible = false;
     this.actor.visible = false;
   }
+  // Re-pose the figure over [t0, t1] for a replay, now that the shot is known:
+  // the same inputs (your head, your bat, the ball) as live, but the shot's
+  // final type and the real contact time from the start of the swing, so the
+  // replay shows one clean shot instead of the live first guess. write(t, h)
+  // stores each pose. The live figure is put back as it was. Returns false if
+  // there was no shot to re-play.
+  resolve(t0, t1, write) {
+    const fin = this.reader.cur;
+    if (!fin || !fin.locked) return false;
+    const A = this.actor, h = A.h;
+    const saved = { snap: h.snapshot(), pos: A.pos.clone(), heading: A.heading, footL: A.footL.clone(), footR: A.footR.clone(),
+      step: A.step ? { L: A.step.L.clone(), R: A.step.R.clone(), ax: A.step.ax, open: A.step.open, init: A.step.init, mL: A.step.mL && { ...A.step.mL, from: A.step.mL.from.clone() }, mR: A.step.mR && { ...A.step.mR, from: A.step.mR.from.clone() } } : null, handX: A.handX, ps: A._ps, root: h.root.position.clone(), rq: h.root.quaternion.clone() };
+    const rd = new ShotReader();
+    let any = false;
+    for (const e of this.log) {
+      if (e.t < t0 - 2 || e.t > t1) continue;
+      _ax.set(0, 1, 0).applyQuaternion(e.bq);
+      _sw.copy(e.bp).addScaledVector(_ax, -0.55);
+      const c = rd.update(e.t, _sw, _ax, e.head ? e.head.p : null, e.extra);
+      if (c && Math.abs(c.t0 - fin.t0) < 0.4) { c.cls = fin.cls; c.Tc = fin.Tc; c.hitT = fin.hitT; c.locked = true; any = true; }
+      let hf = null;
+      if (e.head) { _q.set(e.head.q.x, e.head.q.y, e.head.q.z, e.head.q.w); hf = _hf.set(0, 0, -1).applyQuaternion(_q); hf.y = 0; if (hf.lengthSq() < 1e-6) hf = null; else hf.normalize(); }
+      A.updateBatting(e.dt, e.bp, e.bq, { t: e.t, plan: null, ball: e.ball, head: e.head ? e.head.p : null, headFwd: hf, sweep: e.extra && e.extra.sweep, shot: c });
+      if (e.t >= t0) write(e.t, h);
+    }
+    // put the live figure back
+    if (saved.step) { const S = A.step; S.L.copy(saved.step.L); S.R.copy(saved.step.R); S.ax = saved.step.ax; S.open = saved.step.open; S.init = saved.step.init; S.mL = saved.step.mL; S.mR = saved.step.mR; }
+    A.pos.copy(saved.pos); A.heading = saved.heading; A.footL.copy(saved.footL); A.footR.copy(saved.footR); A.handX = saved.handX; A._ps = saved.ps;
+    h.root.position.copy(saved.root); h.root.quaternion.copy(saved.rq);
+    h.blendFrom(saved.snap, 0);
+    h.update();
+    return any;
+  }
+
   show(v) { this.visible = v; this.actor.visible = v; this.actor.bat.visible = false; }
   // head: your headset pose {p, q} (VR), or null on a monitor. extra: { sweep }.
   update(dt, t, batPos, batQuat, ball, head = null, extra = null) {
@@ -205,7 +242,16 @@ export class PlayerBodyView {
       hf = _hf.set(0, 0, -1).applyQuaternion(_q); hf.y = 0;
       if (hf.lengthSq() < 1e-6) hf = null; else hf.normalize();
     }
-    this.actor.updateBatting(dt, batPos, batQuat, { t, plan: null, ball, head: head ? head.p : null, headFwd: hf, sweep: extra && extra.sweep });
+    // your shot, read from the bat, your head and the delivery (src/render/playerShot.js)
+    _ax.set(0, 1, 0).applyQuaternion(batQuat);
+    _sw.copy(batPos).addScaledVector(_ax, -0.55);                 // the sweet spot
+    const shot = this.reader.update(t, _sw, _ax, head ? head.p : null, extra);
+    this.actor.updateBatting(dt, batPos, batQuat, { t, plan: null, ball, head: head ? head.p : null, headFwd: hf, sweep: extra && extra.sweep, shot });
+    // what went in, for re-playing the shot in a replay once it is known
+    const L = this.log;
+    if (L.length && t < L[L.length - 1].t) L.length = 0;
+    L.push({ t, dt, bp: batPos.clone(), bq: batQuat.clone(), head: head ? { p: { x: head.p.x, y: head.p.y, z: head.p.z }, q: { x: head.q.x, y: head.q.y, z: head.q.z, w: head.q.w } } : null, ball: ball ? ball.clone() : null, extra });
+    while (L.length > 1200 || (L.length && t - L[0].t > 16)) L.shift();
     this.actor.bat.visible = false;
   }
 }

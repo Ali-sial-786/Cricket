@@ -1,0 +1,601 @@
+{
+ "note": "Chosen takes (by segment and swing-peak time in tools/video_shots/index.json), contact times read off the video frame by frame (the ball meeting the bat); top/finish from the hands' speed unless given. Side-on takes (square on the off side, B; square on the leg side, C) are preferred: the stride, the weight going forward or back and the knee bends are in the picture plane there, while a front-on camera sees the stride only as depth, which a single camera gets wrong (the front-on takes' strides came out up to 20 cm short or backwards).",
+ "kept": [
+  {
+   "name": "forward_defence",
+   "type": "defend",
+   "foot": "front",
+   "seg": 1,
+   "peak": 16.4,
+   "contact_t": 16.27,
+   "finish": 16.7,
+   "view": "square, off side",
+   "why": "front foot defence, square on the off side (12.6-18.2 s): long stride to the pitch, front knee over the ball, head over the front foot, back leg stretched out and the back toe dragged; held. The front-on take (seg 0) is clean too but its stride is depth to that camera and came out 2 cm long."
+  },
+  {
+   "name": "back_defence",
+   "type": "backdef",
+   "foot": "back",
+   "seg": 3,
+   "peak": 24.7,
+   "contact_t": 24.7,
+   "finish": 25.1,
+   "view": "square, off side",
+   "why": "back foot defence, square on the off side: back foot back and across, front foot drawn back beside it, up on the balls of the feet, played under the eyes; clean (no relabelled or muddled frames)."
+  },
+  {
+   "name": "straight_drive",
+   "type": "drive",
+   "foot": "front",
+   "seg": 5,
+   "peak": 30.97,
+   "contact_t": 31.07,
+   "view": "square, off side",
+   "why": "straight drive, square on the off side: front foot to the pitch (37 cm stride), head over it, high finish; three muddled frames at 31.30 s (the bat across the legs) replaced from either side."
+  },
+  {
+   "name": "cover_drive",
+   "type": "drive",
+   "foot": "front",
+   "seg": 7,
+   "peak": 38.63,
+   "contact_t": 38.78,
+   "view": "square, off side",
+   "why": "cover drive, square on the off side: clean (no relabelled frames, bone lengths steady), 28 cm stride, weight 52% forward at contact and 63% at the finish, high full follow-through."
+  },
+  {
+   "name": "lofted_drive",
+   "type": "drive",
+   "foot": "front",
+   "seg": 28,
+   "peak": 149.6,
+   "contact_t": 149.45,
+   "view": "square, leg side",
+   "why": "lofted drive, square on the leg side: front foot out (30 cm), deep knee bend, hips and shoulders open hard through a high finish. The other leg-side take (140.3 s) loses the legs' left and right from 140.4 s on (legs crossed in half its frames).",
+   "t1": 150.45
+  },
+  {
+   "name": "back_foot_punch",
+   "type": "punch",
+   "foot": "back",
+   "seg": 11,
+   "peak": 58.13,
+   "contact_t": 58.05,
+   "view": "square, off side",
+   "why": "back foot punch, square on the off side: back foot back, front foot drawn back, tall on the toes, short punch."
+  },
+  {
+   "name": "hook",
+   "type": "hook",
+   "foot": "back",
+   "seg": 13,
+   "peak": 67.27,
+   "contact_t": 67.03,
+   "view": "square, off side",
+   "why": "hook, square on the off side: back foot back and across, pivot on it, the body turning right round to fine leg; the turn is depth to this camera and is the least certain part."
+  },
+  {
+   "name": "pull",
+   "type": "pull",
+   "foot": "back",
+   "seg": 15,
+   "peak": 73.97,
+   "contact_t": 74.0,
+   "view": "square, off side",
+   "why": "pull, square on the off side: back foot back and across, weight on it, hips round through the shot; clean (no relabelled or muddled frames)."
+  },
+  {
+   "name": "sweep",
+   "type": "sweep",
+   "foot": "front",
+   "seg": 17,
+   "peak": 87.3,
+   "contact_t": 87.4,
+   "view": "square, off side",
+   "why": "sweep, square on the off side (third of four sweeps in the segment): long front stride, back knee right down on the turf, head over the front knee, bat swept along the ground. The 82.3 s take is as good but its back knee lands harder; 89.2 s has 19 muddled frames."
+  },
+  {
+   "name": "slog_sweep",
+   "type": "slog",
+   "foot": "front",
+   "seg": 17,
+   "peak": 93.37,
+   "contact_t": 93.43,
+   "view": "square, off side",
+   "why": "slog sweep, square on the off side: as the sweep but down on the knee with the bat coming from high and finishing high over the shoulder; the 98.4 s take muddles the legs while kneeling."
+  },
+  {
+   "name": "flick",
+   "type": "flick",
+   "foot": "front",
+   "seg": 20,
+   "peak": 110.93,
+   "contact_t": 111.05,
+   "view": "square, leg side",
+   "why": "flick, square on the leg side: short front stride, wrists rolling the bat to the leg side, hips opening; front-on takes (seg 19, 21) have no clear swing peak and seg 23's stride came out backwards. The leg-side camera saw the stride partly as depth (the front foot came out 50 cm toward the off side): the legs' spread along that camera's line of sight is dropped (the legs kept in the picture's plane, which is nearly the line of the pitch).",
+   "legDepth": 0
+  },
+  {
+   "name": "reverse_sweep",
+   "type": "reverse",
+   "foot": "front",
+   "seg": 24,
+   "peak": 130.17,
+   "contact_t": 130.27,
+   "view": "square, leg side",
+   "why": "reverse sweep, square on the leg side: long front stride, low (no knee down in this take), the bat swept across to the off side."
+  },
+  {
+   "name": "square_cut",
+   "type": "cut",
+   "foot": "back",
+   "seg": 30,
+   "peak": 157.7,
+   "contact_t": 157.8,
+   "view": "square, leg side",
+   "why": "square cut, square on the leg side: weight back, arms extended through the line, shoulders turning, high finish."
+  },
+  {
+   "name": "late_cut",
+   "type": "latecut",
+   "foot": "back",
+   "seg": 32,
+   "peak": 165.53,
+   "contact_t": 165.62,
+   "view": "square, leg side",
+   "why": "late cut, square on the leg side: back foot across to the off side, the ball played late past the body, low finish."
+  }
+ ],
+ "rejected": [
+  {
+   "t": 7.33,
+   "seg": 0,
+   "label": "front foot defence",
+   "view": "A",
+   "why": [
+    "not a shot: the batter walking back and picking the ball up"
+   ]
+  },
+  {
+   "t": 10.17,
+   "seg": 0,
+   "label": "front foot defence",
+   "view": "A",
+   "why": [
+    "front foot defence from in front (behind the bowler): clean enough, but the stride is depth to this camera and came out wrong; a side-on take of the same shot is kept"
+   ]
+  },
+  {
+   "t": 17.8,
+   "seg": 1,
+   "label": "front foot defence",
+   "view": "B",
+   "why": [
+    "the same defence being held and the batter getting up (not a swing)"
+   ]
+  },
+  {
+   "t": 20.33,
+   "seg": 2,
+   "label": "backfoot defence",
+   "view": "A",
+   "why": [
+    "backfoot defence from in front (behind the bowler): clean enough, but the stride is depth to this camera and came out wrong; a side-on take of the same shot is kept"
+   ]
+  },
+  {
+   "t": 21.73,
+   "seg": 2,
+   "label": "backfoot defence",
+   "view": "A",
+   "why": [
+    "recovery after the back-foot defence (not a swing)"
+   ]
+  },
+  {
+   "t": 28.23,
+   "seg": 4,
+   "label": "straight drive",
+   "view": "A",
+   "why": [
+    "straight drive from in front (behind the bowler): clean enough, but the stride is depth to this camera and came out wrong; a side-on take of the same shot is kept"
+   ]
+  },
+  {
+   "t": 34.8,
+   "seg": 6,
+   "label": "cover drive",
+   "view": "A",
+   "why": [
+    "cover drive from in front (behind the bowler): clean enough, but the stride is depth to this camera and came out wrong; a side-on take of the same shot is kept"
+   ]
+  },
+  {
+   "t": 36.23,
+   "seg": 6,
+   "label": "cover drive",
+   "view": "A",
+   "why": [
+    "second peak of the same cover drive (the bat brought down after the finish)"
+   ]
+  },
+  {
+   "t": 42.7,
+   "seg": 8,
+   "label": "cover drive (spinners)",
+   "view": "A",
+   "why": [
+    "cover drive (spinners) from in front (behind the bowler): clean enough, but the stride is depth to this camera and came out wrong; a side-on take of the same shot is kept"
+   ]
+  },
+  {
+   "t": 45.1,
+   "seg": 8,
+   "label": "cover drive (spinners)",
+   "view": "A",
+   "why": [
+    "recovery after the drive (not a swing)"
+   ]
+  },
+  {
+   "t": 49.37,
+   "seg": 9,
+   "label": "cover drive (spinners)",
+   "view": "B",
+   "why": [
+    "cover drive to a spinner, square on: the batter dances down the pitch and the back foot is relabelled to the front while the bat crosses the legs; the plain cover drive (38.6 s) is cleaner"
+   ]
+  },
+  {
+   "t": 51.13,
+   "seg": 9,
+   "label": "cover drive (spinners)",
+   "view": "B",
+   "why": [
+    "end of the segment: the bat is put down, no shot"
+   ]
+  },
+  {
+   "t": 53.93,
+   "seg": 10,
+   "label": "backfoot punch",
+   "view": "A",
+   "why": [
+    "backfoot punch from in front (behind the bowler): clean enough, but the stride is depth to this camera and came out wrong; a side-on take of the same shot is kept"
+   ]
+  },
+  {
+   "t": 55.0,
+   "seg": 10,
+   "label": "backfoot punch",
+   "view": "A",
+   "why": [
+    "recovery after the punch (not a swing)"
+   ]
+  },
+  {
+   "t": 62.97,
+   "seg": 12,
+   "label": "hook",
+   "view": "A",
+   "why": [
+    "hook from in front (behind the bowler): clean enough, but the stride is depth to this camera and came out wrong; a side-on take of the same shot is kept"
+   ]
+  },
+  {
+   "t": 70.9,
+   "seg": 14,
+   "label": "pull",
+   "view": "A",
+   "why": [
+    "pull from in front (behind the bowler): clean enough, but the stride is depth to this camera and came out wrong; a side-on take of the same shot is kept"
+   ]
+  },
+  {
+   "t": 72.0,
+   "seg": 14,
+   "label": "pull",
+   "view": "A",
+   "why": [
+    "recovery after the pull: the front-on camera loses which leg is which (11 relabelled frames)"
+   ]
+  },
+  {
+   "t": 75.57,
+   "seg": 15,
+   "label": "pull",
+   "view": "B",
+   "why": [
+    "recovery after the pull (not a swing); legs crossed in 93% of its frames"
+   ]
+  },
+  {
+   "t": 78.13,
+   "seg": 16,
+   "label": "sweep",
+   "view": "A",
+   "why": [
+    "sweep from in front (behind the bowler): clean enough, but the stride is depth to this camera and came out wrong; a side-on take of the same shot is kept"
+   ]
+  },
+  {
+   "t": 82.3,
+   "seg": 17,
+   "label": "sweep",
+   "view": "B",
+   "why": [
+    "sweep, good, but the back knee drops onto the turf harder than in the 87.3 s take (kept that one)"
+   ]
+  },
+  {
+   "t": 85.47,
+   "seg": 17,
+   "label": "sweep",
+   "view": "B",
+   "why": [
+    "sweep from a wider angle in the same segment: pelvis yaw jumps 0.9 rad between frames (a depth flip)"
+   ]
+  },
+  {
+   "t": 89.2,
+   "seg": 17,
+   "label": "sweep",
+   "view": "B",
+   "why": [
+    "sweep: 19 muddled leg frames while kneeling"
+   ]
+  },
+  {
+   "t": 96.73,
+   "seg": 17,
+   "label": "slog sweep",
+   "view": "B",
+   "why": [
+    "slog sweep: 31 frames relabelled and a 1.1 rad pelvis flip"
+   ]
+  },
+  {
+   "t": 98.37,
+   "seg": 17,
+   "label": "slog sweep",
+   "view": "B",
+   "why": [
+    "slog sweep: the legs are muddled while the back knee goes down (stick figure does not kneel)"
+   ]
+  },
+  {
+   "t": 103.97,
+   "seg": 18,
+   "label": "slog sweep",
+   "view": "C",
+   "why": [
+    "slog sweep from far square leg: 28 muddled leg frames"
+   ]
+  },
+  {
+   "t": 105.0,
+   "seg": 18,
+   "label": "slog sweep",
+   "view": "C",
+   "why": [
+    "tail of the slog sweep, 35 muddled frames"
+   ]
+  },
+  {
+   "t": 120.5,
+   "seg": 22,
+   "label": "flick",
+   "view": "C",
+   "why": [
+    "flick, far square leg: legs half visible (visibility 0.57), 36 relabelled frames, pelvis flips"
+   ]
+  },
+  {
+   "t": 123.17,
+   "seg": 23,
+   "label": "flick",
+   "view": "A",
+   "why": [
+    "flick from in front (behind the bowler): clean enough, but the stride is depth to this camera and came out wrong; a side-on take of the same shot is kept"
+   ]
+  },
+  {
+   "t": 124.27,
+   "seg": 23,
+   "label": "reverse sweep",
+   "view": "A",
+   "why": [
+    "reverse sweep front-on: pelvis yaw flips (1.3 rad) mid-shot"
+   ]
+  },
+  {
+   "t": 126.87,
+   "seg": 23,
+   "label": "reverse sweep",
+   "view": "A",
+   "why": [
+    "reverse sweep from in front (behind the bowler): clean enough, but the stride is depth to this camera and came out wrong; a side-on take of the same shot is kept"
+   ]
+  },
+  {
+   "t": 131.37,
+   "seg": 24,
+   "label": "reverse sweep",
+   "view": "C",
+   "why": [
+    "recovery after the reverse sweep (not a swing)"
+   ]
+  },
+  {
+   "t": 135.6,
+   "seg": 25,
+   "label": "lofted drive",
+   "view": "A",
+   "why": [
+    "lofted drive from in front (behind the bowler): clean enough, but the stride is depth to this camera and came out wrong; a side-on take of the same shot is kept"
+   ]
+  },
+  {
+   "t": 140.33,
+   "seg": 26,
+   "label": "lofted drive",
+   "view": "C",
+   "why": [
+    "lofted drive, square leg: left and right legs exchanged from 140.4 s on (legs crossed in 53% of frames)"
+   ]
+  },
+  {
+   "t": 146.97,
+   "seg": 27,
+   "label": "lofted drive",
+   "view": "A",
+   "why": [
+    "lofted drive from in front (behind the bowler): clean enough, but the stride is depth to this camera and came out wrong; a side-on take of the same shot is kept"
+   ]
+  },
+  {
+   "t": 150.93,
+   "seg": 28,
+   "label": "lofted drive",
+   "view": "C",
+   "why": [
+    "recovery after the lofted drive; legs relabelled, pelvis flips 1.35 rad"
+   ]
+  },
+  {
+   "t": 154.4,
+   "seg": 29,
+   "label": "square cut",
+   "view": "D",
+   "why": [
+    "square cut from in front (far, from the bowler end): clean enough, but the stride is depth to this camera and came out wrong; a side-on take of the same shot is kept"
+   ]
+  },
+  {
+   "t": 159.33,
+   "seg": 30,
+   "label": "square cut",
+   "view": "C",
+   "why": [
+    "the batter walking off after the cut (not a swing)"
+   ]
+  },
+  {
+   "t": 161.67,
+   "seg": 31,
+   "label": "late cut",
+   "view": "D",
+   "why": [
+    "late cut from in front (far, from the bowler end): clean enough, but the stride is depth to this camera and came out wrong; a side-on take of the same shot is kept"
+   ]
+  },
+  {
+   "t": 163.4,
+   "seg": 31,
+   "label": "late cut",
+   "view": "D",
+   "why": [
+    "recovery after the late cut (not a swing)"
+   ]
+  },
+  {
+   "t": 177.23,
+   "seg": 34,
+   "label": "switch hit",
+   "view": "A",
+   "why": [
+    "unorthodox (switch hit): not one of the game's shots; not hooked up"
+   ]
+  },
+  {
+   "t": 183.0,
+   "seg": 35,
+   "label": "switch hit",
+   "view": "C",
+   "why": [
+    "unorthodox (switch hit): not one of the game's shots; not hooked up"
+   ]
+  },
+  {
+   "t": 187.37,
+   "seg": 35,
+   "label": "upper cut",
+   "view": "C",
+   "why": [
+    "unorthodox (upper cut): not one of the game's shots; not hooked up"
+   ]
+  },
+  {
+   "t": 189.33,
+   "seg": 35,
+   "label": "upper cut",
+   "view": "C",
+   "why": [
+    "second upper-cut swing, a shadow practice without a ball"
+   ]
+  },
+  {
+   "t": 192.73,
+   "seg": 36,
+   "label": "scoop",
+   "view": "A",
+   "why": [
+    "unorthodox (scoop): not one of the game's shots; not hooked up"
+   ]
+  },
+  {
+   "t": 197.3,
+   "seg": 37,
+   "label": "scoop",
+   "view": "C",
+   "why": [
+    "unorthodox (scoop): not one of the game's shots; not hooked up"
+   ]
+  },
+  {
+   "t": 202.57,
+   "seg": 38,
+   "label": "helicopter",
+   "view": "A",
+   "why": [
+    "unorthodox (helicopter): not one of the game's shots; not hooked up"
+   ]
+  },
+  {
+   "t": 207.0,
+   "seg": 39,
+   "label": "helicopter",
+   "view": "C",
+   "why": [
+    "unorthodox (helicopter): not one of the game's shots; not hooked up"
+   ]
+  },
+  {
+   "t": 211.37,
+   "seg": 40,
+   "label": "helicopter",
+   "view": "A",
+   "why": [
+    "unorthodox (helicopter): not one of the game's shots; not hooked up"
+   ]
+  },
+  {
+   "t": 215.27,
+   "seg": 41,
+   "label": "helicopter",
+   "view": "C",
+   "why": [
+    "unorthodox (helicopter): not one of the game's shots; not hooked up"
+   ]
+  },
+  {
+   "t": 170.0,
+   "seg": 33,
+   "label": "leg glance",
+   "view": "D",
+   "why": [
+    "leg glance: only a far front-on take, and its swing is too gentle to find (hands never reach 3 m/s); no capture"
+   ]
+  }
+ ]
+}

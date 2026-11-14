@@ -7,7 +7,7 @@ const root = new URL('../', import.meta.url);
 const meta = JSON.parse(fs.readFileSync(new URL('assets/anim/shots.json', root), 'utf8'));
 const buf = fs.readFileSync(new URL('assets/anim/shots.bin', root));
 const q = new Int16Array(buf.buffer, buf.byteOffset, buf.byteLength / 2);
-const TYPES = ['drive', 'defend', 'backdef', 'pull', 'cut', 'flick', 'sweep', 'slog', 'reverse'];
+const TYPES = ['drive', 'defend', 'backdef', 'pull', 'hook', 'cut', 'latecut', 'punch', 'flick', 'glance', 'sweep', 'slog', 'reverse'];
 
 test('shot asset matches the 17-bone rig and is small', () => {
   const athlete = JSON.parse(fs.readFileSync(new URL('assets/models/athlete.json', root), 'utf8'));

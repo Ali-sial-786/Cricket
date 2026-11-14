@@ -14,7 +14,7 @@ import { CONFIG } from '../config.js';
 import { Vec3, msToKmh, clamp } from '../physics/math.js';
 import { PITCH, lengthName, lineName, groundDistance, battingPoppingZ } from '../physics/pitch.js';
 import { machineDelivery } from '../physics/bowlingMachine.js';
-import { predict } from '../physics/trajectory.js';
+import { predict, crossingAtZ } from '../physics/trajectory.js';
 import { LbwFlow, padHit, deflectOffPad } from './lbwFlow.js';
 import { ThirdUmpireFlow } from './thirdUmpire.js';
 import { HINTS } from '../ui/controllerHint.js';
@@ -146,6 +146,9 @@ export class BattingSession {
     const sweeping = R.buttons.squeeze.pressed && (preBall || this.state === 'idle' || this.state === 'settle' || (this.hit && g.simTime - this.hit.t < 0.5));
     this.sweepK = clamp((this.sweepK || 0) + (sweeping ? 6 : -3.5) * dt, 0, 1);
     this.sweepSlog = sweeping ? R.buttons.trigger.pressed || this.advance > 0.4 : this.sweepSlog;
+    // a reverse sweep: the bat swung toward the off side while sweeping (as applySweep reads it)
+    if (sweeping && R.linVel.length() > 2) this.sweepReverse = R.linVel.x > 0.6;
+    else if (!sweeping && this.sweepK <= 0) this.sweepReverse = false;
 
     if (this.lbw.active) return;
     const run = this.field && this.state === 'live' && (this.hit || this.byes) && !this.field.result();
@@ -267,6 +270,12 @@ export class BattingSession {
     g.ballView.mesh.quaternion.identity();
     this.launchT = t;
     this.state = 'live';
+    // When and where the ball will reach you (for the figure that plays your shot).
+    {
+      const pred = predict(g.world.ball, { maxTime: 3, h: 1 / 240, stop: (bb) => bb.pos.z > 0.5 });
+      const c = crossingAtZ(pred, -1.5), b0 = pred.bounces[0];
+      this.ballInfo = { id: (this.ballInfo ? this.ballInfo.id : 0) + 1, arrive: c ? t + c.t : null, y: c ? c.y : null, length: b0 ? -b0.pos.z : -1 };
+    }
     g.sample('whoosh', { gain: 0.5 }) || g.sfx.whoosh(d.vel.length() * 0.4);
     if (this.noBall) { g.umpires.signal('noball', g.clock); g.ui.prompt('NO BALL! Swing freely — free hit next', 2.2, '#ffb347'); g.sample('umpire_not_out', { gain: 0.6 }); }
     const len = d.length;
@@ -424,7 +433,16 @@ export class BattingSession {
   backingUp() { return this.state === 'runup' || this.state === 'cue' || (this.state === 'live' && !this.game.world.ball.batted); }
 
   // What your body is doing, for the figure that stands in for you.
-  bodyState() { return this.sweepK > 0.01 ? { sweep: { k: this.sweepK * this.sweepK * (3 - 2 * this.sweepK), slog: !!this.sweepSlog } } : null; }
+  // sweep: held (k 0..1), slog, reverse; ball: this delivery (id, live, arrival time and
+  // height at the batter, length); hit: the contact once it happens (time, launch angle, shot).
+  bodyState() {
+    const b = this.game.world.ball, bi = this.ballInfo;
+    return {
+      sweep: this.sweepK > 0.01 ? { k: this.sweepK * this.sweepK * (3 - 2 * this.sweepK), slog: !!this.sweepSlog, reverse: !!this.sweepReverse } : null,
+      ball: bi ? { id: bi.id, live: this.state === 'live' && b.active && !b.batted && !this.hit, arrive: bi.arrive, y: bi.y, length: bi.length } : null,
+      hit: this.hit ? { t: this.hit.t, launch: this.hit.launch, name: this.shotName } : null,
+    };
+  }
 
   // How far (m) you are short of the popping crease. Some part of a foot
   // grounded behind the line, or the bat grounded (the toe near the ground)

@@ -205,6 +205,27 @@ retargets them to the 17-bone rig: `assets/anim/shots.*` (29 KB), played by `src
   unchanged. Cut and back-foot defence keep the procedural body (no usable capture).
 - Your sweep takes its front-knee bend and trailing back foot from the captured sweep.
 
+## Twelfth pass: shots from the owner's coaching video, for the AI and for you
+The owner sent a coaching video of one right-handed batter playing every shot, each labelled on screen, from
+several static cameras. `tools/video_shots/` turns it into the batting shots (`assets/anim/shots.*`, 116 KB):
+- `index.json`: the 42 camera segments (labels read off the video, camera angle per segment: front-on from behind
+  the bowler, square on the off side, square on the leg side, far front-on); `extract_pose.py`: MediaPipe Pose
+  Landmarker (heavy, video mode) on a crop round the batter, every frame; `prepare_takes.py`: 60 swings cut into
+  takes, left/right repair (knees and feet relabelled separately, muddled frames replaced, 3D legs matched to the
+  2D), canonical facing, foot contacts from the picture, scores; `build_video_shots.mjs`: hinge-correct retarget,
+  root path from the planted feet (a back toe may drag), floor, leg IK, events; `selection.json`: the 14 takes
+  kept (with the contact frame read off the video) and the 50 rejected, each with a reason; `sheet.py`: check
+  sheets (video + skeleton over the cleaned figure).
+- Kept: forward defence, back defence, straight / cover / lofted drive, back-foot punch, hook, pull, sweep,
+  slog sweep, flick, reverse sweep, square cut, late cut, all from side-on cameras. No capture: leg glance (only a
+  far front-on take), the unorthodox shots. The mimem.ai shots are replaced.
+- The AI picks the capture from its plan (drive by aim and loft, pull or hook by the ball's height, square or late
+  cut by the angle); its bat path and contact physics are unchanged.
+- **Your figure** (seen looking down, from behind, on a monitor, in replays) now plays a captured shot when you
+  swing at a ball: `src/render/playerShot.js` reads the shot from your bat, head and the delivery, the capture gives
+  the footwork, knees, hips, trunk and weight, your head and hands stay where they really are. Replays re-play it
+  with the shot as it turned out (type and real contact time).
+
 ## Known issues / not verified
 - **Not tested on a real headset.** All XR paths ran only under Meta's IWER emulator in headless Chromium
   (no pose velocities, haptics, hit-test or passthrough there). Haptics, `updateTargetFrameRate`, pose velocities

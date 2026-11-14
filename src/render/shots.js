@@ -1,5 +1,6 @@
 // Batting shots from a real (video-derived) motion capture, cut, cleaned and
-// retargeted onto the game's 17-bone Humanoid by tools/build_shots.mjs.
+// retargeted onto the game's 17-bone Humanoid by tools/video_shots/build_video_shots.mjs
+// (from the owner's labelled coaching video; tools/build_shots.mjs built the earlier mimem.ai set).
 //
 //   loadShots()                   once, beside loadClips(); fails soft
 //   shotsReady()                  false -> callers keep the procedural body
@@ -33,33 +34,53 @@ export async function loadShots(base = './assets/anim/') {
 
 export const shotsReady = () => !!D;
 
-// Which capture plays which of the game's shots. Only shots that read as real
-// cricket survived the cleaning (a front-foot drive, a pull, a sweep); a
-// forward defence is the drive's stride and weight transfer checked at contact
-// (no follow-through, much less turn) and the flick is played off the same
-// front-foot stride. Back-foot defence and the cut have no clean capture and
-// stay procedural.
-const USE = {
-  drive: { type: 'drive' },
-  flick: { type: 'drive', turn: 0.8 },
-  defend: { type: 'drive', hold: true, turn: 0.35 },
-  pull: { type: 'pull' },
-  hook: { type: 'pull' },
-  sweep: { type: 'sweep' },
+// Which capture plays which of the game's shots. Every shot type the game
+// plays has its own capture (tools/video_shots/: one right-handed batter in a
+// coaching video, every shot labelled), and for some the capture is chosen by
+// what the shot is doing:
+//   drive    lofted (loft > 0.22), cover (aimed > 0.2 rad to the off side) or straight
+//   pull     a hook when the ball is at the head (> 1.25 m at the crease)
+//   cut      a late cut when steered fine (> 1.3 rad from straight)
+// want: { stride, loft, ang, yb } of the planned shot (all optional).
+const BY_TYPE = {
+  drive: (w) => (w.loft > 0.22 ? 'lofted_drive' : w.ang > 0.2 ? 'cover_drive' : 'straight_drive'),
+  defend: () => 'forward_defence',
+  backdef: () => 'back_defence',
+  pull: (w) => (w.yb > 1.25 ? 'hook' : 'pull'),
+  hook: () => 'hook',
+  cut: (w) => (w.ang > 1.3 ? 'late_cut' : 'square_cut'),
+  latecut: () => 'late_cut',
+  punch: () => 'back_foot_punch',
+  flick: () => 'flick',
+  sweep: () => 'sweep',
+  slog: () => 'slog_sweep',
+  reverse: () => 'reverse_sweep',
 };
+// The capture's own type, for a name that is missing (an older asset): the nearest of that type.
+const FALLBACK = { lofted_drive: 'drive', cover_drive: 'drive', straight_drive: 'drive', hook: 'pull', late_cut: 'cut', slog_sweep: 'sweep', reverse_sweep: 'sweep' };
 
-// want: { stride, hipHeight } of the planned shot (optional): the nearest capture of the type.
+export function shotByName(name) {
+  if (!D || !name) return null;
+  return D.shots.find((s) => s.name === name) || null;
+}
+
 export function shotFor(type, want = null) {
   if (!D) return null;
-  const u = USE[type];
-  if (!u) return null;
-  let best = null, bd = Infinity;
-  for (const s of D.shots) {
-    if (s.type !== u.type) continue;
-    const d = want ? Math.abs((want.stride ?? s.stride) - s.stride) + 2 * Math.abs((want.hipHeight ?? s.hipHeight) - s.hipHeight) : 0;
-    if (d < bd) { bd = d; best = s; }
+  const pick = BY_TYPE[type];
+  if (!pick) return null;
+  const w = want || {};
+  const name = pick({ loft: w.loft ?? 0, ang: w.ang ?? 0, yb: w.yb ?? 1 });
+  let best = shotByName(name);
+  if (!best) {
+    const t = FALLBACK[name] || type;
+    let bd = Infinity;
+    for (const s of D.shots) {
+      if (s.type !== t) continue;
+      const d = w.stride != null ? Math.abs(w.stride - s.stride) : 0;
+      if (d < bd) { bd = d; best = s; }
+    }
   }
-  return best ? { shot: best, hold: !!u.hold, turn: u.turn ?? 1, type } : null;
+  return best ? { shot: best, hold: false, turn: 1, type, name: best.name } : null;
 }
 
 const _q = new THREE.Quaternion(), _p = new THREE.Vector3();

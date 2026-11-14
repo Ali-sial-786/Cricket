@@ -77,6 +77,23 @@ export class Replay {
     for (const m of this.pieces) o = put(B, o, m.position, m.quaternion);
   }
 
+  // Replace figure k's pose in the recorded frame that shows the pose made at
+  // game time t (a frame is recorded before the figures are posed, so that is
+  // the first frame after t).
+  overwrite(k, t, h) {
+    let i = this.find(t + 1e-6);
+    if (i < 0) return;
+    if (this.timeAt(i) <= t + 1e-6) i++;
+    if (i >= this.count) return;
+    const B = this.buf;
+    let o = this.slotAt(i) * this.stride + 7 + 9 + 8 + k * this.hStride;
+    o += 1;                                                 // (visibility as recorded)
+    const r = h.root;
+    o = put(B, o, r.position, r.quaternion); B[o++] = r.scale.x;
+    const hp = h.bones.hips.position; B[o++] = hp.x; B[o++] = hp.y; B[o++] = hp.z;
+    for (const b of h.boneList) { const q = b.quaternion; B[o++] = q.x; B[o++] = q.y; B[o++] = q.z; B[o++] = q.w; }
+  }
+
   // Frame slots in time order.
   slotAt(i) { return (this.head - this.count + i + CAP) % CAP; }
   timeAt(i) { return this.times[this.slotAt(i)]; }
@@ -140,6 +157,11 @@ export class Replay {
       menuWasOpen: g.ui.menuOpen,
     };
     this.cam = null; this.yaw = null;
+    // Your figure: re-played with the shot as it turned out (src/render/people.js resolve).
+    if (clip.playerBatting && g.playerBody && g.playerBody.resolve) {
+      const k = this.humans.indexOf(g.playerBody.actor.h);
+      if (k >= 0) g.playerBody.resolve(clip.start, clip.end, (t, h) => this.overwrite(k, t, h));
+    }
     g.ui.prompt(clip.crease ? 'REPLAY — at the crease' : 'REPLAY', 1.0, '#7fd3ff');
     g.hint([{ hand: 'R', button: 'trigger', label: 'SKIP', sub: 'any button', key: 'Space' }], 1.4);
     if (g.ballView.trail) g.ballView.clearTrail?.();
