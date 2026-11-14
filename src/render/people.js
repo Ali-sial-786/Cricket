@@ -47,7 +47,7 @@ export class BowlerView {
   }
   show(v) { this.actor.visible = v; }
   setTeam(team) { this.actor.h.setTeam(team); }
-  startRunup(t, releasePos) { this.actor.startRunup(t, releasePos); }
+  startRunup(t, releasePos, kind) { this.actor.startRunup(t, releasePos, kind); }
   update(dt, t) { return this.actor.visible ? this.actor.update(dt, t) : false; }
   holdingBall() { return this.actor.visible && this.actor.holdingBall(); }
   handPos(out) { return this.actor.handPos(out, 'R'); }

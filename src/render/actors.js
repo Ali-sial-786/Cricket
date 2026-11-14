@@ -59,10 +59,12 @@ export class Actor {
   forward(out) { return out.set(Math.sin(this.heading), 0, Math.cos(this.heading)); }
   // No snapping between poses: if any joint jumped further this frame than a
   // body can move, blend over 0.18 s from where it was. Call after posing.
-  smooth(dt, dur = 0.18) {
+  // allow = false only records the pose (e.g. while a hand must hit an exact point).
+  smooth(dt, dur = 0.18, allow = true) {
     const h = this.h;
     const raw = this._raw;
-    if (raw && dt > 0) {
+    if (!allow) this._from = null;
+    else if (raw && dt > 0) {
       let jump = 0;
       h.boneList.forEach((b, i) => { const d = b.quaternion.angleTo(raw.q[i]); if (d > jump) jump = d; });
       if (jump > Math.max(0.7, 25 * dt)) { this._from = copySnap(this._shown || raw, this._from || undefined); this._bt = 0; }
@@ -203,6 +205,63 @@ export class FielderActor extends Actor {
 }
 
 // ---------------------------------------------------------------- bowler
+// Delivery actions keyed on u = time relative to release (s). Two styles:
+//   pace — leaping bound, side-on back-foot landing, long stride onto a braced
+//          front leg, front arm pulled down, the trunk flexing laterally (so the
+//          bowling shoulder rides high) then forward through the ball, and a
+//          long, decelerating run-off away from the pitch.
+//   spin — a little hop, more open, a short stride onto the front foot, a tall,
+//          slower arm, then a pivot over the front foot with the back leg coming
+//          round, the arm finishing across the body and a couple of steps.
+// feet: planted steps [side, land u, lift u, x, z (m, ahead of the root where it
+// lands), toe yaw]; the legs are IK'd to them so nothing slides.
+const BOWL = {
+  pace: {
+    hipsY: [[-0.62, -0.04], [-0.5, 0.12], [-0.38, -0.03], [-0.14, -0.08], [0, -0.01], [0.16, -0.06], [0.32, -0.12], [0.55, -0.07], [0.9, -0.04]],
+    hipsYaw: [[-0.62, 0], [-0.45, -0.95], [-0.2, -1.05], [0, -0.25], [0.3, 0.35], [0.9, 0.05]],
+    spine: [[-0.62, 0.1], [-0.38, -0.16], [-0.14, -0.04], [0, 0.22], [0.22, 0.8], [0.55, 0.45], [0.9, 0.14]],
+    roll: [[-0.62, 0], [-0.3, 0.05], [-0.1, -0.12], [0, -0.3], [0.2, -0.1], [0.5, 0]],
+    chest: [[-0.62, 0], [-0.45, -0.45], [-0.2, -0.4], [0, 0.35], [0.3, 0.45], [0.9, 0.05]],
+    hipL: [[-0.62, -0.3], [-0.5, -0.95], [-0.38, -1.15], [-0.2, -0.6], [0, -0.35], [0.25, 0.1], [0.6, 0.3], [0.9, 0]],
+    kneeL: [[-0.62, 0.6], [-0.5, 1.25], [-0.38, 0.7], [-0.2, 0.06], [0.1, 0.1], [0.4, 0.5], [0.9, 0.3]],
+    hipR: [[-0.62, 0.45], [-0.5, -0.45], [-0.38, 0.12], [-0.2, 0.5], [0, 0.7], [0.2, 0.1], [0.42, -0.55], [0.9, 0]],
+    kneeR: [[-0.62, 0.9], [-0.5, 1.15], [-0.38, 0.35], [-0.2, 0.6], [0.1, 1.35], [0.3, 0.9], [0.42, 0.25], [0.9, 0.2]],
+    shL: [[-0.62, -0.3], [-0.45, -2.6], [-0.2, -2.95], [0, -0.75], [0.3, 0.3], [0.9, 0.1]],
+    shLz: [[-0.62, 0.1], [-0.2, 0.18], [0.05, 0.22], [0.4, 0.12], [0.9, 0.1]],
+    elL: [[-0.62, -0.5], [-0.45, -0.2], [-0.15, -0.3], [0.05, -1.5], [0.4, -1.3], [0.9, -0.6]],
+    shR: [[-0.62, -0.4], [-0.5, -0.7], [-0.38, 0.0], [-0.3, 0.6], [-0.2, 0.9], [0.08, 4.45], [0.16, 4.75], [0.3, 5.6], [0.9, 6.25]],
+    shRz: [[-0.62, -0.1], [0.08, -0.05], [0.3, 0.45], [0.9, 0.05]],
+    elR: [[-0.62, -1.4], [-0.5, -1.8], [-0.38, -0.9], [-0.3, -0.15], [0.3, -0.15], [0.9, -0.4]],
+    // Straight-arm circle round the shoulder (psi from vertical, + toward the batter).
+    arm: { u0: -0.34, u1: 0.16, psi0: -2.75, pw: 1.5, w: 13, wd: 25, psiR: 0.22 },
+    feet: [['R', -0.38, -0.13, -0.04, 0.02, -1.4], ['L', -0.14, 0.33, -0.1, 0.42, -0.15], ['R', 0.42, 0.72, 0.0, 0.32, 0.15]],
+    ft: 0.9, post: 0.45, gaitAt: 0.55, decel: 1.1,
+  },
+  spin: {
+    hipsY: [[-0.62, -0.03], [-0.48, 0.07], [-0.36, -0.03], [-0.16, -0.06], [0, 0.0], [0.18, -0.05], [0.4, -0.08], [0.75, -0.03]],
+    hipsYaw: [[-0.62, 0], [-0.45, -0.75], [-0.2, -0.85], [0, -0.15], [0.25, 0.5], [0.5, 0.75], [0.75, 0.4]],
+    spine: [[-0.62, 0.08], [-0.36, -0.05], [-0.15, 0.0], [0, 0.14], [0.22, 0.5], [0.5, 0.35], [0.75, 0.1]],
+    roll: [[-0.62, 0], [-0.3, 0.04], [-0.1, -0.1], [0, -0.22], [0.25, -0.05], [0.5, 0]],
+    chest: [[-0.62, 0], [-0.45, -0.35], [-0.2, -0.3], [0, 0.25], [0.3, 0.45], [0.75, 0.15]],
+    hipL: [[-0.62, -0.3], [-0.5, -0.75], [-0.36, -0.85], [-0.2, -0.45], [0, -0.3], [0.3, 0.1], [0.75, 0]],
+    kneeL: [[-0.62, 0.5], [-0.5, 0.95], [-0.36, 0.5], [-0.2, 0.12], [0.1, 0.12], [0.35, 0.3], [0.75, 0.1]],
+    hipR: [[-0.62, 0.35], [-0.5, -0.3], [-0.36, 0.1], [-0.2, 0.35], [0, 0.5], [0.18, 0.0], [0.38, -0.5], [0.75, 0]],
+    kneeR: [[-0.62, 0.8], [-0.5, 0.9], [-0.36, 0.3], [-0.2, 0.45], [0.1, 1.05], [0.28, 0.85], [0.4, 0.2], [0.75, 0.1]],
+    shL: [[-0.62, -0.55], [-0.45, -2.3], [-0.2, -2.65], [0, -1.0], [0.3, 0.05], [0.75, 0.1]],
+    shLz: [[-0.62, -0.15], [-0.45, 0.1], [-0.2, 0.15], [0.05, 0.2], [0.4, 0.1], [0.75, 0.1]],
+    elL: [[-0.62, -1.6], [-0.45, -0.4], [-0.15, -0.3], [0.05, -1.4], [0.4, -1.1], [0.75, -0.5]],
+    shR: [[-0.62, -0.55], [-0.48, -0.9], [-0.38, -0.2], [-0.3, 0.5], [-0.2, 0.8], [0.08, 4.35], [0.18, 4.8], [0.35, 5.5], [0.75, 6.2]],
+    shRz: [[-0.62, 0.15], [-0.48, 0.0], [0.08, -0.05], [0.35, 0.65], [0.75, 0.1]],
+    elR: [[-0.62, -1.7], [-0.48, -1.9], [-0.38, -1.0], [-0.3, -0.2], [0.3, -0.35], [0.75, -0.4]],
+    arm: { u0: -0.36, u1: 0.18, psi0: -2.6, pw: 1.4, w: 10.5, wd: 15, psiR: 0.12 },
+    feet: [['R', -0.36, -0.15, -0.03, 0.02, -1.05], ['L', -0.16, 0.36, -0.08, 0.32, -0.25], ['R', 0.4, 0.75, 0.05, 0.28, 0.3]],
+    ft: 0.75, post: 0.6, gaitAt: 0.5, decel: 1.2,
+  },
+};
+const BALL_OFF = 0.06;                  // ball centre beyond the wrist joint (model units; see Actor.handPos)
+const _gaze = new THREE.Vector3(0, 0.7, 0);
+const _T = new THREE.Vector3(), _W = new THREE.Vector3(), _pl = new THREE.Vector3(), _q2 = new THREE.Quaternion();
+
 export class BowlerActor extends Actor {
   constructor(scene, opts) {
     super(scene, { headgear: 'bare', ...opts });
@@ -210,42 +269,48 @@ export class BowlerActor extends Actor {
     this.place(this.home.x, this.home.z, 0);
     this.run = null;
     this.snap = null;
+    this.style = BOWL.pace;
+    this.side = 1;
     this.state = 'idle';
   }
 
-  // Plan the run-up so the bowling hand passes through `releasePos` at
-  // `t + duration`.
+  // Plan the run-up so the ball in the bowling hand passes through `releasePos`
+  // at `t + duration`. kind: 'long' | 'medium' (seamers / quicks) | 'short' (spinners).
   startRunup(t, releasePos, kind = 'long') {
     const h = this.h;
-    const dur = { long: 2.7, medium: 2.3, short: 1.6 }[kind] || 2.7;
-    const vTop = { long: 6.4, medium: 5.2, short: 3.2 }[kind] || 6.4;
+    const st = this.style = kind === 'short' ? BOWL.spin : BOWL.pace;
+    const dur = { long: 2.7, medium: 2.3, short: 1.7 }[kind] || 2.7;
+    const vTop = { long: 6.4, medium: 5.2, short: 3.3 }[kind] || 6.4;
     const tr = t + dur;
-    const L = 0.98;               // fraction of arm reach used (straight arm)
-    const psiR = 0.22;            // release angle past vertical (rad)
+    const psiR = st.arm.psiR;
     // Measure the shoulder at the release pose with the root at the origin.
+    this.run = null;
     h.root.scale.setScalar(h.baseScale);
     this.heading = 0;
     this.pos.set(0, 0, 0);
-    this.poseDelivery(0, null);
+    this.poseDelivery(0);
     this.apply();
     h.update();
     const S = h.worldPos('shoulderR', new THREE.Vector3());
     const E = h.worldPos('elbowR', new THREE.Vector3());
     const H = h.worldPos('handR', new THREE.Vector3());
-    let arm = (S.distanceTo(E) + E.distanceTo(H) + 0.07) * L;
-    const reachY = S.y + arm * Math.cos(psiR);
-    const scale = clamp(releasePos.y / reachY, 0.94, 1.16);
+    // Shoulder → ball with an (almost) straight arm, at the base scale.
+    const reach1 = 0.985 * (S.distanceTo(E) + E.distanceTo(H)) + BALL_OFF * h.baseScale;
+    const reachY = S.y + reach1 * Math.cos(psiR);
+    const scale = clamp(releasePos.y / reachY, 0.92, 1.12);
+    // Anything still out of reach: up onto the toes of the braced front leg.
+    const lift = clamp(releasePos.y - reachY * scale, 0, 0.12);
     h.root.scale.setScalar(h.baseScale * scale);
-    S.multiplyScalar(scale);
-    arm *= scale;
-    const rootR = new THREE.Vector3(releasePos.x - S.x, 0, releasePos.z - (S.z + arm * Math.sin(psiR)));
+    const reach = reach1 * scale;
+    const rootX = releasePos.x - S.x * scale;
+    const rootZ = releasePos.z - (S.z * scale + reach * Math.sin(psiR));
     // Speed profile → position table.
     const N = 240, prof = [];
     const vAt = (u) => {                       // u = time relative to release
       const tt = u + dur;
       if (u < -0.62) return vTop * sstep(0, Math.min(1.3, dur * 0.5), tt) + 0.6;
       if (u < 0) return mix(vTop, vTop * 0.53, sstep(-0.62, 0, u));
-      return vTop * 0.53 * (1 - sstep(0, 0.9, u));
+      return vTop * 0.53 * (1 - st.post * sstep(0, st.ft, u));
     };
     let z = 0;
     for (let i = 0; i <= N; i++) {
@@ -253,11 +318,12 @@ export class BowlerActor extends Actor {
       prof.push({ u, z });
       z += vAt(u) * ((dur + 1.2) / N);
     }
-    const zAtRelease = prof.find((p) => p.u >= 0).z;
-    for (const p of prof) p.z += rootR.z - zAtRelease;
-    this.run = { t0: t, tr, dur, prof, rootX: rootR.x, arm, psiR, released: false, vAt };
-    this.pos.set(rootR.x, 0, prof[0].z);
-    this.home.set(rootR.x, 0, prof[0].z);
+    this.run = { t0: t, tr, dur, prof, rootX, reach, lift: lift / (h.baseScale * scale), released: false, vAt, gait: false };
+    const z0 = this.zAt(0);
+    for (const p of prof) p.z += rootZ - z0;
+    this.side = releasePos.x < 0 ? -1 : 1;
+    this.pos.set(rootX, 0, prof[0].z);
+    this.home.set(rootX, 0, prof[0].z);
     this.heading = 0;
     this.state = 'runup';
   }
@@ -269,99 +335,153 @@ export class BowlerActor extends Actor {
     return p[i].z + (p[Math.min(i + 1, p.length - 1)].z - p[i].z) * k;
   }
 
-  // Delivery-stride pose (u = time relative to release, −0.62 … +0.9).
-  poseDelivery(u, tgt) {
-    const h = this.h;
+  // Delivery-stride pose (u = time relative to release, −0.62 … ft).
+  poseDelivery(u) {
+    const h = this.h, B = this.style;
     h.reset();
-    h.bones.hips.position.y = h.hipsRest.y + keys([[-0.62, -0.04], [-0.5, 0.13], [-0.38, -0.02], [-0.2, -0.07], [0.1, -0.13], [0.5, -0.06], [0.9, 0]], u);
-    h.rot('hips', 0, keys([[-0.62, 0], [-0.45, -0.95], [-0.2, -1.05], [0, -0.25], [0.3, 0.3], [0.9, 0]], u), 0);
-    h.rot('spine', keys([[-0.62, 0.1], [-0.38, -0.14], [-0.15, -0.06], [0, 0.42], [0.25, 0.85], [0.6, 0.4], [0.9, 0.06]], u), 0, 0);
-    h.rot('chest', 0, keys([[-0.62, 0], [-0.45, -0.45], [-0.2, -0.4], [0, 0.35], [0.3, 0.45], [0.9, 0]], u), 0);
-    h.rot('hipL', keys([[-0.62, -0.3], [-0.5, -0.95], [-0.38, -1.15], [-0.2, -0.55], [0, -0.6], [0.25, -0.3], [0.6, 0.25], [0.9, 0]], u), 0, 0.05);
-    h.rot('kneeL', keys([[-0.62, 0.6], [-0.5, 1.25], [-0.38, 0.7], [-0.2, 0.06], [0.1, 0.12], [0.4, 0.5], [0.9, 0.05]], u), 0, 0);
+    h.bones.hips.position.y = h.hipsRest.y + keys(B.hipsY, u) + (this.run ? this.run.lift * keys(LIFT, u) : 0);
+    h.rot('hips', 0, keys(B.hipsYaw, u), 0);
+    h.rot('spine', keys(B.spine, u), 0, keys(B.roll, u));
+    h.rot('chest', 0, keys(B.chest, u), 0);
+    h.rot('hipL', keys(B.hipL, u), 0, 0.05);
+    h.rot('kneeL', keys(B.kneeL, u), 0, 0);
     h.rot('ankleL', keys([[-0.62, -0.2], [-0.38, 0.3], [-0.2, 0.45], [0.2, 0.4], [0.9, 0]], u), 0, 0);
-    h.rot('hipR', keys([[-0.62, 0.45], [-0.5, -0.45], [-0.38, 0.12], [-0.2, 0.5], [0, 0.7], [0.25, 0.1], [0.5, -0.65], [0.9, 0]], u), 0, -0.05);
-    h.rot('kneeR', keys([[-0.62, 0.9], [-0.5, 1.15], [-0.38, 0.35], [-0.2, 0.6], [0.1, 1.35], [0.4, 0.6], [0.9, 0.05]], u), 0, 0);
+    h.rot('hipR', keys(B.hipR, u), 0, -0.05);
+    h.rot('kneeR', keys(B.kneeR, u), 0, 0);
     h.rot('ankleR', keys([[-0.62, -0.2], [-0.38, 0.0], [0.1, -0.6], [0.9, 0]], u), 0, 0);
-    h.rot('shoulderL', keys([[-0.62, -0.3], [-0.45, -2.6], [-0.2, -2.95], [0, -0.7], [0.3, 0.25], [0.9, 0.05]], u), 0,
-      keys([[-0.62, 0.1], [-0.2, 0.18], [0.05, 0.65], [0.4, 0.3], [0.9, 0.08]], u));
-    h.rot('elbowL', keys([[-0.62, -0.5], [-0.45, -0.2], [0, -0.9], [0.9, -0.2]], u), 0, 0);
+    h.rot('shoulderL', keys(B.shL, u), 0, keys(B.shLz, u));
+    h.rot('elbowL', keys(B.elL, u), 0, 0);
     // Bowling arm (FK outside the IK window).
-    h.rot('shoulderR', keys([[-0.62, -0.4], [-0.45, -0.7], [-0.3, 0.2], [-0.2, 0.64], [0.08, 4.45], [0.3, 5.6], [0.9, 6.15]], u), 0,
-      keys([[-0.62, -0.1], [0.08, -0.05], [0.3, 0.45], [0.9, -0.05]], u));
-    h.rot('elbowR', keys([[-0.62, -1.4], [-0.45, -1.8], [-0.3, -0.7], [-0.2, -0.05], [0.3, -0.15], [0.9, -0.2]], u), 0, 0);
-    h.rot('neck', 0, keys([[-0.62, 0], [-0.45, 0.9], [-0.2, 1.0], [0, 0.2], [0.4, -0.2], [0.9, 0]], u) * 0.5, 0);
-    h.rot('head', 0.05, keys([[-0.62, 0], [-0.45, 0.9], [-0.2, 1.0], [0, 0.2], [0.4, -0.2], [0.9, 0]], u) * 0.5, 0);
-    void tgt;
+    h.rot('shoulderR', keys(B.shR, u), 0, keys(B.shRz, u));
+    h.rot('elbowR', keys(B.elR, u), 0, 0);
   }
 
+  // Feet planted where they land (leg IK), blended in and out of the FK legs.
+  plantSteps(u) {
+    const h = this.h, r = this.run;
+    for (const [side, land, lift, fx, fz, yaw] of this.style.feet) {
+      const w = sstep(land - 0.06, land, u) * (1 - sstep(lift, lift + 0.08, u));
+      if (w < 0.002) continue;
+      h.update();
+      const ank = h.worldPos('ankle' + side, _a);
+      _pl.set(r.rootX + fx, h.ankleHeight * h.root.scale.y, this.zAt(land) + fz);
+      _pl.sub(ank).multiplyScalar(w).add(ank);
+      const pole = h.worldPos('knee' + side, _c).add(_d.set(Math.sin(yaw * 0.6) * 0.6, 0, Math.cos(yaw * 0.6) * 0.6));
+      h.ikLeg(side, _pl, pole);
+      h.bones['ankle' + side].getWorldQuaternion(_q);
+      _q2.setFromAxisAngle(_up, yaw);
+      _q.slerp(_q2, w);
+      h.setWorldQuat('ankle' + side, _q);
+    }
+  }
+
+  // Straight-arm circle in the vertical plane through the shoulder, accelerating
+  // into release; the ball (not the wrist) is placed on it, so at u = 0 it sits
+  // exactly on the release point. Blended from / back to the FK arm at the ends.
   bowlingArmIK(u) {
-    const r = this.run, h = this.h;
-    if (u < -0.2 || u > 0.08) return;
-    const psi = u <= 0
-      ? -2.5 + (r.psiR + 2.5) * sstep(-0.2, 0, u) * 0.6 + (r.psiR + 2.5) * 0.4 * ((u + 0.2) / 0.2)
-      : r.psiR + (1.3 - r.psiR) * (u / 0.08);
+    const r = this.run, h = this.h, A = this.style.arm;
+    if (u < A.u0 || u > A.u1) return;
+    const psi = u <= 0 ? A.psiR - (A.psiR - A.psi0) * Math.pow(-u / -A.u0, A.pw) : A.psiR + A.w * u - A.wd * u * u;
+    const w = u === 0 ? 1 : sstep(A.u0, A.u0 + 0.1, u) * (1 - sstep(A.u1 - 0.07, A.u1, u));
     h.update();
     const S = h.worldPos('shoulderR', _a);
-    const target = _b.set(S.x, S.y + r.arm * Math.cos(psi), S.z + r.arm * Math.sin(psi));
-    const pole = _c.copy(S).add(_d.set(-0.6, -0.2, -0.3));
-    h.ikArm('R', target, pole);
+    _T.set(S.x, S.y + r.reach * Math.cos(psi), S.z + r.reach * Math.sin(psi));
+    if (w < 1) { this.handPos(_c); _T.sub(_c).multiplyScalar(w).add(_c); }
+    const pole = _b.copy(S).add(_d.set(-0.6, -0.2, -0.3));
+    _W.copy(_T);
+    for (let i = 0; i < 3; i++) {             // solve for the wrist that puts the ball on target
+      h.ikArm('R', _W, pole);
+      this.handPos(_c);
+      _W.add(_c.subVectors(_T, _c));
+    }
   }
 
   // Returns true on the frame of release.
   update(dt, t) {
     const h = this.h;
     if (this.state === 'runup' && this.run) {
-      const r = this.run;
+      const r = this.run, st = this.style;
       let u = t - r.tr;
       let released = false;
       if (!r.released && u >= 0) { r.released = true; released = true; u = 0; }
-      this.pos.set(r.rootX, 0, this.zAt(u));
-      this.speed = r.vAt(u);
-      this.heading = 0;
-      this.gait(dt);
-      if (u < -0.56) {
-        h.reset();
-        poseLocomotion(h, this.phase, this.speed);
-        h.rot('elbowR', -1.6, 0, 0);                     // ball carried near the chest
-        h.rot('shoulderR', -0.5 + 0.3 * Math.sin(this.phase), 0, -0.15);
-        if (u > -0.68) {
-          this.snap = h.snapshot(this.snap || undefined);
-          this.poseDelivery(u, null);
-          h.blendFrom(this.snap, sstep(-0.68, -0.56, u));
+      if (u <= st.ft) {
+        this.pos.set(r.rootX, 0, this.zAt(u));
+        this.speed = r.vAt(u);
+        this.heading = 0;
+        if (u < -0.56) {
+          this.gait(dt);
+          h.reset();
+          poseLocomotion(h, this.phase, this.speed, 0.08 * (1 - sstep(-1.2, -0.7, u)));
+          if (st === BOWL.spin) {                    // ball cupped in both hands at the chest
+            h.rot('shoulderR', -0.55 + 0.12 * Math.sin(this.phase), 0, 0.12); h.rot('elbowR', -1.75, 0, 0);
+            h.rot('shoulderL', -0.5 - 0.12 * Math.sin(this.phase), 0, -0.12); h.rot('elbowL', -1.65, 0, 0);
+          } else {                                   // ball carried by the chest, the other arm pumping
+            h.rot('elbowR', -1.6, 0, 0);
+            h.rot('shoulderR', -0.5 + 0.3 * Math.sin(this.phase), 0, -0.15);
+          }
+          if (u > -0.68) {
+            this.snap = h.snapshot(this.snap || undefined);
+            this.poseDelivery(u);
+            h.blendFrom(this.snap, sstep(-0.68, -0.56, u));
+          }
+          this.apply();
+        } else {
+          this.poseDelivery(u);
+          if (u >= st.gaitAt) {                      // the run-off strides take over
+            if (!r.gait) { r.gait = true; this.phase = 0; }
+            this.gait(dt);
+            this.snap = h.snapshot(this.snap || undefined);
+            h.reset();
+            poseLocomotion(h, this.phase, Math.max(this.speed, 1.2));
+            h.blendFrom(this.snap, sstep(st.gaitAt, st.ft, u));
+          }
+          this.apply();
+          this.plantSteps(u);
+          this.bowlingArmIK(u);
         }
-        this.apply();
-      } else {
-        this.poseDelivery(u, null);
-        this.apply();
-        this.bowlingArmIK(u);
+        h.lookAt(_gaze, u < 0.3 ? 0.9 : 0.6);       // eyes on the target throughout
+        this.smooth(dt, 0.18, u < -0.75 || u > 0.3);
+        h.syncShadow();
+        return released;
       }
-      if (u > 0.9) { this.state = 'walkback'; }
-      h.syncShadow();
-      return released;
+      this.state = 'runoff';
+      this.speed = r.vAt(st.ft);
     }
-    // Walk back to the top of the mark (or idle there).
+    // Run off the pitch, ease up, turn and walk back to the mark (moving along
+    // the way he faces, so the turn is a curve, not a spin on the spot).
     const dx = this.home.x - this.pos.x, dz = this.home.z - this.pos.z;
     const dist = Math.hypot(dx, dz);
     h.reset();
-    if (this.state === 'walkback' && dist > 0.3) {
-      this.speed = Math.min(2.4, this.speed + dt * 2);
-      this.turnToward(Math.atan2(dx, dz), dt, 3);
-      this.pos.x += (dx / dist) * this.speed * dt;
-      this.pos.z += (dz / dist) * this.speed * dt;
+    if (this.state === 'runoff') {
+      this.turnToward(this.side * 0.5, dt, 0.9);
+      this.speed = Math.max(0, this.speed - dt * this.style.decel);
+      if (this.speed < 0.9) this.state = 'walkback';
+    }
+    if (this.state === 'walkback') {
+      if (dist > 0.35) {
+        const want = Math.atan2(dx, dz);
+        const err = Math.abs(angDiff(this.heading, want));
+        this.turnToward(want, dt, 2.2);
+        const vt = Math.min(2.1, 0.3 + dist * 1.2) * clamp(0.45 + 0.7 * Math.cos(err), 0.45, 1);
+        this.speed += clamp(vt - this.speed, -dt * 1.5, dt * 1.2);
+      } else this.state = 'idle';
+    }
+    if (this.state === 'runoff' || this.state === 'walkback') {
+      this.pos.x += Math.sin(this.heading) * this.speed * dt;
+      this.pos.z += Math.cos(this.heading) * this.speed * dt;
       this.gait(dt);
       poseLocomotion(h, this.phase, this.speed);
     } else {
       this.state = 'idle';
       this.speed = 0;
-      this.turnToward(0, dt, 3);
+      this.turnToward(0, dt, 2.5);
       poseIdle(h, t, 1);
     }
     this.apply();
     if (this.state === 'idle') {
       this.footWorld(_a, 0.13, 0.03); this.footWorld(_b, -0.13, 0);
       plantFeet(h, _a, _b, this.forward(_c).multiplyScalar(0.6));
-    }
+    } else if (this.state === 'runoff') h.lookAt(_gaze, 0.6);
     this.smooth(dt);
     h.syncShadow();
     return false;
@@ -369,6 +489,7 @@ export class BowlerActor extends Actor {
 
   holdingBall() { return this.state === 'runup' && this.run && !this.run.released; }
 }
+const LIFT = [[-0.3, 0], [0, 1], [0.2, 0]];
 
 // ---------------------------------------------------------------- batters
 const STANCE = { footL: [-0.31, -1.43], footR: [-0.35, -0.95] };
