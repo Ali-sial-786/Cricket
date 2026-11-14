@@ -19,6 +19,7 @@ import { LbwFlow, padHit, deflectOffPad } from './lbwFlow.js';
 import { ThirdUmpireFlow } from './thirdUmpire.js';
 import { HINTS } from '../ui/controllerHint.js';
 
+const _fw = new Vec3();
 const PLAYER_PAD = { halfX: 0.15, front: 0.1, back: 0.26, top: 0.7 };
 import { Innings } from './scoring.js';
 
@@ -121,9 +122,16 @@ export class BattingSession {
     const g = this.game, L = input.left, R = input.right, B = CONFIG.bat, dt = g.realDt || 0.016;
     const preBall = this.state === 'cue' || this.state === 'runup' || (this.state === 'live' && !this.hit && !g.world.ball.padded);
     // Move in the crease with the left stick.
+    // Stick forward = the way your left controller points (you stand side-on).
     if (Math.abs(L.stick.x) > 0.15 || Math.abs(L.stick.y) > 0.15) {
-      this.crease.x = clamp(this.crease.x + L.stick.x * B.creaseMoveSpeed * dt, -B.creaseBox[0], B.creaseBox[0]);
-      this.crease.z = clamp(this.crease.z + L.stick.y * B.creaseMoveSpeed * dt, -B.creaseBox[1], B.creaseBox[1]);
+      let fx = 0, fz = -1;
+      if (input.xr && L.connected) {
+        _fw.set(0, 0, -1).applyQuat(L.rayPose.q);
+        if (Math.hypot(_fw.x, _fw.z) > 0.2) { const n = Math.hypot(_fw.x, _fw.z); fx = _fw.x / n; fz = _fw.z / n; }
+      }
+      const mx = fx * -L.stick.y + -fz * L.stick.x, mz = fz * -L.stick.y + fx * L.stick.x;
+      this.crease.x = clamp(this.crease.x + mx * B.creaseMoveSpeed * dt, -B.creaseBox[0], B.creaseBox[0]);
+      this.crease.z = clamp(this.crease.z + mz * B.creaseMoveSpeed * dt, -B.creaseBox[1], B.creaseBox[1]);
     }
     // Stride down the pitch while the trigger is held.
     const want = preBall && R.buttons.trigger.pressed ? B.advanceDistance : 0;

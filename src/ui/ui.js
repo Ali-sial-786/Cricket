@@ -220,7 +220,9 @@ export class UI {
       btn('howto', L(0, 3), 'How to play', () => this.go('howto'), { active: !s.seenHowTo });
       btn('settings', L(1, 3), `Settings… (${s.difficulty})`, () => this.go('settings'));
       btn('calib', L(0, 4), 'Calibrate bat', () => g.actions.calibrate());
-      btn('recenter', L(1, 4), 'Recenter here', () => g.actions.recenter());
+      { const r = L(1, 4), hw = (r.w - 12) / 2;
+        btn('recenter', { x: r.x, y: r.y, w: hw, h: r.h }, 'Recenter', () => g.actions.recenter(), { size: 26 });
+        btn('realign', { x: r.x + hw + 12, y: r.y, w: hw, h: r.h }, 'Face this way', () => g.actions.realign(), { size: 26 }); }
       if (playing) {
         btn('resume', L(0, 5), 'Resume', () => this.closeMenu(), { active: true });
         btn('quit', L(1, 5), 'End this game', () => g.actions.quit());

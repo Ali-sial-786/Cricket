@@ -288,12 +288,15 @@ export class Game {
     else this.placeDesktopCamera();
   }
 
-  // Re-anchor the world around the player's current head pose.
+  // Re-anchor the world around where you stand. The pitch keeps the
+  // direction it has in your room (set the first time, by "Face this way",
+  // or by the Quest's own recenter), so you can look anywhere while you do it.
   recenter() {
     if (this.mr && this.end !== 'bowling') return;
     if (!this.input.xr) { this.placeDesktopCamera(); return; }
     const head = this.input.headRef;
-    const f = headForward(head.q);
+    if (!this.roomForward) this.roomForward = headForward(head.q);
+    const f = this.roomForward;
     let r;
     if (this.end === 'bowling') r = computeRig(head.p, f, BOWL_HEAD.x, BOWL_HEAD.z, +1);
     else r = computeRig(head.p, f, this.settings.guardX + BAT_HEAD.legOffset, BAT_HEAD.z, -1);
@@ -386,6 +389,7 @@ export class Game {
   // ------------------------------------------------------------- XR hooks
   onXRStart(mode) {
     this.xrMode = mode;
+    this.roomForward = null;              // taken from where you look at the first recenter
     this.sfx.init();
     this.mr = mode === 'ar';
     this.env.stadium.visible = !this.mr;
@@ -401,8 +405,16 @@ export class Game {
     }
   }
 
+  // Point the pitch where you are looking now, then recenter.
+  realign() {
+    if (!this.input.xr) return;
+    this.roomForward = headForward(this.input.headRef.q);
+    this.recenter();
+  }
+
   // System recenter (long-press Meta button) moved the reference space origin.
   onReferenceReset() {
+    this.roomForward = null;              // the Quest has re-aimed "forward" for us
     if (this.mr) { if (this.mrPlacer) { this.endSession(); this.ui.closeMenu(); this.mrPlacer.restart(); } return; }
     this.pendingRecenter = 2;
   }
@@ -849,6 +861,7 @@ function makeActions(game) {
     calibSave: () => g.finishCalibration(),
     calibSkip: () => { g.state = 'menu'; g.ui.openMenu('main'); },
     recenter: () => g.recenter(),
+    realign: () => { g.realign(); g.ui.closeMenu(); },
     mr: () => {
       if (g.mr) { g.endSession(); g.ui.closeMenu(); if (g.mrPlacer) g.mrPlacer.restart(); return; }
       if (g.input.xr && g.xrManager) {
