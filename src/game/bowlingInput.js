@@ -36,17 +36,28 @@ export function clampReleasePos(p) {
 // Inputs: releasePos, handVel, handAngVel (world), palmDir (world unit vector
 // out of the palm, optional), swingChoice (-1 in, 0, +1 out), aim ({x,z} or
 // null), assist, neutralElevDeg (optional), rng (optional).
-export function mapRelease({ releasePos, handVel, handAngVel, palmDir = null, swingChoice = 0, aim = null, assist = true, neutralElevDeg = null, rng = null, bowler = null, cfg = CONFIG }) {
+// paceSpeed: the downswing hand speed that sets the pace (default: |handVel|).
+// aimAzDeg: the direction you threw it (default: handVel's azimuth).
+export function mapRelease({ releasePos, handVel, handAngVel, palmDir = null, swingChoice = 0, aim = null, assist = true, neutralElevDeg = null, rng = null, bowler = null, paceSpeed = null, aimAzDeg = null, cfg = CONFIG }) {
   const B = cfg.bowling;
   const rel = clampReleasePos(releasePos);
+  // Your hand is lower than a real bowler's arm at release: take most of the
+  // height from the bowler type so short balls bounce like they should.
+  if (bowler && bowler.releaseHeight) rel.y = rel.y + (bowler.releaseHeight - rel.y) * B.releaseBlend;
   const handSpeed = handVel.length();
-  let kmh = bowler
-    ? clamp(handSpeed * B.paceMultiplier * 3.6 * bowler.paceScale, bowler.pace[0], bowler.pace[1])
-    : clamp(handSpeed * B.paceMultiplier * 3.6, B.paceFloorKmh, B.paceCapKmh);
+  const effortSpeed = paceSpeed ?? handSpeed;
+  let kmh;
+  if (bowler) {
+    // The quicker the downswing, the faster the ball, across the bowler's range.
+    const v = effortSpeed * B.paceMultiplier / 2.6;
+    const effort = clamp((v - B.effortHandSpeed[0]) / (B.effortHandSpeed[1] - B.effortHandSpeed[0]), 0, 1);
+    kmh = bowler.pace[0] + (bowler.pace[1] - bowler.pace[0]) * Math.pow(effort, 0.85);
+  } else kmh = clamp(handSpeed * B.paceMultiplier * 3.6, B.paceFloorKmh, B.paceCapKmh);
 
   const d = handVel.clone().normalize();
   const elevDeg = Math.asin(clamp(d.y, -1, 1)) / DEG;
-  const azDeg = Math.atan2(d.x, d.z) / DEG;      // 0 = straight down the pitch (+Z)
+  const azDeg = aimAzDeg ?? Math.atan2(d.x, d.z) / DEG;      // 0 = straight down the pitch (+Z)
+  const maxLen = bowler && bowler.maxLength ? bowler.maxLength : B.lengthRange[1];
   const neutral = neutralElevDeg ?? B.neutralElevationDeg;
   const dElev = elevDeg - neutral;
 
@@ -59,7 +70,7 @@ export function mapRelease({ releasePos, handVel, handAngVel, palmDir = null, sw
     const lat = Math.tan((azDeg - azAim) * B.lineGain * DEG) * dist * scale;
     const lenErr = -dElev * B.lengthPerDeg * scale;
     const aimLen = PITCH.battingStumpsZ - aim.z;
-    length = clamp(aimLen + lenErr, B.lengthRange[0], B.lengthRange[1]);
+    length = clamp(aimLen + lenErr, B.lengthRange[0], maxLen);
     const tz = PITCH.battingStumpsZ - Math.max(0.3, length);
     target = { x: aim.x + lat, z: tz };
     line = rel.x + (target.x - rel.x) * toStumps / (target.z - rel.z);
@@ -67,7 +78,7 @@ export function mapRelease({ releasePos, handVel, handAngVel, palmDir = null, sw
     const azMid = Math.atan2(0 - rel.x, toStumps) / DEG;
     const az = azMid + (azDeg - azMid) * B.lineGain;
     line = rel.x + Math.tan(az * DEG) * toStumps;
-    length = clamp(B.neutralLength - dElev * B.lengthPerDeg, B.lengthRange[0], B.lengthRange[1]);
+    length = clamp(B.neutralLength - dElev * B.lengthPerDeg, B.lengthRange[0], maxLen);
     target = pitchPointFor(rel, line, Math.max(0.3, length));
   }
   // Released very early: a full toss, higher the earlier it was let go.
@@ -121,10 +132,13 @@ export function mapRelease({ releasePos, handVel, handAngVel, palmDir = null, sw
       kmh *= 0.93;
       swing = seamSet * B.swingAmount * bowler.swing * 0.3;
     } else {
+      // The seam angle moves it both ways the same: swing in the air, and a nip
+      // off the pitch when it lands on the seam.
       swing = seamSet * B.swingAmount * bowler.swing;
-      seamDeg *= bowler.seam * (swing ? 0.7 : 1.4);                      // an upright seam nips about more
+      seamDeg *= bowler.seam * (seamSet ? 0.7 : 1.4);                    // an upright seam wobbles about more
+      seamDeg += seamSet * B.seamFromAngleDeg * bowler.seam * (rng ? 0.6 + 0.4 * rng() : 0.8);
       if (backOfHand) { name = 'slower ball'; kmh *= 0.78; swing *= 0.5; }
-      else if (Math.abs(swing) > 0.1) name = swing > 0 ? 'outswinger' : 'inswinger';
+      else if (Math.abs(seamSet) > 0.1) name = bowler.swing >= bowler.seam ? (seamSet > 0 ? 'outswinger' : 'inswinger') : (seamSet > 0 ? 'away-seamer' : 'in-seamer');
     }
     kmh = clamp(kmh, bowler.pace[0] * 0.75, bowler.pace[1]);
   } else if (rollDir) {

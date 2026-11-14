@@ -89,3 +89,39 @@ test('wrist turn sets the seam with a dead zone; the bowler list cycles', () => 
   assert.equal(nextBowler('fast', -1), 'legspin');
   void makeRng;
 });
+
+test('pace comes from the downswing speed, spread across the bowler\'s range', () => {
+  const at = (paceSpeed, type = 'fast') => mapRelease({ releasePos: rel, handVel: hand(8), handAngVel: none, palmDir: fwd, assist: false, bowler: PLAYER_BOWLERS[type], paceSpeed }).paceKmh;
+  const [lo, hi] = PLAYER_BOWLERS.fast.pace;
+  assert.ok(Math.abs(at(3) - lo) < 1e-6 && Math.abs(at(20) - hi) < 1e-6);
+  assert.ok(at(7) < at(10) && at(10) < at(13), `${at(7)} ${at(10)} ${at(13)}`);
+  assert.ok(at(13, 'legspin') < 100 && at(13, 'legspin') > at(7, 'legspin'));
+});
+
+test('lengths are capped per bowler (no 15 m bouncers)', () => {
+  const late = (type) => mapRelease({ releasePos: rel, handVel: hand(14, -60), handAngVel: none, palmDir: fwd, assist: false, bowler: PLAYER_BOWLERS[type] }).length;
+  assert.equal(late('fast'), PLAYER_BOWLERS.fast.maxLength);
+  assert.equal(late('offspin'), PLAYER_BOWLERS.offspin.maxLength);
+});
+
+test('a short ball from a quick bowler gets up; a good length arrives about bail height', async () => {
+  const heightAtBatter = (elev, paceSpeed) => {
+    const d = playerDelivery({ releasePos: new Vec3(0.45, 1.6, -19.0), handVel: hand(12, elev), handAngVel: none, palmDir: fwd, assist: false, bowler: PLAYER_BOWLERS.fast, paceSpeed });
+    const w = new PhysicsWorld();
+    w.launch({ pos: d.releasePos, vel: d.vel, spin: d.spin, swing: d.swing, seamDeg: 0, seamRandomScale: 0 });
+    for (let t = 1 / 480; t < 2; t += 1 / 480) { w.advanceTo(t); if (w.ball.pos.z >= -1.22) return { y: w.ball.pos.y, len: d.length }; }
+    return null;
+  };
+  const good = heightAtBatter(-8, 13), short = heightAtBatter(-33, 13);
+  assert.ok(good.y > 0.45 && good.y < 0.95, `good length ${good.len.toFixed(1)} m -> ${good.y.toFixed(2)} m`);
+  assert.ok(short.len > 9.5 && short.y > 1.2 && short.y < 2.1, `short ${short.len.toFixed(1)} m -> ${short.y.toFixed(2)} m`);
+});
+
+test('the seam angle that swings it away also nips it away off the pitch (more for a medium-pacer)', () => {
+  const r = () => 0.5;
+  const away = (type) => mapRelease({ releasePos: rel, handVel: hand(), handAngVel: none, palmDir: fwd, swingChoice: 1, assist: false, bowler: PLAYER_BOWLERS[type], rng: Object.assign(r, { gauss: () => 0 }) });
+  assert.ok(away('fast').seamDeg > 0 && away('fast').swing > 0);
+  assert.ok(away('medium').seamDeg > away('fast').seamDeg);
+  assert.equal(away('medium').name, 'away-seamer');
+  assert.equal(away('fast').name, 'outswinger');
+});

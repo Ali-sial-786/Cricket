@@ -34,8 +34,8 @@ export const CONFIG = {
 
   surfaces: {
     pitch: {
-      restitution: 0.52,     // vertical COR of the ball on the pitch
-      friction: 0.25,        // Coulomb friction during bounce
+      restitution: 0.62,     // vertical COR of the ball on the pitch (a good length at 140 km/h arrives at bail height, 10-11 m at chest height)
+      friction: 0.2,         // Coulomb friction during bounce
     },
     outfield: {
       restitution: 0.40,
@@ -116,7 +116,10 @@ export const CONFIG = {
     paceCapKmh: 150,
     paceFloorKmh: 50,
     minReleaseHandSpeed: 3.0,// m/s: slower trigger releases are treated as drops
-    peakWindowMs: 90,        // look back this far for the peak hand speed at release
+    peakWindowMs: 250,       // pace = the fastest the hand moved in this window before release (the downswing)
+    effortHandSpeed: [4.5, 14.0], // m/s of downswing -> the bottom / top of your bowler's pace range
+    releaseBlend: 0.75,      // release height: this much the bowler's typical height, the rest your real hand
+    seamFromAngleDeg: 1.6,   // an angled seam also nips off the pitch this much (x bowler's seam factor)
     neutralElevationDeg: -8, // release elevation (at peak hand speed) that maps to a good length
     neutralLength: 6.5,      // m from batter's stumps at the neutral elevation
     lengthPerDeg: 0.15,      // m of length change per degree of elevation error
@@ -185,7 +188,8 @@ export const CONFIG = {
     easy:   { accuracy: 0.6, variation: 0.3 },
     medium: { accuracy: 0.75, variation: 0.5 },
     hard:   { accuracy: 0.88, variation: 0.75 },
-    releaseHeight: 1.98,
+    releaseHeight: 1.98,     // spinners
+    releaseHeightPace: 2.15, // seamers and quicks
   },
 
   // What each difficulty changes for the PLAYER.
@@ -221,6 +225,7 @@ export const CONFIG = {
     overstep: 0.3,           // m your head may be past the popping crease at release before it is a no-ball
     beamerHeight: 1.15,      // m: a full toss above this at the batter is a no-ball
     thirdUmpire: 0.55,       // m: run-outs / stumpings closer than this go upstairs
+    wideHeight: 1.95,        // m: a ball passing the batter above head height is a wide
   },
 
   audio: {

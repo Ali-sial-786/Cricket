@@ -95,7 +95,7 @@ export class BowlingSession {
     if (this.field) this.field.setSpinner(this.keeperUp);
     if (this.innings) { g.say('toss', { choice: 'bowl' }); g.say('innings', { chase: this.innings.target != null }); }
     g.ui.prompt(`You are bowling ${this.bowler.label.toLowerCase()}`, 3, '#ffd34d');
-    g.coach('bowl', this.bowler.spinner ? [HINTS.bowl, HINTS.bowler, HINTS.aim] : [HINTS.bowl, HINTS.outswing, HINTS.bowler], 8);
+    g.coach('bowl', this.bowler.spinner ? [HINTS.bowl, HINTS.bowler] : [HINTS.bowl, HINTS.outswing, HINTS.bowler], 8);
     this.resetEnds();
     this.updateAim();
     this.updateHud();
@@ -172,19 +172,24 @@ export class BowlingSession {
   attemptRelease() {
     const g = this.game, R = g.input.right;
     this.holding = false;
-    // Use the velocity at release unless the hand clearly peaked just before
-    // (a late trigger release) — then the peak sample is the "real" release.
+    // Pace: the fastest the hand came down in the last quarter-second.
+    // Length: the hand's direction as you let go (early = up/full, late = down/short).
+    // Line: the way the hand was travelling across the ground over the last 0.12 s.
     const last = R.history[R.history.length - 1];
-    let pk = R.peak(g.simTime, CONFIG.bowling.peakWindowMs / 1000);
-    if (last && pk && pk.v.length() < last.v.length() * 1.12) pk = last;
-    if (!pk || pk.v.length() < CONFIG.bowling.minReleaseHandSpeed) {
+    const pk = R.peak(g.simTime, CONFIG.bowling.peakWindowMs / 1000);
+    if (!pk || !last || pk.v.length() < CONFIG.bowling.minReleaseHandSpeed) {
       g.ui.setHud({ big: 'Dropped — swing harder', bigColor: '#ffb347' });
       g.aiBatter.reset();
       this.seamYaw = 0; this.updateHud();
       return;
     }
+    const dir = last.v.length() > pk.v.length() * 0.45 ? last.v : pk.v;
+    let from = last;
+    for (let i = R.history.length - 1; i >= 0; i--) { from = R.history[i]; if (last.t - from.t >= 0.12) break; }
+    const dx = last.p.x - from.p.x, dz = last.p.z - from.p.z;
+    const aimAzDeg = Math.hypot(dx, dz) > 0.05 ? Math.atan2(dx, dz) / DEG : null;
     const pos = R.gripPose.p.clone().add(new Vec3(...CONFIG.bowling.ballHoldOffset).applyQuat(R.gripPose.q));
-    this.bowl({ releasePos: pos, handVel: pk.v.clone(), handAngVel: pk.w.clone(), palmDir: g.palmDir(_palm).clone() });
+    this.bowl({ releasePos: pos, handVel: dir.clone(), handAngVel: pk.w.clone(), palmDir: g.palmDir(_palm).clone(), paceSpeed: pk.v.length(), aimAzDeg });
   }
 
   // Desktop helper: a clean release at the marker with the machine pace.
@@ -193,7 +198,9 @@ export class BowlingSession {
     const rel = new Vec3(0.5, 2.05, -18.95);
     const bw = this.bowler;
     const kmh = clamp(g.settings.machine.paceKmh, bw.pace[0], bw.pace[1]);
-    const speed = kmh / 3.6 / CONFIG.bowling.paceMultiplier / bw.paceScale;
+    const E = CONFIG.bowling.effortHandSpeed;
+    const effort = Math.pow((kmh - bw.pace[0]) / Math.max(1, bw.pace[1] - bw.pace[0]), 1 / 0.85);
+    const speed = (E[0] + (E[1] - E[0]) * effort) * 2.6 / CONFIG.bowling.paceMultiplier;
     const el = (this.neutralElev() ?? CONFIG.bowling.neutralElevationDeg) * DEG;
     const az = Math.atan2(this.aim.x - rel.x, this.aim.z - rel.z);
     const v = new Vec3(Math.cos(el) * Math.sin(az), Math.sin(el), Math.cos(el) * Math.cos(az)).scale(speed);
@@ -205,10 +212,10 @@ export class BowlingSession {
 
   neutralElev() { return typeof this.game.settings.bowlNeutralElevDeg === 'number' ? this.game.settings.bowlNeutralElevDeg : null; }
 
-  bowl({ releasePos, handVel, handAngVel, palmDir = null }) {
+  bowl({ releasePos, handVel, handAngVel, palmDir = null, paceSpeed = null, aimAzDeg = null }) {
     const g = this.game;
     const d = playerDelivery({
-      releasePos, handVel, handAngVel, palmDir,
+      releasePos, handVel, handAngVel, palmDir, paceSpeed, aimAzDeg,
       swingChoice: this.seam,
       bowler: this.bowler,
       aim: g.settings.aimAssist ? this.aim : null,
@@ -291,7 +298,7 @@ export class BowlingSession {
     const g = this.game;
     if (this.done) return;
     const L = g.input.left;
-    if (this.state !== 'live' && (Math.abs(L.stick.x) > 0.15 || Math.abs(L.stick.y) > 0.15)) {
+    if (this.state !== 'live' && (g.settings.aimMarker || g.settings.aimAssist) && (Math.abs(L.stick.x) > 0.15 || Math.abs(L.stick.y) > 0.15)) {
       this.aim.x = clamp(this.aim.x - L.stick.x * 0.8 * dt, -1.0, 1.0);
       this.aim.z = clamp(this.aim.z - L.stick.y * 3.0 * dt, -13, -0.3);
       this.updateAim();
@@ -346,7 +353,7 @@ export class BowlingSession {
     if (b.active && !b.batted) this.path.push({ x: b.pos.x, y: b.pos.y, z: b.pos.z });
     if (!this.crossedCrease && b.pos.z > battingPoppingZ) {
       this.crossedCrease = true;
-      if (!b.batted && Math.abs(b.pos.x) > PITCH.wideLineX) this.wide = true;
+      if (!b.batted && (Math.abs(b.pos.x) > PITCH.wideLineX || b.pos.y > CONFIG.match.wideHeight)) this.wide = true;   // too wide, or over his head
     }
     const plan = g.aiBatter.plan;
     // A full toss above the waist is a no-ball.

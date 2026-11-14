@@ -4,8 +4,10 @@
 //
 //  FAST / MEDIUM-FAST
 //    seam position   set before you bowl (turn the wrist, or A / B):
-//                    seam to the slips = OUTSWINGER, to fine leg = INSWINGER,
-//                    upright = SEAM-UP (a little natural movement off the pitch)
+//                    seam to the slips = moves AWAY (swings out in the air and
+//                    nips away off the pitch), to fine leg = moves IN; upright
+//                    = SEAM-UP (a little natural movement either way).
+//                    Fast bowlers mostly swing it, medium-pacers mostly seam it.
 //    wrist roll      at release, clockwise     = OFF-CUTTER (seams IN to a right-hander)
 //                                anticlockwise = LEG-CUTTER (seams AWAY)
 //    back of hand    SLOWER BALL
@@ -22,19 +24,19 @@
 
 export const PLAYER_BOWLERS = {
   fast: {
-    key: 'fast', label: 'Fast', spinner: false, pace: [118, 152], paceScale: 1.0, swing: 1.0, seam: 0.75,
+    key: 'fast', label: 'Fast', spinner: false, pace: [118, 152], paceScale: 1.0, swing: 1.0, seam: 0.75, releaseHeight: 2.2, maxLength: 12.0,
     deliveries: 'seam-up · out-swinger · in-swinger · off-cutter · leg-cutter · slower ball',
   },
   medium: {
-    key: 'medium', label: 'Medium-fast', spinner: false, pace: [100, 132], paceScale: 0.86, swing: 0.7, seam: 1.3,
-    deliveries: 'seam-up · out-swinger · in-swinger · off-cutter · leg-cutter · slower ball',
+    key: 'medium', label: 'Medium-fast', spinner: false, pace: [100, 132], paceScale: 0.86, swing: 0.6, seam: 1.4, releaseHeight: 2.1, maxLength: 11.5,
+    deliveries: 'seam-up · away-seamer · in-seamer · off-cutter · leg-cutter · slower ball',
   },
   offspin: {
-    key: 'offspin', label: 'Off-spin', spinner: true, action: 'off', pace: [62, 98], paceScale: 0.62,
+    key: 'offspin', label: 'Off-spin', spinner: true, action: 'off', pace: [62, 98], paceScale: 0.62, releaseHeight: 1.95, maxLength: 10.5,
     deliveries: 'off-break · arm ball · doosra',
   },
   legspin: {
-    key: 'legspin', label: 'Leg-spin', spinner: true, action: 'leg', pace: [60, 96], paceScale: 0.6,
+    key: 'legspin', label: 'Leg-spin', spinner: true, action: 'leg', pace: [60, 96], paceScale: 0.6, releaseHeight: 1.9, maxLength: 10.5,
     deliveries: 'leg-break · googly · top-spinner · slider',
   },
 };

@@ -26,8 +26,9 @@ export function defaultSettings() {
     autoFeed: true,
     batAngleDeg: 0,                // extra tilt of the bat relative to calibration
     guardX: -0.05,                 // where your hand sits in stance (x, m): middle-and-leg
-    aimAssist: true,
-    aimMarker: true,
+    aimAssist: false,              // pull deliveries toward the floor marker (off: the ball goes where you aim)
+    aimMarker: false,
+    aimV: 2,
     trail: true,
     ballBoost: true,               // draw the ball at a minimum angular size far away
     sound: true,
@@ -55,6 +56,8 @@ export function loadSettings() {
       else if (saved[k] !== undefined && (s[k] === null || typeof saved[k] === typeof s[k])) s[k] = saved[k];
     }
   }
+  // v2 of the aiming: no floor marker unless asked for again.
+  if (!saved || saved.aimV !== 2) { s.aimAssist = false; s.aimMarker = false; s.aimV = 2; }
   return s;
 }
 export function saveSettings(s) { return saveJSON(KEY_SETTINGS, s); }

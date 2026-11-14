@@ -203,7 +203,7 @@ export class BattingSession {
     if (this.newBatter) { g.ui.setHud({ detail: `New batter in: ${this.newBatter}` }); this.newBatter = null; }
     const settings = this.aiBowler ? this.aiBowler.next(this.innings) : g.settings.machine;
     const rel = this.bowler === 'ai'
-      ? new Vec3((settings.release === 'around' ? -1 : 1) * CONFIG.machine.releaseX, CONFIG.bowlerAI.releaseHeight, CONFIG.machine.releaseZ)
+      ? new Vec3((settings.release === 'around' ? -1 : 1) * CONFIG.machine.releaseX, settings.spinner ? CONFIG.bowlerAI.releaseHeight : CONFIG.bowlerAI.releaseHeightPace, CONFIG.machine.releaseZ)
       : null;
     this.delivery = machineDelivery(settings, g.rng, CONFIG, rel);
     this.settingsUsed = settings;
@@ -258,7 +258,7 @@ export class BattingSession {
     }
     if (!this.crossedCrease && b.pos.z > battingPoppingZ) {
       this.crossedCrease = true;
-      if (!b.batted && Math.abs(b.pos.x) > PITCH.wideLineX) this.wide = true;
+      if (!b.batted && (Math.abs(b.pos.x) > PITCH.wideLineX || b.pos.y > CONFIG.match.wideHeight)) this.wide = true;   // too wide, or over your head
     }
     // Struck on the pad: LBW appeal (match modes, not on easy).
     if (this.field && g.diff.lbwAgainstPlayer && !this.hit) {
