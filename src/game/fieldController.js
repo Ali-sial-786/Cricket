@@ -61,11 +61,12 @@ export class FieldController {
     this.aiRunsLeft = 0;
     this.pred = null;
     this.throwPrompted = false;
+    this.turnedBack = false;
     this.clearRunners(true);
   }
   clearRunners(allowSwap) {
     const g = this.game, r = this.runs;
-    if (allowSwap && r.active && r.crossed && !this.playerBatting) g.swapBatters();
+    if (allowSwap && r.active && (r.official ? r.official.crossed : r.crossed) && !this.playerBatting) g.swapBatters();
     r.reset();
     g.batterView.running = null;
     g.nonStrikerView.running = null;
@@ -100,7 +101,6 @@ export class FieldController {
     const striker = g.batterView.runnerOnly
       ? (g.input.xr ? new Vec3(hp.x, 0, hp.z) : new Vec3(-0.4, 0, -1.1))
       : new Vec3(g.batterView.actor.pos.x, 0, g.batterView.actor.pos.z);
-    if (g.batterView.runnerOnly) g.batterView.show(true);
     this.runs.begin(t, striker, g.nonStrikerView.visible ? g.nonStrikerView.actor.pos : null);
     if (!this.playerBatting) {
       const est = L.estimateReturn();
@@ -261,13 +261,26 @@ export class FieldController {
           if (th.released && t + r.remaining * F.runNext > th.tArrive - 0.3) { r.diveEnd = th.end; r.dive(t); }
         }
       }
-      r.update(dt);
-      if (r.running && Math.floor(t * 4.5) !== Math.floor((t - dt) * 4.5)) g.sample('footstep', { gain: 0.5 });
     }
     if (r.active) {
+      // When you bat, your runner only exists while there is running to do: he
+      // appears when a run is called…
+      if (g.batterView.runnerOnly && !g.batterView.shown && (r.running || r.completed > 0)) g.batterView.show(true);
+      // The batters keep moving after the ball is dead (finishing a run,
+      // trotting back, getting up from a dive): nobody is left frozen mid-stride.
+      r.update(dt);
+      if (r.running && !r.closed && Math.floor(t * 4.5) !== Math.floor((t - dt) * 4.5)) g.sample('footstep', { gain: 0.5 });
       g.batterView.running = r.state(true);
       g.nonStrikerView.running = g.nonStrikerView.visible ? r.state(false) : null;
     }
+
+    // …and once the ball is dead and everyone has stopped, the batters go
+    // straight back to their places (swapped after an odd number of runs)
+    // instead of standing where they finished until the next ball.
+    if (r.active && this.outcome && !r.running && r.down <= 0 && g.session && g.session.state === 'settle') {
+      this.homeIn = (this.homeIn ?? 1.0) - dt;
+      if (this.homeIn <= 0) { this.homeIn = null; this.clearRunners(true); }
+    } else this.homeIn = null;
 
     // ---- the player picks the end to throw to ----
     const th = L.throw;
@@ -290,6 +303,7 @@ export class FieldController {
         if (r.running && short > 0) {
           this.outcome = { kind: 'runout', runs: r.completed, end, margin: short, who: r.headingTo(end) };
           this.breakStumps(end, t, 0.12);
+          r.close({ stop: !r.diving });
         } else {
           if (r.running) r.p = r.target;                // made their ground
           this.outcome = { kind: 'runs', runs: r.completed, closeCall: r.rate !== 0 && short > -1.2 ? -short : null, end };

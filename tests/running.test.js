@@ -78,3 +78,40 @@ test('holding the dive launches it when the crease is in range, and the batter t
   step(r, CONFIG.field.getUp + 0.1);
   assert.equal(r.call(), true);
 });
+
+test('when the ball goes dead mid-run the batters carry on moving: nearly home they finish, otherwise they go back', () => {
+  const a = new Runs();
+  a.begin(0); a.call(); step(a, 1.2);
+  const before = a.p;
+  a.close();
+  assert.deepEqual(a.official, { completed: 0, crossed: false });
+  assert.equal(a.call(), false, 'no more runs');
+  step(a, 0.2);
+  assert.ok(a.p < before, 'trotting back');
+  step(a, 4);
+  assert.equal(a.running, false);
+  assert.equal(a.p, 0);
+  const b = new Runs();
+  b.begin(0); b.call();
+  while (b.remaining > 0.25) b.update(0.01);
+  assert.ok(b.running);
+  b.close();
+  step(b, 3);
+  assert.equal(b.p, 1, 'finished the run he was about to complete');
+  assert.equal(b.official.completed, 0, 'but it does not count');
+  const c = new Runs();
+  c.begin(0); c.call(); step(c, 1.5); c.close({ stop: true });
+  step(c, 1);
+  assert.equal(c.running, false, 'run out: he stops where he is');
+});
+
+test('a diver left on the ground when the ball goes dead still gets up', () => {
+  const r = new Runs();
+  r.begin(0); r.call(); r.diveHeld = true;
+  for (let t = 0; t < 8 && r.running; t += 0.01) r.update(0.01);
+  r.close();
+  assert.ok(r.down > 0);
+  step(r, CONFIG.field.getUp + 0.2);
+  assert.equal(r.down, 0);
+  assert.equal(r.state(true).diving || r.state(false).diving, false);
+});

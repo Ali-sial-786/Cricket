@@ -35,6 +35,7 @@ export class Runs {
     this.sStart = { x: -0.4, z: -1.1 };
     this.nStart = { x: -1.35, z: -18.75 };
     this.closed = false;     // ball dead: no more calls
+    this.official = null;    // { completed, crossed } as they stood when the ball went dead
   }
 
   begin(t, strikerStart = null, nonStrikerStart = null) {
@@ -76,7 +77,19 @@ export class Runs {
     return true;
   }
 
-  close() { this.closed = true; }
+  // The ball is dead. The score is fixed as it stands (`official`), but the
+  // batters do not freeze where they are: one who is nearly home finishes the
+  // run, anyone else trots back to the crease he left, a diver gets up. `stop`
+  // (a run-out) leaves them standing where they are.
+  close({ stop = false } = {}) {
+    if (this.closed) return;
+    this.closed = true;
+    this.official = { completed: this.completed, crossed: this.crossed };
+    this.diveWanted = false; this.diveHeld = false;
+    if (!this.running || this.diving) return;
+    if (stop) this.target = this.p;
+    else if (this.remaining > 0.3 && !this.goingBack) this.target = Math.floor(this.p + 1e-6);
+  }
 
   update(dt) {
     if (!this.active) { this.rate = 0; return; }
@@ -87,8 +100,9 @@ export class Runs {
       const first = this.completed === 0 && !this.goingBack && this.p < 1;
       let rate = 1 / (first ? F.runFirst : F.runNext);
       if (first) rate *= 0.55 + 0.9 * ss(0, 0.35, this.p);            // getting going from a standing start
+      if (this.closed) rate *= 0.6;                                   // ball dead: easing up
       const left = this.remaining * CREASE_TO_CREASE;
-      if (!this.diving && (this.diveHeld || this.diveWanted) && left <= F.diveFrom && left > 0.4) {
+      if (!this.diving && !this.closed && (this.diveHeld || this.diveWanted) && left <= F.diveFrom && left > 0.4) {
         this.diving = true; this.diveStarted = true; this.diveT = 0;
         this.diveV = Math.max(F.diveSpeed, rate * CREASE_TO_CREASE);
         const end = this.diveEnd || (this.headingTo('bowling') === 'striker' ? 'bowling' : 'batting');
