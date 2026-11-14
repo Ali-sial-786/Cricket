@@ -26,9 +26,12 @@ export function defaultSettings() {
     autoFeed: true,
     batAngleDeg: 0,                // extra tilt of the bat relative to calibration
     guardX: -0.05,                 // where your hand sits in stance (x, m): middle-and-leg
-    aimAssist: false,              // pull deliveries toward the floor marker (off: the ball goes where you aim)
-    aimMarker: false,
-    aimV: 2,
+    aimAssist: true,               // pull deliveries toward the floor marker (off: the ball goes where you throw it)
+    aimMarker: true,               // the floor target (left stick moves it)
+    aimV: 3,
+    bowlByFeel: false,             // false: pick the delivery with A / B; true: the wrist action decides it
+    runUp: true,                   // run in to bowl (hold right grip / left trigger); false: bowl from the crease
+    turn: 'snap',                  // right stick looks around: snap | smooth | off
     trail: true,
     ballBoost: true,               // draw the ball at a minimum angular size far away
     sound: true,
@@ -57,8 +60,8 @@ export function loadSettings() {
       else if (saved[k] !== undefined && (s[k] === null || typeof saved[k] === typeof s[k])) s[k] = saved[k];
     }
   }
-  // v2 of the aiming: no floor marker unless asked for again.
-  if (!saved || saved.aimV !== 2) { s.aimAssist = false; s.aimMarker = false; s.aimV = 2; }
+  // v3 of the aiming: the floor marker is the target again (once, for everyone).
+  if (!saved || saved.aimV !== 3) { s.aimAssist = true; s.aimMarker = true; s.aimV = 3; }
   return s;
 }
 export function saveSettings(s) { return saveJSON(KEY_SETTINGS, s); }

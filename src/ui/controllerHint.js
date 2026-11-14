@@ -1,7 +1,7 @@
 // Control hints: a small picture of the Touch controller with the button you
 // need lit up (or the key on a desktop keyboard), plus what it does.
 //
-// hint = { hand: 'L' | 'R', button: 'trigger' | 'grip' | 'a' | 'b' | 'stick' |
+// hint = { hand: 'L' | 'R', button: 'trigger' | 'grip' | 'a' | 'b' | 'ab' | 'stick' |
 //          'stickX' | 'stickY' | 'click', label: 'RUN', sub: 'press X', key: 'Space' }
 // (On the left controller 'a' / 'b' are drawn as X / Y.)
 
@@ -26,7 +26,7 @@ function glow(g, on) {
 // Front view of a Touch Plus controller, fitted in a box of size s, centred at (cx, cy).
 export function drawController(g, cx, cy, s, hand, button) {
   const L = hand === 'L', m = L ? -1 : 1;           // mirror the left one
-  const on = (b) => button === b;
+  const on = (b) => button === b || (button === 'ab' && (b === 'a' || b === 'b'));
   g.save();
   g.translate(cx, cy);
   g.lineJoin = 'round'; g.lineCap = 'round';
@@ -151,7 +151,10 @@ export const HINTS = {
   toKeeper: { hand: 'R', button: 'a', label: 'TO KEEPER', sub: 'press A', key: 'Z' },
   toBowler: { hand: 'R', button: 'b', label: "BOWLER'S END", sub: 'press B', key: 'X' },
   bowl:     { hand: 'R', button: 'trigger', label: 'BOWL', sub: 'hold, swing, let go', key: 'Mouse' },
-  bowler:   { hand: 'R', button: 'stickX', label: 'BOWLER', sub: 'right stick ◂ ▸', key: '1-4' },
+  runIn:    { hand: 'R', button: 'grip', label: 'RUN IN', sub: 'hold grip', key: 'R' },
+  delivery: { hand: 'R', button: 'ab', label: 'DELIVERY', sub: 'A next · B back', key: 'Z / X' },
+  look:     { hand: 'R', button: 'stickX', label: 'LOOK', sub: 'right stick ◂ ▸', key: '' },
+  // By feel only (Settings): the seam from A / B or the wrist.
   outswing: { hand: 'R', button: 'a', label: 'OUT-SWING', sub: 'or turn wrist left', key: 'Z' },
   inswing:  { hand: 'R', button: 'b', label: 'IN-SWING', sub: 'or turn wrist right', key: 'X' },
   aim:      { hand: 'L', button: 'stick', label: 'AIM', sub: 'left stick', key: 'Arrows' },

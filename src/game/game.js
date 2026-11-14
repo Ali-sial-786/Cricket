@@ -17,6 +17,7 @@ import { computeBatOffset, defaultBatOffset, computeRig, computeRigFacing, headF
 import { LENGTH_PRESETS, LINE_PRESETS } from '../physics/bowlingMachine.js';
 import { createSession, startMatch } from './modes.js';
 import { buildHelmetGrille, PlayerBowlerActor, NearCull } from '../render/viewModes.js';
+import { PLAYER_BOWLER_ORDER } from './bowlerTypes.js';
 import { Replay } from './replay.js';
 import { BallFinder } from '../render/ballFinder.js';
 import { CrowdAudio } from '../audio/crowd.js';
@@ -113,7 +114,14 @@ export class Game {
     this.ui = new UI(this);
     this.timeScale = 1;              // current game-time scale (slow motion)
     this.timeScaleTarget = 1;
-    this.rigOffset = { x: 0, z: 0 }; // stick movement / coming down the pitch
+    this.rigOffset = { x: 0, z: 0 }; // stick movement / coming down the pitch / the bowling run-up
+    // Right stick: look around without turning your body. The rig turns by
+    // lookYaw about your head; lookOff keeps the head where it was.
+    this.lookYaw = 0;
+    this.lookOff = { x: 0, z: 0 };
+    this.turnArmed = true;
+    this.runMarks = buildRunMarks();
+    scene.add(this.runMarks);
     this.viewOverride = null;        // temporary rig (catching)
     this.clock = 0;                  // real seconds since start
     this.catchMarker = new THREE.Mesh(new THREE.TorusGeometry(0.2, 0.012, 6, 28), new THREE.MeshBasicMaterial({ color: 0xffd34d, transparent: true, opacity: 0.85, depthTest: false }));
@@ -304,6 +312,7 @@ export class Game {
     if (!this.roomForward) this.roomForward = headForward(head.q);
     const f = this.roomForward;
     let r;
+    this.lookYaw = 0; this.lookOff.x = this.lookOff.z = 0;
     if (this.end === 'bowling') r = computeRig(head.p, f, BOWL_HEAD.x, BOWL_HEAD.z, +1);
     else r = computeRig(head.p, f, this.settings.guardX + BAT_HEAD.legOffset, BAT_HEAD.z, -1);
     this.setRig(r);
@@ -313,6 +322,7 @@ export class Game {
   // for catching chances.
   beginViewOverride(x, z, dirX, dirZ) {
     this.viewOverride = { x, z, dirX, dirZ };
+    this.lookYaw = 0; this.lookOff.x = this.lookOff.z = 0;       // set the rig directly; face forward afterwards
     if (this.input.xr) {
       const head = this.input.headRef;
       const r = computeRigFacing(head.p, headForward(head.q), x, z, dirX, dirZ);
@@ -352,20 +362,22 @@ export class Game {
   setRigOffset(x, z) {
     if (x === this.rigOffset.x && z === this.rigOffset.z) return;
     this.rigOffset.x = x; this.rigOffset.z = z;
+    if (this.end === 'bowling' && !(this.mr)) this.ui.setHudPose('bowling', z);
     if (this.viewOverride) return;
     if (this.input.xr) {
-      this.rig.position.set(this.rigState.x + x, 0, this.rigState.z + z);
+      this.rig.position.set(this.rigState.x + x + this.lookOff.x, 0, this.rigState.z + z + this.lookOff.z);
       this.rig.updateMatrixWorld(true);
       this.input.refreshHeadWorld();
     } else if ((this.desktopView % 5) === 1 && this.end === 'batting') {
       this.camera.position.set(-0.42 + x, 1.62, -0.85 + z);
-    }
+    } else if (this.end === 'bowling' && !(this.replay && this.replay.active)) this.placeDesktopCamera();   // the run-up moves the bowler's cameras
   }
 
   setRig(r) {
     this.rigState = r;
-    this.rig.position.set(r.x + (this.viewOverride ? 0 : this.rigOffset.x), 0, r.z + (this.viewOverride ? 0 : this.rigOffset.z));
-    this.rig.rotation.set(0, r.yaw, 0);
+    const ov = !!this.viewOverride;
+    this.rig.position.set(r.x + (ov ? 0 : this.rigOffset.x + this.lookOff.x), 0, r.z + (ov ? 0 : this.rigOffset.z + this.lookOff.z));
+    this.rig.rotation.set(0, r.yaw + (ov ? 0 : this.lookYaw), 0);
     this.rig.updateMatrixWorld(true);
     this.input.right.resetMotion();
     this.input.left.resetMotion();
@@ -383,12 +395,75 @@ export class Game {
     const views = this.end === 'bowling'
       ? [[[0.75, 1.72, -20.3], [0.0, 0.9, 0.0]], [[9, 3.5, -14], [0, 0.8, -6]], [[0.4, 2.6, 6.0], [0, 0.8, -12]], [[1.1, 2.5, -23.6], [0.0, 0.8, -2.0]]]
       : [[[0.7, 3.3, 7.2], [0.0, 0.9, -12]], [[-0.42, 1.62, -0.85], [0.25, 1.35, -19]], [[6.5, 1.6, -1.6], [-0.2, 0.9, -1.4]], [[0.4, 2.6, -24], [0, 0.8, -2]], [[0, 55, -10], [0, 0, -10.01]]];
-    const v = views[this.desktopView % views.length];
-    c.position.set(...v[0]);
-    c.lookAt(new THREE.Vector3(...v[1]));
+    const i = this.desktopView % views.length, v = views[i];
+    // Bowling: your eyes (0) and behind you (3) come with you on the run-up.
+    const oz = this.end === 'bowling' && (i === 0 || i === 3) ? this.rigOffset.z : 0;
+    c.position.set(v[0][0], v[0][1], v[0][2] + oz);
+    c.lookAt(_lk.set(v[1][0], v[1][1], v[1][2] + oz));
     c.updateMatrixWorld(true);
     if (this.input) {
       this.input.desktop.batHand.set(this.settings.guardX + 0.04, 1.02, -1.25);
+      this.input.desktop.bowlShoulder.set(0.6 + this.rigOffset.x, 1.55, -19.4 + (this.end === 'bowling' ? this.rigOffset.z : 0));
+    }
+  }
+
+  // Where your bowling body is: your head in XR; on a monitor the bowler's
+  // eyes at the mark / on the run-up (the desktop camera can be elsewhere).
+  bowlerHead() {
+    if (this.input.xr) return this.input.headPose;
+    const h = this._deskHead || (this._deskHead = new Pose());
+    h.p.set(BOWL_HEAD.x + this.rigOffset.x, 1.62, BOWL_HEAD.z + this.rigOffset.z);
+    h.q.set(0, 1, 0, 0);                                   // facing +Z, down the pitch
+    return h;
+  }
+
+  // The floor marks for the run-up: the top of your mark and the commit line.
+  // spec: { length, commit } (CONFIG.bowling.runUp[type]) or null to hide.
+  showRunMarks(spec) {
+    const m = this.runMarks;
+    m.visible = !!spec && !this.mr;
+    if (!spec) return;
+    m.userData.mark.position.set(BOWL_HEAD.x, 0.006, BOWL_HEAD.z + 0.25 - spec.length);
+    m.userData.commit.position.set(BOWL_HEAD.x, 0.006, BOWL_HEAD.z + 0.25 - spec.commit);
+  }
+
+  // ------------------------------------------------------------- look around
+  // Turn your view by `delta` rad about where your head is now.
+  turnLook(delta) {
+    if (!this.input.xr || this.viewOverride) return;
+    const h = this.input.headRef.p, y0 = this.rigState.yaw + this.lookYaw, y1 = y0 + delta;
+    // Head offset from the rig origin, in world xz, at a rig yaw y.
+    const wx = (y) => h.x * Math.cos(y) + h.z * Math.sin(y), wz = (y) => -h.x * Math.sin(y) + h.z * Math.cos(y);
+    this.lookOff.x += wx(y0) - wx(y1);
+    this.lookOff.z += wz(y0) - wz(y1);
+    this.lookYaw += delta;
+    const r = this.rigState;
+    this.rig.position.set(r.x + this.rigOffset.x + this.lookOff.x, 0, r.z + this.rigOffset.z + this.lookOff.z);
+    this.rig.rotation.set(0, r.yaw + this.lookYaw, 0);
+    this.rig.updateMatrixWorld(true);
+    this.input.refreshHeadWorld();
+    this.snapBat = true;
+  }
+  // Face forward again (back to the anchored view).
+  resetLook() {
+    if (!this.lookYaw && !this.lookOff.x && !this.lookOff.z) return;
+    this.lookYaw = 0; this.lookOff.x = this.lookOff.z = 0;
+    if (this.input.xr && !this.viewOverride && !(this.replay && this.replay.active)) this.setRig(this.rigState);
+  }
+  // Right stick left / right (VR): snap or smooth turn. Click: face forward.
+  handleTurn(dt) {
+    const R = this.input.right, L = this.input.left, mode = this.settings.turn;
+    if (!this.input.xr || this.mr || this.ui.menuOpen || this.viewOverride || (this.replay && this.replay.active) || this.state === 'mrplace') return;
+    if (R.buttons.stick.down && L.connected) { this.resetLook(); return; }     // (no left controller: the click is the menu)
+    const x = R.stick.x, V = CONFIG.view;
+    if (mode === 'smooth') { if (Math.abs(x) > 0.2) this.turnLook(-Math.sign(x) * (Math.abs(x) - 0.2) / 0.8 * V.smoothTurnDegPerSec * DEG * dt); }
+    else if (mode === 'snap') {
+      if (Math.abs(x) < 0.3) this.turnArmed = true;
+      else if (this.turnArmed && Math.abs(x) > 0.7) {
+        this.turnArmed = false;
+        this.turnLook(-Math.sign(x) * V.snapTurnDeg * DEG);
+        R.resetMotion(); L.resetMotion();
+      }
     }
   }
 
@@ -463,6 +538,7 @@ export class Game {
   onMenuChanged(open) {
     this.input.desktop.mode = open ? 'menu' : (this.session && this.session.isBowling ? 'bowl' : 'bat');
     if (!open) this.snapBat = true;
+    if (this.session && this.session.onMenuChanged) this.session.onMenuChanged(open);
   }
 
   // ------------------------------------------------------------- sessions
@@ -482,7 +558,7 @@ export class Game {
     this.state = 'play';
     this.ui.closeMenu();
     this.session.enter();
-    this.input.desktop.mode = this.session.isBowling ? 'bowl' : 'bat';
+    if (!this.ui.menuOpen) this.input.desktop.mode = this.session.isBowling ? 'bowl' : 'bat';   // (enter() may open a page: the bowler)
   }
 
   endSession() {
@@ -529,6 +605,14 @@ export class Game {
 
     this.handleGlobalInput(dt);
     this.replay.update(realDt);
+    // Face forward again: during replays (they move the rig), and when the next
+    // ball is about to come (batting: leaving 'idle'; bowling: back to 'ready').
+    if (this.replay.active) { this.lookYaw = 0; this.lookOff.x = this.lookOff.z = 0; }
+    const sst = this.session ? this.session.state : null;
+    if (sst !== this._lookState) {
+      if (this.session && (this.session.isBowling ? sst === 'ready' : this._lookState === 'idle')) this.resetLook();
+      this._lookState = sst;
+    }
     if (this.replay.active) {
       // Replay: play is frozen; the recording poses everything.
       this.applyView();
@@ -642,6 +726,9 @@ export class Game {
       this.gripHold = (this.gripHold || 0) + dt;
       if (this.gripHold > 1.0 && !this.gripRecentered) { this.recenter(); this.gripRecentered = true; L.pulse(0.4, 40); }
     } else { this.gripHold = 0; this.gripRecentered = false; }
+    this.handleTurn(dt);
+    // Bowler page: keys 1-4 pick on a monitor too.
+    if (!this.input.xr && this.ui.menuOpen && this.ui.page === 'bowler') PLAYER_BOWLER_ORDER.forEach((k, i) => { if (D.took('Digit' + (i + 1))) this.actions.pickBowler(k); });
     if (!this.input.xr) {
       if (D.took('KeyC')) { this.desktopView++; this.placeDesktopCamera(); }
       if (D.took('KeyT')) { this.settings.trail = !this.settings.trail; this.saveSettings(); }
@@ -707,7 +794,8 @@ export class Game {
     }
     // Visibility assist: keep the ball at a minimum angular size (render only).
     let k = 1;
-    if (this.settings.ballBoost && this.ballView.visible) {
+    const inHand = !!(this.session && this.session.isBowling && this.session.state === 'ready');   // true size in your hand
+    if (this.settings.ballBoost && this.ballView.visible && !inHand) {
       const hp = this.input.headPose.p, bp = this.ballView.mesh.position;
       const d = Math.hypot(bp.x - hp.x, bp.y - hp.y, bp.z - hp.z);
       const want = d * Math.tan((CONFIG.render.ballMinAngleDeg * Math.PI) / 360);
@@ -754,7 +842,7 @@ export class Game {
       const bowling = !!(this.session && this.session.isBowling);
       if (bowling) {
         const R = this.input.right, L = this.input.left;
-        this.playerBowler.update(pdt || 1e-4, this.simTime, this.input.headPose, R.connected ? R.gripPose.p : null, L.connected && this.input.xr ? L.gripPose.p : null, lookBall);
+        this.playerBowler.update(pdt || 1e-4, this.simTime, this.bowlerHead(), R.connected ? R.gripPose.p : null, L.connected && this.input.xr ? L.gripPose.p : null, lookBall);
       }
       this.playerBowler.visible = bowling && (behind || (!this.input.xr && (this.desktopView % 4) === 3));
       this.playerBowler.h.replayVisible = bowling;
@@ -847,6 +935,23 @@ const _render = new Vec3();
 const _look = new THREE.Vector3();
 const _dbs = new THREE.Vector2();
 const _ro = new THREE.Vector3(), _rd = new THREE.Vector3();
+const _lk = new THREE.Vector3();
+
+// Run-up floor marks: a white line at the top of your mark, an amber one where
+// you are committed (inside it the run carries you to the crease).
+function buildRunMarks() {
+  const g = new THREE.Group();
+  g.name = 'runMarks';
+  const strip = (color, w, d) => {
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(w, d), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.85, depthWrite: false }));
+    m.rotation.x = -Math.PI / 2; m.renderOrder = 2;
+    g.add(m); return m;
+  };
+  g.userData.mark = strip(0xffffff, 0.7, 0.06);
+  g.userData.commit = strip(0xffb347, 0.9, 0.05);
+  g.visible = false;
+  return g;
+}
 const pdtFx = (paused, dt) => (paused ? 0 : dt);
 
 // UI callbacks.
@@ -925,5 +1030,12 @@ function makeActions(game) {
     setting: (key, d, lo, hi) => { g.settings[key] = clamp(Math.round((g.settings[key] + d) * 100) / 100, lo, hi); persist(); },
     difficulty: (dir) => { const i = clamp(DIFFS.indexOf(g.settings.difficulty) + dir, 0, 2); g.settings.difficulty = DIFFS[i]; g.applyDifficulty(); persist(); },
     bowlCalib: () => { g.bowlCalibPending = 3; g.sfx.init(); g.startSession('bowlnets'); },
+    // Bowler page: pick (closes the menu: you are at your mark).
+    pickBowler: (key) => {
+      const ses = g.session;
+      if (!ses || !ses.isBowling) return;
+      if (ses.setBowler(key) !== false) g.ui.closeMenu();
+      else g.ui.refresh();
+    },
   };
 }

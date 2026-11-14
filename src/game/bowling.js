@@ -1,17 +1,19 @@
 // Bowling session: the player bowls from the bowler's end to the AI batter.
-// Hold trigger (ball in hand), swing overarm, release trigger.
+// Pick the delivery (A / B), run in (hold right GRIP or left TRIGGER), hold the
+// right trigger (ball in hand), bowl overarm and let go in the delivery stride.
 import { CONFIG } from '../config.js';
 import { Vec3, clamp, DEG } from '../physics/math.js';
 
 const _hold = new Vec3();
 import { PITCH, lengthName, lineName, groundDistance, battingPoppingZ, bowlingPoppingZ } from '../physics/pitch.js';
-import { predict } from '../physics/trajectory.js';
+import { predict, crossingAtZ } from '../physics/trajectory.js';
 import { playerDelivery } from './bowlingInput.js';
 import { LbwFlow, padHit, deflectOffPad } from './lbwFlow.js';
 import { ThirdUmpireFlow } from './thirdUmpire.js';
 import { Innings } from './scoring.js';
 import { batProfile } from './squad.js';
-import { playerBowler, nextBowler, seamFromWrist, PLAYER_BOWLER_ORDER } from './bowlerTypes.js';
+import { playerBowler, seamFromWrist, stepDelivery, deliveryInfo, PLAYER_BOWLER_ORDER } from './bowlerTypes.js';
+import { RunUp } from './runup.js';
 import { HINTS } from '../ui/controllerHint.js';
 
 const _palm = new Vec3();
@@ -46,30 +48,91 @@ export class BowlingSession {
     this.noBall = false; this.freeHit = false; this.stumpAt = 0;
     this.keeperUp = false;           // the keeper stands up to the spinners
     this.seamYaw = 0;                // how far the wrist has been turned since gripping the ball (rad)
-    this.stickArmed = true;
+    this.pick = null;                // the delivery picked with A / B (null = the stock ball)
+    this.run = null;                 // the run-up (see runup.js), made at your mark
+    this.autoRun = false;            // desktop B: run in and bowl by itself
+    this.needRelease = true;         // the run button must be let go first (after a menu click)
+    this.cardKey = '';
   }
 
   get bowler() { return playerBowler(this.game.settings.bowlerType); }
+  // The delivery to bowl: the picked one, or null when the wrist decides (Settings: by feel).
+  get choice() { return this.game.settings.bowlByFeel ? null : deliveryInfo(this.bowler, this.pick).key; }
   // Seam position for this ball: A / B plus the wrist turn. -1 inswing .. +1 outswing.
   get seam() { return this.bowler.spinner ? 0 : clamp(this.swingChoice + seamFromWrist(this.seamYaw), -1, 1); }
   seamText() {
     const s = this.seam;
+    if (!this.game.settings.bowlByFeel) return deliveryInfo(this.bowler, this.pick).label;
     if (this.bowler.spinner) return this.bowler.deliveries;
     return Math.abs(s) < 0.05 ? 'seam upright' : `${s > 0 ? 'OUT-swing' : 'IN-swing'} ${Math.round(Math.abs(s) * 100)}%`;
   }
-  canChangeBowler() { return this.state === 'ready' && !this.holding && (!this.innings || this.innings.thisOver.length === 0); }
+  // Matches: only at the start of an over (at your mark). Nets: any time.
+  canChangeBowler() {
+    if (!this.innings) return true;
+    return this.state === 'ready' && !this.runStarted() && this.innings.thisOver.length === 0;
+  }
   setBowler(key) {
     const g = this.game;
-    if (key === g.settings.bowlerType) return;
-    if (!this.canChangeBowler()) { g.ui.prompt('You can change bowler at the start of an over', 1.8, '#ffb347'); return; }
+    if (key === g.settings.bowlerType) return true;
+    if (!this.canChangeBowler()) { g.ui.prompt('You can change bowler at the start of an over', 1.8, '#ffb347'); return false; }
     g.settings.bowlerType = key; g.saveSettings();
-    this.swingChoice = 0; this.seamYaw = 0;
+    this.swingChoice = 0; this.seamYaw = 0; this.pick = null;
     this.keeperUp = this.bowler.spinner;
-    if (this.field) this.field.setSpinner(this.keeperUp);
-    const b = this.bowler;
-    g.ui.prompt(`${b.label}: ${b.deliveries}`, 4, '#ffd34d');
+    if (this.field && this.state === 'ready') this.field.setSpinner(this.keeperUp);
+    if (this.state === 'ready') this.toMark();
+    g.ui.prompt(`You are bowling ${this.bowler.label.toLowerCase()}`, 2.5, '#ffd34d');
     g.sfx.ui();
     this.updateHud();
+    return true;
+  }
+  // The bowler page (opening a menu pauses play).
+  chooseBowler() { this.game.ui.openMenu('bowler'); }
+  stepPick(dir) {
+    const g = this.game;
+    this.pick = stepDelivery(this.bowler, this.choice, dir);
+    g.input.right.pulse(0.15, 15); g.sfx.ui();
+    this.updateHud();
+  }
+
+  // ------------------------------------------------------------- run-up
+  // Back to the top of your mark (an instant reposition).
+  toMark() {
+    const g = this.game, b = this.bowler;
+    this.run = new RunUp(CONFIG.bowling.runUp[b.key] || CONFIG.bowling.runUp.fast, { enabled: !!g.settings.runUp });
+    this.autoRun = false; this.needRelease = true;
+    g.setRigOffset(0, -this.run.dist);
+    g.showRunMarks(this.run.enabled ? this.run.spec : null);
+  }
+  // Running in (or, without a run-up, the ball gripped): the batter settles, fielders walk in.
+  runStarted() { return this.run && this.run.enabled ? this.run.started : this.holding; }
+  runHeld(input) {
+    const R = input.right, L = input.left, D = input.desktop;
+    const held = this.autoRun || R.buttons.squeeze.pressed || L.buttons.trigger.pressed || (!input.xr && D.held('KeyR'));
+    if (!held) this.needRelease = false;
+    return held && (!this.needRelease || this.autoRun);
+  }
+  onMenuChanged(open) { if (!open) this.needRelease = true; }
+  startedRunning() {
+    const g = this.game;
+    g.aiBatter.setReady(g.world.time + 0.15);
+    if (this.field && !this.field.delivering) this.field.beginDelivery();
+  }
+  // Drive the run-up (real time) and move you with it.
+  stepRun(dt) {
+    const g = this.game, run = this.run;
+    if (!run || !run.enabled) return;
+    const ev = run.update(dt, this.runHeld(g.input));
+    if (ev === 'start' || ev === 'resume') { if (ev === 'start') this.startedRunning(); g.input.right.pulse(0.12, 12); }
+    else if (ev === 'commit') g.input.right.pulse(0.25, 20);
+    else if (ev === 'pullout') g.ui.prompt('Pulled out — hold again to carry on', 1.5, '#cfe3f5');
+    else if (ev === 'crease' && this.autoRun && this.state === 'ready') { this.autoRun = false; this.autoBowl(); }
+    else if (ev === 'backToMark' || ev === 'deadBall') {
+      g.ui.prompt(ev === 'deadBall' ? 'Dead ball — back to your mark' : 'Pulled out — back to your mark', 2.2, '#ffb347');
+      g.aiBatter.reset();
+      if (this.field) { this.field.reset(); this.field.setSpinner(this.keeperUp); }
+      this.toMark();
+    }
+    g.setRigOffset(0, -run.dist);
   }
 
   usesY() { return false; }
@@ -87,6 +150,9 @@ export class BowlingSession {
     g.batterView.running = null;
     g.batterView.show(true);
     g.nonStrikerView.show(!!this.innings);
+    // Wider of the stumps than usual, so he is not at the edge of your view at the crease.
+    this.nsHome = g.nonStrikerView.home.clone();
+    g.nonStrikerView.home.set(CONFIG.bowling.nonStriker[0], 0, CONFIG.bowling.nonStriker[1]);
     g.nonStrikerView.reset();
     g.umpires.place(true);
     g.umpires.show(!!this.field);
@@ -94,12 +160,14 @@ export class BowlingSession {
     this.keeperUp = this.bowler.spinner;
     if (this.field) this.field.setSpinner(this.keeperUp);
     if (this.innings) { g.say('toss', { choice: 'bowl' }); g.say('innings', { chase: this.innings.target != null }); }
-    g.ui.prompt(`You are bowling ${this.bowler.label.toLowerCase()}`, 3, '#ffd34d');
-    g.coach('bowl', this.bowler.spinner ? [HINTS.bowl, HINTS.bowler] : [HINTS.bowl, HINTS.outswing, HINTS.bowler], 8);
+    // By feel there is no delivery card: show the old hints.
+    if (g.settings.bowlByFeel) g.coach('bowl', this.bowler.spinner ? [HINTS.bowl] : [HINTS.bowl, HINTS.outswing, HINTS.inswing], 8);
+    this.toMark();
     this.resetEnds();
     this.updateAim();
     this.updateHud();
     g.ui.setHud({ big: 'Your ball', bigColor: '#ffd34d', last: this.howTo(), detail: '' });
+    this.chooseBowler();
   }
 
   exit() {
@@ -107,8 +175,12 @@ export class BowlingSession {
     g.aiBat.enabled = false;
     g.batterView.show(false);
     g.aimMarker.visible = false;
+    g.ui.setBowlCard(null);
+    g.showRunMarks(null);
+    g.setRigOffset(0, 0);
     if (this.field) this.field.exit();
     g.nonStrikerView.show(false);
+    if (this.nsHome) { g.nonStrikerView.home.copy(this.nsHome); g.nonStrikerView.reset(); }
     g.umpires.show(false);
     g.drs.hide();
     g.timeScaleTarget = 1;
@@ -118,13 +190,19 @@ export class BowlingSession {
   }
 
   howTo() {
-    return this.game.input.xr
-      ? (this.bowler.spinner ? 'Roll the wrist at release · back of the hand = the wrong \'un · early = full, late = short' : 'Turn the wrist before you bowl (or A/B) = swing · roll at release = cutter · back of hand = slower')
-      : 'Mouse: hold, sweep down, release · B auto-bowl · Q/E wrist roll (+F back of hand) · Z/X swing · 1–4 bowler';
+    const g = this.game, run = g.settings.runUp;
+    if (g.settings.bowlByFeel) {
+      return g.input.xr
+        ? (this.bowler.spinner ? 'Roll the wrist at release · back of the hand = the wrong \'un' : 'Turn the wrist before you bowl (or A/B) = swing · roll at release = cutter · back of hand = slower')
+        : 'Mouse: hold, sweep down, release · B auto-bowl · Q/E wrist roll (+F back of hand) · Z/X swing · 1–4 bowler';
+    }
+    return g.input.xr
+      ? `${run ? 'Hold GRIP to run in · ' : ''}hold TRIGGER, bowl overarm, let go · A / B: delivery`
+      : `${run ? 'Hold R to run in · ' : ''}mouse: hold, sweep down, release · Z / X: delivery · B: auto-bowl`;
   }
 
   footer() {
-    return this.game.input.xr ? 'Left stick: aim marker · stick click: menu · A/B: throw end, review' : 'Arrows: aim · B: auto-bowl · Z/X: throw end / review · Esc: menu';
+    return this.game.input.xr ? 'Left stick: aim · A/B: delivery (then throw end, review) · right stick: look · Y: menu' : 'Arrows: aim · R: run in · Z/X: delivery · B: auto-bowl · 1–4: bowler · Esc: menu';
   }
 
   resetEnds() {
@@ -143,27 +221,32 @@ export class BowlingSession {
   handleInput(input) {
     const R = input.right, L = input.left, D = input.desktop;
     if (this.state === 'ready') {
-      const g = this.game, seamer = !this.bowler.spinner;
-      // Seam position (seamers): A = to the slips (out-swing), B = to fine leg (in-swing); press again for upright.
+      const g = this.game, seamer = !this.bowler.spinner, byFeel = g.settings.bowlByFeel;
       if (R.buttons.a.down || R.buttons.b.down) {
-        if (seamer) { const want = R.buttons.a.down ? 1 : -1; this.swingChoice = this.swingChoice === want ? 0 : want; this.updateHud(); R.pulse(0.15, 15); g.ui.prompt(`Seam: ${this.seamText()}`, 1.2, '#ffd34d'); }
+        // A = next delivery, B = previous (desktop Z / X).
+        if (!byFeel) this.stepPick(R.buttons.a.down ? 1 : -1);
+        // By feel, seamers: A = seam to the slips (out-swing), B = to fine leg (in-swing); again for upright.
+        else if (seamer) { const want = R.buttons.a.down ? 1 : -1; this.swingChoice = this.swingChoice === want ? 0 : want; this.updateHud(); R.pulse(0.15, 15); g.ui.prompt(`Seam: ${this.seamText()}`, 1.2, '#ffd34d'); }
         else g.ui.prompt(`${this.bowler.label}: roll the wrist at release`, 1.5, '#cfe3f5');
       }
-      // Change bowler: right stick left / right (keys 1–4 on desktop).
-      const sx = R.stick.x;
-      if (Math.abs(sx) < 0.3) this.stickArmed = true;
-      else if (this.stickArmed && Math.abs(sx) > 0.65) { this.stickArmed = false; this.setBowler(nextBowler(g.settings.bowlerType, sx > 0 ? 1 : -1)); }
       if (!input.xr) PLAYER_BOWLER_ORDER.forEach((k, i) => { if (D.took('Digit' + (i + 1))) this.setBowler(k); });
-      if (R.buttons.trigger.down) { this.holding = true; this.seamYaw = 0; this.seamShown = 0; g.sfx.ui(); g.aiBatter.setReady(g.world.time + 0.15); }
-      // With the ball in the hand, turning the wrist left / right angles the seam (it locks once the arm is moving).
-      if (this.holding && seamer && input.xr && R.linVel.length() < 1.5) {
+      if (R.buttons.trigger.down) {
+        this.holding = true; this.seamYaw = 0; this.seamShown = 0; g.sfx.ui();
+        if (!this.run.enabled) this.startedRunning();
+      }
+      // By feel: with the ball in the hand, turning the wrist left / right angles the seam (it locks once the arm is moving).
+      if (byFeel && this.holding && seamer && input.xr && R.linVel.length() < 1.5) {
         this.seamYaw = clamp(this.seamYaw + R.angVel.y * (g.realDt || 0.014), -0.9, 0.9);
         const s = this.seam, step = Math.round(s * 4);
         if (step !== this.seamShown) { this.seamShown = step; R.pulse(0.2, 12); this.updateHud(); }
         g.ui.prompt(`Seam: ${this.seamText()}`, 0.3, Math.abs(s) < 0.05 ? '#cfe3f5' : '#ffd34d');
       }
       if (this.holding && R.buttons.trigger.up) this.attemptRelease();
-      if (!input.xr && D.took('KeyB')) this.autoBowl();
+      if (!input.xr && D.took('KeyB')) {
+        // Auto-bowl: run in by itself, then let it go at the crease.
+        if (this.run.canRelease) this.autoBowl();
+        else { this.autoRun = true; this.needRelease = false; }
+      }
     }
     if (L.buttons.a.down && this.state === 'settle') this.timer = 0;
     if (!R.connected || R.tracked === false) this.holding = false;
@@ -172,24 +255,36 @@ export class BowlingSession {
   attemptRelease() {
     const g = this.game, R = g.input.right;
     this.holding = false;
+    // Only in the delivery stride or at the crease; anywhere else you keep the ball.
+    if (!this.run.canRelease) { g.ui.prompt(`Run in first — hold ${g.input.xr ? 'GRIP' : 'R'}`, 1.8, '#ffb347'); return; }
     // Pace: the fastest the hand came down in the last quarter-second.
     // Length: the hand's direction as you let go (early = up/full, late = down/short).
     // Line: the way the hand was travelling across the ground over the last 0.12 s.
+    // Running in moves the rig: take your own run out of the hand's world motion
+    // (XR velocities are already relative to the rig; poses are not).
+    const runV = this.run.enabled ? this.run.speed : 0, vz = R.hasXRVel ? 0 : runV;
     const last = R.history[R.history.length - 1];
-    const pk = R.peak(g.simTime, CONFIG.bowling.peakWindowMs / 1000);
-    if (!pk || !last || pk.v.length() < CONFIG.bowling.minReleaseHandSpeed) {
+    let pk = null, pkS = -1;
+    for (let i = R.history.length - 1; i >= 0; i--) {
+      const h = R.history[i];
+      if (g.simTime - h.t > CONFIG.bowling.peakWindowMs / 1000) break;
+      const sp = Math.hypot(h.v.x, h.v.y, h.v.z - vz);
+      if (sp > pkS) { pkS = sp; pk = h; }
+    }
+    const rel = (v) => new Vec3(v.x, v.y, v.z - vz);
+    if (!pk || !last || pkS < CONFIG.bowling.minReleaseHandSpeed) {
       g.ui.setHud({ big: 'Dropped — swing harder', bigColor: '#ffb347' });
       g.aiBatter.reset();
       this.seamYaw = 0; this.updateHud();
       return;
     }
-    const dir = last.v.length() > pk.v.length() * 0.45 ? last.v : pk.v;
+    const dir = rel(last.v).length() > pkS * 0.45 ? rel(last.v) : rel(pk.v);
     let from = last;
     for (let i = R.history.length - 1; i >= 0; i--) { from = R.history[i]; if (last.t - from.t >= 0.12) break; }
-    const dx = last.p.x - from.p.x, dz = last.p.z - from.p.z;
+    const dx = last.p.x - from.p.x, dz = last.p.z - from.p.z - runV * (last.t - from.t);
     const aimAzDeg = Math.hypot(dx, dz) > 0.05 ? Math.atan2(dx, dz) / DEG : null;
     const pos = R.gripPose.p.clone().add(new Vec3(...CONFIG.bowling.ballHoldOffset).applyQuat(R.gripPose.q));
-    this.bowl({ releasePos: pos, handVel: dir.clone(), handAngVel: pk.w.clone(), palmDir: g.palmDir(_palm).clone(), paceSpeed: pk.v.length(), aimAzDeg });
+    this.bowl({ releasePos: pos, handVel: dir, handAngVel: pk.w.clone(), palmDir: g.palmDir(_palm).clone(), paceSpeed: pkS, aimAzDeg });
   }
 
   // Desktop helper: a clean release at the marker with the machine pace.
@@ -218,12 +313,15 @@ export class BowlingSession {
       releasePos, handVel, handAngVel, palmDir, paceSpeed, aimAzDeg,
       swingChoice: this.seam,
       bowler: this.bowler,
+      choice: this.choice,
+      paceScale: this.run.paceFactor,
       aim: g.settings.aimAssist ? this.aim : null,
       assist: g.settings.aimAssist,
       neutralElevDeg: this.neutralElev(),
       rng: g.rng,
     });
     this.delivery = d;
+    this.run.released();
     this.resetEnds();
     g.world.launch({ pos: d.releasePos, vel: d.vel, spin: d.spin, swing: d.swing, seamDeg: d.seamDeg, seamRandomScale: 0.5 });
     g.ballView.setVisible(true);
@@ -233,6 +331,8 @@ export class BowlingSession {
     this.path.length = 0; this.shotOffered = true;
     g.say('release', { type: d.name.split(' ')[0].replace('off-break', 'off_spin').replace('leg-break', 'leg_spin').replace('outswinger', 'outswing').replace('inswinger', 'inswing').replace('seam-up', 'fast'), length: d.fullToss ? 'full_toss' : d.length < 2 ? 'yorker' : d.length > 11 ? 'bouncer' : undefined, pace: d.paceKmh });
     this.launchT = g.world.time;
+    // Where it would pass the stumps (for the one-line summary at the bounce).
+    try { const c = crossingAtZ(predict(g.world.ball, { maxTime: 2.5, h: 1 / 240 }), PITCH.battingStumpsZ); this.atStumps = c ? { x: c.x, y: c.y } : null; } catch { this.atStumps = null; }
     this.state = 'live';
     this.hit = null; this.firstBounce = null; this.adjusted = false; this.crossedCrease = false; this.wide = false; this.beamerChecked = false;
     this.stumpAt = 0; this.pendingRes = null; this.reviewFlow = null;
@@ -252,7 +352,8 @@ export class BowlingSession {
     if (plan.adv) { g.say('charge'); g.ui.prompt('He comes down the pitch!', 1.2, '#ffd34d'); }
     if (this.field) { if (!this.field.delivering) this.field.beginDelivery(); this.field.released(); }
     g.aimMarker.visible = false;
-    g.ui.setHud({ big: `${Math.round(d.paceKmh)} km/h · ${d.name}`, bigColor: '#ffffff', last: `Released: ${d.name}${d.spinAmount ? ` (${Math.round(d.spinAmount * 100)}% spin${d.backOfHand ? ', back of the hand' : ''})` : ''}`, detail: `hand ${d.handSpeed.toFixed(1)} m/s · elev ${d.elevDeg.toFixed(0)}° · az ${d.azDeg.toFixed(1)}° · roll ${d.roll.toFixed(0)} rad/s` });
+    const run = this.run.enabled ? ` · run-up ${this.run.best.toFixed(1)} m/s (pace ×${this.run.paceFactor.toFixed(2)})` : '';
+    g.ui.setHud({ big: `${Math.round(d.paceKmh)} km/h · ${d.name}`, bigColor: '#ffffff', last: `${cap(d.name)}${d.spinAmount ? ` · ${Math.round(d.spinAmount * 100)}% spin` : ''}${run}`, detail: '' });
     if (d.paceKmh > this.stats.fastest) this.stats.fastest = d.paceKmh;
     if (g.bowlCalibPending) this.calibSamples.push(d.elevDeg);
   }
@@ -304,8 +405,11 @@ export class BowlingSession {
       this.updateAim();
     }
     if (this.field) this.field.update(dt, t);
+    // The run-up goes on after the ball has gone (a committed run reaches the crease).
+    if (this.state === 'ready' || this.state === 'live' || this.state === 'settle') this.stepRun(g.realDt || dt);
+    this.updateCard();
     if (this.state === 'ready') {
-      if (this.field && this.holding && !this.field.delivering) this.field.beginDelivery();
+      if (this.field && this.runStarted() && !this.field.delivering) this.field.beginDelivery();
       // Ball sits in the hand.
       const R = g.input.right;
       if (R.connected) {
@@ -338,9 +442,10 @@ export class BowlingSession {
           g.ui.prompt('FREE HIT — only a run-out counts', 3.5, '#ffd34d');
         } else if (this.innings && this.innings.thisOver.length === 0 && this.innings.legal > 0) {
           g.ui.prompt(`New over · ${this.bowler.label}`, 2.5, '#ffd34d');
-          g.hint([HINTS.bowler], 3.5);
+          this.chooseBowler();
         }
-        this.seamYaw = 0;
+        this.seamYaw = 0; this.holding = false;
+        this.toMark();
         this.resetEnds();
         this.updateAim();
         g.ui.setHud({ big: 'Your ball', bigColor: '#ffd34d', last: this.howTo() });
@@ -427,6 +532,12 @@ export class BowlingSession {
       this.firstBounce = e.pos.clone();
       g.aiBatter.adjust(g.world.ball.clone(), g.world.time);
       g.ui.setHud({ last: `Pitched: ${lengthName(-e.pos.z)} (${(-e.pos.z).toFixed(1)} m) · ${lineName(e.pos.x)} · moved ${e.deviationDeg.toFixed(1)}°` });
+      // What you bowled and where it went, near the middle of your view.
+      const d = this.delivery;
+      if (d) {
+        const len = lengthName(PITCH.battingStumpsZ - e.pos.z);
+        g.ui.prompt(`${cap(d.name)} · ${Math.round(d.paceKmh)} km/h\n${len === 'good' ? 'good length' : len} · ${stumpLine(this.atStumps)}`, 2.4, '#ffffff');
+      }
     }
     if (e.type === 'bat' && e.batId === 'ai' && !this.hit) {
       const pred = predict(g.world.ball, { maxTime: 8, h: 1 / 240 });
@@ -556,16 +667,49 @@ export class BowlingSession {
     g.ui.setHud({ title: this.title, score, sub, footer: this.footer() });
   }
 
-  onSettingsChanged() { this.updateAim(); this.updateHud(); }
+  onSettingsChanged() {
+    if (this.state === 'ready' && !this.runStarted() && this.run && this.run.enabled !== !!this.game.settings.runUp) this.toMark();
+    this.updateAim(); this.updateHud();
+    this.game.ui.setHud({ last: this.howTo() });
+  }
+
+  // The delivery card: while you stand at your mark waiting to bowl.
+  updateCard() {
+    const g = this.game, b = this.bowler, s = g.settings;
+    const show = this.state === 'ready' && !this.runStarted();
+    if (!show) { if (this.cardKey) { this.cardKey = ''; g.ui.setBowlCard(null); } return; }
+    const len = lengthName(PITCH.battingStumpsZ - this.aim.z);
+    const target = `${len === 'good' ? 'good length' : len} · ${lineName(this.aim.x)}`;
+    const sel = this.choice;
+    const key = [b.key, sel, target, s.bowlByFeel, s.runUp, s.aimMarker || s.aimAssist, g.input.xr].join('|');
+    if (key === this.cardKey) return;
+    this.cardKey = key;
+    g.ui.setBowlCard({
+      title: b.label, pace: `${b.pace[0]}–${b.pace[1]} km/h`, byFeel: s.bowlByFeel, runUp: s.runUp,
+      list: b.deliveryList.map((d) => ({ label: d.label, sel: !s.bowlByFeel && d.key === sel })),
+      effect: s.bowlByFeel ? 'By feel: your wrist action decides the delivery' : deliveryInfo(b, sel).effect,
+      target: s.aimMarker || s.aimAssist ? target : 'where you throw it',
+    });
+  }
 
   complete() {
     this.done = true;
     if (this.onDone) this.onDone(this.innings);
   }
 
-  backingUp() { return this.holding || (this.state === 'live' && !this.game.world.ball.batted); }
+  backingUp() { return (this.state === 'ready' && this.runStarted()) || (this.state === 'live' && !this.game.world.ball.batted); }
 
   updateViews() { /* batters are updated by the game */ }
+}
+
+const cap = (t) => t.charAt(0).toUpperCase() + t.slice(1);
+// Where the ball passes the batter's stumps, in words (off side = +x for a right-hander).
+function stumpLine(c) {
+  if (!c) return '';
+  const half = PITCH.wicketHalfWidth + CONFIG.ball.radius;
+  if (Math.abs(c.x) <= half) return c.y > PITCH.stumpHeight + 0.1 ? 'over the stumps' : 'hitting the stumps';
+  const cm = Math.round((Math.abs(c.x) - PITCH.wicketHalfWidth) * 100);
+  return `${cm} cm outside ${c.x > 0 ? 'off' : 'leg'}`;
 }
 
 function plan0(g) { const p = g.aiBatter.plan; return p ? p.shot.type : 'drive'; }

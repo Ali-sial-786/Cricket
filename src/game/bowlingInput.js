@@ -14,6 +14,9 @@
 //            anticlockwise roll, back of the hand       -> GOOGLY    (leg-spin action, turns in)
 //          at seam-bowling pace the same actions give off- and leg-cutters
 //  swing   the seam position you set before bowling (wrist turn or A / B)
+// That is the "by feel" path. Normally a `choice` (a delivery key from the
+// bowler's deliveryList, picked with A / B) decides the delivery outright and
+// the wrist roll only scales the amount of spin / cut (never to nothing).
 // With a `bowler` (see bowlerTypes.js) the pace is scaled into that bowler's
 // range and only that bowler's deliveries come out. Without one the legacy
 // rule applies: spin below spinnerPaceKmh, cutters above.
@@ -36,9 +39,11 @@ export function clampReleasePos(p) {
 // Inputs: releasePos, handVel, handAngVel (world), palmDir (world unit vector
 // out of the palm, optional), swingChoice (-1 in, 0, +1 out), aim ({x,z} or
 // null), assist, neutralElevDeg (optional), rng (optional).
+// paceScale: run-up momentum (1 = a full run, less from a standstill).
+// choice: a delivery key picked from bowler.deliveryList (null = by feel).
 // paceSpeed: the downswing hand speed that sets the pace (default: |handVel|).
 // aimAzDeg: the direction you threw it (default: handVel's azimuth).
-export function mapRelease({ releasePos, handVel, handAngVel, palmDir = null, swingChoice = 0, aim = null, assist = true, neutralElevDeg = null, rng = null, bowler = null, paceSpeed = null, aimAzDeg = null, cfg = CONFIG }) {
+export function mapRelease({ releasePos, handVel, handAngVel, palmDir = null, swingChoice = 0, aim = null, assist = true, neutralElevDeg = null, rng = null, bowler = null, paceSpeed = null, aimAzDeg = null, choice = null, paceScale = 1, cfg = CONFIG }) {
   const B = cfg.bowling;
   const rel = clampReleasePos(releasePos);
   // Your hand is lower than a real bowler's arm at release: take most of the
@@ -100,7 +105,38 @@ export function mapRelease({ releasePos, handVel, handAngVel, palmDir = null, sw
   const rolled = Math.abs(roll) > B.spinDeadzone ? clamp((Math.abs(roll) - B.spinDeadzone) * B.spinMultiplier / maxRate, 0, 1) : 0;
   const rollDir = rolled >= 0.08 ? (roll > 0 ? 'off' : 'leg') : null;     // clockwise = off-spin action
   const seamSet = clamp(swingChoice, -1, 1);
-  if (bowler && bowler.spinner) {
+  if (bowler && choice) {
+    // ---- a picked delivery: exactly that ball; the wrist only adds to it ----
+    const amt = B.pickedSpinFloor + (1 - B.pickedSpinFloor) * rolled;
+    const seamer = (set) => {                                           // swing / seam movement from a set seam
+      swing = set * B.swingAmount * bowler.swing;
+      seamDeg *= bowler.seam * (set ? 0.7 : 1.4);
+      seamDeg += set * B.seamFromAngleDeg * bowler.seam * (rng ? 0.6 + 0.4 * rng() : 0.8);
+    };
+    switch (choice) {
+      case 'offbreak': action = 'off'; spinType = 'off'; spinAmount = amt; name = 'off-break'; break;
+      case 'doosra': action = 'off'; spinType = 'leg'; spinAmount = amt * 0.85; name = 'doosra'; break;
+      case 'armball': action = 'off'; name = 'arm ball'; kmh = Math.min(bowler.pace[1], kmh * 1.06); swing = 0.3; break;
+      case 'legbreak': action = 'leg'; spinType = 'leg'; spinAmount = amt; name = 'leg-break'; break;
+      case 'googly': action = 'leg'; spinType = 'off'; spinAmount = amt * 0.85; name = 'googly'; break;
+      case 'topspinner': action = 'leg'; spinType = 'top'; spinAmount = amt; name = 'top-spinner'; break;
+      case 'slider': action = 'leg'; name = 'slider'; kmh = Math.min(bowler.pace[1], kmh * 1.05); break;
+      case 'offcutter': case 'legcutter': {
+        const dir = choice === 'offcutter' ? 'off' : 'leg';
+        action = dir; spinType = dir; spinAmount = amt * 0.35;
+        name = dir === 'off' ? 'off-cutter' : 'leg-cutter';
+        seamDeg = seamDeg * bowler.seam + (dir === 'off' ? -1 : 1) * (0.8 + 1.7 * amt) * bowler.seam;
+        kmh *= 0.93;
+        break;
+      }
+      case 'slower': seamer(0); name = 'slower ball'; kmh *= 0.78; break;
+      case 'outswinger': case 'awayseamer': seamer(1); name = choice === 'outswinger' ? 'outswinger' : 'away-seamer'; break;
+      case 'inswinger': case 'inseamer': seamer(-1); name = choice === 'inswinger' ? 'inswinger' : 'in-seamer'; break;
+      default: seamer(0); name = 'seam-up';                                // 'stock'
+    }
+    if (bowler.spinner) { seamDeg *= 0.5; action = bowler.action; }
+    else kmh = clamp(kmh, bowler.pace[0] * 0.75, bowler.pace[1]);
+  } else if (bowler && bowler.spinner) {
     // ---- a spinner: only this bowler's stock ball and variations ----
     action = bowler.action;
     const stock = bowler.action;                                         // 'off' | 'leg'
@@ -160,6 +196,7 @@ export function mapRelease({ releasePos, handVel, handAngVel, palmDir = null, sw
     swing = seamSet * B.swingAmount;
     if (swing) name = swing > 0 ? 'outswinger' : 'inswinger';
   }
+  kmh *= paceScale;
   const speed = kmhToMs(kmh);
   const spin = spinVector(spinType, spinAmount, travel, cfg);
   if (fullToss) name = `${name === 'seam-up' ? '' : name + ' '}full toss`.trim();
@@ -168,7 +205,7 @@ export function mapRelease({ releasePos, handVel, handAngVel, palmDir = null, sw
     else if (length > 11) name = `${name === 'seam-up' ? '' : name + ' '}bouncer`.trim();
   }
 
-  return { releasePos: rel, speed, paceKmh: kmh, target, length, line, fullToss, spin, spinType, spinAmount, action, backOfHand, name, note, swing, seamDeg, handSpeed, elevDeg, azDeg, roll, palm };
+  return { releasePos: rel, speed, paceKmh: kmh, target, length, line, fullToss, spin, spinType, spinAmount, action, backOfHand: bowler && choice ? choice === 'doosra' || choice === 'googly' : backOfHand, name, choice: bowler ? choice : null, note, swing, seamDeg, handSpeed, elevDeg, azDeg, roll, palm };
 }
 
 // Full delivery (launch velocity solved with physics).
