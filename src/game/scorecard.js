@@ -16,7 +16,7 @@ export class Scorecard {
     this.bowlers = [];
     this.bowler = null;
     this.fow = [];
-    this.extras = { wides: 0, noBalls: 0 };
+    this.extras = { wides: 0, noBalls: 0, byes: 0 };
     this.partnership = 0;
   }
 
@@ -41,18 +41,18 @@ export class Scorecard {
     if (!s) return out;
     const extra = o.wide || o.noBall ? 1 : 0;
     if (o.wide) {
-      this.extras.wides++;
+      this.extras.wides += 1 + (o.runs || 0);
     } else {
       if (o.noBall) this.extras.noBalls++;
       else if (bw) bw.balls++;
       s.balls++;
       const before = s.runs;
-      s.runs += o.runs || 0;
+      if (o.byes) this.extras.byes += o.runs || 0; else s.runs += o.runs || 0;
       if (o.boundary === 4) s.fours++;
       if (o.boundary === 6) s.sixes++;
       for (const [mark, type] of [[25, 'twentyfive'], [50, 'fifty'], [100, 'hundred']]) if (before < mark && s.runs >= mark) out.milestones.push({ type, name: s.name, runs: s.runs });
     }
-    if (bw) bw.runs += (o.runs || 0) + extra;
+    if (bw) bw.runs += (o.byes ? 0 : o.runs || 0) + extra;        // byes are not the bowler's fault
     this.partnership += (o.runs || 0) + extra;
     // Odd runs that were run (not a boundary) change the strike.
     if (!o.boundary && (o.runs || 0) % 2 === 1) this.swap();
@@ -88,7 +88,7 @@ export class Scorecard {
   topBowlers(n = 2) {
     return this.bowlers.filter((b) => b.balls > 0).sort((a, b) => b.wickets - a.wickets || a.runs / Math.max(1, a.balls) - b.runs / Math.max(1, b.balls)).slice(0, n).map((b) => `${b.name} ${b.wickets}/${b.runs} (${overs(b.balls)})`);
   }
-  extrasText() { const e = this.extras; return e.wides + e.noBalls ? `Extras ${e.wides + e.noBalls} (w ${e.wides}, nb ${e.noBalls})` : ''; }
+  extrasText() { const e = this.extras; return e.wides + e.noBalls + e.byes ? `Extras ${e.wides + e.noBalls + e.byes} (b ${e.byes}, w ${e.wides}, nb ${e.noBalls})` : ''; }
   // Full card lines (for a result page).
   lines(maxBatters = 3, maxBowlers = 2) {
     const out = [];

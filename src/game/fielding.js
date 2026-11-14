@@ -14,8 +14,8 @@ import { CONFIG } from '../config.js';
 
 // Standard field for a right-handed batter (off side = +X). Keeper first.
 export const FIELD = [
-  { name: 'keeper', x: 0.0, z: 2.6, keeper: true },
-  { name: 'slip', x: 1.3, z: 3.6 },
+  { name: 'keeper', x: 0.0, z: CONFIG.keeper.standBack, keeper: true },
+  { name: 'slip', x: 1.5, z: CONFIG.keeper.standBack + 1.1 },
   { name: 'point', x: 22, z: -1.5 },
   { name: 'cover', x: 19, z: -15 },
   { name: 'mid-off', x: 9, z: -29 },
@@ -53,8 +53,10 @@ export class Fielding {
 
   setSpinner(on) {
     const k = this.fielders[0], s = this.fielders[1];
-    k.home.set(0, 0, on ? 0.75 : 2.6);
-    s.home.set(on ? 0.9 : 1.3, 0, on ? 1.8 : 3.6);
+    const back = this.cfg.keeper.standBack;
+    k.home.set(0, 0, on ? 0.75 : back);
+    s.home.set(on ? 0.9 : 1.5, 0, on ? 1.8 : back + 1.1);
+    this.keeperUp = !!on;
   }
 
   reset() {
@@ -68,13 +70,13 @@ export class Fielding {
     this.ballOverride = null;
     this.message = '';
     this.dropped = false;
-    this.keeperHold = false;
+    this.keeperHold = false; this.keeperMissed = null; this.keeperTookAt = null; this.shy = null; this.byes = false;
     this.throwArrived = null;
     this.bowlEndReceiver = null;
     for (const f of this.fielders) {
       f.playerControlled = false;
       f.pos.copy(f.home); f.vel.set(0, 0, 0); f.state = 'set'; f.target = null; f.speed = 0; f.prevDist = Infinity;
-      f.action = null;
+      f.action = null; f.leap = null;
       f.face = Math.atan2(0 - f.home.x, -1.0 - f.home.z); // look at the batter
     }
   }
@@ -84,11 +86,11 @@ export class Fielding {
   newBall() {
     this.hitT = null; this.plan = null; this.outcome = null; this.fielded = false; this.caught = false;
     this.boundary = null; this.throw = null; this.ballOverride = null; this.message = ''; this.dropped = false;
-    this.keeperHold = false;
+    this.keeperHold = false; this.keeperMissed = null; this.keeperTookAt = null; this.shy = null; this.byes = false;
     this.throwArrived = null;
     for (const f of this.fielders) {
       f.playerControlled = false;
-      f.prevDist = Infinity; f.action = null;
+      f.prevDist = Infinity; f.action = null; f.leap = null;
       const far = Math.hypot(f.pos.x - f.home.x, f.pos.z - f.home.z);
       if (far > 40) { f.pos.copy(f.home); f.state = 'set'; f.speed = 0; }   // never visible marathon walks
       else if (far > 0.4) { f.state = 'return'; f.target = null; }
@@ -126,8 +128,12 @@ export class Fielding {
 
   // Called on the bat contact. ball = live BallState, pred = predict() result
   // from the contact (samples carry `t` relative to the hit).
-  onHit(ball, t, pred) {
+  // byes: the ball was not hit — it beat the batter and the keeper — so there
+  // is nothing to catch, the keeper does not chase it, and it is fielded
+  // like any ball along the ground.
+  onHit(ball, t, pred, { byes = false } = {}) {
     this.hitT = t;
+    this.byes = byes;
     const F = this.cfg.field;
     let best = null;
     const samples = pred.samples;
@@ -135,10 +141,11 @@ export class Fielding {
     for (let fi = 0; fi < this.fielders.length; fi++) {
       const f = this.fielders[fi];
       if (f.bowler && !this.bowlerFields) continue;
-      const react = f.keeper || f.name === 'slip' ? F.keeperReaction : F.fielderReaction;
+      if (byes && f.keeper) continue;
+      const react = (f.keeper || f.name === 'slip' ? F.keeperReaction : F.fielderReaction) + (byes ? 0.25 : 0);
       for (const s of samples) {
         if (s.t > boundaryT) break;
-        const airborne = s.bouncesSinceBat === 0;
+        const airborne = !byes && s.bouncesSinceBat === 0;
         const reachable = airborne ? s.y <= F.catchHeightMax && s.y >= 0.05 : s.y <= 1.2;
         if (!reachable) continue;
         const d = Math.hypot(s.x - f.pos.x, s.z - f.pos.z);
@@ -176,7 +183,7 @@ export class Fielding {
     }
     // Keeper moves up to the stumps for the throw.
     const k = this.fielders[0];
-    if (k.state === 'set') { k.state = 'stumps'; k.target = new Vec3(0, 0, 0.6); }
+    if (k.state === 'set' || (byes && k.state !== 'chase')) { k.state = 'stumps'; k.target = new Vec3(0, 0, 0.6); }
     // Someone backs up at the bowler's end: the bowler, or (when you bowl)
     // the nearest fielder who isn't chasing.
     let r = null;
@@ -195,25 +202,92 @@ export class Fielding {
 
   onBoundary(e) {
     if (this.fielded || this.outcome) return;
-    this.boundary = e.onFull ? 6 : 4;
+    this.boundary = e.onFull && !this.byes ? 6 : 4;
     this.outcome = { kind: 'boundary', runs: this.boundary };
     this.message = this.boundary === 6 ? 'SIX' : 'FOUR';
   }
 
-  // Ball passed the batter untouched: keeper gathers it.
-  keeperTakes(ball) {
+  // ------------------------------------------------------------- the keeper
+  // The keeper only ever has the ball if he physically gets a glove to it.
+  // While a delivery is on its way he moves across with its line (keeperTrack);
+  // as it reaches him keeperTry() decides, from where the ball and he actually
+  // are, whether it is a regulation take, a leap, a dive — or out of reach, in
+  // which case it carries on (byes).
+  keeperTrack(ball, t) {
     const k = this.fielders[0];
-    k.target = new Vec3(clamp(ball.pos.x, -1.5, 1.5), 0, k.home.z);
+    if (this.keeperHold || this.keeperMissed || ball.vel.z < 1) return;
+    const dt = (k.pos.z - ball.pos.z) / ball.vel.z;
+    if (dt < 0 || (ball.bounces === 0 && ball.pos.z < -6)) return;        // wait for it to pitch (or to be nearly on him)
+    const x = ball.pos.x + ball.vel.x * dt;
+    const y = Math.max(0.05, ball.pos.y + ball.vel.y * dt - 0.5 * this.cfg.physics.gravity * dt * dt);
     k.state = 'gather';
+    k.target = new Vec3(clamp(x, -2.4, 2.4), 0, k.home.z);
+    // What he will have to do when it gets there (the figure times its jump or dive from this).
+    const K = this.cfg.keeper, adx = Math.max(0, Math.abs(x - k.pos.x) - this.cfg.field.fielderSpeed * 0.6 * dt);   // what is left after he has moved across
+    const how = y > K.standHigh ? 'leap' : adx > K.reach ? 'dive' : 'take';
+    k.leap = { t: t + dt, how, x, y, side: x >= k.pos.x ? 1 : -1, done: false };
   }
 
-  // Keeper gathers an unhit delivery (no runs; the ball is held).
-  keeperCollect(ball, t) {
-    const k = this.fielders[0];
-    this.keeperHold = true;
-    k.action = { type: 'keep', t0: t, target: new Vec3(ball.pos.x, ball.pos.y, ball.pos.z), hold: true };
-    k.state = 'set';
-    this.ballOverride = { pos: new Vec3(ball.pos.x, ball.pos.y, ball.pos.z), holder: 0 };
+  // Returns 'take' | 'miss' | null (not there yet / already decided).
+  keeperTry(ball, t) {
+    const k = this.fielders[0], K = this.cfg.keeper;
+    if (this.keeperHold || this.keeperMissed) return null;
+    if (ball.pos.z < k.pos.z - 0.3) return null;
+    const dx = ball.pos.x - k.pos.x, adx = Math.abs(dx), y = ball.pos.y;
+    let how = null;
+    if (adx <= K.reach && y <= K.standHigh) how = 'take';
+    else if (adx <= K.reach + 0.2 && y <= K.jumpHigh) how = 'leap';
+    else if (adx <= K.diveReach && y <= K.diveHigh) how = 'dive';
+    const side = dx >= 0 ? 1 : -1;
+    const target = new Vec3(ball.pos.x, ball.pos.y, ball.pos.z);
+    if (how) {
+      this.keeperHold = true;
+      this.keeperTookAt = t;
+      this.keeperHow = how;
+      k.leap = { t, how, x: ball.pos.x, y, side, done: true, reach: Math.max(0, adx - 0.3) };
+      k.action = { type: 'keep', t0: t, target, hold: true, how, side };
+      k.state = 'set'; k.speed = 0;
+      this.ballOverride = { pos: target.clone(), holder: 0 };
+      return 'take';
+    }
+    // Out of reach: he goes for it anyway and it beats him.
+    const tried = y > K.standHigh ? 'leap' : 'dive';
+    this.keeperMissed = { t, how: tried, x: ball.pos.x, y };
+    k.leap = { t, how: tried, x: ball.pos.x, y: Math.min(y, K.jumpHigh), side, done: true, missed: true, reach: Math.min(K.diveReach, adx) - 0.3 };
+    k.action = { type: 'kmiss', t0: t, target, how: tried, side };
+    k.state = 'set'; k.speed = 0;
+    return 'miss';
+  }
+
+  // Legacy entry points (the keeper used to be handed the ball).
+  keeperTakes(ball) { this.keeperTrack(ball, 0); }
+  keeperCollect(ball, t) { return this.keeperTry(ball, t); }
+
+  // With the ball in his gloves and the batter out of his ground, the keeper
+  // goes for the wicket. Standing up he whips the bails off; standing back he
+  // shies at the stumps (and can miss). Returns the time the wicket is broken
+  // (or the throw arrives).
+  keeperAttack(t, rng = this.rng, hitChance = 0.5) {
+    const k = this.fielders[0], K = this.cfg.keeper;
+    if (!this.keeperHold) return null;
+    const dist = Math.hypot(k.pos.x, k.pos.z - PITCH.battingStumpsZ);
+    const slow = this.keeperHow === 'take' ? 0 : K.diveRecover;
+    const t0 = Math.max(t, (this.keeperTookAt ?? t) + slow);
+    if (dist < 1.6) {
+      const at = Math.max(t0, this.keeperTookAt + K.breakTime);
+      this.keeperBreak(t, at);
+      this.attack = { kind: 'break', at, hit: true };
+    } else {
+      const tStart = Math.max(t0, this.keeperTookAt + K.shyTime), at = tStart + dist / K.shySpeed;
+      const hit = rng() < hitChance;
+      const from = new Vec3(k.pos.x, 0.75, k.pos.z - 0.3);
+      const to = hit ? new Vec3((rng() - 0.5) * 0.12, 0.3 + rng() * 0.3, PITCH.battingStumpsZ + 0.03) : new Vec3((rng() < 0.5 ? -1 : 1) * (0.22 + rng() * 0.35), 0.25, PITCH.battingStumpsZ - 0.6);
+      this.shy = { from, to, tStart, at, hit };
+      k.action = { type: 'throw', t0: tStart - 0.465, quick: true };
+      k.face = Math.atan2(-k.pos.x, PITCH.battingStumpsZ - k.pos.z);
+      this.attack = { kind: 'shy', at, hit };
+    }
+    return this.attack.at;
   }
 
   // Stumping: the keeper (ball in the gloves) takes the bails off at time `at`.
@@ -222,6 +296,15 @@ export class Fielding {
     k.state = 'set';
     k.action = { type: 'break', t0: t, at, stumps: new Vec3(0, 0.72, PITCH.battingStumpsZ), from: k.pos.clone() };
     if (this.ballOverride) this.ballOverride.holder = 0;
+  }
+
+  // The keeper's under-arm throw at the stumps, in flight.
+  updateShy(t) {
+    const s = this.shy;
+    if (!s || !this.ballOverride || t < s.tStart) return;
+    const k = clamp((t - s.tStart) / (s.at - s.tStart), 0, 1);
+    this.ballOverride.holder = null;
+    this.ballOverride.pos.set(s.from.x + (s.to.x - s.from.x) * k, s.from.y + (s.to.y - s.from.y) * k + Math.sin(Math.PI * k) * 0.18, s.from.z + (s.to.z - s.from.z) * k);
   }
 
   // Whoever is waiting at that end for the throw (null: nobody there).
@@ -256,7 +339,7 @@ export class Fielding {
           f.speed = Math.min(maxV, f.speed + F.fielderAccel * dt, d / Math.max(dt, 1e-3));
           f.pos.x += (dx / d) * f.speed * dt;
           f.pos.z += (dz / d) * f.speed * dt;
-          f.face = Math.atan2(dx, dz);
+          if (!(f.keeper && f.state === 'gather')) f.face = Math.atan2(dx, dz);     // the keeper side-steps, eyes on the ball
         } else {
           f.speed = Math.max(0, f.speed - F.fielderAccel * 2 * dt);
           if ((f.state === 'return' || f.state === 'walkin') && d <= 0.05) {
@@ -268,6 +351,7 @@ export class Fielding {
     }
 
     this.separate();
+    this.updateShy(t);
     if (this.outcome || this.hitT == null || !ball) return this.updateThrow(dt, t);
     if (this.fielded) return this.updateThrow(dt, t);
 
@@ -280,6 +364,7 @@ export class Fielding {
       if (f.state !== 'chase' && f.state !== 'backup' && f.state !== 'gather' && f.state !== 'set' && f.state !== 'stumps' && f.state !== 'walkin' && f.state !== 'return') continue;
       const dxz = Math.hypot(ball.pos.x - f.pos.x, ball.pos.z - f.pos.z);
       const airborne = ball.batted && ball.bouncesSinceBat === 0;
+      if (this.byes && f.keeper) continue;                // it has already beaten him
       if (airborne) {
         const reach = f.state === 'chase' ? F.diveReach : F.reach;
         // Take the catch when the ball arrives (within normal reach), or dive
@@ -448,7 +533,7 @@ export class Fielding {
   estimateReturn() {
     const p = this.plan, F = this.cfg.field;
     if (!p) return Infinity;
-    if (p.airborne) return 0;                       // a catch is on: don't run
+    if (p.airborne && !this.byes) return 0;         // a catch is on: don't run
     const d = Math.min(Math.hypot(p.x, p.z), Math.hypot(p.x, p.z - PITCH.bowlingStumpsZ));
     return p.t + F.pickupTime + d / F.throwSpeed;
   }
@@ -511,7 +596,7 @@ export class Fielding {
     return this.fielders.map((f) => ({
       x: f.pos.x, z: f.pos.z, face: f.face, speed: f.speed,
       hidden: f.bowler && (!this.bowlerFields || f.state === 'set'),
-      state: f.state, action: f.action,
+      state: f.state, action: f.action, leap: f.leap,
       crouch: f.state === 'set' && (f.keeper || f.name === 'slip'),
       armsUp: f.state === 'celebrate',
     }));

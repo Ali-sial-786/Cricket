@@ -171,6 +171,26 @@ export const CONFIG = {
     runFirst: 3.4,           // s to complete the first run
     runNext: 2.9,            // s for each additional run
     runSafetyMargin: 0.35,
+    diveFrom: 4.2,           // m from the crease at which a held dive launches
+    diveSpeed: 7.6,          // m/s through the air…
+    diveSlide: 7.0,          // …then slowing by this much a second along the ground (never below 2.5 m/s)
+    diveReach: 2.1,          // m the bat reaches ahead of a batter at full stretch (1.0 running)
+    getUp: 0.9,              // s on the ground after a dive before another run can be called
+  },
+
+  keeper: {
+    // What the wicket-keeper can physically get a glove to as the ball reaches him.
+    reach: 0.65,             // m to either side taken on his feet
+    standHigh: 2.05,         // m: highest ball taken with his feet on the ground
+    jumpHigh: 2.75,          // m: highest ball taken with a leap
+    diveReach: 1.9,          // m to either side with a full-length dive…
+    diveHigh: 1.5,           // …if the ball is no higher than this
+    standBack: 5.0,          // m behind the stumps to the seamers (up at the stumps for spin: 0.75)
+    breakTime: 0.3,          // s from the take to the bails coming off, standing up
+    shyTime: 0.4,            // s from the take to an under-arm throw at the stumps, standing back
+    shySpeed: 16,            // m/s
+    shyHit: { easy: 0.35, medium: 0.5, hard: 0.65 },   // chance that throw hits
+    diveRecover: 0.7,        // extra s before he can do either after a dive or a leap
   },
 
   ai: {

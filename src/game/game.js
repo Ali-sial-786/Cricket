@@ -589,12 +589,12 @@ export class Game {
   // far away, and where it will land while it's in the air.
   updateBallFinder(dt) {
     const ses = this.session, b = this.world.ball;
-    const hit = ses && this.state === 'play' && ses.hit && (ses.state === 'live' || ses.state === 'settle') && !this.viewOverride;
+    const hit = ses && this.state === 'play' && (ses.hit || ses.byes) && (ses.state === 'live' || ses.state === 'settle') && !this.viewOverride;
     let ball = null, landing = null;
     if (hit && this.settings.ballFinder !== false) {
-      if (b.active && b.batted) {
+      if (b.active && (b.batted || ses.byes)) {
         ball = this.ballView.mesh.position;
-        const first = ses.hit.pred && ses.hit.pred.bounces && ses.hit.pred.bounces[0];
+        const first = ses.hit && ses.hit.pred && ses.hit.pred.bounces && ses.hit.pred.bounces[0];
         if (first && b.bouncesSinceBat === 0 && !b.crossedBoundary) landing = first.pos;
       } else if (this.ballOverride && ses.state === 'live') ball = this.ballView.mesh.position;   // in a fielder's hand / being thrown
     }

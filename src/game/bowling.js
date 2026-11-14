@@ -234,7 +234,7 @@ export class BowlingSession {
     g.say('release', { type: d.name.split(' ')[0].replace('off-break', 'off_spin').replace('leg-break', 'leg_spin').replace('outswinger', 'outswing').replace('inswinger', 'inswing').replace('seam-up', 'fast'), length: d.fullToss ? 'full_toss' : d.length < 2 ? 'yorker' : d.length > 11 ? 'bouncer' : undefined, pace: d.paceKmh });
     this.launchT = g.world.time;
     this.state = 'live';
-    this.hit = null; this.firstBounce = null; this.adjusted = false; this.crossedCrease = false; this.wide = false; this.beamerChecked = false;
+    this.hit = null; this.byes = null; this.firstBounce = null; this.adjusted = false; this.crossedCrease = false; this.wide = false; this.beamerChecked = false;
     this.stumpAt = 0; this.pendingRes = null; this.reviewFlow = null;
     // Overstepping: your head is past the popping crease as you let go.
     this.noBall = false;
@@ -375,32 +375,36 @@ export class BowlingSession {
         return;
       }
     }
-    if (this.field && b.batted) {
+    if (this.field && (b.batted || this.byes)) {
       const res = this.field.result();
       if (res) { if (!this.upstairs(res)) this.finish(res); return; }
       if (t - this.launchT > 20) this.finish({ kind: 'runs', runs: g.runs.completed });
       return;
     }
-    if (!b.batted && (b.pos.z > 2.4 || (this.field && this.field.keeperHold))) {
-      if (this.field && !this.field.keeperHold) this.field.keeperTakes(b);
-      // Out of his ground with the keeper holding the ball: a stumping chance.
-      if (this.field && this.field.keeperHold) {
-        if (!this.stumpAt && g.aiBatter.advanceAt(t) > 0.2) { this.stumpAt = t + (this.keeperUp ? 0.3 : 0.8); this.field.keeperBreak(t, this.stumpAt); return; }
-        if (this.stumpAt) {
-          if (t < this.stumpAt) return;
-          const margin = g.aiBatter.advanceAt(t) - 0.5;        // m short of his ground
-          const lim = CONFIG.match.thirdUmpire;
-          if (margin > -lim) {
-            this.field.breakStumps('batting', t, 0);
-            const res = margin > 0 ? { kind: 'stumped' } : { kind: 'dot', backInTime: true };
-            if (Math.abs(margin) < lim) {
-              this.pendingRes = res; this.reviewFlow = this.third; this.state = 'review';
-              this.third.start({ kind: 'stumping', end: 'batting', margin });
-            } else this.finish(res);
-            return;
-          }
+    // Not hit. What happens next is whatever the ball and the keeper really do.
+    if (!b.batted && this.field) {
+      if (this.field.keeperHold) {
+        // He has it: out of his ground, the batter can be stumped (or thrown out from where the keeper stands back).
+        if (!this.stumpAt) {
+          if (g.aiBatter.advanceAt(t) <= 0.2) { this.finish({ kind: 'dot' }); return; }
+          this.stumpAt = this.field.keeperAttack(t);
+          return;
         }
+        if (t < this.stumpAt) return;
+        const atk = this.field.attack, margin = g.aiBatter.advanceAt(t) - 0.5, lim = CONFIG.match.thirdUmpire;   // m short of his ground
+        if (atk.kind === 'shy' && !atk.hit) { this.finish({ kind: 'dot', shyMissed: true }); return; }
+        if (atk.kind === 'break') this.field.breakStumps('batting', t, 0);
+        const res = margin <= 0 ? { kind: 'dot', backInTime: true }
+          : atk.kind === 'break' ? { kind: 'stumped' } : { kind: 'runout', runs: 0, margin, end: 'batting', who: 'striker' };
+        if (Math.abs(margin) < lim) {
+          this.pendingRes = res; this.reviewFlow = this.third; this.state = 'review';
+          this.third.start({ kind: atk.kind === 'break' ? 'stumping' : 'run_out', end: 'batting', margin });
+        } else this.finish(res);
+        return;
       }
+      // It beat the keeper as well: byes.
+      if (this.field.keeperMissed && b.active) { this.startByes(t); return; }
+    } else if (!b.batted && b.pos.z > 2.4) {                           // nets: past the stumps
       this.finish({ kind: 'dot' });
       return;
     }
@@ -411,6 +415,15 @@ export class BowlingSession {
       }
     }
     if (t - this.launchT > 10) this.finish({ kind: b.batted ? 'runs' : 'dot', runs: 0 });
+  }
+
+  // The ball has gone past the bat and the keeper: it is in play, like a hit.
+  startByes(t) {
+    const g = this.game, b = g.world.ball;
+    this.byes = { t };
+    this.field.onHit(b, t, predict(b, { maxTime: 9, h: 1 / 240 }), { byes: true });
+    g.ui.prompt(this.wide ? 'Wide — and past the keeper!' : 'Past the keeper — byes!', 2.2, '#ffb347');
+    g.crowdReact('close');
   }
 
   // Without fielders (bowling nets): estimate runs from where the ball went.
@@ -438,8 +451,8 @@ export class BowlingSession {
       if (this.field) this.field.onHit(g.world.ball, e.t, pred);
     }
     if (e.type === 'wicket' && e.end === 'batting' && this.state === 'live' && (!this.field || !this.field.fielded) && (!this.hit || e.t - this.hit.t < 0.6)) this.finish({ kind: 'bowled', wicket: 'bowled' });
-    if (e.type === 'boundary' && e.batted) {
-      g.cheer(e.onFull ? 1 : 0.7);
+    if (e.type === 'boundary' && (e.batted || this.byes)) {
+      g.cheer(e.onFull && e.batted ? 1 : 0.7);
       if (this.hit) this.hit.sixOnFull = e.onFull;
       if (this.field) this.field.onBoundary(e);
     }
@@ -463,7 +476,7 @@ export class BowlingSession {
       case 'boundary': big = res.runs === 6 ? 'Six…' : 'Four…'; color = '#ff8080'; outcome.runs = res.runs; outcome.boundary = res.runs; break;
       case 'runs': big = res.runs ? `${res.runs} run${res.runs > 1 ? 's' : ''}` : 'Dot ball'; outcome.runs = res.runs || 0; break;
       default:
-        big = res.padded ? 'Not out' : res.backInTime ? 'Not out — back in time' : this.hit ? 'Dot ball' : (g.aiBatter.plan && g.aiBatter.plan.shot.type === 'leave' ? 'Left alone' : 'Beaten!');
+        big = res.padded ? 'Not out' : res.backInTime ? 'Not out — back in time' : res.shyMissed ? 'Keeper misses the stumps' : this.hit ? 'Dot ball' : (g.aiBatter.plan && g.aiBatter.plan.shot.type === 'leave' ? 'Left alone' : 'Beaten!');
         if (!this.hit && g.aiBatter.plan && g.aiBatter.plan.shot.type !== 'leave') this.stats.beaten++;
     }
     outcome.who = res.who; outcome.fielder = res.by === 'you' ? 'You' : res.by;
@@ -471,8 +484,14 @@ export class BowlingSession {
     if (outcome.wicket && !Innings.canDismiss(outcome.wicket, { noBall: this.noBall, freeHit: this.freeHit })) {
       big = `NOT OUT — ${this.noBall ? 'no-ball' : 'free hit'}`; color = '#ffb347'; outcome.wicket = null;
     }
+    // Byes: runs off a ball that was not hit are extras.
+    if (this.byes && !outcome.wicket) {
+      outcome.byes = true; outcome.boundary = 0;
+      big = res.kind === 'boundary' ? 'Four byes' : outcome.runs ? `${outcome.runs} bye${outcome.runs > 1 ? 's' : ''}` : 'No run'; color = '#ffb347';
+      if (outcome.runs) g.umpires.signal('bye', now);
+    }
     if (this.noBall) { outcome.noBall = true; if (!outcome.wicket && !outcome.boundary) big = `No-ball${outcome.runs ? ` + ${outcome.runs}` : ''}`; }
-    else if (this.wide && !this.hit && !outcome.wicket) { outcome.wide = true; big = 'Wide'; color = '#ffb347'; g.umpires.signal('wide', now); }
+    else if (this.wide && !this.hit && !outcome.wicket) { outcome.wide = true; big = outcome.runs ? `Wide + ${outcome.runs}` : 'Wide'; color = '#ffb347'; g.umpires.signal('wide', now); }
     if (outcome.boundary) {
       g.umpires.signal(outcome.boundary === 6 ? 'six' : 'four', now);
       g.crowdReact('boundaryAgainst');

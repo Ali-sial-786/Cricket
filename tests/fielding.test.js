@@ -49,3 +49,55 @@ test('a soft push into the gap gets runs, a block to a close fielder gets none',
   assert.equal(block.kind, 'runs');
   assert.equal(block.runs, 0);
 });
+
+// ---- the keeper only has the ball if he can physically reach it ----
+function bowlPast({ x = 0.2, y, vy = -1, spinner = false, speed = 30 }) {
+  const f = new Fielding({ rng: makeRng(3), spinner });
+  const k = f.fielders[0];
+  const ball = { pos: new Vec3(x, y, k.pos.z - 3), vel: new Vec3(0, vy, speed), bounces: 1, batted: false };
+  let got = null, t = 0;
+  for (; t < 1 && !got; t += 1 / 240) {
+    ball.pos.z += ball.vel.z / 240;
+    f.keeperTrack(ball, t);
+    f.update(1 / 240, t, null, null);
+    got = f.keeperTry(ball, t);
+  }
+  return { f, got };
+}
+
+test('a ball at chest height straight to the keeper is taken', () => {
+  const { f, got } = bowlPast({ y: 1.2, vy: 0 });
+  assert.equal(got, 'take');
+  assert.equal(f.keeperHold, true);
+  assert.equal(f.fielders[0].action.how, 'take');
+});
+
+test('a bouncer above his standing reach makes him leap; one well over his head beats him', () => {
+  const leap = bowlPast({ y: 2.4, vy: 0 });
+  assert.equal(leap.got, 'take');
+  assert.equal(leap.f.fielders[0].action.how, 'leap');
+  const over = bowlPast({ y: 3.2, vy: 0 });
+  assert.equal(over.got, 'miss');
+  assert.equal(over.f.keeperHold, false);
+  assert.ok(over.f.keeperMissed);
+  assert.equal(over.f.keeperAttack(1), null, 'no ball, no stumping');
+});
+
+test('a ball fired far down the leg side beats the dive', () => {
+  const { f, got } = bowlPast({ x: -3.4, y: 0.6, vy: 0, speed: 38 });
+  assert.equal(got, 'miss');
+  assert.equal(f.keeperHold, false);
+});
+
+test('standing up to the spinner he breaks the wicket himself; standing back he has to throw', () => {
+  const up = bowlPast({ y: 0.9, vy: 0, spinner: true, speed: 20 }).f;
+  const at = up.keeperAttack(0.5);
+  assert.equal(up.attack.kind, 'break');
+  assert.ok(at >= 0.5 && at < 1.2);
+  const back = bowlPast({ y: 0.9, vy: 0 }).f;
+  back.keeperAttack(0.5, () => 0.01, 0.5);
+  assert.equal(back.attack.kind, 'shy');
+  assert.equal(back.attack.hit, true);
+  back.keeperAttack(0.5, () => 0.99, 0.5);
+  assert.equal(back.attack.hit, false);
+});

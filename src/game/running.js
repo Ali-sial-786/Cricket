@@ -11,6 +11,7 @@ import { PITCH } from '../physics/pitch.js';
 
 const CREASE_TO_CREASE = PITCH.length - 2 * PITCH.poppingOffset;     // 17.68 m
 const Z_BAT = -PITCH.poppingOffset + 0.35, Z_BOWL = PITCH.bowlingStumpsZ + PITCH.poppingOffset - 0.35;
+const F_GETUP = (r) => r.cfg.field.getUp;
 const ss = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 
 export class Runs {
@@ -21,8 +22,15 @@ export class Runs {
     this.p = 0;
     this.target = 0;
     this.rate = 0;           // d(p)/dt this frame (signed)
-    this.diving = false;
-    this.diveT = -1;
+    this.diving = false;     // in the air / sliding for the line
+    this.diveT = 0;          // s since the dive was launched
+    this.diveV = 0;          // m/s along the pitch during the dive
+    this.diveHeld = false;   // the dive button is down: dive as soon as the crease is in range
+    this.diveWanted = false; // (a tap) dive when in range on this run
+    this.diveWho = null;     // 'striker' | 'nonStriker': which batter is diving
+    this.diveEnd = null;     // the end to dive for ('batting' | 'bowling'); null = the striker's
+    this.down = 0;           // s left on the ground after a dive
+    this.diveStarted = false;// set on the frame a dive launches (cleared by whoever reads it)
     this.t0 = 0;
     this.sStart = { x: -0.4, z: -1.1 };
     this.nStart = { x: -1.35, z: -18.75 };
@@ -45,9 +53,9 @@ export class Runs {
 
   // Call a run. Only possible when the batters are in their ground.
   call() {
-    if (!this.active || this.closed || this.running) return false;
+    if (!this.active || this.closed || this.running || this.down > 0.3) return false;   // still getting up
     this.target = this.completed + 1;
-    this.diving = false;
+    this.diving = false; this.diveWanted = false; this.down = 0;
     return true;
   }
 
@@ -55,15 +63,16 @@ export class Runs {
   turnBack() {
     if (!this.running || this.goingBack) return false;
     this.target = Math.floor(this.p + 1e-6);
-    this.diving = false;
+    this.diving = false; this.diveWanted = false;
     return true;
   }
 
-  // Dive for the line: only near the end of a run. Makes the ground sooner.
-  dive(t = 0) {
-    if (!this.running || this.diving || this.remaining > 0.3) return false;
-    this.diving = true;
-    this.diveT = t;
+  // Dive for the line. Hold the button (diveHeld) or tap it (dive()): the
+  // batter launches full length, bat stretched out in front, as soon as the
+  // crease is within range, slides in, and then needs a moment to get up.
+  dive() {
+    if (!this.running || this.diving) return false;
+    this.diveWanted = true;
     return true;
   }
 
@@ -73,15 +82,31 @@ export class Runs {
     if (!this.active) { this.rate = 0; return; }
     const F = this.cfg.field;
     const prev = this.p;
+    if (this.down > 0 && !this.running) this.down = Math.max(0, this.down - dt);
     if (this.running) {
       const first = this.completed === 0 && !this.goingBack && this.p < 1;
       let rate = 1 / (first ? F.runFirst : F.runNext);
       if (first) rate *= 0.55 + 0.9 * ss(0, 0.35, this.p);            // getting going from a standing start
-      if (this.diving) rate *= 1.45;
+      const left = this.remaining * CREASE_TO_CREASE;
+      if (!this.diving && (this.diveHeld || this.diveWanted) && left <= F.diveFrom && left > 0.4) {
+        this.diving = true; this.diveStarted = true; this.diveT = 0;
+        this.diveV = Math.max(F.diveSpeed, rate * CREASE_TO_CREASE);
+        const end = this.diveEnd || (this.headingTo('bowling') === 'striker' ? 'bowling' : 'batting');
+        this.diveWho = this.headingTo(end);
+      }
+      if (this.diving) {
+        this.diveT += dt;
+        if (this.diveT > 0.3) this.diveV = Math.max(2.5, this.diveV - F.diveSlide * dt);    // down and sliding
+        rate = this.diveV / CREASE_TO_CREASE;
+      }
       const d = this.target - this.p;
       const step = Math.min(Math.abs(d), rate * dt);
       this.p += Math.sign(d) * step;
-      if (Math.abs(this.target - this.p) < 1e-6) { this.p = this.target; this.diving = false; }
+      if (Math.abs(this.target - this.p) < 1e-6) {
+        this.p = this.target;
+        if (this.diving) this.down = F.getUp;
+        this.diving = false; this.diveWanted = false;
+      }
     }
     this.rate = dt > 0 ? (this.p - prev) / dt : 0;
   }
@@ -90,7 +115,8 @@ export class Runs {
   // (both are equally far from their ground at any moment). <= 0: in.
   shortBy() {
     if (!this.running) return 0;
-    const reach = this.diving ? 1.9 : 1.0;                            // bat (and body) stretched for the line
+    const F = this.cfg.field;
+    const reach = this.diving ? 1.0 + (F.diveReach - 1.0) * ss(0.05, 0.3, this.diveT) : 1.0;   // bat (and body) stretched for the line
     return this.remaining * CREASE_TO_CREASE - reach;
   }
 
@@ -120,7 +146,12 @@ export class Runs {
     if (leg === 0) { x = start.x + (lane - start.x) * ss(0, 0.25, f); z = start.z + (z1 - start.z) * f; }
     const moving = Math.abs(this.rate) > 1e-4;
     const dir = Math.sign(z1 - z0) * (this.rate < 0 ? -1 : 1);
-    return { x, z, speed: Math.abs(this.rate) * CREASE_TO_CREASE, heading: dir >= 0 ? 0 : Math.PI, moving, diving: this.diving, f };
+    // The dive (and the moment on the ground after it) belongs to one batter.
+    const mine = (striker ? 'striker' : 'nonStriker') === this.diveWho;
+    const dive = mine && this.diving ? { t: this.diveT, down: 0 } : mine && this.down > 0 ? { t: this.diveT, down: F_GETUP(this) - this.down } : null;
+    const heading = (dive && !this.diving ? this.diveDir : dir) >= 0 ? 0 : Math.PI;
+    if (this.diving) this.diveDir = dir;
+    return { x, z, speed: Math.abs(this.rate) * CREASE_TO_CREASE, heading, moving, diving: !!dive, dive, f };
   }
 }
 

@@ -78,17 +78,21 @@ export class FieldController {
   released() { this.logic.onRelease(); }
   endDelivery() { this.delivering = false; }
   setSpinner(on) { this.logic.setSpinner(on); }
-  keeperTakes(ball) { this.logic.keeperTakes(ball); }
-  keeperBreak(t, at) { this.logic.keeperBreak(t, at); }   // the keeper goes for the stumps (breakStumps decides)
+  // The keeper goes for the wicket (bails off, or a throw at the stumps from
+  // where he stands back). Returns when it will be broken (or the throw gets there).
+  keeperAttack(t) { return this.logic.keeperAttack(t, this.game.rng, CONFIG.keeper.shyHit[this.game.settings.difficulty] ?? 0.5); }
+  get attack() { return this.logic.attack; }
+  get keeperMissed() { return this.logic.keeperMissed; }
+  get keeperUp() { return this.logic.keeperUp; }
   get fielded() { return this.logic.fielded; }
   get message() { return this.logic.message; }
   get keeperHold() { return this.logic.keeperHold; }
   result() { return this.outcome; }
 
   // ------------------------------------------------------------- the hit
-  onHit(ball, t, pred) {
+  onHit(ball, t, pred, opts = undefined) {
     const g = this.game, L = this.logic;
-    L.onHit(ball, t, pred);
+    L.onHit(ball, t, pred, opts);
     this.pred = pred;
     this.delivering = false;
     // When you bat, a runner in your kit sets off from where you are standing.
@@ -116,6 +120,8 @@ export class FieldController {
   callRun() { if (!this.playerBatting || this.outcome) return false; const ok = this.runs.call(); if (ok) this.game.sample('footstep'); return ok; }
   turnBack() { return this.playerBatting && !this.outcome && this.runs.turnBack(); }
   dive(t) { return this.playerBatting && !this.outcome && this.runs.dive(t); }
+  // The end a throw is on its way to (null: none in the air).
+  throwEnd() { const th = this.logic.throw; return th && th.released && !this.logic.throwArrived ? th.end : null; }
 
   // ------------------------------------------------------------- catching (player)
   planCatch(t) {
@@ -207,6 +213,17 @@ export class FieldController {
     this.pendingBreak = { end, t: t + delay };
   }
 
+  // The wicket at `end` is broken this instant (the replay cuts to that crease).
+  breakNow(end, t) {
+    const g = this.game;
+    if (g.stumps[end].broken) return;
+    g.stumps[end].break({ x: 0, y: 0, z: end === 'batting' ? -8 : 8 }, 1);
+    g.sample('stumps') || g.sfx.stumps();
+    g.sample('bails', { gain: 0.6 });
+    g.replay.mark('break', t);
+    g.replay.marks.breakEnd = end;
+  }
+
   // ------------------------------------------------------------- per frame
   update(dt, t) {
     const g = this.game, w = g.world, L = this.logic, b = w.ball, r = this.runs;
@@ -215,15 +232,19 @@ export class FieldController {
     this.updateCatch(t);
     this.endCatchView();
 
-    // Keeper gathers deliveries that beat (or are left by) the batter.
-    if (b.active && !b.batted && !b.padded && !L.outcome && !L.keeperHold && b.pos.z > -0.5 && b.vel.z > 0) {
-      const k = L.fielders[0];
-      if (!this.keeperTold) { L.keeperTakes(b); this.keeperTold = true; }
-      if (b.pos.z >= k.pos.z - 0.35 && Math.abs(b.pos.x - k.pos.x) < 1.5 && b.pos.y < 2.3) {
-        L.keeperCollect(b, t);
-        w.removeBall();
-        g.sample('gloves') || g.sfx.catchThud();
-      }
+    // The keeper moves with the line of a ball that has not been hit, and
+    // takes it only if he can physically reach it. If he can't, it runs away
+    // behind him and the session treats it as byes.
+    if (b.active && !b.batted && !b.padded && !L.outcome && !L.keeperHold && !L.keeperMissed && L.hitT == null) {
+      L.keeperTrack(b, t);
+      const got = L.keeperTry(b, t);
+      if (got === 'take') { w.removeBall(); g.sample('gloves') || g.sfx.catchThud(); g.replay.mark('held', t); }
+      else if (got === 'miss') g.crowdReact('close');
+    }
+    // His throw at the stumps arrives.
+    if (L.shy && !L.shy.done && t >= L.shy.at) {
+      L.shy.done = true;
+      if (L.shy.hit) this.breakNow('batting', t);
     }
 
     // ---- running ----
@@ -236,7 +257,8 @@ export class FieldController {
           const F = CONFIG.field;
           const need = r.remaining * F.runNext;
           if (!r.goingBack && r.remaining > 0.62 && t + need > th.tArrive + 0.1 && !this.turnedBack && g.rng() < 0.75) { r.turnBack(); this.turnedBack = true; this.aiRunsLeft = 0; }
-          if (r.remaining < 0.26 && th.released) r.dive(t);
+          // Touch and go at the end the throw is coming to: dive for it.
+          if (th.released && t + r.remaining * F.runNext > th.tArrive - 0.3) { r.diveEnd = th.end; r.dive(t); }
         }
       }
       r.update(dt);
@@ -286,9 +308,7 @@ export class FieldController {
     if (this.pendingBreak && t >= this.pendingBreak.t) {
       const end = this.pendingBreak.end;
       this.pendingBreak = null;
-      g.stumps[end].break({ x: 0, y: 0, z: end === 'batting' ? -8 : 8 }, 1);
-      g.sample('stumps') || g.sfx.stumps();
-      g.sample('bails', { gain: 0.6 });
+      this.breakNow(end, t);
     }
 
     // Ball in a fielder's hands: both hands at the moment of the catch, then

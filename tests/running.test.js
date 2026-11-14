@@ -63,3 +63,18 @@ test('AI takes more runs the longer the ball is away', () => {
   assert.ok(planRuns(5.5, 0.4, rng) >= 1);
   assert.ok(planRuns(12, 0.4, rng) >= 2);
 });
+
+test('holding the dive launches it when the crease is in range, and the batter then has to get up', () => {
+  const r = new Runs();
+  r.begin(0); r.call();
+  r.diveHeld = true;
+  let launchedAt = null;
+  for (let t = 0; t < 8 && r.running; t += 0.01) { r.update(0.01); if (r.diving && launchedAt == null) launchedAt = r.remaining * 17.68; }
+  assert.ok(launchedAt != null && launchedAt <= CONFIG.field.diveFrom + 0.1 && launchedAt > 2, `launched ${launchedAt} m out`);
+  assert.equal(r.completed, 1);
+  assert.ok(r.down > 0, 'on the ground');
+  assert.equal(r.state(true).diving || r.state(false).diving, true);
+  assert.equal(r.call(), false, 'cannot set off again while lying there');
+  step(r, CONFIG.field.getUp + 0.1);
+  assert.equal(r.call(), true);
+});

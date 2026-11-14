@@ -103,7 +103,34 @@ export class FielderActor extends Actor {
     h.reset();
     const act = s.action;
     const ta = act ? t - act.t0 : 0;
-    if (act && act.type === 'catch' && act.dive && ta < 1.1) {
+    // The keeper going for a ball that is high or wide: timed so that he is
+    // at full stretch as it reaches him (whether or not he gets there).
+    const lp = this.keeper && s.leap && s.leap.how !== 'take' ? s.leap : null;
+    const lu = lp ? t - lp.t : 9;                       // s relative to the ball arriving
+    if (lp && lp.how === 'leap' && lu > -0.36 && lu < 0.52 && !(act && (act.type === 'break' || act.type === 'throw'))) {
+      const air = Math.max(0, 1 - (lu / 0.3) * (lu / 0.3));
+      const bend = sstep(-0.36, -0.28, lu) * (1 - sstep(-0.28, -0.14, lu)) + sstep(0.26, 0.33, lu) * (1 - sstep(0.33, 0.52, lu));
+      poseIdle(h, t, 1);
+      h.bones.hips.position.y = h.hipsRest.y - 0.24 * bend;
+      h.rot('spine', 0.3 * bend - 0.22 * air, 0, 0);
+      h.rot('chest', -0.12 * air, 0, 0);
+      h.rot('hipL', -0.5 * bend + 0.12 * air, 0, 0.04); h.rot('hipR', -0.5 * bend + 0.2 * air, 0, -0.04);
+      h.rot('kneeL', 0.95 * bend + 0.35 * air, 0, 0); h.rot('kneeR', 0.95 * bend + 0.55 * air, 0, 0);
+      h.rot('ankleL', -0.45 * bend + 0.7 * air, 0, 0); h.rot('ankleR', -0.45 * bend + 0.7 * air, 0, 0);
+      h.rot('neck', -0.35 * air, 0, 0); h.rot('head', -0.3 * air, 0, 0);
+      this.apply();
+      h.root.position.y = clamp(lp.y - 2.0, 0.1, 0.65) * air;
+      if (lu > -0.26 && lu < (lp.missed ? 0.3 : 0.16)) this.reachBoth(_e.set(lp.x, lp.y + (lp.missed ? -0.12 : 0), this.pos.z - 0.1), 1);
+      else if (!lp.missed && lu >= 0.16) this.handsToChest();
+    } else if (lp && lp.how === 'dive' && lu > -0.3 && lu < 0.8 && !(act && (act.type === 'break' || act.type === 'throw'))) {
+      const k = clamp((lu + 0.3) / 1.0, 0, 1);
+      const sideLocal = lp.side * Math.cos(this.heading) >= 0 ? 1 : -1;      // which way that is for the figure
+      poseDive(h, k, sideLocal);
+      const lunge = Math.max(0.3, lp.reach || 0.8) * sstep(0, 0.3, k);
+      this.apply(lp.side * lunge, 0);
+      if (k < 0.5) this.reachBoth(_e.set(lp.x, Math.max(0.12, lp.y), this.pos.z - 0.1), 0.6);
+      else if (!lp.missed) this.handsToChest();
+    } else if (act && act.type === 'catch' && act.dive && ta < 1.1) {
       const k = ta / 0.95;
       poseDive(h, k, act.side);
       const lunge = act.lunge * sstep(0, 0.32, k);
@@ -160,6 +187,13 @@ export class FielderActor extends Actor {
       this.plant(0.24, true);
       if (act.target && ta < 0.4) this.reachBoth(act.target, 1);
       else this.handsToChest();
+    } else if (this.keeper && s.state === 'gather') {
+      // Moving across with the line of the ball: low, on his toes, gloves ready.
+      poseIdle(h, t, 1);
+      poseReady(h, 0.75, true);
+      this.apply();
+      this.plant(0.26 + 0.05 * Math.sin(this.phase), true);
+      if (s.leap && t > s.leap.t - 0.22) this.reachBoth(_e.set(s.leap.x, clamp(s.leap.y, 0.15, 2.0), this.pos.z - 0.25), 1);
     } else if (this.speed > 0.25) {
       poseLocomotion(h, this.phase, this.speed, this.keeper ? 0.05 : 0);
       this.apply();
@@ -669,6 +703,46 @@ export class BatterActor extends Actor {
     if (look && !diving) h.lookAt(look, 0.8);
     this.smooth(dt);
     this.carry();
+    h.syncShadow();
+  }
+
+  // Full-length dive for the crease. dv = { t: s since the launch, down: s
+  // since coming to rest (0 while still moving) }. Tip forward, go horizontal,
+  // land on the chest and slide with the bat stretched out along the ground
+  // in front; then push up again.
+  updateDive(dt, t, dv) {
+    const h = this.h, sc = h.root.scale.y;
+    this.mode = 'run';
+    const u = dv.t, up = dv.down > 0 ? sstep(0.3, 0.85, dv.down) : 0;
+    const go = sstep(0, 0.2, u) * (1 - up);                 // committing: arms and bat thrown forward
+    const flat = sstep(0.08, 0.36, u) * (1 - up);           // body horizontal
+    const ground = sstep(0.26, 0.44, u);                    // chest on the turf
+    h.reset();
+    h.bones.hips.position.y = mix(mix(h.hipsRest.y * 0.9, 0.2 / sc, ground), h.hipsRest.y * 0.8, up);
+    h.rot('hips', 1.46 * flat + 0.45 * go * (1 - flat) + 0.5 * up * (1 - up) * 2, 0, 0);
+    h.rot('spine', -0.16 * flat * ground + 0.3 * go * (1 - flat), 0, 0);
+    h.rot('chest', -0.14 * flat * ground, 0, 0);
+    h.rot('neck', -0.5 * flat, 0, 0); h.rot('head', -0.45 * flat, 0, 0);             // eyes on the line
+    h.rot('shoulderR', -2.95 * go, 0, -0.06); h.rot('elbowR', -0.04, 0, 0);          // bat arm at full stretch
+    h.rot('shoulderL', -2.35 * go, 0, 0.4 * flat); h.rot('elbowL', -0.55 * flat - 0.2, 0, 0);
+    h.rot('hipL', -0.75 * go * (1 - flat) + 0.06 * flat - 0.9 * up * (1 - up) * 2, 0, 0.1); h.rot('kneeL', 0.9 * go * (1 - flat) + 0.12 * flat + 1.2 * up * (1 - up) * 2, 0, 0);
+    h.rot('hipR', 0.5 * go * (1 - flat) + 0.14 * flat, 0, -0.1); h.rot('kneeR', 0.3 * go * (1 - flat) + 0.32 * flat * (1 - ground * 0.5), 0, 0);
+    h.rot('ankleL', 0.95 * flat, 0, 0); h.rot('ankleR', 0.95 * flat, 0, 0);          // toes pointed back
+    this.apply();
+    this.smooth(dt, 0.1);
+    // The bat: out in front of the right hand, toe down on the ground, sliding in.
+    h.update();
+    h.bones.handR.getWorldPosition(_a);
+    this.forward(_fwd);
+    const drop = Math.asin(clamp((_a.y - 0.03) / 0.8, -0.2, 0.9));                  // enough tilt for the toe to touch
+    _y.set(-_fwd.x * Math.cos(drop), Math.sin(drop), -_fwd.z * Math.cos(drop));      // bat +Y: from the toe back up the handle
+    _x.set(_fwd.z, 0, -_fwd.x);
+    _z.crossVectors(_x, _y);                                                        // face down
+    _q.setFromRotationMatrix(_m.makeBasis(_x, _y, _z));
+    h.bones.handR.getWorldQuaternion(_ql);
+    _ql.multiply(_carryRot);
+    this.bat.quaternion.copy(_ql).slerp(_q, clamp(go + flat, 0, 1));
+    this.bat.position.copy(_a);
     h.syncShadow();
   }
 

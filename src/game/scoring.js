@@ -19,7 +19,7 @@ export class Innings {
     this.freeHit = false;          // the next ball is a free hit (follows a no-ball)
   }
 
-  // Record a delivery. outcome: { runs, wide, noBall, wicket: null | 'bowled'
+  // Record a delivery. outcome: { runs, wide, noBall, byes, wicket: null | 'bowled'
   // | 'caught' | 'lbw' | 'stumped' | 'run out', boundary: 0|4|6, who, fielder }.
   // A wide or a no-ball costs one run and is bowled again; a no-ball also
   // makes the next ball a free hit.
@@ -28,12 +28,13 @@ export class Innings {
     let total = o.runs;
     const extra = o.wide || o.noBall;
     if (extra) { total += 1; this.extras += 1; } else { this.legal++; }
+    if (o.byes || o.wide) this.extras += o.runs;          // not off the bat
     this.runs += total;
     if (o.boundary === 4) this.fours++;
     if (o.boundary === 6) this.sixes++;
     if (o.wicket) this.wickets++;
     if (o.noBall) this.freeHit = true; else if (!o.wide) this.freeHit = false;
-    const sym = o.wicket ? 'W' : o.wide ? `${total}wd` : o.noBall ? `${total}nb` : String(total === 0 ? '•' : total);
+    const sym = o.wicket ? 'W' : o.wide ? `${total}wd` : o.noBall ? `${total}nb` : o.byes && total ? `${total}b` : String(total === 0 ? '•' : total);
     this.thisOver.push(sym);
     this.log.push({ ...o, total, sym, over: Math.floor((this.legal - (extra ? 0 : 1)) / 6) });
     const overDone = !extra && this.legal % 6 === 0;
