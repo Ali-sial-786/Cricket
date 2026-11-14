@@ -128,22 +128,48 @@ function buildGear(o) {
     gearPart(P, cyl(0.217, 0.217, 0.03, 14), 'head', KIT1, [hx, hy + 0.135, hz]);
   }
   if (o.gloves) {
-    const big = o.keeper;
+    const keeper = o.keeper;
     for (const s of ['L', 'R']) {
-      const sx = s === 'L' ? 1 : -1;
-      gearPart(P, box(big ? 0.135 : 0.105, big ? 0.19 : 0.15, big ? 0.07 : 0.085), 'hand' + s, big ? KIT2 : 0xf5f5f5, [0, -0.085, 0.012]);
-      gearPart(P, box(big ? 0.138 : 0.108, 0.035, big ? 0.073 : 0.088), 'hand' + s, big ? 0xf5f5f5 : KIT2, [0, -0.02, 0.012]);
-      gearPart(P, box(0.035, 0.085, 0.045), 'hand' + s, big ? KIT2 : 0xf5f5f5, [sx * 0.055, -0.06, 0.04]);
-      gearPart(P, cyl(0.05, 0.047, 0.07, 8), 'elbow' + s, 0xf5f5f5, [0, -0.215, 0]);
+      const sx = s === 'L' ? 1 : -1;                  // the outside of this hand (back of the glove)
+      const hand = 'hand' + s;
+      if (keeper) {
+        // Keeping gloves: a big padded mitt with a webbed thumb and a long cuff.
+        gearPart(P, sphere(1, 12, 9), hand, 0xf4f4f2, [0, -0.1, 0.012], null, [0.072, 0.118, 0.052]);
+        gearPart(P, sphere(1, 10, 7), hand, KIT2, [sx * 0.034, -0.098, 0.012], null, [0.03, 0.1, 0.046]);     // coloured back
+        for (const fy of [-0.13, -0.1, -0.07]) gearPart(P, cyl(0.009, 0.009, 0.1, 6), hand, 0xdcdcd8, [sx * 0.05, fy, 0.012], [Math.PI / 2, 0, 0]); // finger rolls
+        gearPart(P, sphere(1, 8, 6), hand, 0xf4f4f2, [-sx * 0.012, -0.062, 0.06], [0.4, 0, 0], [0.024, 0.052, 0.024]);  // thumb
+        gearPart(P, box(0.006, 0.05, 0.04), hand, KIT2, [-sx * 0.01, -0.07, 0.045]);                          // webbing
+        gearPart(P, cyl(0.052, 0.06, 0.09, 10), hand, 0xf4f4f2, [0, -0.005, 0.01]);                            // cuff
+        gearPart(P, cyl(0.061, 0.061, 0.02, 10), hand, KIT2, [0, 0.03, 0.01]);
+      } else {
+        // Batting gloves: padded fingers on the back, white with a coloured cuff.
+        gearPart(P, sphere(1, 10, 8), hand, 0xf6f6f6, [0, -0.078, 0.012], null, [0.054, 0.088, 0.048]);
+        for (const fz of [-0.012, 0.012, 0.034]) gearPart(P, cyl(0.011, 0.011, 0.08, 6), hand, 0xffffff, [sx * 0.04, -0.085, fz]);   // finger rolls
+        gearPart(P, sphere(1, 8, 6), hand, 0xf6f6f6, [0, -0.05, 0.05], [0.5, 0, 0], [0.02, 0.042, 0.02]);    // thumb
+        gearPart(P, cyl(0.046, 0.05, 0.06, 10), hand, KIT2, [0, -0.012, 0.01]);                               // cuff
+        gearPart(P, cyl(0.05, 0.047, 0.07, 8), 'elbow' + s, 0xf5f5f5, [0, -0.215, 0]);                         // arm guard
+      }
     }
   }
   if (o.pads) {
+    const keeper = o.keeper;
+    const H = keeper ? 0.36 : 0.43, yc = keeper ? -0.21 : -0.2;
     for (const s of ['L', 'R']) {
-      gearPart(P, box(0.185, 0.44, 0.07), 'knee' + s, 0xf7f7f7, [0, -0.2, 0.085]);
-      gearPart(P, cyl(0.085, 0.085, 0.18, 10), 'knee' + s, 0xf7f7f7, [0, 0.03, 0.085], [0, 0, Math.PI / 2]);
-      gearPart(P, box(0.2, 0.12, 0.06), 'hip' + s, 0xf7f7f7, [0, -0.37, 0.085]);
-      for (const ox of [-0.055, 0, 0.055]) gearPart(P, box(0.03, 0.4, 0.02), 'knee' + s, 0xe6e6e6, [ox, -0.2, 0.127]);
-      for (const oy of [-0.07, -0.31]) gearPart(P, box(0.19, 0.028, 0.075), 'knee' + s, KIT2, [0, oy, 0.085]);
+      const knee = 'knee' + s;
+      // Vertical bolsters (three rounded canes) with grooves between them.
+      for (const ox of [-0.058, 0, 0.058]) gearPart(P, cyl(0.032, 0.029, H, 8), knee, 0xf7f7f5, [ox, yc, 0.088]);
+      for (const ox of [-0.029, 0.029]) gearPart(P, box(0.006, H * 0.95, 0.012), knee, 0xd9d9d5, [ox, yc, 0.118]);
+      // Side wings wrapping round the leg.
+      for (const sx of [-1, 1]) gearPart(P, box(0.018, H * 0.95, 0.085), knee, keeper ? KIT2 : 0xefefeb, [sx * 0.098, yc, 0.055], [0, sx * 0.4, 0]);
+      // Knee roll and instep.
+      const kr = keeper ? 0.062 : 0.074;
+      gearPart(P, cyl(kr, kr, 0.2, 12), knee, 0xf7f7f5, [0, 0.035, 0.1], [0, 0, Math.PI / 2]);
+      gearPart(P, cyl(kr * 0.55, kr * 0.55, 0.205, 10), knee, KIT2, [0, 0.035, 0.1], [0, 0, Math.PI / 2], [1, 1, 0.3]);
+      gearPart(P, box(0.15, 0.05, 0.06), knee, 0xf0f0ec, [0, yc - H / 2 - 0.01, 0.105], [0.35, 0, 0]);
+      // Thigh flap above the knee (batting pads only).
+      if (!keeper) gearPart(P, box(0.19, 0.13, 0.05), knee, 0xf7f7f5, [0, 0.14, 0.095], [-0.12, 0, 0]);
+      // Straps round the back of the leg.
+      for (const oy of [yc + H * 0.28, yc - H * 0.25]) gearPart(P, box(0.18, 0.022, 0.02), knee, KIT2, [0, oy, -0.055]);
     }
   }
   return P;

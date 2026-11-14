@@ -206,7 +206,7 @@ export class BattingSession {
     this.delivery = machineDelivery(settings, g.rng, CONFIG, rel);
     this.settingsUsed = settings;
     this.hit = null; this.firstBounce = null; this.wide = false; this.crossedCrease = false;
-    this.maxBatSpeedNear = 0; this.stumpAt = 0; this.path.length = 0; this.shotName = '';
+    this.maxBatSpeedNear = 0; this.stumpAt = 0; this.stumpBroke = false; this.path.length = 0; this.shotName = '';
     this.pendingRes = null; this.reviewFlow = null;
     // Extras: the AI bowler oversteps now and then; the ball after a no-ball is a free hit.
     this.freeHit = !!(this.innings && this.innings.freeHit);
@@ -284,6 +284,7 @@ export class BattingSession {
       const out = this.body().z < battingPoppingZ - 0.12;          // out of your ground
       if (this.field && out && !this.stumpAt) {
         this.stumpAt = t + (this.settingsUsed.spinner ? 0.3 : 0.85);
+        this.field.keeperBreak(t, this.stumpAt);                    // he goes for the stumps…
         g.ui.prompt('GET BACK!', 1, '#ff5a5a');
         return;
       }
@@ -292,8 +293,7 @@ export class BattingSession {
         const margin = battingPoppingZ - 0.05 - this.body().z;       // m short of your ground
         const lim = CONFIG.match.thirdUmpire;
         if (margin > -lim * 0.6) {                                    // the bails come off; close ones go upstairs
-          g.stumps.batting.break({ x: 0, y: 0, z: -6 }, 1);
-          g.sample('stumps') || g.sfx.stumps();
+          if (!this.stumpBroke) { this.stumpBroke = true; this.field.breakStumps('batting', t, 0); }
           const res = margin > 0 ? { kind: 'stumped' } : { kind: 'beaten', backInTime: true };
           if (Math.abs(margin) < lim) {
             this.pendingRes = res; this.reviewFlow = this.third; this.state = 'review';
@@ -391,8 +391,7 @@ export class BattingSession {
     else if (res.kind === 'runs' && res.closeCall != null && res.closeCall < lim * 0.8) {
       margin = -res.closeCall;
       const end = res.end || 'batting';
-      g.stumps[end].break({ x: 0, y: 0, z: end === 'batting' ? -8 : 8 }, 1);
-      g.sample('stumps') || g.sfx.stumps();
+      if (this.field) this.field.breakStumps(end, g.simTime, 0.05);
     }
     if (margin == null) return false;
     this.pendingRes = res; this.reviewFlow = this.third; this.state = 'review';

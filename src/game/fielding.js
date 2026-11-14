@@ -70,6 +70,7 @@ export class Fielding {
     this.dropped = false;
     this.keeperHold = false;
     this.throwArrived = null;
+    this.bowlEndReceiver = null;
     for (const f of this.fielders) {
       f.playerControlled = false;
       f.pos.copy(f.home); f.vel.set(0, 0, 0); f.state = 'set'; f.target = null; f.speed = 0; f.prevDist = Infinity;
@@ -176,6 +177,20 @@ export class Fielding {
     // Keeper moves up to the stumps for the throw.
     const k = this.fielders[0];
     if (k.state === 'set') { k.state = 'stumps'; k.target = new Vec3(0, 0, 0.6); }
+    // Someone backs up at the bowler's end: the bowler, or (when you bowl)
+    // the nearest fielder who isn't chasing.
+    let r = null;
+    if (this.bowlerFields) r = this.fielders[this.fielders.length - 1];
+    else {
+      let nd = Infinity;
+      for (const f of this.fielders) {
+        if (f.keeper || f.bowler || f.state !== 'set') continue;
+        const d = Math.hypot(f.pos.x, f.pos.z - PITCH.bowlingStumpsZ);
+        if (d < nd) { nd = d; r = f; }
+      }
+    }
+    if (r && r.state === 'set') { r.state = 'stumps'; r.target = new Vec3(-0.35, 0, PITCH.bowlingStumpsZ - 0.6); }
+    this.bowlEndReceiver = r;
   }
 
   onBoundary(e) {
@@ -196,9 +211,27 @@ export class Fielding {
   keeperCollect(ball, t) {
     const k = this.fielders[0];
     this.keeperHold = true;
-    k.action = { type: 'keep', t0: t, target: new Vec3(ball.pos.x, ball.pos.y, ball.pos.z) };
+    k.action = { type: 'keep', t0: t, target: new Vec3(ball.pos.x, ball.pos.y, ball.pos.z), hold: true };
     k.state = 'set';
     this.ballOverride = { pos: new Vec3(ball.pos.x, ball.pos.y, ball.pos.z), holder: 0 };
+  }
+
+  // Stumping: the keeper (ball in the gloves) takes the bails off at time `at`.
+  keeperBreak(t, at) {
+    const k = this.fielders[0];
+    k.state = 'set';
+    k.action = { type: 'break', t0: t, at, stumps: new Vec3(0, 0.72, PITCH.battingStumpsZ), from: k.pos.clone() };
+    if (this.ballOverride) this.ballOverride.holder = 0;
+  }
+
+  // Whoever is waiting at that end for the throw (null: nobody there).
+  receiverAt(end) {
+    if (end === 'batting') {
+      const k = this.fielders[0];
+      return Math.hypot(k.pos.x, k.pos.z - 0.6) < 2.5 ? k : null;
+    }
+    const r = this.bowlEndReceiver;
+    return r && Math.hypot(r.pos.x, r.pos.z - (PITCH.bowlingStumpsZ - 0.6)) < 2.5 ? r : null;
   }
 
   result() { return this.outcome; }
@@ -234,6 +267,7 @@ export class Fielding {
       }
     }
 
+    this.separate();
     if (this.outcome || this.hitT == null || !ball) return this.updateThrow(dt, t);
     if (this.fielded) return this.updateThrow(dt, t);
 
@@ -261,7 +295,7 @@ export class Fielding {
             this.fielded = true;
             this.outcome = { kind: 'caught', by: pretty(f.name) };
             this.message = `Caught by ${pretty(f.name)}`;
-            this.ballOverride = { pos: new Vec3(f.pos.x, 1.2, f.pos.z) };
+            this.ballOverride = { pos: new Vec3(f.pos.x, 1.2, f.pos.z), holder: i };
             f.state = 'celebrate';
             if (world) world.removeBall();
             return;
@@ -374,7 +408,22 @@ export class Fielding {
     p.z = th.from.z + (th.to.z - th.from.z) * k;
     const arc = Math.min(6, th.from.distanceTo(th.to) * 0.08);
     p.y = th.from.y + (th.to.y - th.from.y) * k + Math.sin(Math.PI * k) * arc;
-    if (k >= 1 && !this.throwArrived) this.throwArrived = { end: th.end, t: th.tArrive };
+    // The receiver reaches for it just before it arrives…
+    if (!th.takeSet && t >= th.tArrive - 0.28) {
+      th.takeSet = true;
+      th.receiver = this.receiverAt(th.end);
+      if (th.receiver) {
+        th.receiver.state = 'set'; th.receiver.speed = 0;
+        th.receiver.face = Math.atan2(th.from.x - th.receiver.pos.x, th.from.z - th.receiver.pos.z);
+        th.receiver.action = { type: 'take', t0: t, target: th.to.clone(), stumps: new Vec3(0, 0.72, th.end === 'batting' ? PITCH.battingStumpsZ : PITCH.bowlingStumpsZ), breakAt: null };
+      }
+    }
+    // …and holds it; with nobody there the ball runs on past the stumps.
+    if (k >= 1 && !this.throwArrived) {
+      this.throwArrived = { end: th.end, t: th.tArrive };
+      if (th.receiver) this.ballOverride.holder = this.fielders.indexOf(th.receiver);
+      else { p.y = this.cfg.ball.radius; p.z += th.end === 'batting' ? 1.2 : -1.2; }
+    }
     if (k >= 1 && !this.outcome && this.autoRuns) {
       this.outcome = { kind: 'runs', runs: this.pendingRuns };
       this.message = this.pendingRuns ? `${this.pendingRuns} run${this.pendingRuns > 1 ? 's' : ''}` : 'Fielded';
@@ -420,6 +469,28 @@ export class Fielding {
     this.message = 'Dropped!';
     this.dropped = true;
     ball.bouncesSinceBat = Math.max(1, ball.bouncesSinceBat);
+  }
+
+  // Two fielders never stand inside each other.
+  separate(min = 0.8) {
+    const F = this.fielders;
+    for (let i = 0; i < F.length; i++) {
+      const a = F[i];
+      if (a.bowler && !this.bowlerFields) continue;
+      for (let j = i + 1; j < F.length; j++) {
+        const b = F[j];
+        if (b.bowler && !this.bowlerFields) continue;
+        const dx = b.pos.x - a.pos.x, dz = b.pos.z - a.pos.z, d = Math.hypot(dx, dz);
+        if (d >= min || d < 1e-6) continue;
+        // The one doing something (catching, holding the ball) stays put.
+        const fixedA = a.playerControlled || !!a.action, fixedB = b.playerControlled || !!b.action;
+        if (fixedA && fixedB) continue;
+        const push = (min - d) / (fixedA || fixedB ? 1 : 2);
+        const ux = dx / d, uz = dz / d;
+        if (!fixedA) { a.pos.x -= ux * push; a.pos.z -= uz * push; }
+        if (!fixedB) { b.pos.x += ux * push; b.pos.z += uz * push; }
+      }
+    }
   }
 
   // Back to positions after a ball.

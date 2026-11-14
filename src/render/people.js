@@ -78,6 +78,13 @@ export class FieldView {
     }
   }
   handPos(i, out) { return this.actors[i].handPos(out, 'R'); }
+  // Where a ball held in the right hand sits (in the palm / in the glove).
+  ballHandPos(i, out) {
+    const a = this.actors[i];
+    a.handPos(out, 'R');
+    if (a.keeper) out.y -= 0.02;
+    return out;
+  }
   glovesPos(i, out) {
     const a = this.actors[i];
     a.h.update();

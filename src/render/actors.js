@@ -18,6 +18,7 @@ import {
 const TAU = Math.PI * 2;
 const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3(), _d = new THREE.Vector3();
 const _q = new THREE.Quaternion();
+const _reach = new THREE.Vector3();
 const _fwd = new THREE.Vector3(), _left = new THREE.Vector3();
 
 function angDiff(a, b) { let d = b - a; while (d > Math.PI) d -= TAU; while (d < -Math.PI) d += TAU; return d; }
@@ -104,7 +105,31 @@ export class FielderActor extends Actor {
       this.apply();
       if (act.target) this.reachBoth(act.target, 1);
       else if (ta > 0.15) this.handsToChest();
-    } else if (act && act.type === 'keep' && ta < 1.2) {
+    } else if (act && act.type === 'break') {
+      // Stumping: lunge in and sweep the gloves (ball in the right) into the bails.
+      const at = act.at, k = sstep(at - 0.3, at - 0.06, t), back = sstep(at + 0.25, at + 0.8, t);
+      poseReady(h, 0.65 * (1 - back * 0.7), true);
+      const sx = act.stumps.x - this.pos.x, sz = act.stumps.z - this.pos.z, sd = Math.max(1e-3, Math.hypot(sx, sz));
+      const lunge = Math.max(0, sd - 0.42) * k * (1 - back);
+      this.heading = Math.atan2(sx, sz);
+      this.apply(sx / sd * lunge, sz / sd * lunge);
+      this.plant(0.26, true);
+      const reach = k * (1 - back);
+      if (reach > 0.02) { _e.copy(act.stumps); _e.y += 0.04; this.reachBoth(_e, 1); }
+      else this.handsToChest();
+    } else if (act && act.type === 'take') {
+      // Taking a throw over the stumps (keeper or the bowler's-end fielder),
+      // then the bails off if it's a run-out chance.
+      poseReady(h, this.keeper ? 0.35 : 0.2, this.keeper);
+      this.apply();
+      this.plant(0.22, true);
+      const b = act.breakAt;
+      const sweep = b != null ? sstep(b - 0.14, b, t) * (1 - sstep(b + 0.2, b + 0.6, t)) : 0;
+      if (sweep > 0.02) { _e.copy(act.stumps); _e.y += 0.04; this.reachBoth(_e, 1); }
+      else if (ta < 0.4 && act.target) this.reachBoth(act.target, 1);
+      else this.handsToChest();
+    } else if (act && act.type === 'keep' && (act.hold || ta < 1.2)) {
+      // Gathered: up out of the crouch, ball held in the gloves at the chest.
       poseReady(h, this.keeper ? 0.6 * (1 - sstep(0.3, 1.0, ta)) : 0, true);
       this.apply();
       this.plant(0.24, true);
@@ -132,6 +157,7 @@ export class FielderActor extends Actor {
   }
   reachBoth(target, amt) {
     const h = this.h;
+    target = _reach.copy(target);
     h.update();
     this.forward(_fwd);
     _left.set(_fwd.z, 0, -_fwd.x);                    // figure's left (+X local)
@@ -144,7 +170,8 @@ export class FielderActor extends Actor {
   handsToChest() {
     const h = this.h;
     h.update();
-    const target = h.worldPos('chest', _c).addScaledVector(this.forward(_fwd), 0.28).add(_d.set(0, -0.05, 0));
+    // (Own vector: reachBoth() reuses the shared temporaries for the elbow pole.)
+    const target = h.worldPos('chest', _hold).addScaledVector(this.forward(_fwd), 0.3).add(_d.set(0, -0.08, 0));
     this.reachBoth(target, 0.6);
   }
 }
@@ -523,6 +550,6 @@ export class BatterActor extends Actor {
     h.syncShadow();
   }
 }
-const _e = new THREE.Vector3(), _up = new THREE.Vector3(0, 1, 0);
+const _e = new THREE.Vector3(), _up = new THREE.Vector3(0, 1, 0), _hold = new THREE.Vector3();
 const _gripRot = new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.PI / 2, 0, 0));
 const _carryRot = new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2 + 0.3, 0, 0));

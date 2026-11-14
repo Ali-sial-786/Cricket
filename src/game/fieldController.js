@@ -50,6 +50,7 @@ export class FieldController {
   // Next ball: fielders jog back, batters regroup (swapping ends after odd runs).
   reset() {
     this.logic.newBall();
+    this.pendingBreak = null;
     this.game.ballOverride = null;
     this.delivering = false;
     this.keeperTold = false;
@@ -76,6 +77,7 @@ export class FieldController {
   endDelivery() { this.delivering = false; }
   setSpinner(on) { this.logic.setSpinner(on); }
   keeperTakes(ball) { this.logic.keeperTakes(ball); }
+  keeperBreak(t, at) { this.logic.keeperBreak(t, at); }   // the keeper goes for the stumps (breakStumps decides)
   get fielded() { return this.logic.fielded; }
   get message() { return this.logic.message; }
   get keeperHold() { return this.logic.keeperHold; }
@@ -191,6 +193,18 @@ export class FieldController {
     }
   }
 
+  // Break the stumps at `end` `delay` s from now, with whoever holds the ball
+  // there sweeping a glove into them (run-outs, stumpings, close calls).
+  breakStumps(end, t, delay = 0.12) {
+    const L = this.logic;
+    const holder = L.ballOverride && L.ballOverride.holder != null ? L.fielders[L.ballOverride.holder] : (end === 'batting' ? L.fielders[0] : L.receiverAt(end));
+    const a = holder && holder.action;
+    if (a && a.type === 'take') a.breakAt = t + delay;
+    else if (a && a.type === 'break') { if (a.at < t) a.at = t + delay; }
+    else if (holder && end === 'batting' && holder.keeper) L.keeperBreak(t, t + delay);
+    this.pendingBreak = { end, t: t + delay };
+  }
+
   // ------------------------------------------------------------- per frame
   update(dt, t) {
     const g = this.game, w = g.world, L = this.logic, b = w.ball, r = this.runs;
@@ -249,8 +263,7 @@ export class FieldController {
         const short = r.running ? r.shortBy() : -1;
         if (r.running && short > 0) {
           this.outcome = { kind: 'runout', runs: r.completed, end, margin: short, who: r.headingTo(end) };
-          g.stumps[end].break({ x: 0, y: 0, z: end === 'batting' ? -8 : 8 }, 1);
-          g.sample('stumps') || g.sfx.stumps();
+          this.breakStumps(end, t, 0.12);
         } else {
           if (r.running) r.p = r.target;                // made their ground
           this.outcome = { kind: 'runs', runs: r.completed, closeCall: r.rate !== 0 && short > -1.2 ? -short : null, end };
@@ -265,14 +278,24 @@ export class FieldController {
     if (this.catch && this.catch.state === 'live') states[this.catch.fi].hidden = true;
     g.fieldView.update(dt, states, { t, ball: ballPos, delivering: this.delivering, cam: g.input.headPose.p });
 
-    // Ball in a fielder's hands.
+    // Stumps broken by a glove: they fly when the hand gets there.
+    if (this.pendingBreak && t >= this.pendingBreak.t) {
+      const end = this.pendingBreak.end;
+      this.pendingBreak = null;
+      g.stumps[end].break({ x: 0, y: 0, z: end === 'batting' ? -8 : 8 }, 1);
+      g.sample('stumps') || g.sfx.stumps();
+      g.sample('bails', { gain: 0.6 });
+    }
+
+    // Ball in a fielder's hands: both hands at the moment of the catch, then
+    // held in the right hand (never floating between them).
     if (L.ballOverride) {
       const o = L.ballOverride;
       if (o.hand) _w.set(o.hand.x, o.hand.y, o.hand.z);
-      else if (L.keeperHold) g.fieldView.glovesPos(0, _w);
-      else if (L.caught) {
-        const i = L.fielders.findIndex((f) => f.action && f.action.type === 'catch' && f.action.success);
-        g.fieldView.glovesPos(Math.max(0, i), _w);
+      else if (o.holder != null && o.holder >= 0) {
+        const a = L.fielders[o.holder].action;
+        const both = a && (a.type === 'keep' || a.type === 'take' || a.type === 'catch') && t - a.t0 < 0.3;
+        if (both) g.fieldView.glovesPos(o.holder, _w); else g.fieldView.ballHandPos(o.holder, _w);
       } else if (L.throw && t < L.throw.tStart) {
         const i = L.fielders.indexOf(L.throw.f);
         const a = L.throw.f.action;

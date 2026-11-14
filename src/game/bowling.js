@@ -265,8 +265,7 @@ export class BowlingSession {
     else if (res.kind === 'runs' && res.closeCall != null && res.closeCall < lim * 0.8) {
       margin = -res.closeCall;
       const end = res.end || 'batting';
-      g.stumps[end].break({ x: 0, y: 0, z: end === 'batting' ? -8 : 8 }, 1);
-      g.sample('stumps') || g.sfx.stumps();
+      if (this.field) this.field.breakStumps(end, g.simTime, 0.05);
     }
     if (margin == null) return false;
     this.pendingRes = res; this.reviewFlow = this.third; this.state = 'review';
@@ -376,14 +375,13 @@ export class BowlingSession {
       if (this.field && !this.field.keeperHold) this.field.keeperTakes(b);
       // Out of his ground with the keeper holding the ball: a stumping chance.
       if (this.field && this.field.keeperHold) {
-        if (!this.stumpAt && g.aiBatter.advanceAt(t) > 0.2) { this.stumpAt = t + (this.keeperUp ? 0.3 : 0.8); return; }
+        if (!this.stumpAt && g.aiBatter.advanceAt(t) > 0.2) { this.stumpAt = t + (this.keeperUp ? 0.3 : 0.8); this.field.keeperBreak(t, this.stumpAt); return; }
         if (this.stumpAt) {
           if (t < this.stumpAt) return;
           const margin = g.aiBatter.advanceAt(t) - 0.5;        // m short of his ground
           const lim = CONFIG.match.thirdUmpire;
           if (margin > -lim) {
-            g.stumps.batting.break({ x: 0, y: 0, z: -6 }, 1);
-            g.sample('stumps') || g.sfx.stumps();
+            this.field.breakStumps('batting', t, 0);
             const res = margin > 0 ? { kind: 'stumped' } : { kind: 'dot', backInTime: true };
             if (Math.abs(margin) < lim) {
               this.pendingRes = res; this.reviewFlow = this.third; this.state = 'review';
