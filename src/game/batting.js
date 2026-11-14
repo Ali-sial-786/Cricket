@@ -269,6 +269,7 @@ export class BattingSession {
 
   release(t) {
     const g = this.game, d = this.delivery, s = this.settingsUsed;
+    g.ui.clearHints();                         // the ball is on its way: no instruction cards in the view
     g.world.launch({ pos: d.releasePos, vel: d.vel, spin: d.spin, swing: d.swing, seamDeg: d.seamDeg });
     g.ballOverride = null;
     if (this.field) this.field.released();

@@ -320,14 +320,14 @@ export class MachineView {
 }
 
 // ---------------------------------------------------------------- Markers
-export function buildRingMarker(color = 0xffe14d, radius = 0.22) {
+export function buildRingMarker(color = 0xffe14d, radius = 0.22, dotColor = color) {
   const g = new THREE.Group();
-  const ring = new THREE.Mesh(new THREE.RingGeometry(radius * 0.75, radius, 32),
-    new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.85, depthWrite: false }));
+  const ring = new THREE.Mesh(new THREE.RingGeometry(radius * 0.72, radius, 40),
+    new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.95, depthWrite: false }));
   ring.rotation.x = -Math.PI / 2;
   ring.position.y = 0.01;
   const dot = new THREE.Mesh(new THREE.CircleGeometry(radius * 0.18, 16),
-    new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.85, depthWrite: false }));
+    new THREE.MeshBasicMaterial({ color: dotColor, transparent: true, opacity: 0.95, depthWrite: false }));
   dot.rotation.x = -Math.PI / 2;
   dot.position.y = 0.011;
   g.add(ring, dot);

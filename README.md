@@ -77,7 +77,7 @@ bigger sweet spot. *Hard* is real time and real size.
 2. **Pick the delivery** with **A** (next) / **B** (previous). A **delivery card** low on your left while you wait at
    your mark shows your bowler and pace range, the deliveries with the picked one lit and what it does, the target
    in words ("good length · off stump") and the controls.
-3. **Aim** with the **left stick**: the yellow ring on the pitch is where the ball will land; your release only
+3. **Aim** with the **left stick**: the blue ring on the pitch is where the ball will land; your release only
    nudges it.
 4. **Run in**: hold the **right grip** (or the **left trigger**). You start each ball at the top of your mark and
    accelerate toward the crease. Let go before the amber **commit line** and you pull out (press again within

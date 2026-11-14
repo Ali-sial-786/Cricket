@@ -76,7 +76,7 @@ export class Game {
     };
     this.machine = new MachineView(this.env.pitchGroup);
     this.pitchMark = new PitchMark(scene);
-    this.aimMarker = buildRingMarker(0xffe14d, 0.25);
+    this.aimMarker = buildRingMarker(0x1e8bff, 0.38, 0xffffff);   // blue, so it stands out on the pitch and the grass
     this.aimMarker.visible = false;
     scene.add(this.aimMarker);
     this.batterView = new BatterView(scene, this.aiBatter);

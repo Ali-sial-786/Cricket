@@ -107,6 +107,7 @@ export class BowlingSession {
     this.autoRun = false; this.latchRunButtons();
     g.setRigOffset(0, -this.run.dist);
     g.showRunMarks(this.run.enabled ? this.run.spec : null);
+    if (this.state === 'ready') g.ui.setHud({ last: this.howTo() });     // back on the mark: instructions again
   }
   // Running in (or, without a run-up, the ball gripped): the batter settles, fielders walk in.
   runStarted() { return this.run && this.run.enabled ? this.run.started : this.holding; }
@@ -140,6 +141,9 @@ export class BowlingSession {
   runningIn() { return this.state === 'ready' && !!(this.run && this.run.enabled && this.run.started); }
   startedRunning() {
     const g = this.game;
+    // The delivery has started: the instructions get out of the way.
+    g.ui.setHud({ last: '' });
+    g.ui.clearHints();
     g.aiBatter.setReady(g.world.time + 0.15);
     if (this.field && !this.field.delivering) this.field.beginDelivery();
   }
