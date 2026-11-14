@@ -325,7 +325,7 @@ export class Humanoid {
   // See-through body: what you see of yourself when you look down. No head
   // or neck; the trunk and arms are faint so that the legs and feet (drawn
   // more solidly) show through them.
-  setGhost(on, legs = 0.62, trunk = 0.3) {
+  setGhost(on, legs = 0.34, trunk = 0.08) {
     if (!!this.ghost === on) return;
     this.ghost = on;
     const m = this.material, u = m.userData.uniforms;
