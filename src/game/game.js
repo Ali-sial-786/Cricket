@@ -833,6 +833,14 @@ export class Game {
     const deskThird = !this.input.xr && (this.desktopView % 5) !== 1 && !(this.session && this.session.isBowling) && this.end === 'batting';
     const runnerOut = this.batterView.runnerOnly && this.batterView.shown;     // a runner has taken over
     if (!replaying) {
+      // Your figure is your height: sized from the tallest you have stood in the headset.
+      if (this.input.xr) {
+        this.standEye = Math.min(1.95, Math.max((this.standEye ?? 1.55) - (pdt || 0) * 0.002, this.input.headPose.p.y));
+        for (const h of [this.playerBody.actor.h, this.playerBowler.h]) {
+          const k = clamp(this.standEye / (this.playerBody.actor.headRestY * h.baseScale + 0.11), 0.84, 1.12);
+          if (Math.abs(h.root.scale.x - h.baseScale * k) > 0.002) h.root.scale.setScalar(h.baseScale * k);
+        }
+      }
       if (batting || deskThird) {
         this.playerBody.update(pdt || 1e-4, this.simTime, this.batMesh.position, this.batMesh.quaternion, lookBall, this.input.xr ? this.input.headPose : null,
           this.session && this.session.bodyState ? this.session.bodyState() : null);

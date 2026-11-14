@@ -1,6 +1,6 @@
 # Progress
 
-_Last updated after the eighth pass (bodies, grip, sweep, dive, physical keeper and byes, crease replays, bowling run-up and delivery picker)._
+_Last updated after the ninth pass (rebuilt player models and gear, authored animation clips, nobody frozen after the ball is dead)._
 
 ## Done
 - **Phase 1: Nets (batting core)**
@@ -162,6 +162,21 @@ _Last updated after the eighth pass (bodies, grip, sweep, dive, physical keeper 
   AI backlift; umpire stance and leg-bye signal.
 - 126 unit tests.
 
+## Ninth pass
+- **Player models rebuilt** from the full-detail Courtside athlete (`tools/build_athlete.mjs`): life-size head,
+  adult-length arms, a collared shirt with piping, yoke and a back number, real trousers, relaxed bare hands, baked
+  ambient occlusion and a soft rim light. About 24–33k triangles a figure close up, 3–4k far away; still one draw call.
+- **Gear rebuilt** (`src/render/gear.js`): helmet with grille and ear guards, six-panel cap, sun hat, caned pads with
+  knee roll and straps, batting gloves closed round the handle with a cuff that bends with the wrist, keeper mitts.
+- **Animation clips** (`tools/build_clips.mjs`, `src/render/clips.js`, `assets/anim/`): walk, jog, sprint, idle, the
+  ready set, the overarm throw and the catch celebration come from Quaternius' Universal Animation Library (CC0),
+  retargeted onto the 17-bone rig. Batting, the bowling action, the dive, the keeper's takes and the pick-up stay
+  procedural; without the clip file the old procedural poses take over.
+- **Nobody frozen after the ball is dead:** batters finish the run or trot back, a diver gets up, your runner only
+  appears when you call a run, and the batters go back to their places a second after the ball is dead.
+- **Own body** is much fainter, and is sized to your standing height in the headset.
+- 132 unit tests.
+
 ## Known issues / not verified
 - **Not tested on a real headset.** All XR paths ran only under Meta's IWER emulator in headless Chromium
   (no pose velocities, haptics, hit-test or passthrough there). Haptics, `updateTargetFrameRate`, pose velocities
@@ -181,6 +196,12 @@ _Last updated after the eighth pass (bodies, grip, sweep, dive, physical keeper 
   body solver, grip, sweep, dive, keeper takes / leaps / misses, byes, a stumping and its crease replay, the bowling
   card, bowler page and run-up. **Not** seen in a headset: how the see-through body and stepping feet feel, run-up
   comfort and the feel of releasing on the run, snap / smooth turning, readability of the delivery card.
+- The ninth pass (models, gear, clips, the dead-ball fix) was checked with headless renders and scripted balls only;
+  frame rate with the heavier close-up figures has not been measured on a Quest.
+- No free cricket-specific animation or model could be downloaded (paid marketplaces, or free packs behind a login);
+  the clips used are general athletic motion.
+- The walk lifts the knees high at walk-in speed, the throw's follow-through bends deep, trousers are roomy at the
+  thigh, and trouser stripes and the shirt yoke disappear on distant figures.
 - The AI batter defending a chest-high ball still lifts his hands above the helmet.
 - Batters running between the wickets still stop dead at the line and turn on the spot; fielders' throw and pick-up
   were not reworked in this pass.
