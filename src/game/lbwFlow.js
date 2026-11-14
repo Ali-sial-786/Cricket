@@ -52,6 +52,7 @@ export class LbwFlow {
   startReview(byPlayer) {
     const g = this.g;
     this.reviewed = true; this.reviewBy = byPlayer ? 'player' : 'ai';
+    if (g.replay) g.replay.mark('reviewed', g.simTime);      // the review shows the ball: no replay of it afterwards
     this.outcome = reviewOutcome(this.track, { onFieldOut: this.onFieldOut, shotOffered: this.shotOffered });
     const hp = g.input.headPose.p;
     _head.set(hp.x, hp.y, hp.z);
@@ -81,6 +82,10 @@ export class LbwFlow {
       g.say('lbw_call', { out: this.onFieldOut });
       g.ui.prompt(this.onFieldOut ? 'OUT — LBW' : 'NOT OUT', 2.2, this.onFieldOut ? '#ff5a5a' : '#7dff8a');
       this.phase = 'decision'; this.t = 0;
+      // The ball is dead: it doesn't lie about on the pitch through the review.
+      g.world.removeBall();
+      g.ballView.setVisible(false);
+      g.ballView.clearTrail?.();
       const playerAggrieved = this.playerIsBatter ? this.onFieldOut : !this.onFieldOut;
       this.canPlayer = playerAggrieved && this.reviews.player > 0;
       this.aiWill = !playerAggrieved && this.reviews.ai > 0 && this.truth !== this.onFieldOut && g.rng() < 0.7;
@@ -105,10 +110,14 @@ export class LbwFlow {
         g.say('review_result', { overturned: r.out !== this.onFieldOut, umpires_call: r.umpiresCall });
         g.umpires.signal(r.out ? 'out' : 'notout', g.clock);
         g.ui.prompt(r.out ? 'DECISION: OUT' : 'DECISION: NOT OUT', 2.5, r.out ? '#ff5a5a' : '#7dff8a');
+        // The review is over: its tracking line, markers and board go now
+        // (the board has already held the decision), and the HUD comes back.
+        g.drs.hide();
+        g.ui.hud.mesh.visible = true;
         this.finalOut = r.out;
         this.phase = 'final'; this.t = 0;
       }
-    } else if (this.phase === 'final' && this.t > 2.2) {
+    } else if (this.phase === 'final' && this.t > 1.6) {
       this.finish(this.finalOut);
     }
   }
