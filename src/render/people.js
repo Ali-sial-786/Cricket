@@ -87,6 +87,40 @@ export class FieldView {
       if (!a.visible) { a.place(s.x, s.z, s.face); continue; }
       a.update(dt, s, ctx);
     }
+    this.keepBodiesApart(ctx.others);
+  }
+  // The logic keeps everyone's feet apart, but a pose can carry a body off its
+  // spot (a dive's lunge, a stumping lunge): if that would put any part of the
+  // posed body into someone else (taken as a standing trunk round the hips),
+  // the lunge is shortened until it doesn't.
+  keepBodiesApart(others = []) {
+    const B = _bodies; B.length = 0;
+    this.actors.forEach((a, i) => B.push(a.visible ? a.h.bones.hips.getWorldPosition(_hipsW[i] || (_hipsW[i] = new THREE.Vector3())) : _far));
+    for (const o of others) B.push(o);
+    this.actors.forEach((a, i) => {
+      if (!a.visible) return;
+      const r = a.h.root.position, ox = r.x - a.pos.x, oz = r.z - a.pos.z;
+      if (ox * ox + oz * oz < 1e-4) return;
+      a.h.update();
+      const pts = BODY_PTS.map((n, j) => a.h.worldPos(n, _pts[j]));
+      let k = 1;
+      for (; k > 0; k -= 0.1) {
+        const dx = ox * (k - 1), dz = oz * (k - 1);
+        let hit = false;
+        for (let j = 0; j < B.length && !hit; j++) {
+          if (j === i && j < this.actors.length) continue;
+          const b = B[j];
+          for (const p of pts) if (p.y < 1.9 && Math.hypot(p.x + dx - b.x, p.z + dz - b.z) < BODY_GAP) { hit = true; break; }
+        }
+        if (!hit) break;
+      }
+      if (k < 1) {
+        k = Math.max(0, k);
+        r.x = a.pos.x + ox * k; r.z = a.pos.z + oz * k;
+        a.h.root.updateMatrixWorld(true);
+        a.h.syncShadow();
+      }
+    });
   }
   handPos(i, out) { return this.actors[i].handPos(out, 'R'); }
   // Where a ball held in the right hand sits (in the palm / in the glove).
@@ -96,6 +130,11 @@ export class FieldView {
     if (a.keeper) out.y -= 0.02;
     return out;
   }
+  handsApart(i) {
+    const a = this.actors[i];
+    a.h.update();
+    return a.h.worldPos('handL', _p).distanceTo(a.h.worldPos('handR', _hf));
+  }
   glovesPos(i, out) {
     const a = this.actors[i];
     a.h.update();
@@ -104,6 +143,10 @@ export class FieldView {
     return out.add(_p).multiplyScalar(0.5);
   }
 }
+
+const BODY_PTS = ['hips', 'chest', 'head', 'kneeL', 'kneeR', 'ankleL', 'ankleR', 'handL', 'handR'];
+const _pts = BODY_PTS.map(() => new THREE.Vector3()), _bodies = [], _hipsW = [], _far = new THREE.Vector3(1e4, 0, 1e4);
+const BODY_GAP = 0.32;       // any joint of a lunging body to another's trunk axis (trunk ~0.17 + limb ~0.1 + a little)
 
 // Non-striker at the bowler's end: leans on the bat, backs up as the ball is
 // bowled, runs when runs are taken.

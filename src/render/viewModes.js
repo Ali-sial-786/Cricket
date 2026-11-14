@@ -5,7 +5,7 @@
 //   NearCull              hides any body (or bat) that would be inside your head
 import * as THREE from 'three';
 import { Actor } from './actors.js';
-import { plantFeet, clamp } from './anim.js';
+import { plantFeet, heelFor, clamp, mix } from './anim.js';
 
 // ---------------------------------------------------------------- helmet
 // Built in eye space: x right, y up, -z forward, metres from the point
@@ -137,18 +137,24 @@ export class PlayerBowlerActor extends Actor {
     if (this.speed > 0.35) this.locomote(t);
     else this.idle(t);
     // Crouch with the player.
-    const drop = clamp(1.62 - head.p.y, 0, 0.5);
+    // (on the move the body only crouches so far: legs that run can't fold
+    // much further, and a deeper drop would put the knees in the turf)
+    const drop = clamp(1.62 - head.p.y, 0, this.speed > 0.35 ? mix(0.5, 0.16, clamp((this.speed - 0.35) / 1.5, 0, 1)) : 0.5);
     h.bones.hips.position.y -= drop / h.root.scale.y * 0.9;
     if (drop > 0.05) h.rot('spine', 0.2 + drop * 0.8, 0, 0);
     this.apply();
-    if (this.speed <= 0.35) {                      // (feet stay down when you crouch)
+    if (this.speed <= 0.35) {                      // (feet stay down when you crouch: up on the toes when it is deep)
       this.footWorld(_a, 0.14, 0.04); this.footWorld(_b, -0.14, 0);
-      plantFeet(h, _a, _b, this.forward(_c).multiplyScalar(0.6));
+      plantFeet(h, _a, _b, this.forward(_c).multiplyScalar(0.6), heelFor(h));
+    } else if (drop > 0.01) {                       // moving and crouching: the knees bend, the feet stay on the turf
+      h.update(); h.clearFoot('L'); h.clearFoot('R');
     }
     h.update();
     const fw = this.forward(_d);
-    if (right) h.ikArm('R', _a.set(right.x, right.y, right.z), h.worldPos('shoulderR', _b).addScaledVector(fw, -0.4).add(_c.set(0, -0.5, 0)));
-    if (left) { h.update(); h.ikArm('L', _a.set(left.x, left.y, left.z), h.worldPos('shoulderL', _b).addScaledVector(fw, -0.4).add(_c.set(0, -0.5, 0))); }
+    // (a controller down at the floor: the hand stops on the turf, not in it)
+    const hy = HAND_MIN_Y * h.root.scale.y;
+    if (right) h.ikArm('R', _a.set(right.x, Math.max(hy, right.y), right.z), h.worldPos('shoulderR', _b).addScaledVector(fw, -0.4).add(_c.set(0, -0.5, 0)));
+    if (left) { h.update(); h.ikArm('L', _a.set(left.x, Math.max(hy, left.y), left.z), h.worldPos('shoulderL', _b).addScaledVector(fw, -0.4).add(_c.set(0, -0.5, 0))); }
     if (look) h.lookAt(look, 0.8);
     h.syncShadow();
   }
@@ -158,6 +164,7 @@ export class PlayerBowlerActor extends Actor {
 // sits at CONFIG.bowling.ballHoldOffset = (0, -0.02, -0.06): palm behind it,
 // two fingers over the top along the seam, the thumb underneath.
 const HAND_ALPHA = 0.4;
+const HAND_MIN_Y = 0.09;           // wrist above the turf with the hand flat on it (model units)
 function buildHeldHand() {
   const mat = new THREE.MeshLambertMaterial({ color: 0xc89a7a, transparent: true, opacity: HAND_ALPHA, depthWrite: false });
   const g = new THREE.Group();

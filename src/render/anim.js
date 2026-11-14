@@ -80,19 +80,29 @@ export function poseLocomotion(h, phase, speed, lean = 0) {
 
 // Feet planted at world targets via leg IK; feet kept flat along `yaw`.
 const _ft = new THREE.Vector3(), _pole = new THREE.Vector3(), _fq = new THREE.Quaternion(), _up = new THREE.Vector3(0, 1, 0);
-export function plantFeet(h, footL, footR, kneeForward) {
+// heel (m): up on the balls of the feet by this much (a deep crouch: the
+// shins lean so far forward that flat feet would put the pads into the turf).
+export function plantFeet(h, footL, footR, kneeForward, heel = 0) {
   h.update();
   for (const [side, target] of [['L', footL], ['R', footR]]) {
     if (!target) continue;
     h.worldPos('knee' + side, _pole).add(kneeForward);
     _ft.copy(target);
-    _ft.y += h.ankleHeight * h.root.scale.y;      // ankle height above the sole
+    _ft.y += (h.ankleHeight + heel) * h.root.scale.y;      // ankle height above the sole
     h.ikLeg(side, _ft, _pole);
   }
-  // Flat feet facing the root's forward (plus a small toe-out).
+  // Flat feet facing the root's forward (plus a small toe-out); heels up:
+  // pitched about the toe of the sole (h.toeLength ahead of the ankle).
   h.root.getWorldQuaternion(_fq);
+  if (heel > 0) _fq.multiply(_hq.setFromAxisAngle(_xAxis, Math.asin(Math.min(0.9, heel / (h.toeLength || 0.2)))));
   h.setWorldQuat('ankleL', _fq);
   h.setWorldQuat('ankleR', _fq);
+}
+const _hq = new THREE.Quaternion(), _xAxis = new THREE.Vector3(1, 0, 0);
+// How far up on the toes a figure crouching this low goes (hips drop in model units).
+export function heelFor(h) {
+  const drop = h.hipsRest.y - h.bones.hips.position.y;
+  return clamp((drop - 0.16) * 0.6, 0, 0.11);
 }
 
 // Athletic "ready" crouch (fielders as the ball is bowled). k: 0..1
@@ -126,7 +136,7 @@ export function poseThrow(h, k) {
 
 // Diving stop / catch. side = +1 to the figure's left (+X), -1 to the right.
 export function poseDive(h, k, side) {
-  const roll = side * 1.45 * keys([[0, 0], [0.32, 1], [0.62, 1], [1, 0]], k);
+  const roll = side * 1.55 * keys([[0, 0], [0.32, 1], [0.62, 1], [1, 0]], k);
   h.bones.hips.position.y = h.hipsRest.y * keys([[0, 1], [0.15, 0.95], [0.38, 0.28], [0.65, 0.28], [1, 1]], k);
   h.rot('hips', 0, 0, -roll);
   h.rot('spine', 0.1, 0, -side * 0.15);
@@ -135,8 +145,10 @@ export function poseDive(h, k, side) {
   h.rot('shoulderR', -0.3 * reach, 0, side < 0 ? -2.7 * reach : -0.8 * reach);
   h.rot('elbowL', -0.15, 0, 0);
   h.rot('elbowR', -0.15, 0, 0);
-  h.rot('hipL', -0.2 * reach, 0, side > 0 ? 0.1 : 0.35 * reach);
-  h.rot('hipR', -0.2 * reach, 0, side < 0 ? -0.1 : -0.35 * reach);
+  // The lower leg (on the side he lands on) comes forward, beside the trunk
+  // rather than under it, so he lies on the turf instead of propped up on it.
+  h.rot('hipL', (side > 0 ? -0.75 : -0.1) * reach, 0, side > 0 ? 0.1 : 0.35 * reach);
+  h.rot('hipR', (side < 0 ? -0.75 : -0.1) * reach, 0, side < 0 ? -0.1 : -0.35 * reach);
   h.rot('kneeL', 0.5 * reach, 0, 0);
   h.rot('kneeR', 0.8 * reach, 0, 0);
 }

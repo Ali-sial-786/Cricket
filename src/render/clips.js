@@ -86,10 +86,47 @@ export function applyClip(h, name, time, weight = 1, mask = MASK_ALL) {
   if (mask & (1 | HIPS_POS)) {
     const p0 = a0 + NB * 4, p1 = a1 + NB * 4, s = D.ps * R.leg;
     _p.set(q[p0] + (q[p1] - q[p0]) * u, q[p0 + 1] + (q[p1 + 1] - q[p0 + 1]) * u, q[p0 + 2] + (q[p1 + 2] - q[p0 + 2]) * u).multiplyScalar(s).add(h.hipsRest);
+    const fl = c._floor || (c._floor = floorTable(h, c));
+    _p.y += fl[i0] + (fl[i1] - fl[i0]) * u;
     const hp = h.bones.hips.position;
-    if (weight >= 1) hp.copy(_p); else hp.lerp(_p, weight);
+    if (weight >= 1) hp.copy(_p); else { hp.lerp(_p, weight); if (c._floor !== EMPTY) settle(h); }    // a blend of two grounded poses: re-land it
   }
   return true;
+}
+
+// Ground contact per frame. The clips were authored on another rig: retargeted
+// onto this one, a planted foot can end up a few cm under the turf (the toe of
+// a rolling foot in the sprint, the heel strike of the walk) or over it (the
+// idle). For each frame: the lowest point of the body with the root on the
+// ground (Humanoid.lowest, model units); a frame whose lowest point is near the
+// ground is a contact frame and the hips move by that much so it lands on y = 0;
+// higher frames (the flight of a stride, a jump) keep their height, with a
+// smooth hand-over between (CONTACT: full correction up to c0, none past c1).
+// Computed once per clip on the first figure that plays it (all figures share the rig).
+const CONTACT = [0.03, 0.09];
+const EMPTY = new Float32Array(1024);
+export function floorCorrection(low) {
+  const [c0, c1] = CONTACT;
+  const w = low <= c0 ? 1 : low >= c1 ? 0 : 1 - (low - c0) / (c1 - c0);
+  return -low * w;
+}
+function floorTable(h, c) {
+  const n = c.frames, out = new Float32Array(n);
+  if (!h.lowest) return out;
+  const snap = h.snapshot(), root = h.root;
+  const rp = root.position.clone(), rq = root.quaternion.clone(), rs = root.scale.clone();
+  root.position.set(0, 0, 0); root.quaternion.identity(); root.scale.set(1, 1, 1);
+  c._floor = EMPTY;                                  // (applyClip below reads zeros meanwhile)
+  for (let f = 0; f < n; f++) {
+    h.reset();
+    applyClip(h, c.name, (f + 0.001) / c.fps);
+    out[f] = floorCorrection(h.lowest());
+  }
+  c._floor = out;
+  root.position.copy(rp); root.quaternion.copy(rq); root.scale.copy(rs);
+  h.blendFrom(snap, 0);
+  h.update();
+  return out;
 }
 
 // ------------------------------------------------------------ locomotion
@@ -135,5 +172,20 @@ export function applyLocomotion(h, phase, speed, weight = 1, mask = MASK_ALL) {
     applyClip(h, GAITS[i], (cyc + c.phase0) * c.dur, w / acc, mask);
   }
   if (k < 1) h.blendFrom(R.snap, k);
+  // Each gait is grounded frame by frame (floorTable), but a blend of two at
+  // different points of their cycles (or of the walk over the idle) is not:
+  // land the blended pose's contact foot on the ground the same way.
+  if (mask & 1) settle(h);
   return true;
+}
+
+// Move the hips so that a pose's contact point (its lowest point, if it is
+// near the ground; see floorCorrection) is on the turf. Root-relative: the
+// root may still carry last frame's position.
+export function settle(h) {
+  if (!h.lowest) return 0;
+  const sc = h.root.scale.y;
+  const d = floorCorrection((h.lowest() - h.root.position.y) / sc);
+  h.bones.hips.position.y += d;
+  return d;
 }

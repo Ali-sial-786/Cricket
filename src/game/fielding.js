@@ -33,6 +33,8 @@ const pretty = (n) => n.replace(/\b\w/g, (c) => c.toUpperCase());
 export const PLAYER_CLEAR = 1.3;
 // Nobody stands in the stumps: feet stay at least this far from the middle stump.
 export const STUMP_CLEAR = 0.55;
+// Extra room round the keeper (pads, gloves, a wide crouch), on top of the usual gap.
+export const KEEPER_PADS = 0.4;
 const STUMPS = [{ x: 0, z: PITCH.battingStumpsZ }, { x: 0, z: PITCH.bowlingStumpsZ }];
 
 // Where the man taking a throw at `end` stands: just behind the stumps on the
@@ -72,11 +74,64 @@ export function steerAround(px, pz, gx, gz, o, out = { x: 0, z: 0 }) {
   const tc = Math.atan2(cx, cz), tg = Math.atan2(dx, dz);
   const a = cd <= R ? Math.PI / 2 : Math.asin(R / cd);
   const diff = (u) => Math.abs(Math.atan2(Math.sin(u - tg), Math.cos(u - tg)));
-  const t = diff(tc + a) < diff(tc - a) ? tc + a : tc - a;
+  // (round another person on the move: keep to your right, as he does, so two
+  // coming at each other don't both pick the same side and meet head-on)
+  const t = o.keepRight ? tc - a : diff(tc + a) < diff(tc - a) ? tc + a : tc - a;
   out.x = Math.sin(t); out.z = Math.cos(t);
   return out;
 }
 const _goal = new Vec3(), _dir = { x: 0, z: 0 };
+
+// Heading (unit {x, z}) from (px, pz) toward (gx, gz) among several circles
+// {x, z, r} (null entries skipped): straight if that is clear, otherwise the
+// clear tangent (of any circle in the way) closest to the goal's direction,
+// looking a few metres ahead. A circle marked keepRight (another person on
+// the move) is passed keeping to the right, as he does, so two people coming
+// at each other don't both step the same way. Circles the mover is already
+// inside, or that hold the goal, don't block (separate() / clearGoal() deal
+// with those).
+const LOOK = 3.0, _cand = [];
+export function steerAmong(px, pz, gx, gz, obs, out = { x: 0, z: 0 }) {
+  const dx = gx - px, dz = gz - pz, d = Math.hypot(dx, dz);
+  out.x = 0; out.z = 0;
+  if (d < 1e-6) return out;
+  const ux = dx / d, uz = dz / d, reach = Math.min(d, LOOK);
+  const live = (o) => o && Math.hypot(px - o.x, pz - o.z) > o.r && Math.hypot(gx - o.x, gz - o.z) >= o.r;
+  // clearance of the path along (cx, cz) over the look-ahead (< 0: it cuts a circle)
+  const clear = (cx, cz) => {
+    let m = Infinity;
+    for (const o of obs) {
+      if (!live(o)) continue;
+      const ox = o.x - px, oz = o.z - pz, t = Math.max(0, Math.min(reach, ox * cx + oz * cz));
+      m = Math.min(m, Math.hypot(ox - cx * t, oz - cz * t) - (o.r + 0.12));
+    }
+    return m;
+  };
+  if (!obs || clear(ux, uz) >= 0) { out.x = ux; out.z = uz; return out; }
+  _cand.length = 0;
+  const tg = Math.atan2(ux, uz);
+  for (const o of obs) {
+    if (!live(o)) continue;
+    const ox = o.x - px, oz = o.z - pz, cd = Math.hypot(ox, oz);
+    if (cd - o.r > reach + 0.5) continue;
+    const tc = Math.atan2(ox, oz), a = Math.asin(Math.min(1, (o.r + 0.15) / cd));
+    _cand.push({ t: tc + a, right: !o.keepRight }, { t: tc - a, right: true });
+  }
+  let best = null, bestScore = Infinity, fall = null, fallClear = -Infinity;
+  for (const c of _cand) {
+    const cx = Math.sin(c.t), cz = Math.cos(c.t), cl = clear(cx, cz);
+    const dev = Math.abs(Math.atan2(Math.sin(c.t - tg), Math.cos(c.t - tg)));
+    if (cl >= -1e-3 && dev < Math.PI * 0.75) {
+      const score = dev + (c.right ? 0 : 0.6);
+      if (score < bestScore) { bestScore = score; best = c; }
+    } else if (cl > fallClear) { fallClear = cl; fall = c; }
+  }
+  const c = best || fall;
+  if (!c) { out.x = ux; out.z = uz; return out; }
+  out.x = Math.sin(c.t); out.z = Math.cos(c.t);
+  return out;
+}
+const _obs = [];
 
 export class Fielding {
   constructor({ cfg = CONFIG, rng = makeRng(99), catchSkill = 0.72, spinner = false, bowlerFields = true } = {}) {
@@ -401,7 +456,13 @@ export class Fielding {
         const moving = this.hitT == null || t - this.hitT > react || f.state === 'return' || f.state === 'gather';
         if (d > 0.05 && moving) {
           f.speed = Math.min(maxV, f.speed + F.fielderAccel * dt, d / Math.max(dt, 1e-3));
-          const u = steerAround(f.pos.x, f.pos.z, goal.x, goal.z, ko, _dir);
+          // Round the player, the umpires, the batters, the stumps and the other fielders.
+          _obs.length = 0;
+          _obs.push(ko);
+          for (const o of this.obstacles || []) _obs.push({ x: o.x, z: o.z, r: o.r ?? 0.8 });
+          for (const st of STUMPS) _obs.push({ x: st.x, z: st.z, r: STUMP_CLEAR });
+          for (const o of this.fielders) if (o !== f && !(o.bowler && !this.bowlerFields) && Math.hypot(o.pos.x - f.pos.x, o.pos.z - f.pos.z) < 4) _obs.push({ x: o.pos.x, z: o.pos.z, r: 0.65 + (o.keeper || f.keeper ? KEEPER_PADS : 0), keepRight: true });
+          const u = steerAmong(f.pos.x, f.pos.z, goal.x, goal.z, _obs, _dir);
           f.pos.x += u.x * f.speed * dt;
           f.pos.z += u.z * f.speed * dt;
           if (!(f.keeper && f.state === 'gather') && !(f.action && f.action.type === 'take')) f.face = Math.atan2(u.x, u.z);     // the keeper side-steps, eyes on the ball
@@ -643,7 +704,7 @@ export class Fielding {
   // Two fielders never stand inside each other (nor inside an umpire).
   // Nor in the stumps, nor in a batter; and nobody comes near the player's
   // head (keepOut {x, z, r}, set by the controller every frame).
-  separate(min = 0.8) {
+  separate(min = 0.85) {
     const F = this.fielders;
     const push = (f, ox, oz, r) => {
       let dx = f.pos.x - ox, dz = f.pos.z - oz, d = Math.hypot(dx, dz);
@@ -661,11 +722,12 @@ export class Fielding {
         const b = F[j];
         if (b.bowler && !this.bowlerFields) continue;
         const dx = b.pos.x - a.pos.x, dz = b.pos.z - a.pos.z, d = Math.hypot(dx, dz);
-        if (d >= min || d < 1e-6) continue;
+        const need = min + (a.keeper || b.keeper ? KEEPER_PADS : 0);       // (the keeper is wider: pads, gloves, a low wide crouch)
+        if (d >= need || d < 1e-6) continue;
         // The one doing something (catching, holding the ball) stays put.
         const fixedA = a.playerControlled || !!a.action, fixedB = b.playerControlled || !!b.action;
         if (fixedA && fixedB) continue;
-        const amt = (min - d) / (fixedA || fixedB ? 1 : 2);
+        const amt = (need - d) / (fixedA || fixedB ? 1 : 2);
         const ux = dx / d, uz = dz / d;
         if (!fixedA) { a.pos.x -= ux * amt; a.pos.z -= uz * amt; }
         if (!fixedB) { b.pos.x += ux * amt; b.pos.z += uz * amt; }

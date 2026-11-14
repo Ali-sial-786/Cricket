@@ -80,7 +80,37 @@ function prepareRig(meta, bin) {
     g.setIndex(new THREE.BufferAttribute(new Uint16Array(bin.slice(p.idx, p.idx + p.iCount * 2)), 1));
     return { name: p.name, optional: !!p.optional, geo: g };
   }));
-  return { bones: meta.bones, index: Object.fromEntries(meta.bones.map((b, i) => [b, i])), J, canon, bindQ, inverses, lods, headCentre: new THREE.Vector3(...meta.headCentre), headSize: new THREE.Vector3(...(meta.headSize || [0.1, 0.14, 0.125])), skull: meta.skull, geoCache: new Map() };
+  // The shoe soles: how far below the ankle joint the lowest sole vertex is
+  // (the feet keep their bind orientation, so this holds in the canonical
+  // pose too), and so how high the soles sit above the root in the canonical
+  // standing pose (legs straight down). The mesh is lowered by that much so a
+  // figure standing on y = 0 stands ON the turf, not 2-3 cm above it, and
+  // ankleHeight (foot IK) is the real ankle-to-sole distance.
+  const base = lods[0].filter((p) => !p.optional).map((p) => p.geo);
+  let soleY = Infinity;
+  const ia = meta.bones.indexOf('ankleL'), ib = meta.bones.indexOf('ankleR');
+  for (const g of base) {
+    const P = g.attributes.position, SI = g.attributes.skinIndex, SW = g.attributes.skinWeight;
+    for (let v = 0; v < P.count; v++) {
+      let w = 0;
+      for (let k = 0; k < 4; k++) { const b = SI.getComponent(v, k); if (b === ia || b === ib) w += SW.getComponent(v, k); }
+      if (w > 0.5 && P.getY(v) < soleY) soleY = P.getY(v);
+    }
+  }
+  const sole = J.ankleL.y - soleY;
+  // ... and how far ahead of the ankle the toe of the sole reaches (the pivot when the heel comes up).
+  let toe = 0;
+  for (const g of base) {
+    const P = g.attributes.position, SI = g.attributes.skinIndex, SW = g.attributes.skinWeight;
+    for (let v = 0; v < P.count; v++) {
+      if (P.getY(v) > soleY + 0.02) continue;
+      let w = 0;
+      for (let k = 0; k < 4; k++) { const b = SI.getComponent(v, k); if (b === ia) w += SW.getComponent(v, k); }
+      if (w > 0.5) toe = Math.max(toe, P.getZ(v) - J.ankleL.z);
+    }
+  }
+  const floor = canon.ankleL.y - sole;
+  return { sole, toe, floor, bones: meta.bones, index: Object.fromEntries(meta.bones.map((b, i) => [b, i])), J, canon, bindQ, inverses, lods, headCentre: new THREE.Vector3(...meta.headCentre), headSize: new THREE.Vector3(...(meta.headSize || [0.1, 0.14, 0.125])), skull: meta.skull, geoCache: new Map() };
 }
 
 // ---- gear: pieces authored in a bone's canonical local frame ----
@@ -129,6 +159,43 @@ function geometryFor(o, lod) {
     RIG.geoCache.set(key, g);
   }
   return g;
+}
+
+// Per geometry and bone: the bind-space vertices the bone carries most of,
+// reduced to their extremes along 124 directions (a hull), plus the
+// largest distance of any from the bone's joint (r, model units). Humanoid.lowest()
+// carries them with the bone, so gear (pads, gloves, helmet) counts too.
+const HULLS = new WeakMap();
+const DIRS = [];
+for (let x = -2; x <= 2; x++) for (let y = -2; y <= 2; y++) for (let z = -2; z <= 2; z++) if (x || y || z) DIRS.push(new THREE.Vector3(x, y, z).normalize());
+function hullFor(geo) {
+  let H = HULLS.get(geo);
+  if (H) return H;
+  const P = geo.attributes.position, SI = geo.attributes.skinIndex, SW = geo.attributes.skinWeight;
+  const best = RIG.bones.map(() => DIRS.map(() => ({ d: -Infinity, i: -1 })));
+  const rad = RIG.bones.map(() => 0);
+  const v = new THREE.Vector3();
+  for (let i = 0; i < P.count; i++) {
+    let b = -1, bw = 0;                           // (the bone with the most weight: every vertex counts)
+    for (let k = 0; k < 4; k++) { const w = SW.getComponent(i, k); if (w > bw) { bw = w; b = SI.getComponent(i, k); } }
+    if (b < 0) continue;
+    v.fromBufferAttribute(P, i).sub(RIG.J[RIG.bones[b]]);
+    rad[b] = Math.max(rad[b], v.length());
+    const B = best[b];
+    for (let k = 0; k < DIRS.length; k++) { const d = v.dot(DIRS[k]); if (d > B[k].d) { B[k].d = d; B[k].i = i; } }
+  }
+  H = best.map((B, b) => {
+    const ids = [...new Set(B.filter((x) => x.i >= 0).map((x) => x.i))];
+    if (!ids.length) return null;
+    const p = new Float32Array(ids.length * 3), si = new Uint8Array(ids.length * 4), sw = new Float32Array(ids.length * 4);
+    ids.forEach((i, k) => {
+      p[k * 3] = P.getX(i); p[k * 3 + 1] = P.getY(i); p[k * 3 + 2] = P.getZ(i);
+      for (let j = 0; j < 4; j++) { si[k * 4 + j] = SI.getComponent(i, j); sw[k * 4 + j] = SW.getComponent(i, j); }
+    });
+    return { p, si, sw, r: rad[b] + 0.12 };
+  });
+  HULLS.set(geo, H);
+  return H;
 }
 
 // Shared kit shader: the `kit` vertex attribute (slot, baked AO) picks a
@@ -226,6 +293,7 @@ const _v = new THREE.Vector3(), _v2 = new THREE.Vector3(), _S = new THREE.Vector
   _T = new THREE.Vector3(), _dir = new THREE.Vector3(), _pv = new THREE.Vector3(), _end = new THREE.Vector3();
 const _pq = new THREE.Quaternion(), _eul = new THREE.Euler(), _bq = new THREE.Quaternion();
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+const FOOT_ONLY = {}, HAND_ONLY = {};
 
 export class Humanoid {
   constructor({ team = 'home', skin = null, hair = null, headgear = 'cap', pads = false, gloves = false, keeper = false, scale = 1, seed = 0 } = {}) {
@@ -250,17 +318,21 @@ export class Humanoid {
     this.lod = 0;
     this.mesh = new THREE.SkinnedMesh(geometryFor(this.opts, 0), this.material);
     this.mesh.add(bones[0]);
+    this.mesh.position.y = -RIG.floor;            // soles on the ground in the canonical pose (see prepareRig)
     this.mesh.bind(new THREE.Skeleton(bones, RIG.inverses.map((m) => m.clone())), new THREE.Matrix4());
     // Generous fixed culling sphere (covers raised arms, dives and a bat).
     this.mesh.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 1.0, 0), 2.1);
     this.mesh.frustumCulled = true;
     this.boneList = bones;
+    this._mw = bones.map(() => new THREE.Matrix4());
     this.root = new THREE.Group();
     this.root.add(this.mesh);
     this.baseScale = BASE_SCALE * scale;
     this.root.scale.setScalar(this.baseScale);
     this.hipsRest = this.bones.hips.position.clone();
-    this.ankleHeight = RIG.J.ankleL.y;            // sole to ankle joint (model units)
+    this.ankleHeight = RIG.sole;                  // sole to ankle joint (model units)
+    this.toeLength = RIG.toe;                     // ankle to the tip of the sole, along the foot (model units)
+    this.lowY = 0;                                // the lowest point of the body last frame (world y, after groundGuard)
     this.armLength = RIG.J.shoulderL.distanceTo(RIG.J.elbowL) + RIG.J.elbowL.distanceTo(RIG.J.handL);
     u.uGloved.value = gloves ? 1 : 0;
     this.setNumber(team === 'umpire' ? 0 : 1 + Math.floor(rnd(3) * 98));
@@ -324,11 +396,88 @@ export class Humanoid {
   get visible() { return this.root.visible; }
   set visible(v) { this.root.visible = v; if (!v) ShadowPool.set(this.shadowSlot, 0, 0, false); }
 
-  // Called after the root is placed for the frame.
+  // Called after the root is placed for the frame: nothing may be below the
+  // turf (see groundGuard), and the contact shadow follows the hips.
   syncShadow() {
+    this.groundGuard();                           // (hidden too: replays record the pose)
     if (!this.root.visible) return;
     this.bones.hips.getWorldPosition(_v);
     ShadowPool.set(this.shadowSlot, _v.x, _v.z, true, this.root.scale.x * (0.8 + 0.4 * Math.min(1, (_v.y - this.root.position.y) / 1.0)));
+  }
+
+  // Lowest point of the posed body (world y): every bone's hull points
+  // (vertex extremes, gear included; see hullFor) carried rigidly by the bone.
+  // Bones whose joint is higher above the ground than their hull reaches are skipped.
+  lowest(only = null) {
+    this.root.updateMatrixWorld(true);
+    const H = hullFor(geometryFor(this.opts, 0)), sc = this.root.scale.y;     // (the full-detail mesh, whatever LOD is drawn)
+    const M = this._mw;
+    for (let b = 0; b < M.length; b++) M[b].multiplyMatrices(this.boneList[b].matrixWorld, RIG.inverses[b]);
+    let low = Infinity;
+    for (let b = 0; b < H.length; b++) {
+      const hb = H[b];
+      if (!hb || (only && !only.includes(b)) || M[b].elements[13] - hb.r * sc > low) continue;
+      const { p, si, sw } = hb;
+      for (let i = 0, n = p.length / 3; i < n; i++) {
+        const x = p[i * 3], y0 = p[i * 3 + 1], z = p[i * 3 + 2];
+        let y = 0;
+        for (let k = 0; k < 4; k++) {                 // linear blend skinning, height only
+          const w = sw[i * 4 + k];
+          if (!w) continue;
+          const m = M[si[i * 4 + k]].elements;
+          y += w * (m[1] * x + m[5] * y0 + m[9] * z + m[13]);
+        }
+        if (y < low) { low = y; this.lowBone = b; }
+      }
+    }
+    return low;
+  }
+
+  // A swinging (not planted) foot that dips into the turf: bend that leg
+  // (IK, same knee direction, same foot orientation) so the sole clears it.
+  clearFoot(side) {
+    const ia = RIG.index['ankle' + side], ik = RIG.index['knee' + side];
+    const low = this.lowest(FOOT_ONLY[side] || (FOOT_ONLY[side] = [ia, ik]));
+    if (low >= 0) return 0;
+    const ank = this.bones['ankle' + side];
+    ank.getWorldQuaternion(_bq);
+    ank.getWorldPosition(_T); _T.y -= low;
+    this.bones['knee' + side].getWorldPosition(_v);
+    this.bones['hip' + side].getWorldPosition(_v2);
+    _v.add(_v.clone().sub(_v2).setY(0).multiplyScalar(2));       // pole: out along the knee's current direction
+    this.ikLeg(side, _T, _v);
+    this.setWorldQuat('ankle' + side, _bq);
+    return -low;
+  }
+
+  // The same for an arm (a dive's leading arm stretched along the turf):
+  // bend it so the hand and forearm stay on top of the turf.
+  clearHand(side) {
+    const ih = RIG.index['hand' + side], ie = RIG.index['elbow' + side];
+    const low = this.lowest(HAND_ONLY[side] || (HAND_ONLY[side] = [ih, ie]));
+    if (low >= 0) return 0;
+    const hand = this.bones['hand' + side];
+    hand.getWorldQuaternion(_bq);
+    hand.getWorldPosition(_T); _T.y -= low;
+    this.bones['elbow' + side].getWorldPosition(_v); _v.y -= 0.3;
+    this.ikArm(side, _T, _v);
+    this.setWorldQuat('hand' + side, _bq);
+    return -low;
+  }
+
+  // Last line of defence: if any part of the body is below the turf (a pose
+  // or a blend the animation code did not foresee), lift the whole figure so
+  // its lowest point is on it. tol: what may go under (soles / pads press in).
+  groundGuard(tol = 0.002) {
+    const low = this.lowest();
+    this.lowY = low;
+    this.guardLift = low < -tol ? -(low + tol) : 0;
+    if (low < -tol) {
+      this.root.position.y -= low + tol;
+      this.root.updateMatrixWorld(true);
+      this.lowY = -tol;
+    }
+    return low;
   }
 
   reset() {
