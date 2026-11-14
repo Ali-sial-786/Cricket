@@ -2,6 +2,7 @@
 // and bowling sessions).
 import * as THREE from 'three';
 import { CONFIG } from '../config.js';
+import { HINTS } from '../ui/controllerHint.js';
 import { trackLbw, umpireDecision, reviewOutcome, lawOut } from './lbw.js';
 
 // Has an unbatted ball reached the batter's legs? (bx, bz) = where the batter
@@ -85,7 +86,7 @@ export class LbwFlow {
     } else if (this.phase === 'decision') {
       const R = g.input.right, L = g.input.left;
       if (this.canPlayer) {
-        if (this.t > 0.9) g.ui.prompt(`Press A to REVIEW (${this.reviews.player} left)`, 0.5, '#7fd3ff');
+        if (this.t > 0.9) { g.ui.prompt(`Review? ${this.reviews.player} left`, 0.5, '#7fd3ff'); g.hint([HINTS.review], 0.5); }
         if (this.t > 0.15 && (R.buttons.a.down || L.buttons.a.down)) { this.startReview(true); return; }
       } else if (this.aiWill && this.t > 1.4) { this.startReview(false); return; }
       if (this.t > (this.canPlayer ? 4.5 : this.aiWill ? 2 : 1.8)) this.finish(this.onFieldOut);

@@ -12,6 +12,7 @@ import { ThirdUmpireFlow } from './thirdUmpire.js';
 import { Innings } from './scoring.js';
 import { batProfile } from './squad.js';
 import { playerBowler, nextBowler, seamFromWrist, PLAYER_BOWLER_ORDER } from './bowlerTypes.js';
+import { HINTS } from '../ui/controllerHint.js';
 
 const _palm = new Vec3();
 // Ball mesh: the seam is the equator (normal = local Y). Upright seam = normal across the pitch.
@@ -93,7 +94,8 @@ export class BowlingSession {
     this.keeperUp = this.bowler.spinner;
     if (this.field) this.field.setSpinner(this.keeperUp);
     if (this.innings) { g.say('toss', { choice: 'bowl' }); g.say('innings', { chase: this.innings.target != null }); }
-    g.ui.prompt(g.input.xr ? `You are bowling ${this.bowler.label.toLowerCase()} · right stick ◂ ▸ changes bowler` : `Bowling ${this.bowler.label.toLowerCase()} · keys 1–4 change bowler · B: auto-bowl`, 6);
+    g.ui.prompt(`You are bowling ${this.bowler.label.toLowerCase()}`, 3, '#ffd34d');
+    g.coach('bowl', this.bowler.spinner ? [HINTS.bowl, HINTS.bowler, HINTS.aim] : [HINTS.bowl, HINTS.outswing, HINTS.bowler], 8);
     this.resetEnds();
     this.updateAim();
     this.updateHud();
@@ -328,7 +330,8 @@ export class BowlingSession {
           g.umpires.signal('freehit', g.clock);
           g.ui.prompt('FREE HIT — only a run-out counts', 3.5, '#ffd34d');
         } else if (this.innings && this.innings.thisOver.length === 0 && this.innings.legal > 0) {
-          g.ui.prompt(g.input.xr ? `New over · ${this.bowler.label} · right stick ◂ ▸ to change bowler` : `New over · ${this.bowler.label} · keys 1–4 to change bowler`, 3.5, '#ffd34d');
+          g.ui.prompt(`New over · ${this.bowler.label}`, 2.5, '#ffd34d');
+          g.hint([HINTS.bowler], 3.5);
         }
         this.seamYaw = 0;
         this.resetEnds();

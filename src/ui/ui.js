@@ -1,6 +1,7 @@
 // Menus (laser-pointer driven), HUD, scoreboard, safety + calibration screens.
 import * as THREE from 'three';
 import { CanvasPanel, grid } from './panel.js';
+import { drawHintCard } from './controllerHint.js';
 import { LENGTH_PRESETS, LINE_PRESETS } from '../physics/bowlingMachine.js';
 import { CONFIG } from '../config.js';
 
@@ -48,13 +49,19 @@ export class UI {
     this.hoverHit = null;
     this.setHudPose('batting');
 
-    // Prompt + caption strip that floats in front of the player (controls
-    // hints, "CATCH IT!", commentary subtitles).
+    // Message strip that floats in front of the player ("CATCH IT!",
+    // decisions). Commentary is never captioned.
     this.promptPanel = new CanvasPanel({ width: 1.05, height: 0.26, ppm: 640, name: 'prompt', bg: 'rgba(8,12,20,0.62)', interactive: false });
     this.promptPanel.mesh.visible = false;
     this.promptPanel.mesh.renderOrder = 11;
     this.scene.add(this.promptPanel.mesh);
-    this.promptText = ''; this.promptColor = '#ffffff'; this.promptUntil = 0; this.captionText = ''; this.captionUntil = 0;
+    this.promptText = ''; this.promptColor = '#ffffff'; this.promptUntil = 0;
+    // Control hints: small controller pictures with the button to press lit.
+    this.hintPanel = new CanvasPanel({ width: 0.78, height: 0.3, ppm: 1000, name: 'hints', bg: null, interactive: false });
+    this.hintPanel.mesh.visible = false;
+    this.hintPanel.mesh.renderOrder = 11;
+    this.scene.add(this.hintPanel.mesh);
+    this.hintList = []; this.hintKey = ''; this.hintUntil = 0;
     this._pt = new THREE.Vector3(); this._pq = new THREE.Quaternion(); this._pf = new THREE.Vector3();
     this.clock = 0;
   }
@@ -65,42 +72,47 @@ export class UI {
     this.promptText = text; this.promptColor = color; this.promptUntil = this.clock + secs;
     this.drawPrompt();
   }
-  caption(text) {
-    this.captionText = text || '';
-    this.captionUntil = this.clock + (text ? 6 : 0);
-    this.drawPrompt();
-  }
   drawPrompt() {
     const P = this.promptPanel, W = [];
-    const p = this.clock < this.promptUntil ? this.promptText : '', c = this.clock < this.captionUntil ? this.captionText : '';
-    if (p) W.push({ type: 'label', x: P.W / 2, y: c ? 44 : 82, text: p, size: p.length > 46 ? 30 : 40, bold: true, align: 'center', color: this.promptColor });
-    if (c) {
-      // Wrap the subtitle onto up to two lines.
-      let l1 = c, l2 = '';
-      if (c.length > 56) { const cut = c.lastIndexOf(' ', 56); l1 = c.slice(0, cut > 20 ? cut : 56); l2 = c.slice(l1.length).trim(); if (l2.length > 58) l2 = l2.slice(0, 56) + '…'; }
-      W.push({ type: 'label', x: P.W / 2, y: p ? 104 : (l2 ? 66 : 82), text: l2 ? l1 + '\n' + l2 : l1, size: 23, align: 'center', color: '#cfe3f5' });
-    }
+    const p = this.clock < this.promptUntil ? this.promptText : '';
+    if (p) W.push({ type: 'label', x: P.W / 2, y: 82, text: p, size: p.length > 46 ? 30 : 40, bold: true, align: 'center', color: this.promptColor });
     P.set(W, '');
-    this.promptShown = !!(p || c);
+    this.promptShown = !!p;
   }
+
+  // Show control hints (up to three) for `secs`. Same set again just extends it.
+  hints(list, secs = 4) {
+    const key = list.map((h) => h.label + h.button + h.hand).join('|');
+    this.hintUntil = this.clock + secs;
+    if (key === this.hintKey) return;
+    this.hintKey = key; this.hintList = list.slice(0, 3);
+    const P = this.hintPanel, n = this.hintList.length, desktop = !this.game.input.xr;
+    const cw = 240, ch = P.H - 12, gap = 16, x0 = (P.W - (n * cw + (n - 1) * gap)) / 2;
+    P.set(this.hintList.map((h, i) => ({ type: 'custom', draw: (g) => drawHintCard(g, x0 + i * (cw + gap), 6, cw, ch, h, desktop) })), '');
+  }
+  clearHints() { this.hintUntil = 0; }
+
   updatePrompt(dt) {
     this.clock += dt;
-    const P = this.promptPanel;
-    if (this.promptShown && this.clock >= Math.max(this.promptText ? this.promptUntil : 0, this.captionText ? this.captionUntil : 0)) this.drawPrompt();
-    const show = this.promptShown && !this.menuOpen;
-    P.mesh.visible = show;
-    if (!show) return;
+    if (this.promptShown && this.clock >= this.promptUntil) this.drawPrompt();
     const head = this.game.input.headPose;
     this._pq.set(head.q.x, head.q.y, head.q.z, head.q.w);
     this._pf.set(0, 0, -1).applyQuaternion(this._pq); this._pf.y = 0;
     if (this._pf.lengthSq() < 1e-6) this._pf.set(0, 0, -1);
     this._pf.normalize();
-    this._pt.set(head.p.x + this._pf.x * 1.5, head.p.y - 0.5, head.p.z + this._pf.z * 1.5);
-    const m = P.mesh;
-    if (m.position.distanceTo(this._pt) > 3) m.position.copy(this._pt);
-    else m.position.lerp(this._pt, Math.min(1, dt * 5));
-    m.lookAt(head.p.x, head.p.y - 0.1, head.p.z);
-    P.update();
+    const eye = this.game.eye ? this.game.eye.p : head.p;
+    const follow = (panel, show, dist, drop) => {
+      panel.mesh.visible = show;
+      if (!show) return;
+      this._pt.set(eye.x + this._pf.x * dist, eye.y - drop, eye.z + this._pf.z * dist);
+      const m = panel.mesh;
+      if (m.position.distanceTo(this._pt) > 3) m.position.copy(this._pt);
+      else m.position.lerp(this._pt, Math.min(1, dt * 5));
+      m.lookAt(eye.x, eye.y - 0.1, eye.z);
+      panel.update();
+    };
+    follow(this.promptPanel, this.promptShown && !this.menuOpen, 1.5, 0.5);
+    follow(this.hintPanel, this.hintList.length > 0 && this.clock < this.hintUntil && !this.menuOpen, 1.35, 0.72);
   }
 
   get menuOpen() { return this.menu.mesh.visible; }

@@ -11,6 +11,7 @@ import { planRuns } from './running.js';
 import { Vec3 } from '../physics/math.js';
 import { PITCH } from '../physics/pitch.js';
 import { CONFIG } from '../config.js';
+import { HINTS } from '../ui/controllerHint.js';
 
 const _v = new THREE.Vector3(), _w = new THREE.Vector3();
 
@@ -247,7 +248,7 @@ export class FieldController {
     // ---- the player picks the end to throw to ----
     const th = L.throw;
     if (this.playerFielding && th && !th.released && !this.outcome) {
-      if (!this.throwPrompted) { this.throwPrompted = true; g.ui.prompt("A: throw to the KEEPER  ·  B: BOWLER'S end", 2.5, '#ffd34d'); }
+      g.hint([HINTS.toKeeper, HINTS.toBowler], 0.4);       // up until the throw is away
       const R = g.input.right;
       if (R.buttons.a.down && L.setThrowEnd('batting')) g.ui.prompt('To the keeper!', 1.2);
       if (R.buttons.b.down && L.setThrowEnd('bowling')) g.ui.prompt("Bowler's end!", 1.2);

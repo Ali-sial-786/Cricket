@@ -38,7 +38,6 @@ export function defaultSettings() {
     replay: 'bowler',              // off | bowler | batter: replay after every ball
     commentary: true,
     seenHowTo: false,
-    captions: true,
     paceMultiplier: CONFIG.bowling.paceMultiplier,
     batSpeedMultiplier: CONFIG.bat.speedMultiplier,
     hapticsScale: 1.0,

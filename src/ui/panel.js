@@ -92,6 +92,7 @@ export class CanvasPanel {
   drawWidget(g, w) {
     const hov = (p) => this.hover === `${w.id}:${p}`;
     g.textBaseline = 'middle';
+    if (w.type === 'custom') { g.save(); w.draw(g); g.restore(); return; }
     if (w.type === 'label') {
       g.fillStyle = w.color || '#e8eef5';
       g.font = `${w.bold ? 700 : 500} ${w.size || 30}px system-ui, sans-serif`;

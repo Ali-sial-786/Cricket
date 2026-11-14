@@ -102,7 +102,6 @@ export class Game {
     this.sfx.setEnabled(this.settings.sound);
     this.samples = new Samples(this.sfx);
     this.commentary = new Commentary({ sfx: this.sfx, rng: () => this.rng() });
-    this.commentary.onCaption = (text) => { if (this.ui && this.settings.captions) this.ui.caption(text); };
     this.commentary.load().catch((e) => console.warn('Commentary unavailable', e));
     this.commentary.setEnabled(this.settings.commentary && this.settings.sound);
     this.ui = new UI(this);
@@ -121,6 +120,7 @@ export class Game {
     this._hands = [new Vec3(), new Vec3()];
     this.applyDifficulty();
     this._lastView = this.settings.view;
+    this.coachSeen = new Set();       // control hints already shown this game
 
     this.simTime = 0;
     this.lastNow = null;
@@ -183,6 +183,15 @@ export class Game {
     const base = this.input.xr ? (this.calibration || defaultBatOffset()) : _identity;
     return out.set(0, 0, 1).applyQuat(base).applyQuat(this.input.right.gripPose.q);
   }
+
+  // Control hints. coach(): once per game for each id; hint(): every time.
+  coach(id, list, secs = 6) {
+    if (this.coachSeen.has(id)) return false;
+    this.coachSeen.add(id);
+    this.ui.hints(list, secs);
+    return true;
+  }
+  hint(list, secs = 0.5) { this.ui.hints(list, secs); }
 
   // Short commentary / crowd helpers (never throw).
   say(kind, ctx) { try { this.commentary.say(kind, ctx || {}); } catch { /* optional */ } }
@@ -435,6 +444,7 @@ export class Game {
   startSession(kind) {
     if (this.session) this.endSession();
     this.lastMode = kind;
+    this.coachSeen.clear();                 // a new game: show each control hint again
     if (kind === 'match') { this.state = 'menu'; this.setEnd('batting'); startMatch(this); return; }
     this.startSessionObj(createSession(this, kind));
   }

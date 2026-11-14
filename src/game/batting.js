@@ -17,6 +17,7 @@ import { machineDelivery } from '../physics/bowlingMachine.js';
 import { predict } from '../physics/trajectory.js';
 import { LbwFlow, padHit, deflectOffPad } from './lbwFlow.js';
 import { ThirdUmpireFlow } from './thirdUmpire.js';
+import { HINTS } from '../ui/controllerHint.js';
 
 const PLAYER_PAD = { halfX: 0.15, front: 0.1, back: 0.26, top: 0.7 };
 import { Innings } from './scoring.js';
@@ -76,7 +77,7 @@ export class BattingSession {
       g.say('toss', { choice: this.innings.target != null ? 'bowl' : 'bat' });
       g.say('innings', { chase: this.innings.target != null });
     }
-    g.ui.prompt(this.field ? 'Trigger: step out · Grip: sweep · X: run' : 'Trigger: step out · Grip: sweep · X: next ball', 6);
+    g.coach('bat', this.field ? [HINTS.stepOut, HINTS.sweep, HINTS.move] : [HINTS.stepOut, HINTS.sweep, HINTS.next], 7);
   }
 
   exit() {
@@ -139,8 +140,9 @@ export class BattingSession {
       if (L.buttons.a.down || (input.xr && !L.connected && R.buttons.a.down)) { if (this.field.callRun()) g.ui.prompt('RUN!', 1.0, '#7dff8a'); }
       if (L.buttons.trigger.down && this.field.turnBack()) g.ui.prompt('BACK!', 1.0, '#ff9f43');
       if (L.buttons.b.down && this.field.dive(g.simTime)) { g.ui.prompt('DIVE!', 0.8, '#ffd34d'); L.pulse(0.5, 40); }
-      if (!r.running && !r.closed) g.ui.prompt(input.xr ? 'X: RUN' : 'Space: RUN', 0.4, '#ffffff');
-      else if (r.running) g.ui.prompt(input.xr ? 'Left trigger: BACK  ·  Y: DIVE' : 'G: BACK  ·  V: DIVE', 0.4, '#cfe3f5');
+      // The running controls stay up for as long as you can run.
+      if (!r.running && !r.closed) g.hint(r.completed > 0 ? [HINTS.another] : [HINTS.run], 0.5);
+      else if (r.running) g.hint([HINTS.back, HINTS.dive], 0.5);
     } else if (L.buttons.a.down || (input.xr && !L.connected && R.buttons.a.down)) this.requestNext();
   }
 
