@@ -639,6 +639,7 @@ const ELBOW_FWD = 0.2;               // elbows out in front of the shoulders, ov
 const STANCE_LEAN = 0.52, STANCE_KNEES = 0.05, STANCE_DROP = 0.18, FRONT_OPEN = 0.3;
 const FOOT_FRONT = 0.2, FOOT_BACK = 0.26;      // your feet: front foot ahead of your head, back foot behind it             // bottom hand to top hand, up the handle
 const GRIP_ROLL = 0.8;              // how far a hand may roll round the handle from the textbook grip (rad)
+const MAX_STRIDE = 1.0;             // feet apart at most in a lunge (m)
 
 export class BatterActor extends Actor {
   constructor(scene, opts = {}) {
@@ -651,6 +652,8 @@ export class BatterActor extends Actor {
     this.mode = 'bat';        // 'bat' (driven by a bat pose) | 'run' | 'idle'
     // The model's arms are short for holding a bat out in front: lengthen them a little.
     for (const b of ['elbowL', 'handL', 'elbowR', 'handR']) this.h.bones[b].position.multiplyScalar(ARM_STRETCH);
+    this.armRest = Object.fromEntries(['elbowL', 'handL', 'elbowR', 'handR'].map((b) => [b, this.h.bones[b].position.clone()]));
+    this.stretchArms = false;     // your figure: the arms may lengthen so the gloves are always on your bat (gripBat)
     this.h.update();
     this.armLen = this.h.worldPos('shoulderR', new THREE.Vector3()).distanceTo(this.h.worldPos('elbowR', new THREE.Vector3()))
       + this.h.worldPos('elbowR', new THREE.Vector3()).distanceTo(this.h.worldPos('handR', new THREE.Vector3()));
@@ -771,6 +774,10 @@ export class BatterActor extends Actor {
     M.L.y = Math.max(M.L.y, ankleY * 0.95); M.R.y = Math.max(M.R.y, ankleY * 0.95);
     // a stumping being judged: the back foot where yours really is, not where the capture strides it
     const kz = M.R.z; pinBack(M.R, opts.crease); M.kR.z += M.R.z - kz;
+    { // (and the front foot no further from it than a real stride)
+      const st = Math.hypot(M.L.x - M.R.x, M.L.z - M.R.z);
+      if (st > MAX_STRIDE) { const k = MAX_STRIDE / st, lx = M.L.x, lz = M.L.z; M.L.x = M.R.x + (lx - M.R.x) * k; M.L.z = M.R.z + (lz - M.R.z) * k; M.kL.x += M.L.x - lx; M.kL.z += M.L.z - lz; }
+    }
     // the pelvis takes up most of the difference between the capture's head and yours
     const Hg = _hp.copy(M.H);
     if (opts.head) {
@@ -1099,6 +1106,9 @@ export class BatterActor extends Actor {
       heading = this.stepFeet(dt, H, batPos, fl, fr, !!(opts.sweep && opts.sweep.k > 0.05));
       open = this.step.open;
       pinBack(fr, opts.crease);
+      // (your back foot held where it really is while you lean far out: the front foot comes no further than a real stride)
+      const st = Math.hypot(fl.x - fr.x, fl.z - fr.z);
+      if (st > MAX_STRIDE) { fl.x = fr.x + (fl.x - fr.x) * MAX_STRIDE / st; fl.z = fr.z + (fl.z - fr.z) * MAX_STRIDE / st; }
       const wide = Math.hypot(fl.x - fr.x, fl.z - fr.z) || 1;
       weight = clamp(0.5 + ((H.x - (fl.x + fr.x) / 2) * (fl.x - fr.x) + (H.z - (fl.z + fr.z) / 2) * (fl.z - fr.z)) / (wide * wide) * 0.9, 0.2, 0.8);
     } else {
@@ -1184,8 +1194,10 @@ export class BatterActor extends Actor {
     let px = this.pos.x + (H.x - this.pos.x) * 0.22 - s * back, pz = this.pos.z + (H.z - this.pos.z) * 0.22 - c * back;
     let d = Math.hypot(H.x - px, H.z - pz);
     if (d > 0.88 * T) { const k = 0.88 * T / d; px = H.x + (px - H.x) * k; pz = H.z + (pz - H.z) * k; d = 0.88 * T; }
-    let py = clamp(H.y - Math.sqrt(T * T - d * d), 0.3, hipTop);
     const sw = o.sweep ? o.sweep.k : 0;
+    // (not a sweep: the pelvis never comes down to a kneel, however far your head goes)
+    const hipMin = mix(this.kneelHipY * sc + 0.1, 0.28, sw);
+    let py = clamp(H.y - Math.sqrt(T * T - d * d), hipMin, hipTop);
     const hipMax = mix(hipTop, this.kneelHipY * sc, sw);
     if (sw > 0) { py = Math.min(py, hipMax); px = mix(px, fr.x + (fl.x - fr.x) * 0.22, sw); pz = mix(pz, fr.z + (fl.z - fr.z) * 0.22, sw); }
     const setHips = () => {
@@ -1221,7 +1233,7 @@ export class BatterActor extends Actor {
     h.update();
     h.worldPos('head', _d);
     if (sw < 1) { px += (H.x - _d.x) * (1 - sw); pz += (H.z - _d.z) * (1 - sw); }
-    py = clamp(py + H.y - _d.y, 0.28, hipMax);
+    py = clamp(py + H.y - _d.y, hipMin, hipMax);
     setHips();
     // …and if the bat is still out of reach, go with it.
     h.update();
@@ -1230,7 +1242,7 @@ export class BatterActor extends Actor {
     if (over > 0) {
       const sh = h.worldPos('chest', _c);
       _v1.set(batPos.x - sh.x, batPos.y - sh.y, batPos.z - sh.z).normalize().multiplyScalar(Math.min(0.35, over));
-      px += _v1.x * (1 - sw); pz += _v1.z * (1 - sw); py = clamp(py + _v1.y, 0.28, hipMax);
+      px += _v1.x * (1 - sw); pz += _v1.z * (1 - sw); py = clamp(py + _v1.y, hipMin, hipMax);
       setHips();
     }
     this.forward(_fwd);
@@ -1321,17 +1333,26 @@ export class BatterActor extends Actor {
   // (elbows bending on their hinge), each hand may roll a little round the
   // handle to keep its wrist from bending too far, and the forearm takes half
   // of the hand's turn so the wrist doesn't wring.
+  //
+  // The hands are always on the handle (for you a hard rule: your gloves are
+  // drawn on your real bat every frame, whatever the body is doing): a bat out
+  // of the arms' reach first leans the trunk toward it, and for your figure
+  // (stretchArms) the arms then lengthen by what is still missing.
   gripBat(batPos, batQuat, elbowUp = 0) {
     const h = this.h;
+    this.restArms();
     h.update();
     _bx.set(1, 0, 0).applyQuaternion(batQuat);
     _by.set(0, 1, 0).applyQuaternion(batQuat);
     _bz.set(0, 0, 1).applyQuaternion(batQuat);
     this.forward(_fwd);
     _left.set(_fwd.z, 0, -_fwd.x);
+    this.reachLean(batPos, _top.copy(batPos).addScaledVector(_by, HAND_GAP));
+    if (this.stretchArms) this.reachShift(batPos, _top.copy(batPos).addScaledVector(_by, HAND_GAP));
     h.worldPos('shoulderR', _sR); h.worldPos('shoulderL', _sL);
     h.worldPos('chest', _ch);
     const sb = Math.sin(GRIP_BETA), cb = Math.cos(GRIP_BETA);
+    let err = 0;
     for (const side of ['R', 'L']) {
       const at = side === 'R' ? _c.copy(batPos) : _top.copy(batPos).addScaledVector(_by, HAND_GAP), sh = side === 'R' ? _sR : _sL;
       // Elbows: down and in, close to the ribs (only a little out along the
@@ -1340,6 +1361,7 @@ export class BatterActor extends Actor {
       const sign = side === 'R' ? -1 : 1, lift = side === 'R' ? 0 : 0.75 * elbowUp;
       _pole.copy(sh).addScaledVector(_fwd, ELBOW_FWD).addScaledVector(_left, sign * 0.1).add(_e.set(0, -0.6 + 1.0 * lift, 0))
         .addScaledVector(_left, sign * 0.3 * lift);
+      this.steadyPole(side, sh, at, _pole);
       let roll = 0;
       for (let pass = 0; pass < 2; pass++) {
         // The grip frame, rolled `roll` round the handle.
@@ -1350,13 +1372,17 @@ export class BatterActor extends Actor {
         _gz.copy(_xr).multiplyScalar(-cb).addScaledVector(_by, -sb);
         _wr.copy(at).addScaledVector(_gy, PALM);                            // the wrist, a palm's length from the handle
         h.ikArm(side, _wr, _pole);
-        if (pass) break;
+        if (pass) {
+          if (this.stretchArms) this.stretchTo(side, _wr, _pole);
+          break;
+        }
         // Roll toward the forearm: the knuckles (-gy) as near its line as the grip allows.
         h.update();
         _f.subVectors(_wr, h.worldPos('elbow' + side, _el)).normalize();
         roll = clamp(Math.atan2(-_f.dot(_bz), _f.dot(_bx)), -GRIP_ROLL, GRIP_ROLL);
       }
       h.setWorldQuat('hand' + side, _q.setFromRotationMatrix(_m.makeBasis(_gx, _gy, _gz)));
+      err = Math.max(err, h.worldPos('hand' + side, _el).distanceTo(_wr));
       // Share the hand's turn with the forearm.
       const fore = h.bones['elbow' + side];
       fore.getWorldQuaternion(_ql);
@@ -1365,12 +1391,111 @@ export class BatterActor extends Actor {
       _x.copy(_gx).addScaledVector(_v2, -_gx.dot(_v2));
       if (_x.lengthSq() > 1e-6) {
         _x.normalize();
-        const tw = Math.atan2(_y.crossVectors(_v1, _x).dot(_v2), _v1.dot(_x));
+        let tw = Math.atan2(_y.crossVectors(_v1, _x).dot(_v2), _v1.dot(_x));
+        // (continuous from the last frame: across +-180 deg half of it would flip the forearm over)
+        const tws = this._tw || (this._tw = { L: 0, R: 0 }), prev = tws[side];
+        if (tw - prev > Math.PI) tw -= TAU; else if (tw - prev < -Math.PI) tw += TAU;
+        if (Math.abs(tw) > 1.4 * Math.PI) tw -= Math.sign(tw) * TAU;
+        tws[side] = tw;
         fore.quaternion.multiply(_qt.setFromAxisAngle(_up, tw * 0.5));
         fore.updateMatrixWorld(true);
         h.setWorldQuat('hand' + side, _q);
       }
     }
+    this.gripErr = err;
+  }
+
+  // The elbow's pole, kept continuous: when the hand passes through the line
+  // from the shoulder to the pole (hands low in front: the stance, every
+  // downswing) the bend plane is undefined and the elbow would flip to the
+  // other side in one frame. The bend direction (the pole across the
+  // shoulder-hand line) turns at most ~0.3 rad a frame.
+  steadyPole(side, sh, at, pole) {
+    const S = this._eb || (this._eb = { L: new THREE.Vector3(), R: new THREE.Vector3(), okL: false, okR: false });
+    const D = _v1.subVectors(at, sh); if (D.lengthSq() < 1e-8) return; D.normalize();
+    const n = _v2.subVectors(pole, sh), len = n.length();
+    n.addScaledVector(D, -n.dot(D));
+    const prev = S[side];
+    let have = S['ok' + side];
+    if (have) { prev.addScaledVector(D, -prev.dot(D)); have = prev.lengthSq() > 1e-6; if (have) prev.normalize(); }
+    if (n.lengthSq() < 1e-6 * len * len) { if (!have) return; n.copy(prev); } else n.normalize();
+    if (have) {
+      const a = Math.acos(clamp(prev.dot(n), -1, 1));
+      if (a > 0.3) {
+        // turn prev toward n by 0.3 rad about D (n and prev are both across D)
+        _x.crossVectors(prev, n); if (_x.lengthSq() < 1e-8) _x.copy(D); else _x.normalize();
+        n.copy(prev).applyAxisAngle(_x, 0.3);
+      }
+    }
+    prev.copy(n); S['ok' + side] = true;
+    pole.copy(sh).addScaledVector(D, 0.3).addScaledVector(n, Math.max(0.3, len));
+  }
+
+  // Arm bones back to their own length (after stretchTo).
+  restArms() {
+    if (!this._stretched) return;
+    for (const [b, p] of Object.entries(this.armRest)) this.h.bones[b].position.copy(p);
+    this._stretched = false;
+  }
+
+  // The bat beyond the arms' reach: lean the trunk (spine and chest) toward it,
+  // up to ~40 deg, so that both shoulders come within reach of their hand.
+  reachLean(bot, top) {
+    const h = this.h, sc = h.root.scale.x, reach = (this.armLen * sc / this.armScale0 + PALM * 0.8) * 0.97;
+    for (let pass = 0; pass < 2; pass++) {
+      h.update();
+      const over = Math.max(h.worldPos('shoulderR', _a).distanceTo(bot), h.worldPos('shoulderL', _b).distanceTo(top)) - reach;
+      if (over <= 0.002) return;
+      const sp = h.worldPos('spine', _v1), shm = _v2.addVectors(_a, _b).multiplyScalar(0.5);
+      _x.subVectors(shm, sp); const L = _x.length(); _x.normalize();
+      _y.addVectors(bot, top).multiplyScalar(0.5).sub(sp).normalize();
+      const full = Math.acos(clamp(_x.dot(_y), -1, 1));
+      if (full < 1e-3) return;
+      const ang = Math.min(full, over / Math.max(0.2, L) * 1.1, pass ? 0.35 : 0.4);
+      _q.setFromUnitVectors(_x, _y);
+      _ql.identity().slerp(_q, ang / full);
+      for (const [b, f] of [['spine', 0.55], ['chest', 0.45]]) {
+        h.bones[b].getWorldQuaternion(_qt);
+        h.setWorldQuat(b, _qt.premultiply(_q.identity().slerp(_ql, f)));
+      }
+    }
+  }
+
+  // Still well out of reach after leaning (your figure down on its knee for a
+  // sweep while you stand, a stride that left your hands behind): the pelvis
+  // goes toward the bat (up to 0.45 m), the feet staying where they are.
+  reachShift(bot, top) {
+    const h = this.h, sc = h.root.scale.x, reach = (this.armLen * sc / this.armScale0 + PALM * 0.8) * 1.04;
+    h.update();
+    const over = Math.max(h.worldPos('shoulderR', _a).distanceTo(bot), h.worldPos('shoulderL', _b).distanceTo(top)) - reach;
+    if (over <= 0) return;
+    const S = this._rs || (this._rs = { aL: new THREE.Vector3(), aR: new THREE.Vector3(), kL: new THREE.Vector3(), kR: new THREE.Vector3(), qL: new THREE.Quaternion(), qR: new THREE.Quaternion(), d: new THREE.Vector3() });
+    for (const sd of ['L', 'R']) { h.worldPos('ankle' + sd, S['a' + sd]); h.worldPos('knee' + sd, S['k' + sd]); h.bones['ankle' + sd].getWorldQuaternion(S['q' + sd]); }
+    S.d.addVectors(bot, top).multiplyScalar(0.5).sub(_v1.addVectors(_a, _b).multiplyScalar(0.5)).normalize().multiplyScalar(Math.min(0.45, over));
+    const hips = h.bones.hips;
+    hips.getWorldPosition(_v1).add(S.d);
+    hips.position.copy(hips.parent.worldToLocal(_v1));
+    h.update();
+    for (const sd of ['L', 'R']) {
+      h.ikLeg(sd, S['a' + sd], S['k' + sd].add(S.d));
+      h.setWorldQuat('ankle' + sd, S['q' + sd]);
+    }
+  }
+
+  // Still out of reach after the IK: lengthen the upper arm and forearm (same
+  // share each) until the wrist is on its target, at most by half again.
+  stretchTo(side, target, pole) {
+    const h = this.h;
+    h.update();
+    if (h.worldPos('hand' + side, _el).distanceTo(target) < 0.002) return;
+    const sh = h.worldPos('shoulder' + side, _a), d = sh.distanceTo(target);
+    const L = h.worldPos('elbow' + side, _b).distanceTo(sh) + _b.distanceTo(_el);
+    if (d <= L * 0.999) return;                          // (in reach: nothing to stretch)
+    const k = Math.min(1.5, d / L * 1.0005);
+    h.bones['elbow' + side].position.copy(this.armRest['elbow' + side]).multiplyScalar(k);
+    h.bones['hand' + side].position.copy(this.armRest['hand' + side]).multiplyScalar(k);
+    this._stretched = true;
+    h.ikArm(side, target, pole);
   }
 
   // Generic locomotion (running between the wickets / walking), carrying the bat.

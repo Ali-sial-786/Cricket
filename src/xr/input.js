@@ -118,7 +118,10 @@ export class InputManager {
 
   get xr() { return this.mode === 'xr'; }
 
-  // Recompute the world head pose from the reference-space one (after the rig moved).
+  // Recompute the world head and controller poses from the reference-space
+  // ones (after the rig moved: crease stick, charging, turning, recentering),
+  // so the bat and your figure are posed this frame from where the rig is now,
+  // not a frame behind it. Velocities and history are left as recorded.
   refreshHeadWorld() {
     if (this.mode !== 'xr') return;
     this.rig.updateMatrixWorld(true);
@@ -127,6 +130,17 @@ export class InputManager {
     _q.set(this.headRef.q.x, this.headRef.q.y, this.headRef.q.z, this.headRef.q.w).premultiply(_rq);
     this.headPose.p.set(_p.x, _p.y, _p.z);
     this.headPose.q.set(_q.x, _q.y, _q.z, _q.w);
+    for (const c of [this.left, this.right]) {
+      if (!c.connected || !c.tracked) continue;
+      const slot = this.slots.find((s) => s.source && s.source.handedness === c.hand);
+      if (!slot) continue;
+      slot.grip.matrixWorld.decompose(_p, _q, _s);
+      c.gripPose.p.set(_p.x, _p.y, _p.z);
+      c.gripPose.q.set(_q.x, _q.y, _q.z, _q.w);
+      slot.ray.matrixWorld.decompose(_p, _q, _s);
+      c.rayPose.p.set(_p.x, _p.y, _p.z);
+      c.rayPose.q.set(_q.x, _q.y, _q.z, _q.w);
+    }
   }
 
   update(t, frame) {

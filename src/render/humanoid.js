@@ -149,6 +149,12 @@ function kitMaterial() {
     uHandBones: { value: new THREE.Vector2(RIG.index.handL, RIG.index.handR) },
     uGloved: { value: 0 },         // 1: bare hands are not drawn (they are inside gloves)
     uTrunkAlpha: { value: 1 },     // opacity of everything above the legs (x the material's opacity)
+    // See-through body (setGhost): opacity of trunk+arms, thighs, shins (pads), feet (boots), and of the outline.
+    uGhost: { value: new THREE.Vector4(0, 0, 0, 0) },
+    uGhostEdge: { value: 0 },
+    uGhostHands: { value: 0 },     // the gloves (on your bat's handle)
+    uLegIdx: { value: new THREE.Vector3(RIG.index.hipL, RIG.index.kneeL, RIG.index.ankleL) },
+    uLegIdxR: { value: new THREE.Vector3(RIG.index.hipR, RIG.index.kneeR, RIG.index.ankleR) },
   };
   mat.onBeforeCompile = (sh) => {
     Object.assign(sh.uniforms, uniforms);
@@ -157,7 +163,8 @@ function kitMaterial() {
         attribute vec2 kit;
         uniform vec2 uHeadBones; uniform vec2 uLegBones; uniform vec2 uHandBones; uniform float uGloved; uniform int uNumber;
         uniform vec3 uKit1; uniform vec3 uKit2; uniform vec3 uKit3; uniform vec3 uKit4; uniform vec3 uSkin; uniform vec3 uHair; uniform vec3 uPanel;
-        varying float vHeadW; varying float vLegW; varying vec2 vKA;`)
+        uniform vec3 uLegIdx; uniform vec3 uLegIdxR;
+        varying float vHeadW; varying float vLegW; varying vec3 vSeg; varying float vHandW; varying vec2 vKA;`)
       .replace('#include <color_vertex>', `#include <color_vertex>
         #ifdef USE_COLOR
           float k = kit.x;
@@ -167,10 +174,13 @@ function kitMaterial() {
           else if (k > 2.5) vColor.rgb = uKit3; else if (k > 1.5) vColor.rgb = uKit2; else if (k > 0.5) vColor.rgb = uKit1;
         #endif
         vKA = kit;
-        vHeadW = 0.0; vLegW = 0.0;
+        vHeadW = 0.0; vLegW = 0.0; vSeg = vec3(0.0); vHandW = 0.0;
         #ifdef USE_SKINNING
           for (int i = 0; i < 4; i++) {
             float b = skinIndex[i];
+            vec3 m = step(abs(vec3(b) - uLegIdx), vec3(0.5)) + step(abs(vec3(b) - uLegIdxR), vec3(0.5));
+            vSeg += m * skinWeight[i];
+            if (abs(b - uHandBones.x) < 0.5 || abs(b - uHandBones.y) < 0.5) vHandW += skinWeight[i];
             if (abs(b - uHeadBones.x) < 0.5 || abs(b - uHeadBones.y) < 0.5) vHeadW += skinWeight[i];
             if (b > uLegBones.x - 0.5 && b < uLegBones.y + 0.5) vLegW += skinWeight[i];
             // Skin on a gloved hand: fold it into the 'hidden' weight.
@@ -178,8 +188,14 @@ function kitMaterial() {
           }
         #endif`);
     sh.fragmentShader = sh.fragmentShader
-      .replace('#include <common>', '#include <common>\nuniform float uNoHead;\nuniform float uTrunkAlpha;\nvarying float vHeadW;\nvarying float vLegW;\nvarying vec2 vKA;')
-      .replace('#include <color_fragment>', '#include <color_fragment>\n  diffuseColor.a *= mix(uTrunkAlpha, 1.0, clamp(vLegW, 0.0, 1.0));')
+      .replace('#include <common>', '#include <common>\nuniform float uNoHead;\nuniform float uTrunkAlpha;\nuniform vec4 uGhost;\nuniform float uGhostEdge;\nvarying float vHeadW;\nvarying float vLegW;\nvarying vec3 vSeg;\nvarying float vHandW;\nuniform float uGhostHands;\nvarying vec2 vKA;')
+      .replace('#include <color_fragment>', `#include <color_fragment>
+  diffuseColor.a *= mix(uTrunkAlpha, 1.0, clamp(vLegW, 0.0, 1.0));
+  if (uGhost.w > 0.0) {
+    vec3 sg = clamp(vSeg, 0.0, 1.0);
+    float hw = clamp(vHandW, 0.0, 1.0);
+    diffuseColor.a = uGhost.x * clamp(1.0 - sg.x - sg.y - sg.z - hw, 0.0, 1.0) + uGhost.y * sg.x + uGhost.z * sg.y + uGhost.w * sg.z + uGhostHands * hw;
+  }`)
       .replace('#include <clipping_planes_fragment>', '#include <clipping_planes_fragment>\n  if ((uNoHead > 0.5 && vHeadW > 0.35 && vHeadW < 1.5) || vHeadW > 1.5) discard;')
       .replace('#include <aomap_fragment>', `#include <aomap_fragment>
         {
@@ -190,9 +206,17 @@ function kitMaterial() {
           float fres = pow(1.0 - clamp(dot(geometryNormal, geometryViewDir), 0.0, 1.0), 2.5);
           vec3 rim = mix(diffuseColor.rgb * 0.6 + vec3(0.04, 0.05, 0.06), diffuseColor.rgb * vec3(1.15, 0.75, 0.6) + vec3(0.05, 0.02, 0.0), skin);
           reflectedLight.indirectDiffuse += rim * fres * ao * 0.5;
+          if (uGhostEdge > 0.0) {
+            // see-through body: a dark, solid outline where the surface turns away (pads and boots most)
+            float e = smoothstep(0.35, 0.85, 1.0 - clamp(dot(geometryNormal, geometryViewDir), 0.0, 1.0));
+            float lw = clamp(vSeg.x * 0.35 + vSeg.y + vSeg.z, 0.0, 1.0);
+            diffuseColor.a = max(diffuseColor.a, e * uGhostEdge * mix(0.02, 1.0, lw));
+            reflectedLight.directDiffuse *= 1.0 - 0.75 * e * lw;
+            reflectedLight.indirectDiffuse *= 1.0 - 0.75 * e * lw;
+          }
         }`);
   };
-  mat.customProgramCacheKey = () => 'cricket-kit-v7';
+  mat.customProgramCacheKey = () => 'cricket-kit-v8';
   mat.userData.uniforms = uniforms;
   return mat;
 }
@@ -280,15 +304,20 @@ export class Humanoid {
   }
 
   // See-through body: what you see of yourself when you look down. No head
-  // or neck; the trunk and arms are faint so that the legs and feet (drawn
-  // more solidly) show through them.
-  setGhost(on, legs = 0.34, trunk = 0.08) {
+  // or neck; the trunk and arms very faint, so that you see through them to
+  // your legs and feet, which are clearly drawn to judge them against the
+  // crease: thighs half see-through, pads more solid, boots most, all with a
+  // dark outline. legs: the pads' opacity (thighs a little less, boots more).
+  setGhost(on, legs = 0.55, trunk = 0.035) {
     if (!!this.ghost === on) return;
     this.ghost = on;
     const m = this.material, u = m.userData.uniforms;
-    m.transparent = on; m.opacity = on ? legs : 1; m.depthWrite = !on; m.needsUpdate = true;
+    m.transparent = on; m.opacity = 1; m.depthWrite = !on; m.needsUpdate = true;
     u.uNoHead.value = on ? 1 : 0;
-    u.uTrunkAlpha.value = on ? trunk : 1;
+    u.uTrunkAlpha.value = 1;
+    u.uGhost.value.set(on ? trunk : 0, on ? legs * 0.7 : 0, on ? legs : 0, on ? Math.min(1, legs + 0.3) : 0);
+    u.uGhostEdge.value = on ? 0.9 : 0;
+    u.uGhostHands.value = on ? 0.4 : 0;
     this.mesh.renderOrder = on ? 3 : 0;
   }
 
