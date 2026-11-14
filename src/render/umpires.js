@@ -1,11 +1,13 @@
 // Two umpires (bowler's end and square leg) with the standard signals:
-// four, six, out, not out, wide, and "review" (the TV square).
+// four, six, out, not out, wide, no-ball, free hit, bye, leg bye and "review"
+// (the TV square). Between signals the hands are clasped behind the back.
 import * as THREE from 'three';
 import { Actor } from './actors.js';
 import { poseIdle, plantFeet, keys, sstep } from './anim.js';
 import { PITCH } from '../physics/pitch.js';
 
 const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3();
+const _t = new THREE.Vector3(), _f = new THREE.Vector3(), _l = new THREE.Vector3();
 
 class UmpireActor extends Actor {
   constructor(scene, seed) {
@@ -13,20 +15,29 @@ class UmpireActor extends Actor {
     this.sig = null;
   }
   signal(type, now, dur = 2.6) { this.sig = { type, t0: now, dur }; }
+  clasp(left, right) {
+    const h = this.h;
+    h.update();
+    this.forward(_f);
+    _l.set(_f.z, 0, -_f.x);                        // figure's left
+    h.worldPos('hips', _t).addScaledVector(_f, -0.2).add(_c.set(0, 0.06, 0));
+    if (left) { _a.copy(_t).addScaledVector(_l, 0.03); h.worldPos('shoulderL', _b).addScaledVector(_l, 0.5).addScaledVector(_f, -0.2); h.ikArm('L', _a, _b); }
+    if (right) { _a.copy(_t).addScaledVector(_l, -0.03); h.worldPos('shoulderR', _b).addScaledVector(_l, -0.5).addScaledVector(_f, -0.2); h.ikArm('R', _a, _b); }
+  }
   update(dt, now, look) {
     const h = this.h;
     h.reset();
     poseIdle(h, now, 1);
-    // Hands clasped behind the back by default.
-    h.rot('shoulderL', 0.35, 0, 0.12); h.rot('elbowL', 0.5, 0, 0);
-    h.rot('shoulderR', 0.35, 0, -0.12); h.rot('elbowR', 0.5, 0, 0);
     const s = this.sig;
+    let busyL = false, busyR = false;          // arms the current signal uses
     if (s) {
       const u = (now - s.t0) / s.dur;
       if (u >= 1) this.sig = null;
       else {
         const k = sstep(0, 0.12, u) * (1 - sstep(0.85, 1, u));
         const tt = now - s.t0;
+        busyR = s.type !== 'notout';
+        busyL = s.type === 'six' || s.type === 'wide' || s.type === 'review';
         if (s.type === 'six') {
           h.rot('shoulderL', -3.05 * k, 0, 0.12 * k); h.rot('shoulderR', -3.05 * k, 0, -0.12 * k);
           h.rot('elbowL', -0.05, 0, 0); h.rot('elbowR', -0.05, 0, 0);
@@ -51,15 +62,22 @@ class UmpireActor extends Actor {
         } else if (s.type === 'freehit') {          // one hand circling above the head
           h.rot('shoulderR', (-2.9 + 0.22 * Math.sin(tt * 9)) * k, 0, (-0.1 + 0.22 * Math.cos(tt * 9)) * k);
           h.rot('elbowR', -0.15, 0, 0);
-        } else if (s.type === 'bye') {
+        } else if (s.type === 'bye') {             // open hand raised above the head
           h.rot('shoulderR', -3.0 * k, 0, -0.1);
+        } else if (s.type === 'legbye') {          // touching a raised knee
+          h.rot('hipR', -1.05 * k, 0, -0.05); h.rot('kneeR', 1.25 * k, 0, 0);
+          h.rot('spine', 0.25 * k, 0, 0);
+          h.rot('shoulderR', -0.55 * k, 0, -0.05); h.rot('elbowR', -0.2 * k, 0, 0);
         }
       }
     }
     this.apply();
     if (!this.far) {
       this.footWorld(_a, 0.13, 0.02); this.footWorld(_b, -0.13, 0);
-      plantFeet(h, _a, _b, this.forward(_c).multiplyScalar(0.6));
+      const legBye = s && s.type === 'legbye';
+      plantFeet(h, _a, legBye ? null : _b, this.forward(_c).multiplyScalar(0.6));
+      // Hands clasped behind the back (whichever hands the signal is not using).
+      if (!busyL || !busyR) this.clasp(!busyL, !busyR);
     }
     if (look && !(s && s.type === 'notout')) h.lookAt(look, 0.7);
     if (!this.far) this.smooth(dt);
