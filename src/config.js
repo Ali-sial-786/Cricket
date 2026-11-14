@@ -115,6 +115,7 @@ export const CONFIG = {
     paceMultiplier: 2.6,     // hand speed × this = ball speed
     paceCapKmh: 150,
     paceFloorKmh: 50,
+    minPaceFrac: 0.62,       // with a bowler type: no delivery leaves the hand slower than this x the bottom of its pace range
     minReleaseHandSpeed: 3.0,// m/s: slower trigger releases are treated as drops
     peakWindowMs: 250,       // pace = the fastest the hand moved in this window before release (the downswing)
     effortHandSpeed: [4.5, 14.0], // m/s of downswing -> the bottom / top of your bowler's pace range
@@ -134,6 +135,7 @@ export const CONFIG = {
     swingAmount: 0.75,       // swing value when inswing/outswing is chosen
     naturalSeamDeg: 0.8,
     ballHoldOffset: [0, -0.02, -0.06], // ball position in grip space while held
+    heldBallFade: [0.2, 0.34], // m from the eyes: the ball in your hand is hidden nearer than [0], fully drawn beyond [1]
     nonStriker: [-2.4, -19.4], // x, z where the non-striker stands while YOU bowl: wide and level with you, so
                                // backing up (1.6 m) keeps him ~58° to your right at the crease, out of the way
     pickedSpinFloor: 0.7,    // a picked delivery always gets this much of its spin / cut; wrist roll adds the rest (x 0.3)
@@ -152,6 +154,9 @@ export const CONFIG = {
       strideBrake: 12.0,     // m/s^2: the delivery stride stops you at the crease
       carrySpeed: 1.4,       // m/s: once committed you always reach the crease at least this fast
       creaseWindow: 2.5,     // s at the crease to let the ball go, or it is a dead ball
+      minRun: 0.75,          // m: let go before covering this much and it was only a tap (quietly back to the mark, no "pulled out")
+      menuGrace: 0.8,        // s after the pause menu closes mid run-up to find the run button again before it counts as a pull-out
+      menuStickHold: 0.6,    // s: while running in, the left-stick click must be held this long to open the menu (no accidental pauses)
     },
   },
 

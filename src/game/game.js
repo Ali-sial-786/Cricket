@@ -715,7 +715,16 @@ export class Game {
     // Left thumbstick click always toggles the menu; Y does too unless the
     // session is using it (diving while running).
     const yFree = !(this.session && this.session.usesY && this.session.usesY());
-    const menuBtn = L.buttons.stick.down || (L.buttons.b.down && yFree) || (this.input.xr && !L.connected && R.buttons.stick.down);
+    // Running in to bowl, a stick click is easily knocked: it has to be held a moment.
+    const runningIn = !!(this.session && this.session.runningIn && this.session.runningIn() && !this.ui.menuOpen);
+    let stickMenu = L.buttons.stick.down;
+    if (runningIn) {
+      const hold = CONFIG.bowling.runUp.menuStickHold;
+      const was = this.stickHold || 0;
+      this.stickHold = L.buttons.stick.pressed ? was + dt : 0;
+      stickMenu = was < hold && this.stickHold >= hold;
+    } else this.stickHold = L.buttons.stick.pressed && !L.buttons.stick.down ? Infinity : 0;   // (a click held over the end of the run opens nothing)
+    const menuBtn = stickMenu || (L.buttons.b.down && yFree) || (this.input.xr && !L.connected && R.buttons.stick.down && !runningIn);
     if (menuBtn && (this.state === 'play' || this.state === 'menu')) {
       if (this.ui.menuOpen) {
         if (this.session) this.ui.closeMenu();

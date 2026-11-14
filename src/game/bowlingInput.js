@@ -36,6 +36,14 @@ export function clampReleasePos(p) {
   );
 }
 
+// The slowest a delivery may leave the hand (km/h): a bowler type's floor is a
+// fraction of the bottom of its pace range (a slower ball from a standstill
+// stays above it); without a type, the legacy paceFloorKmh.
+export function paceFloorKmh(bowler = null, cfg = CONFIG) {
+  const B = cfg.bowling;
+  return bowler ? bowler.pace[0] * (B.minPaceFrac ?? 0.62) : B.paceFloorKmh;
+}
+
 // Inputs: releasePos, handVel, handAngVel (world), palmDir (world unit vector
 // out of the palm, optional), swingChoice (-1 in, 0, +1 out), aim ({x,z} or
 // null), assist, neutralElevDeg (optional), rng (optional).
@@ -196,7 +204,9 @@ export function mapRelease({ releasePos, handVel, handAngVel, palmDir = null, sw
     swing = seamSet * B.swingAmount;
     if (swing) name = swing > 0 ? 'outswinger' : 'inswinger';
   }
-  kmh *= paceScale;
+  // Run-up momentum, then the floor: nothing ever comes out slower than this bowler can bowl.
+  const floor = paceFloorKmh(bowler, cfg);
+  kmh = Math.max(floor, (Number.isFinite(kmh) ? kmh : floor) * clamp(Number.isFinite(paceScale) ? paceScale : 1, 0, 1.2));
   const speed = kmhToMs(kmh);
   const spin = spinVector(spinType, spinAmount, travel, cfg);
   if (fullToss) name = `${name === 'seam-up' ? '' : name + ' '}full toss`.trim();
@@ -215,5 +225,13 @@ export function playerDelivery(args) {
   const sol = m.fullToss
     ? solveThrough({ releasePos: m.releasePos, speed: m.speed, at: m.fullToss, spin: m.spin, swing: m.swing, cfg })
     : solveLaunch({ releasePos: m.releasePos, speed: m.speed, target: m.target, spin: m.spin, swing: m.swing, cfg });
-  return { ...m, vel: sol.vel, solverError: sol.error, paceKmh: msToKmh(sol.vel.length()) };
+  // The solvers only turn the launch direction: the speed is the one asked for.
+  // Should one ever fail (NaN / a short vector), launch straight at the target
+  // at that speed instead -- the HUD shows the real launch speed either way.
+  let vel = sol.vel;
+  if (!(Number.isFinite(vel.x) && Number.isFinite(vel.y) && Number.isFinite(vel.z)) || Math.abs(vel.length() - m.speed) > 0.01 * m.speed) {
+    const aim = m.fullToss || { x: m.target.x, y: 0, z: m.target.z };
+    vel = new Vec3(aim.x - m.releasePos.x, aim.y - m.releasePos.y, aim.z - m.releasePos.z).normalize().scale(m.speed);
+  }
+  return { ...m, vel, solverError: sol.error, paceKmh: msToKmh(vel.length()) };
 }

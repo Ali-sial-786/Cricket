@@ -100,8 +100,8 @@ test('no ball at the crease in time is a dead ball; a ball released in time is n
 test('momentum: a standstill costs pace, a full run does not', () => {
   const r = new RunUp(R.fast);
   assert.ok(Math.abs(r.paceFactor - R.fast.stand) < 1e-9);
-  // Creep in: tap the button, pull out, resume from a standstill near the commit line.
-  run(r, (x, t) => t < 0.35, 1);
+  // Creep in: a short burst (past a mere tap), pull out, resume from a standstill near the commit line.
+  run(r, (x, t) => t < 0.65, 1);
   const slow = r.paceFactor;
   assert.ok(slow > R.fast.stand && slow < 0.95, `slow ${slow}`);
   const spin = new RunUp(R.legspin);
@@ -114,4 +114,47 @@ test('with the run-up off you are at the crease with no time limit and no penalt
   assert.ok(r.canRelease); assert.equal(r.paceFactor, 1);
   assert.deepEqual(run(r, false, 10), []);
   assert.deepEqual(run(r, true, 1), []);
+});
+
+test('a tap at your mark is not a pull-out: quietly back on the mark, no prompt event', () => {
+  const r = new RunUp(R.fast);
+  const evs = run(r, (x, t) => t < 0.2, 1);
+  assert.deepEqual(evs, ['start', 'cancel']);
+  assert.equal(r.state, 'mark'); assert.equal(r.dist, R.fast.length); assert.equal(r.best, 0);
+});
+
+test('a real run let go before the commit point is a pull-out (only once there is a run)', () => {
+  const r = new RunUp(R.fast);
+  assert.deepEqual(run(r, false, 2), [], 'standing at the mark never pulls out');
+  const evs = run(r, (x, t) => t < 1.0, 1.2);
+  assert.deepEqual(evs, ['start', 'pullout']);
+  assert.ok(r.ran >= R.minRun);
+});
+
+test('grace (back from the pause menu): a let-go button does not pull you out at once, holding again carries on', () => {
+  const r = new RunUp(R.fast);
+  run(r, true, 10, (x) => x.dist < 8);
+  const v = r.speed;
+  r.grace(R.menuGrace);
+  let evs = run(r, false, R.menuGrace * 0.8);
+  assert.deepEqual(evs, []);
+  assert.equal(r.state, 'running');
+  assert.ok(Math.abs(r.speed - v) < 1e-9, 'jogs on at the same pace');
+  evs = run(r, true, 10, (x) => x.state === 'crease');
+  assert.deepEqual(evs, ['commit', 'crease']);
+});
+
+test('grace runs out: then letting go is a pull-out as usual', () => {
+  const r = new RunUp(R.fast);
+  run(r, true, 10, (x) => x.dist < 9);
+  r.grace(R.menuGrace);
+  const evs = run(r, false, R.menuGrace + 0.2);
+  assert.deepEqual(evs, ['pullout']);
+});
+
+test('grace does nothing at the mark', () => {
+  const r = new RunUp(R.fast);
+  r.grace(5);
+  assert.equal(r.graceT, 0);
+  assert.deepEqual(run(r, (x, t) => t < 0.15, 0.5), ['start', 'cancel']);
 });

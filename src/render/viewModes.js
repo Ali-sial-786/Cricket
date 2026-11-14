@@ -100,6 +100,21 @@ export class PlayerBowlerActor extends Actor {
     super(scene, { team: 'home', seed: 9, headgear: 'bare' });
     this.visible = false;
     this.prev = null;
+    // Through your own eyes the ghost body's arms are all but invisible, so the
+    // ball you hold gets a hand of its own: a faint see-through hand (and wrist)
+    // in the controller's grip space, fingers round the ball.
+    this.hand = buildHeldHand();
+    scene.add(this.hand);
+  }
+  // pose: {p, q} grip pose in the world (null hides it); alpha: 0..1 (x the hand's own faintness);
+  // dz: m to add along the pitch (the run-up moved the rig after the controllers were read).
+  showHand(pose, alpha = 1, dz = 0) {
+    const m = this.hand;
+    m.visible = !!pose && alpha > 0.02;
+    if (!m.visible) return;
+    m.position.set(pose.p.x, pose.p.y, pose.p.z + dz);
+    m.quaternion.set(pose.q.x, pose.q.y, pose.q.z, pose.q.w);
+    m.userData.mat.opacity = HAND_ALPHA * Math.min(1, alpha);
   }
   // head: {p, q} world; hands: world positions (or null); t: seconds.
   update(dt, t, head, right, left, look) {
@@ -137,6 +152,36 @@ export class PlayerBowlerActor extends Actor {
     if (look) h.lookAt(look, 0.8);
     h.syncShadow();
   }
+}
+
+// Grip space (WebXR): x right, y up, -z out along the controller. The ball
+// sits at CONFIG.bowling.ballHoldOffset = (0, -0.02, -0.06): palm behind it,
+// two fingers over the top along the seam, the thumb underneath.
+const HAND_ALPHA = 0.4;
+function buildHeldHand() {
+  const mat = new THREE.MeshLambertMaterial({ color: 0xc89a7a, transparent: true, opacity: HAND_ALPHA, depthWrite: false });
+  const g = new THREE.Group();
+  g.name = 'heldHand';
+  g.userData.mat = mat;
+  const add = (geo, pos, rot = [0, 0, 0]) => {
+    const m = new THREE.Mesh(geo, mat);
+    m.position.set(...pos); m.rotation.set(...rot);
+    m.renderOrder = 12;                      // after the floating panels (they are further away)
+    g.add(m);
+  };
+  // Palm and the back of the hand, behind and above the ball.
+  add(new THREE.CapsuleGeometry(0.016, 0.05, 4, 10).scale(1, 1, 2.3).rotateZ(Math.PI / 2), [0, 0.014, -0.012], [0.35, 0, 0]);
+  // Fingers over the ball: index and middle along the seam, ring and little to the side.
+  const finger = (x, len, tilt) => add(new THREE.CapsuleGeometry(0.0085, len, 3, 8), [x, 0.012, -0.062], [Math.PI / 2 - tilt, 0, 0]);
+  finger(-0.011, 0.05, 0.55); finger(0.011, 0.05, 0.55);
+  finger(-0.031, 0.036, 0.9); finger(0.031, 0.03, 0.9);
+  // Thumb under the ball.
+  add(new THREE.CapsuleGeometry(0.009, 0.035, 3, 8), [0.012, -0.052, -0.05], [Math.PI / 2 + 0.3, 0.3, 0]);
+  // Just the wrist (a forearm would reach back toward your face).
+  add(new THREE.CylinderGeometry(0.024, 0.027, 0.05, 10), [0, 0.005, 0.055], [Math.PI / 2, 0, 0]);
+  g.traverse((o) => { if (o.isMesh) o.frustumCulled = false; });
+  g.visible = false;
+  return g;
 }
 
 // ---------------------------------------------------------------- near cull

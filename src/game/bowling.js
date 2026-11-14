@@ -9,14 +9,18 @@ import { PITCH, lengthName, lineName, groundDistance, battingPoppingZ, bowlingPo
 import { predict, crossingAtZ } from '../physics/trajectory.js';
 import { playerDelivery } from './bowlingInput.js';
 import { LbwFlow, padHit, deflectOffPad } from './lbwFlow.js';
+import { trackLbw } from './lbw.js';
+import { isWide, shouldAppeal, heldBallAlpha } from './bowlingRules.js';
 import { ThirdUmpireFlow } from './thirdUmpire.js';
 import { Innings } from './scoring.js';
 import { batProfile } from './squad.js';
 import { playerBowler, seamFromWrist, stepDelivery, deliveryInfo, PLAYER_BOWLER_ORDER } from './bowlerTypes.js';
 import { RunUp } from './runup.js';
+import { AI_HOME } from './aiBatter.js';
 import { HINTS } from '../ui/controllerHint.js';
 
 const _palm = new Vec3();
+const RUN_BUTTONS = ['grip', 'ltrig', 'key'];
 // Ball mesh: the seam is the equator (normal = local Y). Upright seam = normal across the pitch.
 const S2 = Math.SQRT1_2;
 
@@ -51,7 +55,8 @@ export class BowlingSession {
     this.pick = null;                // the delivery picked with A / B (null = the stock ball)
     this.run = null;                 // the run-up (see runup.js), made at your mark
     this.autoRun = false;            // desktop B: run in and bowl by itself
-    this.needRelease = true;         // the run button must be let go first (after a menu click)
+    this.latched = {};               // run buttons still down from a menu click: let go first (at your mark only)
+    this.rigShift = 0;               // m the run-up moved you this frame after the controllers were read
     this.cardKey = '';
   }
 
@@ -99,19 +104,40 @@ export class BowlingSession {
   toMark() {
     const g = this.game, b = this.bowler;
     this.run = new RunUp(CONFIG.bowling.runUp[b.key] || CONFIG.bowling.runUp.fast, { enabled: !!g.settings.runUp });
-    this.autoRun = false; this.needRelease = true;
+    this.autoRun = false; this.latchRunButtons();
     g.setRigOffset(0, -this.run.dist);
     g.showRunMarks(this.run.enabled ? this.run.spec : null);
   }
   // Running in (or, without a run-up, the ball gripped): the batter settles, fielders walk in.
   runStarted() { return this.run && this.run.enabled ? this.run.started : this.holding; }
-  runHeld(input) {
+  runButtons(input) {
     const R = input.right, L = input.left, D = input.desktop;
-    const held = this.autoRun || R.buttons.squeeze.pressed || L.buttons.trigger.pressed || (!input.xr && D.held('KeyR'));
-    if (!held) this.needRelease = false;
-    return held && (!this.needRelease || this.autoRun);
+    return { grip: R.buttons.squeeze.pressed, ltrig: L.buttons.trigger.pressed, key: !input.xr && D.held('KeyR') };
   }
-  onMenuChanged(open) { if (!open) this.needRelease = true; }
+  // A run button that is down now (a menu click, the last ball) has to be let go
+  // before it can start a run from your mark.
+  latchRunButtons() {
+    const b = this.runButtons(this.game.input);
+    this.latched = {};
+    for (const k of RUN_BUTTONS) if (b[k]) this.latched[k] = true;
+  }
+  runHeld(input) {
+    const b = this.runButtons(input), started = !!(this.run && this.run.started);
+    let held = false;
+    for (const k of RUN_BUTTONS) {
+      if (!b[k]) delete this.latched[k];
+      else if (started || !this.latched[k]) held = true;       // once running, any run button keeps you going
+    }
+    return this.autoRun || held;
+  }
+  onMenuChanged(open) {
+    if (open) return;
+    this.latchRunButtons();
+    // Back from the menu mid run-up: a moment to find the button again before it is a pull-out.
+    if (this.run && this.run.enabled && this.state === 'ready') this.run.grace(CONFIG.bowling.runUp.menuGrace);
+  }
+  // Running in (a run under way, ball not yet bowled): the menu click is ignored.
+  runningIn() { return this.state === 'ready' && !!(this.run && this.run.enabled && this.run.started); }
   startedRunning() {
     const g = this.game;
     g.aiBatter.setReady(g.world.time + 0.15);
@@ -120,22 +146,36 @@ export class BowlingSession {
   // Drive the run-up (real time) and move you with it.
   stepRun(dt) {
     const g = this.game, run = this.run;
+    this.rigShift = 0;
     if (!run || !run.enabled) return;
+    const z0 = g.rigOffset ? g.rigOffset.z : -run.dist;
     const ev = run.update(dt, this.runHeld(g.input));
     if (ev === 'start' || ev === 'resume') { if (ev === 'start') this.startedRunning(); g.input.right.pulse(0.12, 12); }
     else if (ev === 'commit') g.input.right.pulse(0.25, 20);
-    else if (ev === 'pullout') g.ui.prompt('Pulled out — hold again to carry on', 1.5, '#cfe3f5');
+    else if (ev === 'pullout') g.ui.prompt(`Pulled out — hold ${g.input.xr ? 'GRIP' : 'R'} to carry on`, CONFIG.bowling.runUp.resumeWindow, '#cfe3f5');
     else if (ev === 'crease' && this.autoRun && this.state === 'ready') { this.autoRun = false; this.autoBowl(); }
-    else if (ev === 'backToMark' || ev === 'deadBall') {
-      g.ui.prompt(ev === 'deadBall' ? 'Dead ball — back to your mark' : 'Pulled out — back to your mark', 2.2, '#ffb347');
+    else if (ev === 'cancel' || ev === 'backToMark' || ev === 'deadBall') {
+      // A tap that hardly moved you is no pull-out: quietly back on the mark.
+      if (ev === 'deadBall') g.ui.prompt('Dead ball — back to your mark', 2.2, '#ffb347');
+      else if (ev === 'backToMark') g.ui.prompt('Back to your mark', 1.4, '#cfe3f5');
       g.aiBatter.reset();
       if (this.field) { this.field.reset(); this.field.setSpinner(this.keeperUp); }
       this.toMark();
+      return;
     }
     g.setRigOffset(0, -run.dist);
+    // The controllers were read before this move: things drawn at the hand follow it.
+    if (this.state === 'ready') this.rigShift = -run.dist - z0;
   }
 
   usesY() { return false; }
+
+  // The ball is no longer in your hand: solid again, and no ghost hand.
+  dropHeldBall() {
+    const g = this.game;
+    g.ballView.setFade(1);
+    if (g.playerBowler && g.playerBowler.showHand) g.playerBowler.showHand(null);
+  }
 
   enter() {
     const g = this.game;
@@ -176,6 +216,7 @@ export class BowlingSession {
     g.batterView.show(false);
     g.aimMarker.visible = false;
     g.ui.setBowlCard(null);
+    this.dropHeldBall();
     g.showRunMarks(null);
     g.setRigOffset(0, 0);
     if (this.field) this.field.exit();
@@ -245,7 +286,7 @@ export class BowlingSession {
       if (!input.xr && D.took('KeyB')) {
         // Auto-bowl: run in by itself, then let it go at the crease.
         if (this.run.canRelease) this.autoBowl();
-        else { this.autoRun = true; this.needRelease = false; }
+        else this.autoRun = true;
       }
     }
     if (L.buttons.a.down && this.state === 'settle') this.timer = 0;
@@ -273,7 +314,9 @@ export class BowlingSession {
     }
     const rel = (v) => new Vec3(v.x, v.y, v.z - vz);
     if (!pk || !last || pkS < CONFIG.bowling.minReleaseHandSpeed) {
-      g.ui.setHud({ big: 'Dropped — swing harder', bigColor: '#ffb347' });
+      // Barely moving (e.g. let go by your face): no delivery. You keep your run and can grip again.
+      g.ui.prompt('Dropped it — grip again and bowl through', 1.8, '#ffb347');
+      g.ui.setHud({ big: 'Dropped', bigColor: '#ffb347' });
       g.aiBatter.reset();
       this.seamYaw = 0; this.updateHud();
       return;
@@ -284,6 +327,7 @@ export class BowlingSession {
     const dx = last.p.x - from.p.x, dz = last.p.z - from.p.z - runV * (last.t - from.t);
     const aimAzDeg = Math.hypot(dx, dz) > 0.05 ? Math.atan2(dx, dz) / DEG : null;
     const pos = R.gripPose.p.clone().add(new Vec3(...CONFIG.bowling.ballHoldOffset).applyQuat(R.gripPose.q));
+    pos.z += this.rigShift;
     this.bowl({ releasePos: pos, handVel: dir, handAngVel: pk.w.clone(), palmDir: g.palmDir(_palm).clone(), paceSpeed: pkS, aimAzDeg });
   }
 
@@ -322,6 +366,7 @@ export class BowlingSession {
     });
     this.delivery = d;
     this.run.released();
+    this.dropHeldBall();
     this.resetEnds();
     g.world.launch({ pos: d.releasePos, vel: d.vel, spin: d.spin, swing: d.swing, seamDeg: d.seamDeg, seamRandomScale: 0.5 });
     g.ballView.setVisible(true);
@@ -353,7 +398,8 @@ export class BowlingSession {
     if (this.field) { if (!this.field.delivering) this.field.beginDelivery(); this.field.released(); }
     g.aimMarker.visible = false;
     const run = this.run.enabled ? ` · run-up ${this.run.best.toFixed(1)} m/s (pace ×${this.run.paceFactor.toFixed(2)})` : '';
-    g.ui.setHud({ big: `${Math.round(d.paceKmh)} km/h · ${d.name}`, bigColor: '#ffffff', last: `${cap(d.name)}${d.spinAmount ? ` · ${Math.round(d.spinAmount * 100)}% spin` : ''}${run}`, detail: '' });
+    // The big line is just the launch speed (always fits); what it was goes underneath.
+    g.ui.setHud({ big: `${Math.round(d.vel.length() * 3.6)} km/h`, bigColor: '#ffffff', last: `${cap(d.name)}${d.spinAmount ? ` · ${Math.round(d.spinAmount * 100)}% spin` : ''}${run}`, detail: '' });
     if (d.paceKmh > this.stats.fastest) this.stats.fastest = d.paceKmh;
     if (g.bowlCalibPending) this.calibSamples.push(d.elevDeg);
   }
@@ -413,12 +459,19 @@ export class BowlingSession {
       // Ball sits in the hand.
       const R = g.input.right;
       if (R.connected) {
+        // True size, where the hand is now (the run-up moved you after the
+        // controllers were read), and never in front of your eyes: it fades out
+        // as the hand comes up to your face.
         _hold.set(...CONFIG.bowling.ballHoldOffset).applyQuat(R.gripPose.q).add(R.gripPose.p);
+        _hold.z += this.rigShift;
+        const a = heldBallAlpha(_hold, g.input.headPose.p);
+        g.ballView.setFade(a);
         g.ballView.setVisible(true);
         g.ballView.update(_hold, 0, null, false);
+        if (g.playerBowler && g.playerBowler.showHand) g.playerBowler.showHand(g.input.xr && R.tracked !== false && g.viewMode() !== 'behind' && !g.viewOverride ? R.gripPose : null, a, this.rigShift);
         // Show the seam the way it is being held (upright, or angled for swing).
         if (!this.bowler.spinner) { const a = this.seam * 0.25, sn = Math.sin(a) * S2, cs = Math.cos(a) * S2; g.ballView.mesh.quaternion.set(sn, sn, cs, cs); }
-      }
+      } else this.dropHeldBall();
     } else if (this.state === 'live') {
       this.checkLive(t);
     } else if (this.state === 'review') {
@@ -458,7 +511,7 @@ export class BowlingSession {
     if (b.active && !b.batted) this.path.push({ x: b.pos.x, y: b.pos.y, z: b.pos.z });
     if (!this.crossedCrease && b.pos.z > battingPoppingZ) {
       this.crossedCrease = true;
-      if (!b.batted && (Math.abs(b.pos.x) > PITCH.wideLineX || b.pos.y > CONFIG.match.wideHeight)) this.wide = true;   // too wide, or over his head
+      if (!b.batted && !b.padded && isWide(b.pos.x, b.pos.y, g.aiBatter.bodyAt(t).x - AI_HOME.x)) this.wide = true;   // too wide, or over his head
     }
     const plan = g.aiBatter.plan;
     // A full toss above the waist is a no-ball.
@@ -474,9 +527,16 @@ export class BowlingSession {
       if (padHit(b, plan.C.x - 0.14, body.z - 0.2)) {
         const impact = b.clone();
         deflectOffPad(b, g.rng);
+        this.wide = false;                                   // it hit him: not a wide (Law 22.3)
         if (this.noBall || this.freeHit) { this.finish({ kind: 'dot', padded: true }); return; }
+        const shotOffered = plan.shot.type !== 'leave';
+        // The fielders only go up when it could be out: not when it pitched outside
+        // leg, hit him outside the line playing a shot, or was clearly missing.
+        let track = null;
+        try { track = trackLbw({ impactState: impact, cfg: CONFIG }); } catch { track = null; }
+        if (!shouldAppeal(track, { shotOffered })) { this.finish({ kind: 'dot', padded: true, noAppeal: true }); return; }
         this.state = 'review';
-        this.lbw.start({ impactState: impact, path: this.path.slice(), shotOffered: plan.shot.type !== 'leave', playerIsBatter: false });
+        this.lbw.start({ impactState: impact, path: this.path.slice(), shotOffered, playerIsBatter: false });
         return;
       }
     }
@@ -544,7 +604,9 @@ export class BowlingSession {
     if (e.type === 'bounce' && !e.batted && !this.firstBounce) {
       this.firstBounce = e.pos.clone();
       g.aiBatter.adjust(g.world.ball.clone(), g.world.time);
-      g.ui.setHud({ last: `Pitched: ${lengthName(-e.pos.z)} (${(-e.pos.z).toFixed(1)} m) · ${lineName(e.pos.x)} · moved ${e.deviationDeg.toFixed(1)}°` });
+      // (Where it pitched, not a wide call: "wide of off" there is only a line.)
+      const ln = lineName(e.pos.x).replace('wide outside off', 'well outside off');
+      g.ui.setHud({ last: `Pitched: ${lengthName(-e.pos.z)} (${(-e.pos.z).toFixed(1)} m) · ${ln} · moved ${e.deviationDeg.toFixed(1)}°` });
       // What you bowled and where it went, near the middle of your view.
       const d = this.delivery;
       if (d) {
@@ -587,7 +649,7 @@ export class BowlingSession {
       case 'boundary': big = res.runs === 6 ? 'Six…' : 'Four…'; color = '#ff8080'; outcome.runs = res.runs; outcome.boundary = res.runs; break;
       case 'runs': big = res.runs ? `${res.runs} run${res.runs > 1 ? 's' : ''}` : 'Dot ball'; outcome.runs = res.runs || 0; break;
       default:
-        big = res.padded ? 'Not out' : res.backInTime ? 'Not out — back in time' : res.shyMissed ? 'Keeper misses the stumps' : this.hit ? 'Dot ball' : (g.aiBatter.plan && g.aiBatter.plan.shot.type === 'leave' ? 'Left alone' : 'Beaten!');
+        big = res.noAppeal ? 'Off the pad' : res.padded ? 'Not out' : res.backInTime ? 'Not out — back in time' : res.shyMissed ? 'Keeper misses the stumps' : this.hit ? 'Dot ball' : (g.aiBatter.plan && g.aiBatter.plan.shot.type === 'leave' ? 'Left alone' : 'Beaten!');
         if (!this.hit && g.aiBatter.plan && g.aiBatter.plan.shot.type !== 'leave') this.stats.beaten++;
     }
     outcome.who = res.who; outcome.fielder = res.by === 'you' ? 'You' : res.by;
@@ -695,7 +757,8 @@ export class BowlingSession {
   // The delivery card: while you stand at your mark waiting to bowl.
   updateCard() {
     const g = this.game, b = this.bowler, s = g.settings;
-    const show = this.state === 'ready' && !this.runStarted();
+    const btn = this.runButtons(g.input);
+    const show = this.state === 'ready' && !this.runStarted() && !RUN_BUTTONS.some((k) => btn[k] && !this.latched[k]);
     if (!show) { if (this.cardKey) { this.cardKey = ''; g.ui.setBowlCard(null); } return; }
     const len = lengthName(PITCH.battingStumpsZ - this.aim.z);
     const target = `${len === 'good' ? 'good length' : len} · ${lineName(this.aim.x)}`;

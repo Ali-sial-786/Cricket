@@ -12,7 +12,12 @@
 //   'dead'       nothing bowled in time: a dead ball (the session resets)
 //
 // update() returns an event when something changes: 'start' | 'resume' |
-// 'pullout' | 'commit' | 'crease' | 'backToMark' | 'deadBall' (or null).
+// 'pullout' | 'cancel' | 'commit' | 'crease' | 'backToMark' | 'deadBall' (or null).
+// A tap that barely got you moving (under minRun m) is not a pull-out: you are
+// quietly back on your mark ('cancel', nothing to tell the player).
+// grace(s): for s seconds a let-go button does not pull you out (you keep
+// jogging at the same speed) -- e.g. after a pause menu, while the player
+// finds the button again.
 // With the run-up switched off you are always at the crease, with no time limit
 // and no momentum penalty.
 
@@ -35,8 +40,13 @@ export class RunUp {
     this.speed = 0;
     this.best = 0;                                     // fastest this run-up
     this.timer = 0;
+    this.ran = 0;                                      // m covered since the start of this run
+    this.graceT = 0;
     this.bowled = false;
   }
+
+  // Don't treat a let-go button as a pull-out for the next `secs` seconds.
+  grace(secs) { if (this.state === 'running' || this.state === 'pulled') this.graceT = Math.max(this.graceT, secs); }
 
   get started() { return this.state !== 'mark'; }
   get atMark() { return this.state === 'mark'; }
@@ -60,11 +70,11 @@ export class RunUp {
     let ev = null;
     switch (this.state) {
       case 'mark':
-        if (held) { this.state = 'running'; ev = 'start'; }
+        if (held) { this.state = 'running'; this.ran = 0; ev = 'start'; }
         break;
       case 'pulled':
         this.timer += dt;
-        if (held && this.timer <= O.resumeWindow) { this.state = 'running'; ev = 'resume'; break; }
+        if (held && this.timer <= O.resumeWindow) { this.state = 'running'; this.graceT = 0; ev = 'resume'; break; }
         this.speed = Math.max(0, this.speed - O.pullOutBrake * dt);
         this.dist -= this.speed * dt;
         if (this.dist <= S.commit + 0.01) { this.dist = S.commit + 0.01; this.speed = 0; }
@@ -74,10 +84,22 @@ export class RunUp {
         break;
     }
     if (this.state === 'running') {
-      if (!held && this.dist > S.commit) { this.state = 'pulled'; this.timer = 0; return 'pullout'; }
+      if (!held && this.dist > S.commit && this.graceT > 0) {
+        // Grace: keep jogging at the same pace, no pull-out yet.
+        this.graceT = Math.max(0, this.graceT - dt);
+        this.dist -= this.speed * dt; this.ran += this.speed * dt;
+        if (this.dist <= S.commit) { this.state = 'committed'; return 'commit'; }
+        return ev;
+      }
+      if (!held && this.dist > S.commit) {
+        // Barely started (a tap): no pull-out, just back on the mark.
+        if (this.ran < (O.minRun ?? 0.75)) { this.reset(); return 'cancel'; }
+        this.state = 'pulled'; this.timer = 0; return 'pullout';
+      }
+      if (held) this.graceT = 0;
       this.speed = Math.min(S.top, this.speed + S.accel * dt);
       this.best = Math.max(this.best, this.speed);
-      this.dist -= this.speed * dt;
+      this.dist -= this.speed * dt; this.ran += this.speed * dt;
       if (this.dist <= S.commit) { this.state = 'committed'; ev = ev || 'commit'; }
     } else if (this.state === 'committed') {
       // Carries on by itself; holding the button still adds speed.

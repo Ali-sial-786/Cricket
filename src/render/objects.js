@@ -103,13 +103,27 @@ export class BallView {
     this.trailEnabled = true;
     this.spinAngle = 0;
     this.visible = true;
+    this.fade = 1;
   }
 
   setVisible(v) {
     this.visible = v;
-    this.mesh.visible = v;
+    this.mesh.visible = v && this.fade > 0.02;
     this.shadow.visible = v;
     if (!v) { this.trail.visible = false; this.trailCount = 0; }
+  }
+
+  // Opacity 0..1 (the ball in your hand fades out as it nears your eyes). 1 = the usual solid ball.
+  setFade(a) {
+    a = a > 1 ? 1 : a < 0 ? 0 : a;
+    if (a === this.fade) return;
+    this.fade = a;
+    const m = this.mesh.material, see = a < 1;
+    // (Still writes depth, and is drawn after the floating panels: a ball in
+    // front of a panel is never painted over by it.)
+    if (m.transparent !== see) { m.transparent = see; m.needsUpdate = true; this.mesh.renderOrder = see ? 12 : 0; }
+    m.opacity = a;
+    this.mesh.visible = this.visible && a > 0.02;
   }
 
   // pos: physics Vec3 (or three Vector3); spin: rad/s vector for visual rotation.

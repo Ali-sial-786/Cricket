@@ -142,7 +142,9 @@ export class UI {
     // The card already shows the bowling controls: no hint row while it is up.
     follow(this.hintPanel, this.hintList.length > 0 && this.clock < this.hintUntil && !this.menuOpen && !card, 1.35, 0.56);
     // Low and to the left: from the bowler's mark the pitch (and the HUD) are to your right.
-    follow(this.card, card, 1.3, 0.5, -0.62);
+    // (Upright: turned only about the vertical toward you, not tipped to face the eye, which reads as tilted.)
+    follow(this.card, card, 1.3, 0.4, -0.62);
+    if (card) this.card.mesh.rotation.set(0, Math.atan2(eye.x - this.card.mesh.position.x, eye.z - this.card.mesh.position.z), 0);
   }
 
   get menuOpen() { return this.menu.mesh.visible; }
