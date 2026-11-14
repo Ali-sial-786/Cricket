@@ -21,6 +21,10 @@ import { radialTexture } from './util.js';
 
 const HEX = { green: 0x39e07a, red: 0xff4d5e, amber: 0xffb547, white: 0xffffff, blue: 0x3d8bff };
 const CSS = { green: '#39e07a', red: '#ff4d5e', amber: '#ffb547', white: '#f2f5f9' };
+// verdictRows() colours by the law (green = the OUT condition is met). The
+// board shows them the broadcast way round: red = hitting / in line (bad for
+// the batter), green = safe (outside the line, missing). Amber stays amber.
+const BOARD_COLOUR = { green: 'red', red: 'green' };
 
 // Timeline (seconds at speed 1).
 const LBW_T = {
@@ -241,10 +245,10 @@ export class DRSView {
     add(this._projection.mesh, 6, 'drs-projection');
 
     // The ball at the tip, with a soft halo.
-    this._ball = add(new THREE.Mesh(new THREE.SphereGeometry(R * 1.1, 16, 12), basic(0xff6a5c)), 0, 'drs-ball');
+    this._ball = add(new THREE.Mesh(new THREE.SphereGeometry(R, 16, 12), basic(0xff6a5c)), 0, 'drs-ball');   // real size
     this._haloTex = radialTexture(64, 'rgba(255,130,110,0.85)', 'rgba(255,130,110,0)');
     this._halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: this._haloTex, blending: THREE.AdditiveBlending, depthWrite: false, fog: false, toneMapped: false }));
-    this._halo.scale.setScalar(0.34);
+    this._halo.scale.setScalar(R * 3);   // a faint glow just round the real-size ball
     this._ball.add(this._halo);
 
     // Pitching spot, impact ring.
@@ -371,7 +375,8 @@ export class DRSView {
       sub: `${umpiresCall ? "UMPIRE'S CALL" : stands ? 'DECISION STANDS' : 'DECISION OVERTURNED'}  ·  ${reviewKept ? 'REVIEW RETAINED' : 'REVIEW LOST'}`,
     };
     this._title = 'DECISION REVIEW';
-    this._rows = [{ label: 'ON-FIELD CALL', text: onFieldOut ? 'OUT' : 'NOT OUT', colour: 'white' }, ...verdicts];
+    this._rows = [{ label: 'ON-FIELD CALL', text: onFieldOut ? 'OUT' : 'NOT OUT', colour: 'white' },
+      ...verdicts.map((r) => ({ ...r, colour: BOARD_COLOUR[r.colour] ?? r.colour }))];
 
     // --- geometry
     const impact = track.impactPos;
