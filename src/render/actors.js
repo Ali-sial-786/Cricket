@@ -21,6 +21,12 @@ const _q = new THREE.Quaternion();
 const _reach = new THREE.Vector3();
 const _fwd = new THREE.Vector3(), _left = new THREE.Vector3();
 
+function copySnap(src, out = { q: [], hipsY: 0, hipsP: new THREE.Vector3() }) {
+  src.q.forEach((q, i) => { (out.q[i] ||= new THREE.Quaternion()).copy(q); });
+  out.hipsP.copy(src.hipsP);
+  return out;
+}
+
 function angDiff(a, b) { let d = b - a; while (d > Math.PI) d -= TAU; while (d < -Math.PI) d += TAU; return d; }
 
 export class Actor {
@@ -51,6 +57,25 @@ export class Actor {
     return out.set(this.h.root.position.x + lx * c + lz * s, 0, this.h.root.position.z - lx * s + lz * c);
   }
   forward(out) { return out.set(Math.sin(this.heading), 0, Math.cos(this.heading)); }
+  // No snapping between poses: if any joint jumped further this frame than a
+  // body can move, blend over 0.18 s from where it was. Call after posing.
+  smooth(dt, dur = 0.18) {
+    const h = this.h;
+    const raw = this._raw;
+    if (raw && dt > 0) {
+      let jump = 0;
+      h.boneList.forEach((b, i) => { const d = b.quaternion.angleTo(raw.q[i]); if (d > jump) jump = d; });
+      if (jump > Math.max(0.7, 25 * dt)) { this._from = copySnap(this._shown || raw, this._from || undefined); this._bt = 0; }
+    }
+    this._raw = h.snapshot(this._raw);
+    if (this._from) {
+      this._bt += dt;
+      const w = sstep(0, 1, this._bt / dur);
+      if (w >= 1) this._from = null; else { h.blendFrom(this._from, w); h.update(); }
+    }
+    this._shown = h.snapshot(this._shown);
+  }
+
   handPos(out, side = 'R') {
     this.h.update();
     this.h.worldPos('hand' + side, out);
@@ -139,13 +164,14 @@ export class FielderActor extends Actor {
       poseLocomotion(h, this.phase, this.speed, this.keeper ? 0.05 : 0);
       this.apply();
     } else {
-      poseIdle(h, t, 1);
+      poseIdle(h, t + this.phase * 3, 1);
       if (this.ready > 0.01) poseReady(h, this.ready, this.keeper);
       this.apply();
       this.plant(this.keeper ? 0.24 : 0.15, true);
     }
     // Eyes on the ball while it is live (skipped for distant fielders).
     if (ctx.ball && !this.far) h.lookAt(ctx.ball, 0.9);
+    if (!this.far) this.smooth(dt);
     h.syncShadow();
   }
   plant(halfWidth, flat) {
@@ -336,6 +362,7 @@ export class BowlerActor extends Actor {
       this.footWorld(_a, 0.13, 0.03); this.footWorld(_b, -0.13, 0);
       plantFeet(h, _a, _b, this.forward(_c).multiplyScalar(0.6));
     }
+    this.smooth(dt);
     h.syncShadow();
     return false;
   }
@@ -508,6 +535,7 @@ export class BatterActor extends Actor {
       this.apply();
     }
     if (look && !diving) h.lookAt(look, 0.8);
+    this.smooth(dt);
     this.carry();
     h.syncShadow();
   }
@@ -547,6 +575,7 @@ export class BatterActor extends Actor {
     const poleR = h.worldPos('shoulderR', new THREE.Vector3()).add(new THREE.Vector3(0, -0.5, 0)).addScaledVector(_left, -0.4);
     h.ikArm('R', this.bat.position, poleR);
     if (look) h.lookAt(look, 0.8);
+    this.smooth(dt);
     h.syncShadow();
   }
 }

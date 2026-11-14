@@ -62,6 +62,7 @@ class UmpireActor extends Actor {
       plantFeet(h, _a, _b, this.forward(_c).multiplyScalar(0.6));
     }
     if (look && !(s && s.type === 'notout')) h.lookAt(look, 0.7);
+    if (!this.far) this.smooth(dt);
     h.syncShadow();
   }
 }
@@ -80,7 +81,7 @@ export class UmpireView {
   // over the wicket; -1 = around). The umpire stands on the other side.
   place(playerBowling, side = 1) {
     this.side = side;
-    this.main.place(playerBowling ? -1.9 * side : -0.6 * side, PITCH.bowlingStumpsZ - (playerBowling ? 0.6 : 1.9), 0);
+    this.main.place(playerBowling ? -1.9 * side : -0.95 * side, PITCH.bowlingStumpsZ - (playerBowling ? 0.6 : 1.9), 0);
     this.leg.place(-17.5, -1.3, Math.PI / 2);
   }
   show(v) { this.visible = v; this.main.visible = v; this.leg.visible = v; }

@@ -409,7 +409,7 @@ export class BattingSession {
   shortOfGround() {
     const g = this.game;
     const body = battingPoppingZ - 0.05 - this.body().z;
-    if (!g.input.xr && !g.input.right.connected) return body;
+    if (!g.input.xr || !g.input.right.connected) return body;      // (the desktop bat doesn't come down the pitch with you)
     const toe = g.batToe(_toe);
     const bat = toe.y < 0.25 ? battingPoppingZ - toe.z : Infinity;
     return Math.min(body, bat);

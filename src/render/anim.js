@@ -29,7 +29,10 @@ export const strideFor = (speed) => 1.25 + 0.3 * speed;
 // ------------------------------------------------------------- base poses
 export function poseIdle(h, t, amt = 1) {
   const br = Math.sin(t * 1.7) * 0.02 * amt;
-  h.rot('spine', 0.03 + br, 0, 0);
+  // Slow weight shifts from foot to foot and a little turn of the hips.
+  const ws = Math.sin(t * 0.43) * amt, tw = Math.sin(t * 0.27 + 1.3) * amt;
+  h.rot('hips', 0, 0.05 * tw, 0.03 * ws);
+  h.rot('spine', 0.03 + br, -0.03 * tw, -0.02 * ws);
   h.rot('chest', br * 0.5, 0, 0);
   h.rot('shoulderL', 0.04, 0, 0.07);
   h.rot('shoulderR', 0.04, 0, -0.07);
@@ -37,8 +40,8 @@ export function poseIdle(h, t, amt = 1) {
   h.rot('elbowR', -0.18, 0, 0);
   h.rot('hipL', 0, 0, 0.03);
   h.rot('hipR', 0, 0, -0.03);
-  h.rot('kneeL', 0.05, 0, 0);
-  h.rot('kneeR', 0.05, 0, 0);
+  h.rot('kneeL', 0.05 + 0.07 * Math.max(0, ws), 0, 0);
+  h.rot('kneeR', 0.05 + 0.07 * Math.max(0, -ws), 0, 0);
   h.rot('ankleL', -0.05, 0, 0);
   h.rot('ankleR', -0.05, 0, 0);
 }

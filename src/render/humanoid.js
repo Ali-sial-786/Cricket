@@ -21,10 +21,10 @@ export const BASE_SCALE = 0.93;            // the model is a stylised 2.0 m; bri
 
 export const SKIN_TONES = [0xf3cfae, 0xe0b088, 0xc68e62, 0x9a6a46, 0x6b4630];
 export const HAIR = [0x1d1510, 0x3b2a1c, 0x5a4330, 0x0e0e0e, 0x8a6a40];
-export const KITS = {
-  home: { kit1: 0x1f4fa8, kit2: 0xf2c12e, kit3: 0x14285a, kit4: 0x17336e },     // royal blue / gold
-  away: { kit1: 0xb3221c, kit2: 0xf4f4f4, kit3: 0x5e0f0c, kit4: 0x7a1712 },     // crimson / white
-  umpire: { kit1: 0xf4f1e6, kit2: 0x2a2d36, kit3: 0xf2eedd, kit4: 0x2b3040 },   // white coat, dark trousers
+export const KITS = {     // kit1 shirt, kit2 accents, kit3 headgear, kit4 trousers, panel = shirt panels
+  home: { kit1: 0x1f4fa8, kit2: 0xf2c12e, kit3: 0x14285a, kit4: 0x17336e, panel: 0x173f8c },     // royal blue / gold
+  away: { kit1: 0xb3221c, kit2: 0xf4f4f4, kit3: 0x5e0f0c, kit4: 0x7a1712, panel: 0x931914 },     // crimson / white
+  umpire: { kit1: 0xf4f1e6, kit2: 0x2a2d36, kit3: 0xf2eedd, kit4: 0x2b3040, panel: 0xe4e0d2 },   // white coat, dark trousers
 };
 
 let RIG = null;      // { bones[], joints{}, canon{}, bindQ{}, inverses[], lods[], headCentre }
@@ -67,6 +67,9 @@ function prepareRig(meta, bin) {
       c.setRGB(cb[v * 4] / 255, cb[v * 4 + 1] / 255, cb[v * 4 + 2] / 255, THREE.SRGBColorSpace);
       col[v * 3] = c.r; col[v * 3 + 1] = c.g; col[v * 3 + 2] = c.b;
       kit[v] = nk[v * 4 + 3];
+      // The polo's accent panels get their own slot (7): a subtle tone-on-tone
+      // panel, so the gear's bright accents (slot 2) don't splash across the shirt.
+      if (kit[v] === 2 && /accent/i.test(p.name)) kit[v] = 7;
       for (let k = 0; k < 4; k++) w[v * 4 + k] = wb[v * 4 + k] / 255;
     }
     g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(bin.slice(p.pos, p.pos + p.vCount * 12)), 3));
@@ -192,18 +195,19 @@ function kitMaterial() {
   const uniforms = {
     uKit1: { value: new THREE.Color(0x1f4fa8) }, uKit2: { value: new THREE.Color(0xf2c12e) }, uKit3: { value: new THREE.Color(0x14285a) },
     uKit4: { value: new THREE.Color(0x17336e) }, uSkin: { value: new THREE.Color(0xc68e62) }, uHair: { value: new THREE.Color(0x1d1510) },
+    uPanel: { value: new THREE.Color(0x173f8c) },
   };
   mat.onBeforeCompile = (sh) => {
     Object.assign(sh.uniforms, uniforms);
     sh.vertexShader = sh.vertexShader
-      .replace('#include <common>', '#include <common>\nattribute float kit;\nuniform vec3 uKit1;\nuniform vec3 uKit2;\nuniform vec3 uKit3;\nuniform vec3 uKit4;\nuniform vec3 uSkin;\nuniform vec3 uHair;')
+      .replace('#include <common>', '#include <common>\nattribute float kit;\nuniform vec3 uKit1;\nuniform vec3 uKit2;\nuniform vec3 uKit3;\nuniform vec3 uKit4;\nuniform vec3 uSkin;\nuniform vec3 uHair;\nuniform vec3 uPanel;')
       .replace('#include <color_vertex>', `#include <color_vertex>
         #ifdef USE_COLOR
-          if (kit > 5.5) vColor.rgb = uHair; else if (kit > 4.5) vColor.rgb = uSkin; else if (kit > 3.5) vColor.rgb = uKit4;
+          if (kit > 6.5) vColor.rgb = uPanel; else if (kit > 5.5) vColor.rgb = uHair; else if (kit > 4.5) vColor.rgb = uSkin; else if (kit > 3.5) vColor.rgb = uKit4;
           else if (kit > 2.5) vColor.rgb = uKit3; else if (kit > 1.5) vColor.rgb = uKit2; else if (kit > 0.5) vColor.rgb = uKit1;
         #endif`);
   };
-  mat.customProgramCacheKey = () => 'cricket-kit-v2';
+  mat.customProgramCacheKey = () => 'cricket-kit-v3';
   mat.userData.uniforms = uniforms;
   return mat;
 }
@@ -247,6 +251,8 @@ export class Humanoid {
     this.baseScale = BASE_SCALE * scale;
     this.root.scale.setScalar(this.baseScale);
     this.hipsRest = this.bones.hips.position.clone();
+    // A touch less cartoon: a smaller head on athletic shoulders (gear scales with it).
+    this.bones.head.scale.setScalar(0.88);
     this.ankleHeight = RIG.J.ankleL.y;            // sole to ankle joint (model units)
     this.armLength = RIG.J.shoulderL.distanceTo(RIG.J.elbowL) + RIG.J.elbowL.distanceTo(RIG.J.handL);
     this.setTeam(team);
@@ -269,6 +275,7 @@ export class Humanoid {
     const k = KITS[team] || KITS.home;
     const u = this.material.userData.uniforms;
     u.uKit1.value.setHex(k.kit1); u.uKit2.value.setHex(k.kit2); u.uKit3.value.setHex(k.kit3); u.uKit4.value.setHex(k.kit4);
+    u.uPanel.value.setHex(k.panel ?? k.kit1);
     this.team = team;
   }
 
