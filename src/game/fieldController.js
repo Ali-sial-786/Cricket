@@ -6,14 +6,19 @@
 //     player in slow motion (reach a hand to the ball), and the player picks
 //     the end a fielder throws to
 import * as THREE from 'three';
-import { Fielding } from './fielding.js';
-import { planRuns } from './running.js';
+import { Fielding, PLAYER_CLEAR } from './fielding.js';
+import { planRuns, RUNNER_CLEAR } from './running.js';
 import { Vec3 } from '../physics/math.js';
 import { PITCH } from '../physics/pitch.js';
 import { CONFIG } from '../config.js';
 import { HINTS } from '../ui/controllerHint.js';
 
 const _v = new THREE.Vector3(), _w = new THREE.Vector3();
+
+// The player's space: no fielder, keeper or umpire's feet within PLAYER_CLEAR
+// of your head (on the ground), no runner within RUNNER_CLEAR.
+// Fielders do not walk through the batters either.
+const BATTER_CLEAR = 0.8;
 
 export class FieldController {
   constructor(game, { spinner = false, bowlerFields = true, playerBatting = true } = {}) {
@@ -59,6 +64,7 @@ export class FieldController {
     this.outcome = null;
     this.catch = null;
     this.aiRunsLeft = 0;
+    this.ropeWatch = false;
     this.pred = null;
     this.throwPrompted = false;
     this.turnedBack = false;
@@ -103,9 +109,11 @@ export class FieldController {
       : new Vec3(g.batterView.actor.pos.x, 0, g.batterView.actor.pos.z);
     this.runs.begin(t, striker, g.nonStrikerView.visible ? g.nonStrikerView.actor.pos : null);
     if (!this.playerBatting) {
+      // Going to the rope: they watch it go (and run only if it is stopped).
       const est = L.estimateReturn();
       const bold = 0.25 + 0.5 * (g.aiBatter.aggression || 0.4);
-      this.aiRunsLeft = est === 0 ? 0 : est === Infinity ? 3 : planRuns(est, bold, g.rng);
+      this.ropeWatch = L.boundaryAhead();
+      this.aiRunsLeft = this.ropeWatch || est === 0 ? 0 : est === Infinity ? 3 : planRuns(est, bold, g.rng);
     }
     // A catch for the player to take?
     if (this.playerFielding && L.plan && L.plan.airborne) this.planCatch(t);
@@ -113,7 +121,7 @@ export class FieldController {
 
   onBoundary(e) {
     this.logic.onBoundary(e);
-    if (this.logic.outcome && !this.outcome) { this.outcome = this.logic.outcome; this.runs.close(); }
+    if (this.logic.outcome && !this.outcome) { this.outcome = this.logic.outcome; this.runs.close({ boundary: this.outcome.kind === 'boundary' }); }
   }
 
   // Player batting controls.
@@ -225,9 +233,36 @@ export class FieldController {
   }
 
   // ------------------------------------------------------------- per frame
+  // The player's head, the umpires and the batters, for everyone to keep clear of.
+  // Where the player is: your head in the headset; on a monitor (whose camera
+  // may be anywhere) where your batter / bowler stands.
+  playerSpot() {
+    const g = this.game, s = g.session;
+    if (!g.input) return null;
+    if (g.input.xr || !s) return g.input.headPose ? g.input.headPose.p : null;
+    if (s.isBowling && g.bowlerHead) return g.bowlerHead().p;
+    if (s.body) return s.body();
+    return g.input.headPose ? g.input.headPose.p : null;
+  }
+
+  keepClear(dt) {
+    const g = this.game, L = this.logic, r = this.runs;
+    const hp = this.playerSpot();
+    L.keepOut = hp ? { x: hp.x, z: hp.z, r: PLAYER_CLEAR } : null;
+    r.keepOut = hp ? { x: hp.x, z: hp.z, r: RUNNER_CLEAR, striker: this.playerBatting } : null;
+    g.nonStrikerView.avoid = hp;
+    g.batterView.avoid = hp;
+    if (g.umpires.keepClear) g.umpires.keepClear(g.umpires.visible ? hp : null, dt, PLAYER_CLEAR);
+    const obs = g.umpires.visible ? g.umpires.spots().slice() : [];
+    const bv = g.batterView, ns = g.nonStrikerView;
+    if (bv.shown && bv.actor.visible) obs.push({ x: bv.actor.pos.x, z: bv.actor.pos.z, r: BATTER_CLEAR });
+    if (ns.visible) obs.push({ x: ns.actor.pos.x, z: ns.actor.pos.z, r: BATTER_CLEAR });
+    L.obstacles = obs;
+  }
+
   update(dt, t) {
     const g = this.game, w = g.world, L = this.logic, b = w.ball, r = this.runs;
-    L.obstacles = g.umpires.visible ? g.umpires.spots() : null;
+    this.keepClear(dt);
     L.update(dt, t, b.active ? b : null, w);
     this.updateCatch(t);
     this.endCatchView();
@@ -250,6 +285,12 @@ export class FieldController {
     // ---- running ----
     if (r.active && !this.outcome) {
       if (!this.playerBatting) {
+        // A ball they watched heading for the rope has been stopped: run if there is time.
+        if (this.ropeWatch && L.throw && !L.throw.released && r.completed === 0 && !r.running) {
+          this.ropeWatch = false;
+          const bold = 0.25 + 0.5 * (g.aiBatter.aggression || 0.4);
+          this.aiRunsLeft = planRuns(L.throw.tArrive - t, bold, g.rng);
+        }
         if (this.aiRunsLeft > 0 && !r.running && r.call()) this.aiRunsLeft--;
         const th = L.throw;
         if (th && r.running) {
@@ -296,7 +337,7 @@ export class FieldController {
       if (L.dropped && !this.droppedTold) { this.droppedTold = true; g.crowdReact(this.playerBatting ? 'close' : 'dropped'); }
       if (L.outcome) {                                   // boundary or catch
         this.outcome = L.outcome;
-        r.close();
+        r.close({ boundary: L.outcome.kind === 'boundary' });
       } else if (L.throwArrived) {
         const end = L.throwArrived.end;
         const short = r.running ? r.shortBy() : -1;

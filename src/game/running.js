@@ -14,8 +14,19 @@ const Z_BAT = -PITCH.poppingOffset + 0.35, Z_BOWL = PITCH.bowlingStumpsZ + PITCH
 const F_GETUP = (r) => r.cfg.field.getUp;
 const ss = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 
+// Lanes either side of the pitch, and how wide of the player's head a runner passes.
+const LANE = 0.85;
+export const RUNNER_CLEAR = 1.4;
+
 export class Runs {
-  constructor(cfg = CONFIG) { this.cfg = cfg; this.reset(); }
+  constructor(cfg = CONFIG) {
+    this.cfg = cfg;
+    // The player's head on the ground {x, z, r, striker}: nobody runs within r
+    // of it. striker: the player is the striker (his runner is his own body,
+    // and the non-striker takes the lane on the far side of him).
+    this.keepOut = null;
+    this.reset();
+  }
 
   reset() {
     this.active = false;     // a ball is in play and runs may be taken
@@ -35,6 +46,7 @@ export class Runs {
     this.sStart = { x: -0.4, z: -1.1 };
     this.nStart = { x: -1.35, z: -18.75 };
     this.closed = false;     // ball dead: no more calls
+    this.boundary = false;   // closed by a boundary
     this.official = null;    // { completed, crossed } as they stood when the ball went dead
   }
 
@@ -81,14 +93,17 @@ export class Runs {
   // batters do not freeze where they are: one who is nearly home finishes the
   // run, anyone else trots back to the crease he left, a diver gets up. `stop`
   // (a run-out) leaves them standing where they are.
-  close({ stop = false } = {}) {
+  // `boundary`: the ball has gone for four or six; they pull up at once and
+  // walk back to the crease they left (unless all but home).
+  close({ stop = false, boundary = false } = {}) {
     if (this.closed) return;
     this.closed = true;
+    this.boundary = boundary;
     this.official = { completed: this.completed, crossed: this.crossed };
     this.diveWanted = false; this.diveHeld = false;
     if (!this.running || this.diving) return;
     if (stop) this.target = this.p;
-    else if (this.remaining > 0.3 && !this.goingBack) this.target = Math.floor(this.p + 1e-6);
+    else if (this.remaining > (boundary ? 0.12 : 0.3) && !this.goingBack) this.target = Math.floor(this.p + 1e-6);
   }
 
   update(dt) {
@@ -100,7 +115,7 @@ export class Runs {
       const first = this.completed === 0 && !this.goingBack && this.p < 1;
       let rate = 1 / (first ? F.runFirst : F.runNext);
       if (first) rate *= 0.55 + 0.9 * ss(0, 0.35, this.p);            // getting going from a standing start
-      if (this.closed) rate *= 0.6;                                   // ball dead: easing up
+      if (this.closed) rate *= this.boundary ? 0.4 : 0.6;             // ball dead: easing up (walking, after a boundary)
       const left = this.remaining * CREASE_TO_CREASE;
       if (!this.diving && !this.closed && (this.diveHeld || this.diveWanted) && left <= F.diveFrom && left > 0.4) {
         this.diving = true; this.diveStarted = true; this.diveT = 0;
@@ -144,6 +159,19 @@ export class Runs {
     return strikerTo === end ? 'striker' : 'nonStriker';
   }
 
+  // The x each batter runs along. The striker on -X, the non-striker on +X;
+  // when the player is in the way, the AI runner's lane passes him wide (on
+  // the far side of him from the striker when he is the striker).
+  lane(striker) {
+    const ko = this.keepOut;
+    let lane = striker ? -LANE : LANE;
+    if (!ko || (striker && ko.striker)) return lane;
+    const r = ko.r ?? RUNNER_CLEAR;
+    if (ko.striker) return ko.x > 0 ? Math.min(-LANE, ko.x - r) : Math.max(LANE, ko.x + r);
+    if (Math.abs(lane - ko.x) < r) lane = ko.x + (lane - ko.x >= 0 ? r : -r);
+    return lane;
+  }
+
   // Have the batters swapped ends (odd number of completed runs)?
   get crossed() { return this.completed % 2 === 1; }
 
@@ -154,10 +182,19 @@ export class Runs {
     if (f < 1e-6 && this.rate < 0) { leg -= 1; f = 1; }
     const fromBat = striker ? leg % 2 === 0 : leg % 2 === 1;
     const z0 = fromBat ? Z_BAT : Z_BOWL, z1 = fromBat ? Z_BOWL : Z_BAT;
-    const lane = striker ? -0.85 : 0.85;
+    const lane = this.lane(striker);
     const start = striker ? this.sStart : this.nStart;
     let x = lane, z = z0 + (z1 - z0) * f;
     if (leg === 0) { x = start.x + (lane - start.x) * ss(0, 0.25, f); z = start.z + (z1 - start.z) * f; }
+    // Never through the player: pushed out to the edge of his space.
+    const ko = this.keepOut;
+    if (ko && !(striker && ko.striker)) {
+      const dx = x - ko.x, dz = z - ko.z, d = Math.hypot(dx, dz), r = ko.r ?? RUNNER_CLEAR;
+      if (d < r) {
+        const ux = d > 1e-6 ? dx / d : (lane >= ko.x ? 1 : -1), uz = d > 1e-6 ? dz / d : 0;
+        x = ko.x + ux * r; z = ko.z + uz * r;
+      }
+    }
     const moving = Math.abs(this.rate) > 1e-4;
     const dir = Math.sign(z1 - z0) * (this.rate < 0 ? -1 : 1);
     // The dive (and the moment on the ground after it) belongs to one batter.
