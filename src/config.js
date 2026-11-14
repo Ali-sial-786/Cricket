@@ -128,12 +128,31 @@ export const CONFIG = {
     fullTossHeight: [0.35, 1.25], // m at the batter for a full toss (waist-high no-balls not allowed)
     spinnerPaceKmh: 105,     // below this, wrist action gives a spin delivery; above, a cutter
     palmDot: 0.15,           // palm toward the batter above this, back of the hand below -this
-    assistStrength: 0.65,    // 0..1, how strongly the aim marker pulls deliveries
+    assistStrength: 0.8,     // 0..1, how strongly the aim marker pulls deliveries (the marker is where the ball goes; your release nudges it)
     spinMultiplier: 4.0,     // wrist roll rad/s × this = ball spin rad/s
     spinDeadzone: 2.5,       // rad/s of wrist roll ignored
     swingAmount: 0.75,       // swing value when inswing/outswing is chosen
     naturalSeamDeg: 0.8,
     ballHoldOffset: [0, -0.02, -0.06], // ball position in grip space while held
+    nonStriker: [-2.4, -19.4], // x, z where the non-striker stands while YOU bowl: wide and level with you, so
+                               // backing up (1.6 m) keeps him ~58° to your right at the crease, out of the way
+    pickedSpinFloor: 0.7,    // a picked delivery always gets this much of its spin / cut; wrist roll adds the rest (x 0.3)
+
+    // Run-up (see src/game/runup.js). Hold right GRIP or left TRIGGER to run.
+    //   length   m from your mark to the crease     top    m/s top speed
+    //   accel    m/s^2 while the button is held      commit m from the crease: inside this you are committed
+    //   stand    pace factor bowling from a standstill (best run speed / top speed scales it up to x1.0)
+    runUp: {
+      fast:    { length: 11.0, top: 5.6, accel: 4.0, commit: 3.0, stand: 0.86 },
+      medium:  { length: 8.0,  top: 4.6, accel: 4.0, commit: 3.0, stand: 0.86 },
+      offspin: { length: 3.5,  top: 2.4, accel: 2.6, commit: 1.5, stand: 0.95 },
+      legspin: { length: 3.0,  top: 2.2, accel: 2.4, commit: 1.5, stand: 0.95 },
+      pullOutBrake: 9.0,     // m/s^2 when you let go before the commit point (you never brake past it)
+      resumeWindow: 1.5,     // s after pulling out to press again and carry on; then back to your mark
+      strideBrake: 12.0,     // m/s^2: the delivery stride stops you at the crease
+      carrySpeed: 1.4,       // m/s: once committed you always reach the crease at least this fast
+      creaseWindow: 2.5,     // s at the crease to let the ball go, or it is a dead ball
+    },
   },
 
   view: {
@@ -141,6 +160,9 @@ export const CONFIG = {
     // relative to you (world metres: x across, y up, z along the pitch).
     behindBatting: [-0.6, 0.35, 2.1],    // behind and to the leg side of the batter
     behindBowling: [0.55, 0.4, -2.4],    // behind the bowler, over the left shoulder
+    // Right stick: look around without turning your body (Settings -> Turning).
+    snapTurnDeg: 30,         // per flick
+    smoothTurnDegPerSec: 100,
   },
 
   render: {

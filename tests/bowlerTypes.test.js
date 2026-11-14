@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Vec3, DEG, makeRng } from '../src/physics/math.js';
 import { mapRelease, playerDelivery } from '../src/game/bowlingInput.js';
-import { PLAYER_BOWLERS, nextBowler, seamFromWrist } from '../src/game/bowlerTypes.js';
+import { PLAYER_BOWLERS, nextBowler, seamFromWrist, stepDelivery } from '../src/game/bowlerTypes.js';
 import { PhysicsWorld } from '../src/physics/world.js';
 
 const rel = new Vec3(0.45, 2.0, -19.0);
@@ -124,4 +124,64 @@ test('the seam angle that swings it away also nips it away off the pitch (more f
   assert.ok(away('medium').seamDeg > away('fast').seamDeg);
   assert.equal(away('medium').name, 'away-seamer');
   assert.equal(away('fast').name, 'outswinger');
+});
+
+// ---- picked deliveries (A / B) ----
+const pick = (type, choice, opts = {}) => mapRelease({ releasePos: rel, handVel: hand(opts.speed), handAngVel: opts.w || none, palmDir: opts.palm || fwd, assist: false, bowler: PLAYER_BOWLERS[type], choice });
+
+test('every bowler has an explicit delivery list, stock ball first', () => {
+  const want = { fast: 6, medium: 6, offspin: 3, legspin: 4 };
+  for (const [k, n] of Object.entries(want)) {
+    const L = PLAYER_BOWLERS[k].deliveryList;
+    assert.equal(L.length, n, k);
+    for (const d of L) assert.ok(d.key && d.label && d.effect && d.effect.length < 60, `${k} ${d.key}`);
+  }
+  assert.equal(PLAYER_BOWLERS.fast.deliveryList[0].key, 'stock');
+  assert.equal(PLAYER_BOWLERS.offspin.deliveryList[0].key, 'offbreak');
+  assert.equal(PLAYER_BOWLERS.legspin.deliveryList[0].key, 'legbreak');
+  assert.equal(stepDelivery(PLAYER_BOWLERS.offspin, 'doosra', 1), 'offbreak');
+  assert.equal(stepDelivery(PLAYER_BOWLERS.offspin, 'offbreak', -1), 'doosra');
+  assert.equal(stepDelivery(PLAYER_BOWLERS.fast, 'nonsense', 1), 'outswinger');
+});
+
+test('a picked delivery is exactly that delivery, whatever the wrist does', () => {
+  const names = {
+    fast: { stock: 'seam-up', outswinger: 'outswinger', inswinger: 'inswinger', offcutter: 'off-cutter', legcutter: 'leg-cutter', slower: 'slower ball' },
+    medium: { stock: 'seam-up', awayseamer: 'away-seamer', inseamer: 'in-seamer', offcutter: 'off-cutter', legcutter: 'leg-cutter', slower: 'slower ball' },
+    offspin: { offbreak: 'off-break', armball: 'arm ball', doosra: 'doosra' },
+    legspin: { legbreak: 'leg-break', googly: 'googly', topspinner: 'top-spinner', slider: 'slider' },
+  };
+  for (const [type, m] of Object.entries(names)) {
+    for (const [key, name] of Object.entries(m)) {
+      for (const o of [{}, { w: cw }, { w: ccw }, { palm: back }, { w: cw, palm: back }]) {
+        const d = pick(type, key, o);
+        assert.equal(d.name, name, `${type} ${key} ${JSON.stringify(o)}`);
+        assert.equal(d.choice, key);
+      }
+    }
+  }
+});
+
+test('picked spin and cut never come out as nothing; the wrist roll only adds to them', () => {
+  const still = pick('offspin', 'offbreak'), rolled = pick('offspin', 'offbreak', { w: cw });
+  assert.equal(still.spinType, 'off'); assert.ok(still.spinAmount >= 0.69);
+  assert.ok(rolled.spinAmount > still.spinAmount);
+  assert.equal(pick('offspin', 'doosra').spinType, 'leg');
+  assert.equal(pick('legspin', 'googly').spinType, 'off');
+  assert.equal(pick('legspin', 'legbreak', { w: cw }).spinType, 'leg');      // the "wrong" roll still gives the leg-break
+  assert.equal(pick('legspin', 'topspinner').spinType, 'top');
+  assert.ok(pick('fast', 'offcutter').seamDeg < 0, 'off-cutter seams in');
+  assert.ok(pick('fast', 'legcutter').seamDeg > 0, 'leg-cutter seams away');
+  assert.ok(pick('fast', 'outswinger').swing > 0 && pick('fast', 'inswinger').swing < 0);
+  assert.ok(pick('medium', 'awayseamer').seamDeg > pick('medium', 'inseamer').seamDeg);
+  assert.equal(pick('fast', 'stock').swing, 0);
+  assert.ok(pick('fast', 'slower').paceKmh < pick('fast', 'stock').paceKmh * 0.85);
+  assert.ok(pick('offspin', 'armball', { speed: 8 }).paceKmh > pick('offspin', 'offbreak', { speed: 8 }).paceKmh);
+});
+
+test('a picked seamer still becomes a yorker or a bouncer by length', () => {
+  const at = (aimZ) => mapRelease({ releasePos: rel, handVel: hand(), handAngVel: none, assist: true, aim: { x: 0.1, z: aimZ }, bowler: PLAYER_BOWLERS.fast, choice: 'outswinger' });
+  assert.equal(at(-1.2).name, 'outswinger yorker');
+  assert.equal(at(-11.8).name, 'outswinger bouncer');
+  assert.equal(at(-6).name, 'outswinger');
 });

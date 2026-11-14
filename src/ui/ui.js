@@ -1,7 +1,8 @@
 // Menus (laser-pointer driven), HUD, scoreboard, safety + calibration screens.
 import * as THREE from 'three';
 import { CanvasPanel, grid } from './panel.js';
-import { drawHintCard } from './controllerHint.js';
+import { drawHintCard, drawController, drawKey } from './controllerHint.js';
+import { PLAYER_BOWLERS, PLAYER_BOWLER_ORDER } from '../game/bowlerTypes.js';
 import { LENGTH_PRESETS, LINE_PRESETS } from '../physics/bowlingMachine.js';
 import { CONFIG } from '../config.js';
 
@@ -13,6 +14,7 @@ const VIEWS = ['eyes', 'helmet', 'behind'];
 const VIEW_NAMES = { eyes: 'your eyes', helmet: 'eyes + helmet grille', behind: 'behind the player' };
 const REPLAYS = ['off', 'bowler', 'batter'];
 const REPLAY_NAMES = { off: 'off', bowler: "bowler's view", batter: "batter's view" };
+const TURNS = ['snap', 'smooth', 'off'];
 
 export class UI {
   constructor(game) {
@@ -62,6 +64,13 @@ export class UI {
     this.hintPanel.mesh.renderOrder = 11;
     this.scene.add(this.hintPanel.mesh);
     this.hintList = []; this.hintKey = ''; this.hintUntil = 0;
+    // Delivery card (bowling, at your mark): bowler, deliveries, target, controls.
+    // ~30 px text subtends ~1° at 1.3 m (ppm 1300).
+    this.card = new CanvasPanel({ width: 900 / 1300, height: 640 / 1300, ppm: 1300, name: 'bowlCard', bg: 'rgba(8,12,20,0.8)', interactive: false });
+    this.card.mesh.visible = false;
+    this.card.mesh.renderOrder = 10;
+    this.scene.add(this.card.mesh);
+    this.cardData = null;
     this._pt = new THREE.Vector3(); this._pq = new THREE.Quaternion(); this._pf = new THREE.Vector3();
     this.clock = 0;
   }
@@ -75,7 +84,12 @@ export class UI {
   drawPrompt() {
     const P = this.promptPanel, W = [];
     const p = this.clock < this.promptUntil ? this.promptText : '';
-    if (p) W.push({ type: 'label', x: P.W / 2, y: 82, text: p, size: p.length > 46 ? 30 : 40, bold: true, align: 'center', color: this.promptColor });
+    if (p) {
+      // One line (shrunk to fit), or two lines when the text has a line break.
+      const lines = p.split('\n'), long = Math.max(...lines.map((l) => l.length));
+      const size = Math.min(40, lines.length > 1 ? 36 : 40, Math.floor(P.W * 0.95 / (long * 0.52)));
+      W.push({ type: 'label', x: P.W / 2, y: lines.length > 1 ? 60 : 82, text: p, size, bold: true, align: 'center', color: this.promptColor });
+    }
     P.set(W, '');
     this.promptShown = !!p;
   }
@@ -92,6 +106,14 @@ export class UI {
   }
   clearHints() { this.hintUntil = 0; }
 
+  // The bowling delivery card (null hides it). See BowlingSession.updateCard().
+  setBowlCard(d) {
+    this.cardData = d;
+    if (!d) return;
+    const P = this.card, desktop = !this.game.input.xr;
+    P.set([{ type: 'custom', draw: (g) => drawBowlCard(g, P.W, P.H, d, desktop) }], '');
+  }
+
   updatePrompt(dt) {
     this.clock += dt;
     if (this.promptShown && this.clock >= this.promptUntil) this.drawPrompt();
@@ -101,30 +123,40 @@ export class UI {
     if (this._pf.lengthSq() < 1e-6) this._pf.set(0, 0, -1);
     this._pf.normalize();
     const eye = this.game.eye ? this.game.eye.p : head.p;
-    const follow = (panel, show, dist, drop) => {
+    const follow = (panel, show, dist, drop, side = 0) => {
       panel.mesh.visible = show;
       if (!show) return;
-      this._pt.set(eye.x + this._pf.x * dist, eye.y - drop, eye.z + this._pf.z * dist);
+      // side: metres to the right (+) of straight ahead.
+      this._pt.set(eye.x + this._pf.x * dist - this._pf.z * side, eye.y - drop, eye.z + this._pf.z * dist + this._pf.x * side);
       const m = panel.mesh;
       if (m.position.distanceTo(this._pt) > 3) m.position.copy(this._pt);
       else m.position.lerp(this._pt, Math.min(1, dt * 5));
       m.lookAt(eye.x, eye.y - 0.1, eye.z);
       panel.update();
     };
-    follow(this.promptPanel, this.promptShown && !this.menuOpen, 1.5, 0.5);
-    follow(this.hintPanel, this.hintList.length > 0 && this.clock < this.hintUntil && !this.menuOpen, 1.35, 0.72);
+    const g = this.game, replay = !!(g.replay && g.replay.active);
+    const card = !!this.cardData && !this.menuOpen && !replay && g.state === 'play';
+    // Bowling: just below where a good length pitches (about -7° from the crease), clear of the card.
+    const bowling = !!(g.session && g.session.isBowling);
+    follow(this.promptPanel, this.promptShown && !this.menuOpen, 1.5, bowling ? 0.36 : 0.5, card ? 0.25 : 0);
+    // The card already shows the bowling controls: no hint row while it is up.
+    follow(this.hintPanel, this.hintList.length > 0 && this.clock < this.hintUntil && !this.menuOpen && !card, 1.35, 0.56);
+    // Low and to the left: from the bowler's mark the pitch (and the HUD) are to your right.
+    follow(this.card, card, 1.3, 0.5, -0.62);
   }
 
   get menuOpen() { return this.menu.mesh.visible; }
 
   // Place the HUD next to the pitch for the current end.
-  setHudPose(end) {
+  // oz: the bowling run-up offset (the board comes with you to your mark).
+  setHudPose(end, oz = 0) {
     const m = this.hud.mesh;
     // Scaled up so ~30 px text subtends ~1° (readable on Quest 3S).
     if (end === 'bowling') {
-      m.scale.setScalar(1.5);
-      m.position.set(-2.6, 2.4, -15.6);
-      m.lookAt(0.75, 1.65, -19.6);
+      // ~28° right of the line to the batter, just above eye level: beside the pitch, inside the view.
+      m.scale.setScalar(1.9);
+      m.position.set(-2.0, 2.1, -14.4 + oz);
+      m.lookAt(0.75, 1.65, -19.6 + oz);
     } else if (end === 'mr') {
       m.scale.setScalar(1.0);
       m.position.set(1.6, 1.8, -4.0);
@@ -223,7 +255,12 @@ export class UI {
       { const r = L(1, 4), hw = (r.w - 12) / 2;
         btn('recenter', { x: r.x, y: r.y, w: hw, h: r.h }, 'Recenter', () => g.actions.recenter(), { size: 26 });
         btn('realign', { x: r.x + hw + 12, y: r.y, w: hw, h: r.h }, 'Face this way', () => g.actions.realign(), { size: 26 }); }
-      if (playing) {
+      if (playing && g.session.isBowling) {
+        const r = L(0, 5), hw = (r.w - 12) / 2, ok = g.session.canChangeBowler();
+        btn('resume', { x: r.x, y: r.y, w: hw, h: r.h }, 'Resume', () => this.closeMenu(), { active: true });
+        btn('bowler', { x: r.x + hw + 12, y: r.y, w: hw, h: r.h }, ok ? 'Change bowler' : 'Bowler: next over', () => this.go('bowler'), { disabled: !ok, size: 26 });
+        btn('quit', L(1, 5), 'End this game', () => g.actions.quit());
+      } else if (playing) {
         btn('resume', L(0, 5), 'Resume', () => this.closeMenu(), { active: true });
         btn('quit', L(1, 5), 'End this game', () => g.actions.quit());
       } else {
@@ -254,16 +291,15 @@ export class UI {
           'On a free hit you can only be run out.',
         ]],
         ['BOWLING', [
-          'Hold right TRIGGER, bowl overarm, let go to release.',
-          'Arm speed = pace. Early release = full, late = short.',
-          'RIGHT STICK left / right: choose your bowler',
-          '(fast, medium, off-spin, leg-spin) at the start of an over.',
-          'FAST / MEDIUM: with the ball in your hand, turn your wrist',
-          'left = OUT-swing, right = IN-swing (or press A / B).',
-          'Roll the wrist as you let go = off-cutter / leg-cutter.',
-          'OFF-SPIN: roll clockwise. LEG-SPIN: roll anticlockwise.',
-          'Back of the hand to the batter = doosra / googly.',
+          'Pick your bowler at the start of each over.',
+          'A / B: next / previous delivery (shown on the card).',
+          'Left stick: move the target on the pitch.',
+          'Hold GRIP (or left trigger) to run in. Let go early',
+          'to pull out; near the crease you are committed.',
+          'Hold TRIGGER, bowl overarm, let go in your stride.',
+          'Arm speed + run-up speed = pace.',
           'Stay behind the crease, or it is a no-ball.',
+          'Right stick: look around. Click it: face forward.',
         ]],
         ['FIELDING', [
           'Catch chance: time slows and you become the fielder.',
@@ -320,18 +356,37 @@ export class UI {
       const gx = s.guardX;
       const guardName = gx < -0.08 ? 'leg' : gx < -0.02 ? 'mid-leg' : gx < 0.03 ? 'middle' : 'mid-off';
       step('guard', L(1, 4), 'Guard', `${guardName} ${gx >= 0 ? '+' : ''}${Math.round(gx * 100)}cm`, () => g.actions.setting('guardX', -0.03, -0.2, 0.15), () => g.actions.setting('guardX', 0.03, -0.2, 0.15));
-      btn('assist', L(0, 5), `Bowling aim assist: ${s.aimAssist ? 'ON' : 'OFF'}`, () => g.actions.toggle('aimAssist'), { active: s.aimAssist });
+      { const r = L(0, 5), hw = (r.w - 12) / 2;
+        btn('assist', { x: r.x, y: r.y, w: hw, h: r.h }, `Aim assist: ${s.aimAssist ? 'ON' : 'OFF'}`, () => g.actions.toggle('aimAssist'), { active: s.aimAssist, size: 24 });
+        btn('relcal', { x: r.x + hw + 12, y: r.y, w: hw, h: r.h }, 'Calibrate release', () => g.actions.bowlCalib(), { size: 24 }); }
       btn('marker', L(1, 5), `Aim marker: ${s.aimMarker ? 'ON' : 'OFF'}`, () => g.actions.toggle('aimMarker'), { active: s.aimMarker });
       const r4 = L(0, 6), tw3 = (r4.w - 20) / 3;
       btn('trail', { x: r4.x, y: r4.y, w: tw3, h: r4.h }, `Trail ${s.trail ? 'ON' : 'OFF'}`, () => g.actions.toggle('trail'), { active: s.trail, size: 24 });
       btn('boost', { x: r4.x + tw3 + 10, y: r4.y, w: tw3, h: r4.h }, `Big ball ${s.ballBoost ? 'ON' : 'OFF'}`, () => g.actions.toggle('ballBoost'), { active: s.ballBoost, size: 24 });
       btn('finder', { x: r4.x + 2 * (tw3 + 10), y: r4.y, w: tw3, h: r4.h }, `Ball finder ${s.ballFinder ? 'ON' : 'OFF'}`, () => g.actions.toggle('ballFinder'), { active: s.ballFinder, size: 24 });
-      btn('sound', L(1, 6), !s.sound ? 'Sound: OFF' : s.commentary ? 'Sound + commentary' : 'Sound, no commentary', () => g.actions.soundCycle(), { active: s.sound });
-      btn('relcal', L(0, 7), 'Calibrate bowling release', () => g.actions.bowlCalib());
-      btn('recal', L(1, 7), 'Calibrate bat', () => g.actions.calibrate());
+      { const r = L(1, 6), hw = (r.w - 12) / 2;
+        btn('sound', { x: r.x, y: r.y, w: hw, h: r.h }, !s.sound ? 'Sound OFF' : s.commentary ? 'Sound + comms' : 'Sound, no comms', () => g.actions.soundCycle(), { active: s.sound, size: 24 });
+        btn('turn', { x: r.x + hw + 12, y: r.y, w: hw, h: r.h }, `R-stick turn: ${s.turn}`, () => g.actions.cycle('turn', TURNS, 1), { size: 24 }); }
+      btn('runup', L(0, 7), `Run-up: ${s.runUp ? 'on' : 'off (bowl from the crease)'}`, () => g.actions.toggle('runUp'), { active: s.runUp, size: 26 });
+      btn('feel', L(1, 7), `Deliveries: ${s.bowlByFeel ? 'by wrist action' : 'pick with A/B'}`, () => g.actions.toggle('bowlByFeel'), { size: 26 });
       label(P.W * 0.5, P.H * 0.975, 'Y / Esc: back to the game', { align: 'center', size: 20, color: '#7f8fa0' });
       btn('back', { x: P.W - 150, y: 14, w: 130, h: 56 }, 'Back', () => this.go('main'));
       P.set(W, 'Settings');
+    } else if (this.page === 'bowler') {
+      const ses = g.session, cur = s.bowlerType;
+      const L = grid(P, { top: 0.14, bottom: 0.17, cols: 2, rows: 2 });
+      PLAYER_BOWLER_ORDER.forEach((k, i) => {
+        const b = PLAYER_BOWLERS[k], r = L(i % 2, Math.floor(i / 2)), here = k === cur;
+        const ru = CONFIG.bowling.runUp[k];
+        btn('bw-' + k, r, '', () => g.actions.pickBowler(k), { active: here });
+        label(r.x + 22, r.y + 38, `${i + 1}  ${b.label}${here ? '  ✓' : ''}`, { size: 38, bold: true, color: here ? '#ffffff' : '#ffd34d' });
+        label(r.x + 22, r.y + 82, `${b.pace[0]}–${b.pace[1]} km/h · run-up ${ru.length} m`, { size: 25, color: '#e8eef5' });
+        const names = b.deliveryList.map((d) => d.label);
+        const lines = names.length > 4 ? [names.slice(0, 3).join(' · '), names.slice(3).join(' · ')] : [names.slice(0, 2).join(' · '), names.slice(2).join(' · ')];
+        label(r.x + 22, r.y + 120, lines.filter(Boolean).join('\n'), { size: 20, color: '#b8c8d8' });
+      });
+      label(P.W / 2, P.H * 0.9, ses && ses.innings ? 'Pick for this over · your mark is behind you' : 'Pick a bowler · change any time from the menu', { align: 'center', size: 24, color: '#9fb2c4' });
+      P.set(W, 'Choose your bowler');
     } else if (this.page === 'result') {
       const r = g.resultInfo || { title: 'Done', lines: [] };
       label(P.W / 2, P.H * 0.22, r.title, { align: 'center', size: 56, bold: true, color: r.color || '#ffd34d' });
@@ -422,6 +477,73 @@ export class UI {
     this.hud.update();
     this.board.update();
   }
+}
+
+// Word-wrap `text` to `w` px with the current font; returns the lines.
+function wrap(g, text, w) {
+  const out = []; let line = '';
+  for (const word of String(text).split(' ')) {
+    const t = line ? line + ' ' + word : word;
+    if (line && g.measureText(t).width > w) { out.push(line); line = word; } else line = t;
+  }
+  if (line) out.push(line);
+  return out;
+}
+
+// The delivery card. d: { title, pace, list: [{label, sel}], effect, target, byFeel, runUp }.
+function drawBowlCard(g, W, H, d, desktop) {
+  const F = (wt, px) => `${wt} ${px}px system-ui, sans-serif`;
+  g.textBaseline = 'middle';
+  // Bowler + pace.
+  g.textAlign = 'left'; g.fillStyle = '#ffd34d'; g.font = F(800, 44);
+  g.fillText(d.title.toUpperCase(), 32, 52);
+  g.textAlign = 'right'; g.fillStyle = '#e8eef5'; g.font = F(600, 32);
+  g.fillText(d.pace, W - 32, 54);
+  g.fillStyle = 'rgba(255,255,255,0.18)'; g.fillRect(28, 88, W - 56, 3);
+  // Deliveries, the picked one lit.
+  const top = 104, bot = 420, n = d.list.length, rh = Math.min(56, (bot - top) / n);
+  d.list.forEach((it, i) => {
+    const y = top + i * rh + rh / 2;
+    if (it.sel) { g.fillStyle = '#ffd34d'; roundRect(g, 24, y - rh / 2 + 3, 380, rh - 6, 12); g.fill(); }
+    g.textAlign = 'left'; g.fillStyle = it.sel ? '#141414' : '#c9d6e3'; g.font = F(it.sel ? 800 : 600, it.sel ? 34 : 30);
+    g.fillText(`${it.sel ? '▸ ' : '   '}${it.label}`, 36, y + 1);
+  });
+  // This ball + target.
+  const x = 432, w = W - x - 30;
+  g.textAlign = 'left'; g.fillStyle = '#8fa3b6'; g.font = F(700, 24);
+  g.fillText(d.byFeel ? 'BY FEEL' : 'THIS BALL', x, 118);
+  g.fillStyle = '#ffffff'; g.font = F(600, 30);
+  wrap(g, d.effect, w).slice(0, 4).forEach((ln, i) => g.fillText(ln, x, 160 + i * 38));
+  g.fillStyle = '#8fa3b6'; g.font = F(700, 24);
+  g.fillText('TARGET', x, 330);
+  g.fillStyle = '#9dff9f'; g.font = F(700, 32);
+  wrap(g, d.target, w).slice(0, 2).forEach((ln, i) => g.fillText(ln, x, 370 + i * 40));
+  // Controls.
+  const items = [];
+  if (d.runUp) items.push({ hand: 'R', button: 'grip', key: 'R', head: desktop ? 'HOLD R' : 'HOLD GRIP', text: 'run in' });
+  items.push({ hand: 'R', button: 'trigger', key: 'Mouse', head: desktop ? 'MOUSE' : 'HOLD TRIGGER', text: desktop ? 'hold, sweep down, let go' : 'bowl overarm, let go' });
+  items.push(d.byFeel
+    ? { hand: 'R', button: 'ab', key: 'Z / X', head: desktop ? 'Z / X' : 'A / B', text: 'seam out / in' }
+    : { hand: 'R', button: 'ab', key: 'Z / X', head: desktop ? 'Z / X' : 'A / B', text: 'delivery' });
+  items.push({ hand: 'L', button: 'stick', key: 'Arrows', head: desktop ? 'ARROWS' : 'L STICK', text: 'aim' });
+  const cy = 436, ch = H - cy - 16, gap = 12, cw = (W - 48 - gap * (items.length - 1)) / items.length;
+  items.forEach((it, i) => {
+    const cx = 24 + i * (cw + gap), mx = cx + cw / 2;
+    g.fillStyle = 'rgba(255,255,255,0.07)'; roundRect(g, cx, cy, cw, ch, 14); g.fill();
+    if (desktop) drawKey(g, mx, cy + 48, 150, it.key);
+    else drawController(g, mx, cy + 50, 96, it.hand, it.button);
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillStyle = '#ffd34d'; g.font = F(800, 25);
+    g.fillText(it.head, mx, cy + 112);
+    g.fillStyle = '#e8eef5'; g.font = F(600, 23);
+    wrap(g, it.text, cw - 16).slice(0, 2).forEach((ln, j) => g.fillText(ln, mx, cy + 142 + j * 26));
+  });
+}
+
+function roundRect(g, x, y, w, h, r) {
+  g.beginPath();
+  g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r);
+  g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath();
 }
 
 function nearestName(list, key, v) {

@@ -70,38 +70,50 @@ bigger sweet spot. *Hard* is real time and real size.
 
 ### Bowling (right controller is your bowling hand)
 
-Hold the **trigger** to grip the ball, bowl overarm, let go to release.
+1. **Choose your bowler** — a page opens when you start bowling and before the first ball of every over: *Fast*,
+   *Medium-fast*, *Off-spin* or *Leg-spin*. In the nets you can change any time from the menu (**Change bowler**);
+   in a match only at the start of an over.
+2. **Pick the delivery** with **A** (next) / **B** (previous). A **delivery card** low on your left while you wait at
+   your mark shows your bowler and pace range, the deliveries with the picked one lit and what it does, the target
+   in words ("good length · off stump") and the controls.
+3. **Aim** with the **left stick**: the yellow ring on the pitch is where the ball will land; your release only
+   nudges it.
+4. **Run in**: hold the **right grip** (or the **left trigger**). You start each ball at the top of your mark and
+   accelerate toward the crease. Let go before the amber **commit line** and you pull out (press again within
+   1.5 s to carry on, otherwise you go back to your mark); inside it you are committed and the run carries you to
+   the crease by itself. The run always stops at the crease, and you then have 2.5 s to bowl (or it is a dead ball).
+5. **Bowl**: hold the **right trigger** (the ball is in your hand), bowl overarm and let go in the delivery stride
+   or at the crease. Letting go anywhere else is not a delivery ("Run in first").
 
-* **Pace:** how quickly you bring the ball down in the moment before you let go (the fastest your hand moved in the
-  last quarter-second), spread across your bowler's pace range.
-* **Line:** where you throw it — the direction your hand is travelling across the ground as you let go. There is no
-  aim marker on the floor (Settings can bring the old marker and assist back).
-* **Length:** *when* you let go: early = full (very early = a full toss), late = short, very late = a bouncer.
-* **Bounce** comes from pace and length together, as on a real pitch: at 140 km/h a good length arrives about bail
-  height and a ball pitched 10–11 m from the batter about chest height; slower balls and spinners bounce less.
-  Lengths stop at 12 m (fast), 11.5 m (medium) and 10.5 m (spin), and a ball that passes over the batter's head
-  is called a **wide**.
-* **Your bowler:** flick the **right stick left / right** (start of an over in a match, any time in the nets) to
-  bowl as a fast, medium-fast, off-spin or leg-spin bowler. A bowler only bowls their own deliveries:
+* **Pace:** how quickly you bring the ball down in the moment before you let go, spread across your bowler's pace
+  range, times your run-up: a full run gives full pace; from a standstill a seamer loses about 14%, a spinner 5%.
+* After each ball a line near the middle of your view says what you bowled and where it went, e.g. *Out-swinger ·
+  128 km/h · good length · 30 cm outside off*.
+* **Bounce** comes from pace and length together: at 140 km/h a good length arrives about bail height and a ball
+  pitched 10–11 m from the batter about chest height. Lengths stop at 12 m (fast), 11.5 m (medium) and 10.5 m
+  (spin), and a ball that passes over the batter's head is a **wide**.
 
-| Bowler | Pace | What the action does |
+| Bowler | Pace · run-up | Deliveries (for a right-handed batter) |
 |---|---|---|
-| Fast | 118–152 km/h | Seam angle → moves **away** (out-swinger) or **in** (in-swinger), mostly in the air, a little off the pitch. Wrist roll at release → **off-cutter** (seams in) / **leg-cutter** (seams away). Back of the hand → **slower ball**. |
-| Medium-fast | 100–132 km/h | Seam angle → **away-seamer / in-seamer**: mostly off the pitch, some swing. Cutters and slower ball as above. |
-| Off-spin | 62–98 km/h | Clockwise roll → **off-break**. Back of the hand → **doosra**. No roll (or the wrong roll) → **arm ball**. No leg-breaks. |
-| Leg-spin | 60–96 km/h | Anticlockwise roll → **leg-break**. Back of the hand → **googly**. Clockwise roll → **top-spinner**. No roll → **slider**. No off-breaks or doosras. |
+| Fast | 118–152 km/h · 11 m | **Seam-up**, **out-swinger** (swings away), **in-swinger** (swings in), **off-cutter** (cuts back in), **leg-cutter** (cuts away), **slower ball** |
+| Medium-fast | 100–132 km/h · 8 m | **Seam-up**, **away-seamer**, **in-seamer** (mostly off the pitch), **off-cutter**, **leg-cutter**, **slower ball** |
+| Off-spin | 62–98 km/h · 3.5 m | **Off-break** (turns in), **arm ball** (straight on), **doosra** (turns away) |
+| Leg-spin | 60–96 km/h · 3 m | **Leg-break** (turns away), **googly** (turns in), **top-spinner** (dips, bounces), **slider** (skids on) |
 
-* **Setting the seam (fast and medium):** once the ball is in your hand, turn your wrist **left** (seam toward the
-  slips) to move it away or **right** (toward fine leg) to move it in; the same angle swings it in the air and
-  nips it off the pitch. About 10° does nothing, 30° is full swing. The
-  ball in your hand shows the seam angle, a prompt shows the setting and the controller ticks as it changes. It
-  locks when your arm starts moving. **A** / **B** set full out-swing / in-swing directly if you prefer buttons.
-* Rolls are judged as seen from behind your hand; "back of the hand" means the back of your hand faces the batter
-  as you let go.
+* Rolling the wrist as you let go adds a little more spin or cut to a spinner's or a cutter's delivery.
+* **Settings → Deliveries: by wrist action** brings back the old "by feel" bowling: the wrist decides the delivery
+  (roll = spin or cutter, back of the hand = doosra / googly / slower ball, wrist turn or A / B = swing).
+  **Settings → Run-up: off** bowls from the crease with no momentum penalty.
 * Stay behind the popping crease: if your head is more than 30 cm past it when you let go, it is a **no-ball** (one
   run, bowled again, and the next ball is a free hit). A full toss above the waist is a no-ball too.
 * The keeper stands up to the stumps for your spinners, and batters come down the pitch to them. Beat the bat and
   they are **stumped**.
+
+### Looking around
+
+The **right stick** turns your view (left / right) without you turning your body: 30° per flick, or smoothly
+(Settings → **Right stick turn**: snap / smooth / off). **Click the right stick** to face down the pitch again; the
+view also faces forward by itself before each ball, on recenter, catches and replays.
 
 ### Fielding
 
@@ -138,16 +150,17 @@ Open the page in any WebGL2 browser without a headset. The page starts on the me
 | Input | Batting | Bowling |
 |---|---|---|
 | Mouse move | Up lifts the bat (backlift), a fast flick down swings it. Left/right moves your hands and turns the swing plane (right = off side). | Arm angle of a virtual overarm action |
-| Left button | — | Hold to grip the ball, sweep top → bottom, release near mid-screen |
+| Left button | — | Hold to grip the ball, sweep top → bottom, release near mid-screen (after running in) |
 | `Space` / `Enter` | Next ball · call a run | — |
 | `Shift` | Stride down the pitch | — |
 | `S` | Sweep (hold) | — |
 | `G` / `V` | Turn back / dive | — |
 | Arrow keys | Move in the crease | Move the aim marker |
-| `B` | — | Auto-bowl a clean delivery at the aim marker |
-| `1`–`4` | — | Bowler: fast, medium-fast, off-spin, leg-spin |
+| `R` (hold) | — | Run in |
+| `B` | — | Run in and bowl a clean delivery at the aim marker by itself |
+| `1`–`4` | — | Bowler: fast, medium-fast, off-spin, leg-spin (also on the bowler page) |
 | `Q` / `E` (+ `F`) | — | Wrist roll clockwise / anticlockwise (`F` = back of the hand) |
-| `Z` / `X` | Review (`Z`) | Seam for out-swing / in-swing · throw to keeper / bowler's end |
+| `Z` / `X` | Review (`Z`) | Next / previous delivery (by feel: seam out / in) · throw to keeper / bowler's end |
 | `Esc` or `M` | Menu (click buttons with the mouse) | Menu |
 | `C` / `T` | Cycle cameras / toggle ball trail | |
 | `Space` during a replay | Skip it | Skip it |

@@ -56,10 +56,19 @@ Start **Nets: Batting**. The default machine is 130 km/h, good length, middle an
     (`surfaces.pitch.restitution`).
 
 ## 4. Bowling: your priority feature (10 min)
-Start **Nets: Bowling**. You are teleported to the bowler's end. The yellow ring on the pitch is the aim
-marker; move it with the left stick.
-- [ ] Hold the **right trigger**, bowl a normal overarm action, and let go of the trigger at release.
-      The HUD shows *km/h* and then *hand m/s · elev ° · az ° · roll rad/s*.
+Start **Nets: Bowling**. The bowler page opens: pick a bowler with the laser. You are at the top of your mark
+(white line on the floor); the yellow ring on the pitch is the target; move it with the left stick.
+- [ ] Delivery card (low on your left): **Report** whether it is readable without squinting, whether it ever covers
+      the batter or the pitch, and whether **A** / **B** step through the deliveries the right way.
+- [ ] Run-up: hold the **right grip** (or left trigger) and run in; let go early (before the amber commit line) to
+      pull out, press again within 1.5 s to carry on; let go inside the commit line and you should still reach the
+      crease. Stand at the crease 2.5 s without bowling: "Dead ball".
+  - **Report:** comfort (any sickness at 5.6 m/s for the fast run), whether the commit point is where you expect
+    (`bowling.runUp.*.commit`), and the run-up speed / pace factor in the HUD after release.
+- [ ] Right stick: flick left / right (30° turns), click to face forward. **Report:** comfort; try
+      **Settings → R-stick turn: smooth**.
+- [ ] Hold the **right trigger**, bowl a normal overarm action in your stride, and let go of the trigger at release.
+      The HUD shows *km/h* and the delivery; a line in the middle says where it pitched and passed the stumps.
   - **Report:** km/h for a gentle, a normal and a flat-out action, and the hand m/s values.
     Knob: **Settings → Bowling pace ×** (`bowling.paceMultiplier`, default 2.6, capped at `paceCapKmh` 150).
 - [ ] Bowl five balls aimed at a good length. **Report** the `elev °` values you see.
@@ -71,7 +80,7 @@ marker; move it with the left stick.
 - [ ] Spin: roll your wrist hard at release, clockwise for off-spin and anti-clockwise for leg-spin (from behind your hand).
   - **Report:** the `roll rad/s` values, and whether spin triggers too easily or not enough
     (`bowling.spinDeadzone`, `bowling.spinMultiplier`). Check the turn direction looks right.
-- [ ] **A** / **B** toggle out-swing / in-swing (shown on the HUD sub-line).
+- [ ] Pick the out-swinger / in-swinger with **A** / **B**.
   - **Report:** whether the swing is visible.
 - [ ] Turn the aim assist off (**Settings**) and try again. **Report:** whether it is playable without it.
 - [ ] AI batter: on **Settings → Difficulty** easy, medium and hard, bowl a few overs.
@@ -108,8 +117,9 @@ Start **Nets: Bowling**, then **Bowl an Over**.
 - [ ] Pace: bowl gentle, normal and flat-out. The HUD names the delivery and speed.
 - [ ] Length by release timing: let go early (full / full toss), normally, and late (short / bouncer).
   - **Report:** whether length follows your release point (`bowling.lengthRange`, `lengthPerDeg`).
-- [ ] Bowler types: flick the **right stick** left / right to go through fast, medium-fast, off-spin and leg-spin.
+- [ ] Bowler types: the bowler page before each over (or menu → **Change bowler** in the nets).
   - **Report:** km/h for a normal action with each bowler (ranges in `src/game/bowlerTypes.js`: `pace`, `paceScale`).
+The rest of this section is for **Settings → Deliveries: by wrist action** (the old by-feel bowling).
 - [ ] **Fast / medium, swing:** grip the ball, then turn your wrist left (seam to the slips) and right before you
       bowl. Watch the seam on the ball in your hand and the "Seam: …" prompt.
   - **Report:** whether the seam follows your wrist the right way round, whether it changes when you did not mean
