@@ -36,6 +36,7 @@ export function defaultSettings() {
     bowlerType: 'fast',            // your bowler: fast | medium | offspin | legspin
     contactAssist: 'normal',       // off | low | normal | high (see CONFIG.contactAssist)
     view: 'eyes',                  // eyes | helmet (eyes behind a helmet grille) | behind (third person)
+    ownBody: true,                 // see a faint body (legs, feet) when you look down
     ballFinder: true,              // arrow / halo / landing ring to find the ball after a hit
     replay: 'bowler',              // off | bowler | batter: replay after every ball
     commentary: true,

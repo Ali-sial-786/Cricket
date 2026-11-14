@@ -26,6 +26,7 @@ import { Innings } from './scoring.js';
 const KMH = (v) => Math.round(msToKmh(v));
 const _hand = new THREE.Vector3();
 const STANCE = { x: -0.4, z: -1.05 };
+const FOOT_HALF = 0.06;            // half the width of a boot (you stand side-on to the crease)
 
 export class BattingSession {
   constructor(game, { kind = 'nets', title = 'Nets · Batting', innings = null, bowler = 'machine', fielders = null, aiBowler = null, onDone = null } = {}) {
@@ -140,6 +141,11 @@ export class BattingSession {
     g.setRigOffset(this.crease.x, this.crease.z - this.advance);
     const f = this.advance / B.advanceDistance;
     g.playerBat.mods = { faceLed: B.faceLed, power: 1 + B.advancePower * f, sigmaScale: 1 - B.advanceSweetShrink * f, loftPower: 0.2 * f };
+
+    // Sweep: down on one knee for as long as the grip is held (and a moment after the shot).
+    const sweeping = R.buttons.squeeze.pressed && (preBall || this.state === 'idle' || this.state === 'settle' || (this.hit && g.simTime - this.hit.t < 0.5));
+    this.sweepK = clamp((this.sweepK || 0) + (sweeping ? 6 : -3.5) * dt, 0, 1);
+    this.sweepSlog = sweeping ? R.buttons.trigger.pressed || this.advance > 0.4 : this.sweepSlog;
 
     if (this.lbw.active) return;
     const run = this.field && this.state === 'live' && this.hit && !this.field.result();
@@ -403,12 +409,22 @@ export class BattingSession {
   // Non-striker backs up while the ball is being bowled.
   backingUp() { return this.state === 'runup' || this.state === 'cue' || (this.state === 'live' && !this.game.world.ball.batted); }
 
-  // How far (m) you are short of the popping crease: your body, or your bat
-  // if it is grounded (the toe near the ground) behind the line — whichever is
-  // better. <= 0: in your ground.
+  // What your body is doing, for the figure that stands in for you.
+  bodyState() { return this.sweepK > 0.01 ? { sweep: { k: this.sweepK * this.sweepK * (3 - 2 * this.sweepK), slog: !!this.sweepSlog } } : null; }
+
+  // How far (m) you are short of the popping crease. Some part of a foot
+  // grounded behind the line, or the bat grounded (the toe near the ground)
+  // behind it, and you are in — whichever is better. <= 0: in your ground.
   shortOfGround() {
     const g = this.game;
-    const body = battingPoppingZ - 0.05 - this.body().z;
+    let body = battingPoppingZ - 0.05 - this.body().z;
+    if (g.input.xr) {
+      // The feet you see when you look down are the ones the umpire judges.
+      const A = g.playerBody.actor;
+      body = Infinity;
+      for (const f of [A.footL, A.footR]) if (f.y < 0.04) body = Math.min(body, battingPoppingZ - (f.z + FOOT_HALF));
+      if (body === Infinity) body = battingPoppingZ - Math.max(A.footL.z, A.footR.z);
+    }
     if (!g.input.xr || !g.input.right.connected) return body;      // (the desktop bat doesn't come down the pitch with you)
     const toe = g.batToe(_toe);
     const bat = toe.y < 0.25 ? battingPoppingZ - toe.z : Infinity;

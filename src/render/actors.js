@@ -461,7 +461,7 @@ export class BatterActor extends Actor {
     const H = _H, sc = h.root.scale.x;
     if (opts.head) {
       // You: the body stands under the headset and the feet step to keep up.
-      heading = this.stepFeet(dt, opts.head, opts.headFwd, batPos, fl, fr);
+      heading = this.stepFeet(dt, opts.head, opts.headFwd, batPos, fl, fr, !!(opts.sweep && opts.sweep.k > 0.05));
       const wide = Math.hypot(fl.x - fr.x, fl.z - fr.z) || 1;
       weight = clamp(0.5 + ((opts.head.x - (fl.x + fr.x) / 2) * (fl.x - fr.x) + (opts.head.z - (fl.z + fr.z) / 2) * (fl.z - fr.z)) / (wide * wide) * 0.9, 0.2, 0.8);
       // Head joint: a little below and behind the eyes.
@@ -472,8 +472,19 @@ export class BatterActor extends Actor {
       const sl = Math.sin(lean), px = mix(fr.x, fl.x, weight), pz = mix(fr.z, fl.z, weight);
       H.set(px + (0.1 + 0.42 * sl) + (batPos.x - px) * 0.12, this.headRestY * sc - hipsDrop - this.spineLen * sc * (1 - Math.cos(lean)) * 0.9, pz + (batPos.z - pz) * 0.12);
     }
+    const sweep = opts.sweep && opts.sweep.k > 0.01 ? opts.sweep : null;
+    if (sweep) {
+      // Sweep: a long stride to the pitch of the ball, down on the back knee,
+      // head over the front knee.
+      const k = sweep.k, fx = Math.sin(heading), fz = Math.cos(heading), lx = fz, lz = -fx;
+      fl.x = mix(fl.x, fr.x + lx * 0.66 + fx * 0.1, k); fl.z = mix(fl.z, fr.z + lz * 0.66 + fz * 0.1, k);
+      weight = mix(weight, 0.36, k);
+      const hy = (this.kneelHipY + this.spineLen * (sweep.slog ? 0.9 : 0.8)) * sc;
+      H.x = mix(H.x, fr.x + lx * 0.46 + fx * 0.2, k); H.z = mix(H.z, fr.z + lz * 0.46 + fz * 0.2, k);
+      H.y = Math.min(H.y, mix(H.y, hy, k));
+    }
     this.footL.copy(fl); this.footR.copy(fr);
-    this.solveBody({ heading, weight, head: H, batPos, batQuat, elbowUp, heel, sweep: opts.sweep || null, t });
+    this.solveBody({ heading, weight, head: H, batPos, batQuat, elbowUp, heel, sweep, t });
     if (opts.ball) h.lookAt(opts.ball, 1, 1.7);
     else h.lookAt(_c.set(0.4, 1.9, -18.8), 1, 1.7);
     h.syncShadow();
@@ -481,14 +492,15 @@ export class BatterActor extends Actor {
 
   // Your feet: planted on the ground, stepping (one at a time) to stay under
   // the body. Returns the heading the feet (and hips) point.
-  stepFeet(dt, head, headFwd, batPos, fl, fr) {
+  stepFeet(dt, head, headFwd, batPos, fl, fr, hold = false) {
     const S = this.step || (this.step = { yaw: Math.PI / 2, turning: false, L: new THREE.Vector3(), R: new THREE.Vector3(), mL: null, mR: null, init: false, prev: new THREE.Vector3(), vel: new THREE.Vector3() });
     // Which way the body faces: toward the hands, tempered by where you look.
     // The feet only shuffle round when that is well away from where they point.
     const hx = batPos.x - head.x, hz = batPos.z - head.z, hn = Math.hypot(hx, hz);
     let bx = hn > 0.12 ? hx / hn * 0.7 : 0, bz = hn > 0.12 ? hz / hn * 0.7 : 0;
     if (headFwd) { bx += headFwd.x * 0.5; bz += headFwd.z * 0.5; }
-    if (Math.hypot(bx, bz) > 0.15) {
+    if (hold) S.turning = false;                      // kneeling: the feet stay where they are
+    else if (Math.hypot(bx, bz) > 0.15) {
       const d = angDiff(S.yaw, Math.atan2(bx, bz));
       if (Math.abs(d) > 0.75) S.turning = true;
       if (S.turning) { S.yaw += clamp(d, -5 * dt, 5 * dt); if (Math.abs(d) < 0.15) S.turning = false; }
@@ -506,7 +518,7 @@ export class BatterActor extends Actor {
     for (const side of ['L', 'R']) {
       const ideal = side === 'L' ? _iL : _iR, foot = S[side], key = 'm' + side, other = S[side === 'L' ? 'mR' : 'mL'];
       let m = S[key];
-      if (!m && !other && ideal.distanceTo(foot) > far) m = S[key] = { from: foot.clone(), k: 0, dur: 0.17 };
+      if (!m && !other && !hold && ideal.distanceTo(foot) > far) m = S[key] = { from: foot.clone(), k: 0, dur: 0.17 };
       if (m) {
         m.k += dt / m.dur;
         const e = sstep(0, 1, m.k);
@@ -539,7 +551,8 @@ export class BatterActor extends Actor {
     if (d > 0.88 * T) { const k = 0.88 * T / d; px = H.x + (px - H.x) * k; pz = H.z + (pz - H.z) * k; d = 0.88 * T; }
     let py = clamp(H.y - Math.sqrt(T * T - d * d), 0.3, hipTop);
     const sw = o.sweep ? o.sweep.k : 0;
-    if (sw > 0) py = mix(py, Math.min(py, this.kneelHipY * sc), sw);
+    const hipMax = mix(hipTop, this.kneelHipY * sc, sw);
+    if (sw > 0) { py = Math.min(py, hipMax); px = mix(px, fr.x + (fl.x - fr.x) * 0.22, sw); pz = mix(pz, fr.z + (fl.z - fr.z) * 0.22, sw); }
     const setHips = () => {
       const dx = px - this.pos.x, dz = pz - this.pos.z;
       h.bones.hips.position.set((dx * c - dz * s) / sc, py / sc, (dx * s + dz * c) / sc);
@@ -564,7 +577,8 @@ export class BatterActor extends Actor {
     // Slide the pelvis so the head lands exactly on its target…
     h.update();
     h.worldPos('head', _d);
-    px += H.x - _d.x; pz += H.z - _d.z; py = clamp(py + H.y - _d.y, 0.28, hipTop);
+    if (sw < 1) { px += (H.x - _d.x) * (1 - sw); pz += (H.z - _d.z) * (1 - sw); }
+    py = clamp(py + H.y - _d.y, 0.28, hipMax);
     setHips();
     // …and if the bat is still out of reach, go with it.
     h.update();
@@ -573,7 +587,7 @@ export class BatterActor extends Actor {
     if (over > 0) {
       const sh = h.worldPos('chest', _c);
       _v1.set(batPos.x - sh.x, batPos.y - sh.y, batPos.z - sh.z).normalize().multiplyScalar(Math.min(0.35, over));
-      px += _v1.x; pz += _v1.z; py = clamp(py + _v1.y, 0.28, hipTop);
+      px += _v1.x * (1 - sw); pz += _v1.z * (1 - sw); py = clamp(py + _v1.y, 0.28, hipMax);
       setHips();
     }
     this.forward(_fwd);

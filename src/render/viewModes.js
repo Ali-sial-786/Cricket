@@ -151,7 +151,7 @@ export class NearCull {
   update(eye, humans, radius = 0.6, keepExtras = false) {
     for (const h of humans) {
       let near = false;
-      if (h.root.visible && eye) {
+      if (h.root.visible && eye && !h.ghost) {
         h.bones.neck.getWorldPosition(_a);
         const dx = _a.x - eye.x, dz = _a.z - eye.z, dy = _a.y - eye.y;
         near = Math.hypot(dx, dz) < radius && dy > -0.9 && dy < 0.5;

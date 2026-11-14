@@ -196,18 +196,34 @@ function kitMaterial() {
     uKit1: { value: new THREE.Color(0x1f4fa8) }, uKit2: { value: new THREE.Color(0xf2c12e) }, uKit3: { value: new THREE.Color(0x14285a) },
     uKit4: { value: new THREE.Color(0x17336e) }, uSkin: { value: new THREE.Color(0xc68e62) }, uHair: { value: new THREE.Color(0x1d1510) },
     uPanel: { value: new THREE.Color(0x173f8c) },
+    uNoHead: { value: 0 },         // 1: the head and neck are not drawn (your own see-through body)
+    uHeadBones: { value: new THREE.Vector2(RIG.index.neck, RIG.index.head) },
+    uLegBones: { value: new THREE.Vector2(Math.min(RIG.index.hipL, RIG.index.hipR), Math.max(RIG.index.ankleL, RIG.index.ankleR)) },
+    uTrunkAlpha: { value: 1 },     // opacity of everything above the legs (x the material's opacity)
   };
   mat.onBeforeCompile = (sh) => {
     Object.assign(sh.uniforms, uniforms);
     sh.vertexShader = sh.vertexShader
-      .replace('#include <common>', '#include <common>\nattribute float kit;\nuniform vec3 uKit1;\nuniform vec3 uKit2;\nuniform vec3 uKit3;\nuniform vec3 uKit4;\nuniform vec3 uSkin;\nuniform vec3 uHair;\nuniform vec3 uPanel;')
+      .replace('#include <common>', '#include <common>\nattribute float kit;\nuniform vec2 uHeadBones;\nuniform vec2 uLegBones;\nvarying float vHeadW;\nvarying float vLegW;\nuniform vec3 uKit1;\nuniform vec3 uKit2;\nuniform vec3 uKit3;\nuniform vec3 uKit4;\nuniform vec3 uSkin;\nuniform vec3 uHair;\nuniform vec3 uPanel;')
       .replace('#include <color_vertex>', `#include <color_vertex>
         #ifdef USE_COLOR
           if (kit > 6.5) vColor.rgb = uPanel; else if (kit > 5.5) vColor.rgb = uHair; else if (kit > 4.5) vColor.rgb = uSkin; else if (kit > 3.5) vColor.rgb = uKit4;
           else if (kit > 2.5) vColor.rgb = uKit3; else if (kit > 1.5) vColor.rgb = uKit2; else if (kit > 0.5) vColor.rgb = uKit1;
+        #endif
+        vHeadW = 0.0; vLegW = 0.0;
+        #ifdef USE_SKINNING
+          for (int i = 0; i < 4; i++) {
+            float b = skinIndex[i];
+            if (abs(b - uHeadBones.x) < 0.5 || abs(b - uHeadBones.y) < 0.5) vHeadW += skinWeight[i];
+            if (b > uLegBones.x - 0.5 && b < uLegBones.y + 0.5) vLegW += skinWeight[i];
+          }
         #endif`);
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', '#include <common>\nuniform float uNoHead;\nuniform float uTrunkAlpha;\nvarying float vHeadW;\nvarying float vLegW;')
+      .replace('#include <color_fragment>', '#include <color_fragment>\n  diffuseColor.a *= mix(uTrunkAlpha, 1.0, clamp(vLegW, 0.0, 1.0));')
+      .replace('#include <clipping_planes_fragment>', '#include <clipping_planes_fragment>\n  if (uNoHead > 0.5 && vHeadW > 0.35) discard;');
   };
-  mat.customProgramCacheKey = () => 'cricket-kit-v3';
+  mat.customProgramCacheKey = () => 'cricket-kit-v5';
   mat.userData.uniforms = uniforms;
   return mat;
 }
@@ -284,6 +300,19 @@ export class Humanoid {
     if (lod === this.lod) return;
     this.lod = lod;
     this.mesh.geometry = geometryFor(this.opts, lod);
+  }
+
+  // See-through body: what you see of yourself when you look down. No head
+  // or neck; the trunk and arms are faint so that the legs and feet (drawn
+  // more solidly) show through them.
+  setGhost(on, legs = 0.62, trunk = 0.3) {
+    if (!!this.ghost === on) return;
+    this.ghost = on;
+    const m = this.material, u = m.userData.uniforms;
+    m.transparent = on; m.opacity = on ? legs : 1; m.depthWrite = !on; m.needsUpdate = true;
+    u.uNoHead.value = on ? 1 : 0;
+    u.uTrunkAlpha.value = on ? trunk : 1;
+    this.mesh.renderOrder = on ? 3 : 0;
   }
 
   get visible() { return this.root.visible; }

@@ -533,6 +533,7 @@ export class Game {
       // Replay: play is frozen; the recording poses everything.
       this.applyView();
       this.updateEye();
+      this.playerBody.actor.h.setGhost(false);
       this.replay.placeVignette(this.eye);
       this.ballFinder.hide();
       Humanoid.updateLods(this.eye.p);
@@ -748,7 +749,11 @@ export class Game {
         this.playerBody.update(pdt || 1e-4, this.simTime, this.batMesh.position, this.batMesh.quaternion, lookBall, this.input.xr ? this.input.headPose : null,
           this.session && this.session.bodyState ? this.session.bodyState() : null);
       }
-      this.playerBody.show((deskThird || (behind && batting)) && !runnerOut);
+      // Through your own eyes you see a faint body below you (no head), so you
+      // know where your feet are in the crease.
+      const ghost = batting && this.input.xr && !behind && !this.viewOverride && !this.mr && this.settings.ownBody !== false;
+      this.playerBody.actor.h.setGhost(ghost);
+      this.playerBody.show((deskThird || ((behind || ghost) && batting)) && !runnerOut);
       this.playerBody.actor.h.replayVisible = batting && !runnerOut;      // replays show your body
       const bowling = !!(this.session && this.session.isBowling);
       if (bowling) {
