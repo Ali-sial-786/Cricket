@@ -17,6 +17,7 @@ import {
   poseCelebrate, strideFor, keys, sstep, clamp, mix,
 } from './anim.js';
 import { clipsReady, applyClip, applyLocomotion, strideAt, clipInfo, MASK_ALL, MASK_LEGS } from './clips.js';
+import { shotFor, poseShot } from './shots.js';
 
 const TAU = Math.PI * 2;
 const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3(), _d = new THREE.Vector3();
@@ -614,6 +615,10 @@ const LIFT = [[-0.3, 0], [0, 1], [0.2, 0]];
 
 // ---------------------------------------------------------------- batters
 const STANCE = { footL: [-0.31, -1.43], footR: [-0.35, -0.95] };
+const STANCE_MID = [(STANCE.footL[0] + STANCE.footR[0]) / 2, (STANCE.footL[1] + STANCE.footR[1]) / 2];
+const _mi = new THREE.Matrix4(), _yq = new THREE.Vector3(), _zAxis = new THREE.Vector3(0, 0, 1);
+// Heading of a rotation's +Z about the vertical.
+function yawOfQ(q) { _yq.set(0, 0, 1).applyQuaternion(q); return Math.atan2(_yq.x, _yq.z); }
 // How much of a full (baseball-style) body turn each cricket shot uses.
 const SWING_AMP = { pull: 0.85, hook: 0.85, slog: 0.9, cut: 0.5, drive: 0.5, flick: 0.45, defend: 0.12, leave: 0 };
 const _sw = {};
@@ -654,7 +659,225 @@ export class BatterActor extends Actor {
 
   // Batting: pose the body around a bat pose.
   // opts: { t, plan (AIBatter plan or null), adv (m down the pitch), ball }
+  // The AI's shots are played with a real batter's body (motion capture,
+  // src/render/shots.js) where there is one for the shot: its footwork, knees,
+  // hips, trunk and head, time-warped onto the plan and fitted to the plan's
+  // feet, with the hands on the physics bat. It takes over from the
+  // procedural stance as the ball is released and hands back once the shot
+  // has been held; anything else (and you) stays procedural.
   updateBatting(dt, batPos, batQuat, opts) {
+    const p = opts.plan;
+    const use = !opts.head && p && p.feet && p.shot && !(p.adv > 0) && !(opts.adv > 0.001) ? this.mocapFor(p) : null;
+    const w = use ? this.mocapWeight(opts.t, p) : 0;
+    if (w < 1) this.batProcedural(dt, batPos, batQuat, opts);
+    if (w <= 0) return;
+    const h = this.h;
+    let snap = null;
+    if (w < 1) {
+      // The procedural pose, re-expressed about the root the capture uses.
+      snap = this._pSnap = h.snapshot(this._pSnap);
+      const sc = h.root.scale.x, dx = this.pos.x - STANCE_MID[0], dz = this.pos.z - STANCE_MID[1];
+      snap.hipsP.x += -dz / sc; snap.hipsP.z += dx / sc;
+    }
+    this.mocapBody(batPos, batQuat, opts, use);
+    if (snap) {
+      h.blendFrom(snap, w);
+      this.gripBat(batPos, batQuat, this._elbowUp);
+    }
+    if (opts.ball) h.lookAt(opts.ball, 1, 1.7);
+    else h.lookAt(_c.set(0.4, 1.9, -18.8), 1, 1.7);
+    h.syncShadow();
+  }
+
+  // The capture for this plan (cached per plan), or null.
+  mocapFor(p) {
+    if (this._mPlan === p && this._mType === p.shot.type && this._mT0 === p.t0) return this._mUse;
+    this._mPlan = p; this._mType = p.shot.type; this._mT0 = p.t0;
+    const stride = Math.hypot(p.feet.L[0] - STANCE.footL[0], p.feet.L[1] - STANCE.footL[1]);
+    this._mUse = shotFor(p.shot.type, { stride });
+    return this._mUse;
+  }
+
+  // How much of the body the capture has: none in the stance, all from just
+  // after the release, none again once the finish has been held.
+  mocapWeight(t, p) {
+    const Tc = p.Tc ?? p.tCommit + 0.3, tRel = Tc + (p.Tf || 0.2) + 0.55;
+    return sstep(p.t0 - 0.02, p.t0 + 0.2, t) * (1 - sstep(tRel, tRel + 0.8, t));
+  }
+
+  // Capture time for game time t: stance at the release, the top of the
+  // backlift at the top of the bat's backswing, contact at contact, the finish
+  // at the end of the bat's follow-through (piecewise linear).
+  shotTime(t, p, use) {
+    const s = use.shot, ev = s.events;
+    const Tc = p.Tc ?? p.tCommit + 0.3, Tf = p.Tf || 0.2;
+    const tTop = clamp(p.tSwingStart ?? Tc - 0.2, p.t0 + 0.12, Tc - 0.08);
+    if (t <= p.t0) return 0;
+    if (t < tTop) return ev.top * (t - p.t0) / (tTop - p.t0);
+    if (t < Tc) return ev.top + (ev.contact - ev.top) * (t - tTop) / (Tc - tTop);
+    if (use.hold) return ev.contact + 0.1 * sstep(0, 0.35, t - Tc);
+    if (t < Tc + Tf) return ev.contact + (ev.finish - ev.contact) * (t - Tc) / Tf;
+    return Math.min(s.dur, ev.finish + (t - Tc - Tf) * 0.8);
+  }
+
+  // Where the capture's ankles are in its stance and at contact (figure frame,
+  // model units) and which way its pelvis faces in the stance.
+  shotRef(s) {
+    const R = (this._shotRef ||= {});
+    if (R[s.name]) return R[s.name];
+    const h = this.h, out = {};
+    for (const [k, time] of [['s', 0], ['c', s.events.contact]]) {
+      h.reset();
+      poseShot(h, s, time);
+      h.update();
+      out[k + 'L'] = h.bones.ankleL.getWorldPosition(new THREE.Vector3()).applyMatrix4(_mi.copy(h.root.matrixWorld).invert());
+      out[k + 'R'] = h.bones.ankleR.getWorldPosition(new THREE.Vector3()).applyMatrix4(_mi);
+    }
+    h.reset();
+    poseShot(h, s, 0);
+    out.yaw0 = yawOfQ(h.bones.hips.quaternion);
+    h.reset();
+    return (R[s.name] = out);
+  }
+
+  // The body from the capture: feet fitted to the plan, pelvis kept where the
+  // capture has it between the feet (weight transfer), hips as low as it
+  // crouches, trunk and head from the capture, turned a little more toward the
+  // hands if they need it; hands on the bat.
+  mocapBody(batPos, batQuat, opts, use) {
+    const h = this.h, t = opts.t, p = opts.plan, s = use.shot, sc = h.root.scale.x;
+    const Tc = p.Tc ?? p.tCommit + 0.3;
+    const u = this.shotTime(t, p, use);
+    const ref = this.shotRef(s);
+    this.mode = 'bat';
+    this.bat.position.copy(batPos);
+    this.bat.quaternion.copy(batQuat);
+    this.heading = Math.PI / 2;
+    this.pos.set(STANCE_MID[0], 0, STANCE_MID[1]);
+    h.reset();
+    this.apply();
+    poseShot(h, s, u);
+    // A shot with less turn than the capture (a push): take some of the pelvis turn out.
+    if (use.turn < 1) {
+      const dy = angDiff(ref.yaw0, yawOfQ(h.bones.hips.quaternion));
+      h.bones.hips.quaternion.premultiply(_q.setFromAxisAngle(_up, -(1 - use.turn) * dy));
+    }
+    h.update();
+    // The capture's feet now, in its stance and at contact (world).
+    const M = this._mw || (this._mw = { L: new THREE.Vector3(), R: new THREE.Vector3(), sL: new THREE.Vector3(), sR: new THREE.Vector3(), cL: new THREE.Vector3(), cR: new THREE.Vector3(), kL: new THREE.Vector3(), kR: new THREE.Vector3(), qL: new THREE.Quaternion(), qR: new THREE.Quaternion(), H: new THREE.Vector3(), FL: new THREE.Vector3(), FR: new THREE.Vector3() });
+    h.worldPos('ankleL', M.L); h.worldPos('ankleR', M.R); h.worldPos('hips', M.H);
+    h.worldPos('kneeL', M.kL); h.worldPos('kneeR', M.kR);
+    h.bones.ankleL.getWorldQuaternion(M.qL); h.bones.ankleR.getWorldQuaternion(M.qR);
+    M.sL.copy(ref.sL).applyMatrix4(h.root.matrixWorld); M.sR.copy(ref.sR).applyMatrix4(h.root.matrixWorld);
+    M.cL.copy(ref.cL).applyMatrix4(h.root.matrixWorld); M.cR.copy(ref.cR).applyMatrix4(h.root.matrixWorld);
+    // Knee poles: the way the capture bends them.
+    for (const sd of ['L', 'R']) {
+      const k = M['k' + sd], hip = h.worldPos('hip' + sd, _a);
+      _b.addVectors(hip, M[sd]).multiplyScalar(0.5);
+      k.addScaledVector(_d.subVectors(k, _b), 1.0);
+    }
+    // The plan's feet: from the stance to where it puts them at contact. Each
+    // foot moves as the capture's does (its progress along its own step and
+    // its lift); a foot the capture hardly moves follows the plan's timing.
+    const front = p.foot === 'front';
+    const tLand = Math.max(p.tCommit + 0.12, Tc - 0.06);
+    const k1 = sstep(p.tCommit, front ? tLand : mix(p.tCommit, tLand, 0.62), t);
+    const k2 = sstep(mix(p.tCommit, tLand, front ? 0.55 : 0.3), tLand + (front ? 0.12 : 0), t);
+    const ankleY = h.ankleHeight * sc;
+    for (const sd of ['L', 'R']) {
+      const g0x = sd === 'L' ? STANCE.footL[0] : STANCE.footR[0], g0z = sd === 'L' ? STANCE.footL[1] : STANCE.footR[1];
+      const gx = p.feet[sd][0] - g0x, gz = p.feet[sd][1] - g0z, gl = Math.hypot(gx, gz);
+      const m = M[sd], m0 = M['s' + sd], mc = M['c' + sd];
+      const Dx = mc.x - m0.x, Dz = mc.z - m0.z, Dl2 = Dx * Dx + Dz * Dz;
+      const dx = m.x - m0.x, dz = m.z - m0.z;
+      let k, rx, rz, lift = 0;
+      if (Dl2 > 0.08 * 0.08) {
+        k = clamp((dx * Dx + dz * Dz) / Dl2, -0.2, 1.4);
+        rx = clamp((dx - k * Dx) * 0.5, -0.12, 0.12); rz = clamp((dz - k * Dz) * 0.5, -0.12, 0.12);
+        if (gl * gl > Dl2 * 2.2) lift = 0.05 * Math.sin(Math.PI * clamp(k, 0, 1)) * Math.min(1, gl / 0.4);   // a longer step than the capture's: pick it up more
+      } else {
+        k = (sd === 'L') === front ? k1 : k2;
+        rx = clamp(dx * 0.5, -0.12, 0.12); rz = clamp(dz * 0.5, -0.12, 0.12);
+        lift = 0.085 * Math.sin(Math.PI * k) * Math.min(1, gl / 0.3);
+      }
+      const F = M['F' + sd];
+      F.set(g0x + k * gx + rx, Math.max(ankleY * 0.95, m.y) + lift, g0z + k * gz + rz);
+    }
+    // Pelvis: where the capture has it between its feet (along and across the
+    // line of the feet), and as high.
+    const lx = M.L.x - M.R.x, lz = M.L.z - M.R.z, ll = Math.hypot(lx, lz);
+    const Hg = _hp;
+    if (ll > 0.12) {
+      const a = ((M.H.x - M.R.x) * lx + (M.H.z - M.R.z) * lz) / (ll * ll), b = ((M.H.x - M.R.x) * -lz + (M.H.z - M.R.z) * lx) / ll;
+      const gxl = M.FL.x - M.FR.x, gzl = M.FL.z - M.FR.z, gll = Math.hypot(gxl, gzl) || 1;
+      Hg.set(M.FR.x + a * gxl + b * -gzl / gll, M.H.y, M.FR.z + a * gzl + b * gxl / gll);
+    } else Hg.set(M.H.x + (M.FL.x + M.FR.x - M.L.x - M.R.x) / 2, M.H.y, M.H.z + (M.FL.z + M.FR.z - M.L.z - M.R.z) / 2);
+    // Legs too short for the plan's (longer) stride: sit lower.
+    const legLen = (h.bones.kneeL.position.length() + h.bones.ankleL.position.length()) * sc;
+    for (let pass = 0; pass < 2; pass++) {
+      const shiftX = Hg.x - M.H.x, shiftY = Hg.y - M.H.y, shiftZ = Hg.z - M.H.z;
+      let drop = 0;
+      for (const sd of ['L', 'R']) {
+        const hj = h.worldPos('hip' + sd, _a).add(_b.set(shiftX, shiftY, shiftZ)), F = M['F' + sd];
+        const d = hj.distanceTo(F), over = d - legLen * 0.992;
+        if (over > 0) drop = Math.max(drop, over * d / Math.max(0.3, hj.y - F.y));
+      }
+      if (drop <= 0) break;
+      Hg.y -= drop;
+    }
+    // Move the pelvis (and the knee poles with it).
+    _d.subVectors(Hg, M.H);
+    M.kL.add(_d); M.kR.add(_d);
+    h.bones.hips.position.copy(h.bones.hips.parent.worldToLocal(_e.copy(Hg)));
+    h.update();
+    for (const sd of ['L', 'R']) {
+      h.ikLeg(sd, M['F' + sd], M['k' + sd]);
+      h.setWorldQuat('ankle' + sd, M['q' + sd]);
+    }
+    this.footL.set(M.FL.x, 0, M.FL.z); this.footR.set(M.FR.x, 0, M.FR.z);
+    // Turn the shoulders toward the hands where the capture's are turned away.
+    h.update();
+    const ch = h.worldPos('chest', _ch);
+    h.bones.chest.getWorldQuaternion(_ql);
+    _f.set(0, 0, 1).applyQuaternion(_ql);
+    const want = Math.atan2(batPos.x - ch.x, batPos.z - ch.z), have = Math.atan2(_f.x, _f.z);
+    const dyaw = clamp(angDiff(have, want), -1.2, 1.2) * 0.45;
+    for (const [b, f] of [['spine', 0.45], ['chest', 0.55]]) {
+      h.bones[b].getWorldQuaternion(_ql);
+      h.setWorldQuat(b, _ql.premultiply(_q.setFromAxisAngle(_up, dyaw * f)));
+    }
+    // The capture leans well out to the off side through the finish (seen
+    // front-on, a batter falling over): keep the head within a little of the
+    // feet across the pitch.
+    h.update();
+    const hd = h.worldPos('head', _v1), off = hd.x - Math.max(M.FL.x, M.FR.x) - 0.1;
+    if (off > 0) {
+      const T = hd.distanceTo(h.worldPos('spine', _v2));
+      h.bones.spine.getWorldQuaternion(_ql);
+      h.setWorldQuat('spine', _ql.premultiply(_q.setFromAxisAngle(_zAxis, Math.asin(clamp(off / T, 0, 0.6)))));
+    }
+    // Hands still out of reach: lean the trunk toward the bat.
+    h.update();
+    const top = _top.copy(batPos).addScaledVector(_e.set(0, 1, 0).applyQuaternion(batQuat), 0.105);
+    const over = Math.max(h.worldPos('shoulderR', _a).distanceTo(batPos), h.worldPos('shoulderL', _b).distanceTo(top)) - (this.armLen * sc / this.armScale0 + PALM * 0.8) * 0.985;
+    if (over > 0) {
+      const hp = h.worldPos('spine', _v1), chp = h.worldPos('chest', _v2);
+      _x.subVectors(chp, hp).normalize();
+      _y.subVectors(batPos, hp).normalize();
+      _z.copy(_x).lerp(_y, clamp(over / 0.45, 0, 0.6)).normalize();
+      h.bones.spine.getWorldQuaternion(_ql);
+      h.setWorldQuat('spine', _ql.premultiply(_q.setFromUnitVectors(_x, _z)));
+    }
+    // Front elbow up and leading through a straight-bat front-foot shot.
+    const kf = sstep(Tc - 0.03, Tc + (p.Tf || 0.2), t);
+    this._elbowUp = front && p.shot.type !== 'flick' ? sstep(p.tCommit, Tc - 0.05, t) * (1 - 0.6 * kf) : 0;
+    this.gripBat(batPos, batQuat, this._elbowUp);
+    // Where the batter is (for the runner taking over after the shot): under the pelvis.
+    h.worldPos('hips', _a);
+    this.pos.set(_a.x, 0, _a.z);
+  }
+
+  batProcedural(dt, batPos, batQuat, opts) {
     const h = this.h, t = opts.t;
     this.mode = 'bat';
     this.bat.position.copy(batPos);
@@ -892,15 +1115,57 @@ export class BatterActor extends Actor {
     h.setWorldQuat('ankleR', _q.setFromAxisAngle(_up, yawR));
   }
 
-  // Sweep: down on the back knee, front leg bent out in front.
-  kneel(sweep, k) {
-    const h = this.h, fl = this.footL, fr = this.footR;
+  // The captured sweep at its lowest (the finish, settled): legs relative to
+  // the hips in the figure's own frame, hip height, feet orientations. Null
+  // without the capture.
+  sweepTemplate() {
+    if (this._sweepT !== undefined) return this._sweepT;
+    const use = shotFor('sweep');
+    if (!use) return null;            // (asked again later: the shots may still be loading)
+    const h = this.h, s = use.shot, T = {};
+    const snap = h.snapshot();
+    h.reset();
+    poseShot(h, s, Math.min(s.dur, s.events.finish + 0.15));
     h.update();
-    // Front foot flat, knee over the ankle.
-    _ft.copy(fl); _ft.y += h.ankleHeight * h.root.scale.y;
-    h.ikLeg('L', _ft, h.worldPos('hipL', _a).lerp(_ft, 0.5).add(_b.set(0, 0.8, 0)).addScaledVector(_fwd, 0.5));
-    // Back leg: knee on the ground under the hip, shin and foot trailing behind it.
+    _mi.copy(h.root.matrixWorld).invert();
+    h.root.getWorldQuaternion(_ql).invert();
+    for (const n of ['hips', 'hipL', 'hipR', 'kneeL', 'kneeR', 'ankleL', 'ankleR']) T[n] = h.worldPos(n, new THREE.Vector3()).applyMatrix4(_mi);
+    for (const n of ['ankleL', 'ankleR']) T['q' + n] = h.bones[n].getWorldQuaternion(new THREE.Quaternion()).premultiply(_ql);
+    T.hipY = T.hips.y;
+    h.blendFrom(snap, 0);          // put back whatever was posed
+    h.update();
+    return (this._sweepT = T);
+  }
+
+  // Sweep: down on the back knee, front leg bent out in front. With the
+  // capture: its legs (the back leg trailing well behind on the toe, the
+  // front knee up over the front foot) at its height.
+  kneel(sweep, k) {
+    const h = this.h, fl = this.footL, fr = this.footR, T = this.sweepTemplate();
+    h.update();
+    const sc = h.root.scale.y;
+    // Front foot flat, knee over the ankle (pole: the capture's front knee).
+    _ft.copy(fl); _ft.y += h.ankleHeight * sc;
+    if (T) _pole.subVectors(T.kneeL, T.hipL).multiplyScalar(2).applyQuaternion(h.root.getWorldQuaternion(_q)).multiplyScalar(sc).add(h.worldPos('hipL', _a)).add(_b.set(0, 0.3, 0));
+    else _pole.copy(h.worldPos('hipL', _a).lerp(_ft, 0.5).add(_b.set(0, 0.8, 0)).addScaledVector(_fwd, 0.5));
+    h.ikLeg('L', _ft, _pole);
+    // Back leg: knee down behind the hip, shin and foot trailing behind it.
     h.worldPos('hipR', _a);
+    if (T) {
+      // The capture is a half-kneel (its back knee stays a hand off the
+      // floor), so the knee still goes right down under the hip; the back
+      // foot trails where the capture's does, halfway, on its toe.
+      h.root.getWorldQuaternion(_q);
+      _c.subVectors(T.ankleR, T.hipR).applyQuaternion(_q).multiplyScalar(sc).add(_a);
+      _d.set(_a.x - _left.x * 0.42 - _fwd.x * 0.05, 0, _a.z - _left.z * 0.42 - _fwd.z * 0.05);
+      _c.set(mix(_d.x, _c.x, 0.5), 0.09, mix(_d.z, _c.z, 0.5));
+      _ft.set(mix(fr.x, _c.x, k), mix(fr.y + h.ankleHeight * sc, _c.y, k), mix(fr.z, _c.z, k));
+      _pole.set(_a.x - _left.x * 0.05, -0.6, _a.z - _left.z * 0.05);
+      h.ikLeg('R', _ft, _pole);
+      h.setWorldQuat('ankleL', _ql.copy(_q).multiply(T.qankleL).slerp(_q, 0.5));
+      h.setWorldQuat('ankleR', _ql.copy(_q).multiply(T.qankleR));
+      return;
+    }
     _ft.set(mix(fr.x, _a.x - _left.x * 0.42 - _fwd.x * 0.05, k), mix(fr.y + h.ankleHeight * h.root.scale.y, 0.09, k), mix(fr.z, _a.z - _left.z * 0.42 - _fwd.z * 0.05, k));
     h.ikLeg('R', _ft, _b.set(_a.x - _left.x * 0.05, -0.6, _a.z - _left.z * 0.05));
     h.root.getWorldQuaternion(_q);

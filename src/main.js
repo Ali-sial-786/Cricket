@@ -4,6 +4,7 @@ import { Game } from './game/game.js';
 import { XRSessionManager } from './xr/session.js';
 import { loadAthlete } from './render/humanoid.js';
 import { loadClips } from './render/clips.js';
+import { loadShots } from './render/shots.js';
 
 const container = document.getElementById('app');
 const statusEl = document.getElementById('status');
@@ -27,8 +28,8 @@ rig.add(camera);
 scene.add(rig);
 
 try {
-  // The clips fail soft (the procedural poses take over), the model does not.
-  await Promise.all([loadAthlete(), loadClips()]);
+  // The clips and shots fail soft (the procedural poses take over), the model does not.
+  await Promise.all([loadAthlete(), loadClips(), loadShots()]);
 } catch (e) {
   console.error(e);
   setStatus('Could not load the player model: ' + (e.message || e));

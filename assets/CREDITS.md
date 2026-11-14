@@ -16,3 +16,7 @@
   `assets/basketball/spocco/characters/sportsmate.glb`; retargeted onto the game's 17-bone rig by
   `tools/build_clips.mjs` (idle, idle_fold_arms, walk, jog, sprint, bb_defense, overhand_throw, bb_cheer and
   bb_sad).
+- `assets/anim/shots.*` — batting shots from your mimem.ai video-to-3D conversion of a compilation of broadcast cricket
+  clips (`unity.fbx`, one 47 s take); cut into single shots, cleaned (grounded, planted feet pinned, root drift and
+  jitter removed, hinge-correct leg IK) and retargeted onto the game's 17-bone rig by `tools/build_shots.mjs`, which
+  also records why every other window of the take was dropped (`shots.json` → `rejected`).

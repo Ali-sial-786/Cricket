@@ -1,0 +1,421 @@
+{
+ "source": "mimem.ai video-to-3D capture of broadcast batting clips (one take, 47 s, 60 Hz); cut, cleaned and retargeted by tools/build_shots.mjs",
+ "bones": [
+  "hips",
+  "spine",
+  "chest",
+  "neck",
+  "head",
+  "shoulderL",
+  "elbowL",
+  "handL",
+  "shoulderR",
+  "elbowR",
+  "handR",
+  "hipL",
+  "kneeL",
+  "ankleL",
+  "hipR",
+  "kneeR",
+  "ankleR"
+ ],
+ "stride": 71,
+ "qScale": 32767,
+ "posScale": 0.00006103701895199438,
+ "units": "hips offset in leg lengths (hip joint to ankle) from the canonical hips; origin = between the stance feet; +X toward the bowler, +Z the way the batter faces",
+ "leg": 0.8474,
+ "shots": [
+  {
+   "name": "drive",
+   "type": "drive",
+   "foot": "front",
+   "src": {
+    "take": [
+     5.35,
+     7
+    ],
+    "contact": 6.161,
+    "mirrored": false
+   },
+   "frames": 50,
+   "fps": 30,
+   "dur": 1.6333,
+   "offset": 0,
+   "events": {
+    "stance": 0,
+    "top": 0.317,
+    "contact": 0.811,
+    "finish": 1.25
+   },
+   "feet": {
+    "stance": {
+     "L": [
+      0.238,
+      0.012
+     ],
+     "R": [
+      -0.249,
+      0.053
+     ]
+    },
+    "contact": {
+     "L": [
+      0.558,
+      0.123
+     ],
+     "R": [
+      -0.247,
+      -0.011
+     ]
+    },
+    "finish": {
+     "L": [
+      0.558,
+      0.123
+     ],
+     "R": [
+      -0.309,
+      -0.063
+     ]
+    }
+   },
+   "head": {
+    "stance": [
+     0.063,
+     0.27
+    ],
+    "contact": [
+     0.27,
+     0.532
+    ]
+   },
+   "stride": 0.339,
+   "weight": {
+    "contact": 0.57,
+    "finish": 0.71
+   },
+   "hipHeight": 0.893,
+   "turn": {
+    "contact": 0.29,
+    "finish": 1.02
+   },
+   "handSpeed": 4.28,
+   "contact": {
+    "L": "11111111111111100000001111111111111111111111111111",
+    "R": "11111111111111111111110000000000000001111000001111"
+   },
+   "why": [
+    "front foot +0.32 m, back foot +0.002 m, weight 0.57 at contact -> front foot",
+    "front foot, hands 0.64 m at contact, 4.28 m/s along 5.11,-0.58,1.54 -> drive"
+   ],
+   "check": {
+    "footLow": 0,
+    "plantedSlide": 0.0035
+   }
+  },
+  {
+   "name": "pull",
+   "type": "pull",
+   "foot": "neutral",
+   "src": {
+    "take": [
+     37.417,
+     39.133
+    ],
+    "contact": 38.288,
+    "mirrored": false
+   },
+   "frames": 52,
+   "fps": 30,
+   "dur": 1.7,
+   "offset": 3550,
+   "events": {
+    "stance": 0,
+    "top": 0.267,
+    "contact": 0.871,
+    "finish": 1.083
+   },
+   "feet": {
+    "stance": {
+     "L": [
+      0.142,
+      0.056
+     ],
+     "R": [
+      -0.145,
+      0.024
+     ]
+    },
+    "contact": {
+     "L": [
+      0.076,
+      0.127
+     ],
+     "R": [
+      -0.113,
+      0.291
+     ]
+    },
+    "finish": {
+     "L": [
+      0.076,
+      0.127
+     ],
+     "R": [
+      -0.004,
+      0.33
+     ]
+    }
+   },
+   "head": {
+    "stance": [
+     0.195,
+     0.215
+    ],
+    "contact": [
+     0.143,
+     0.37
+    ]
+   },
+   "stride": 0.097,
+   "weight": {
+    "contact": 0.57,
+    "finish": 0.22
+   },
+   "hipHeight": 0.941,
+   "turn": {
+    "contact": 1.04,
+    "finish": 1.81
+   },
+   "handSpeed": 5.42,
+   "contact": {
+    "L": "1111111111111100011111111111111111111111111111111110",
+    "R": "0000000111111111100000000000000000000001111111111111"
+   },
+   "why": [
+    "front foot -0.066 m, back foot +0.032 m, weight 0.57 at contact -> neutral foot",
+    "hands 1.148 m high at contact (bat across the line), pelvis turns 1.81 rad, hands travelling to the leg side -> pull"
+   ],
+   "check": {
+    "footLow": 0,
+    "plantedSlide": 0
+   }
+  },
+  {
+   "name": "sweep",
+   "type": "sweep",
+   "foot": "front",
+   "src": {
+    "take": [
+     44.75,
+     46.417
+    ],
+    "contact": 45.563,
+    "mirrored": false
+   },
+   "frames": 51,
+   "fps": 30,
+   "dur": 1.6667,
+   "offset": 7242,
+   "events": {
+    "stance": 0,
+    "top": 0.217,
+    "contact": 0.813,
+    "finish": 1.117
+   },
+   "feet": {
+    "stance": {
+     "L": [
+      0.07,
+      0.082
+     ],
+     "R": [
+      -0.109,
+      0.006
+     ]
+    },
+    "contact": {
+     "L": [
+      0.247,
+      0.55
+     ],
+     "R": [
+      -0.524,
+      0.029
+     ]
+    },
+    "finish": {
+     "L": [
+      0.206,
+      0.536
+     ],
+     "R": [
+      -0.891,
+      0.447
+     ]
+    }
+   },
+   "head": {
+    "stance": [
+     0.11,
+     0.253
+    ],
+    "contact": [
+     0.362,
+     0.536
+    ]
+   },
+   "stride": 0.5,
+   "weight": {
+    "contact": 0.46,
+    "finish": 0.61
+   },
+   "hipHeight": 0.675,
+   "turn": {
+    "contact": 0.93,
+    "finish": 1.61
+   },
+   "handSpeed": 7.22,
+   "contact": {
+    "L": "000000000000000000011111111000000000011111111111111",
+    "R": "111111111111111111100000000111111111111111111111111"
+   },
+   "why": [
+    "front foot +0.178 m, back foot -0.414 m, weight 0.46 at contact -> front foot",
+    "hips at 68% of standing height at contact -> down on one knee"
+   ],
+   "check": {
+    "footLow": 0,
+    "plantedSlide": 0
+   }
+  }
+ ],
+ "rejected": [
+  {
+   "t": 0.02,
+   "why": [
+    "swing peak on a cut/glitch (near one)"
+   ]
+  },
+  {
+   "t": 1.48,
+   "why": [
+    "by eye: the back foot hangs 10-16 cm off the floor behind the batter for the whole stroke; put down, the stride disappears and the front foot floats instead (no trustworthy footwork)"
+   ]
+  },
+  {
+   "t": 4.35,
+   "why": [
+    "swing peak on a cut/glitch (ground pose ground pose ground pose pose pose)"
+   ]
+  },
+  {
+   "t": 8.45,
+   "why": [
+    "swing peak on a cut/glitch (root pose flip root pose flip ground root pose flip ground root pose flip ground pose flip ground pose flip pose)"
+   ]
+  },
+  {
+   "t": 9.88,
+   "why": [
+    "by eye: same clip family as 1.48 (a replay): one foot always hovering 10-15 cm up, whichever is grounded"
+   ]
+  },
+  {
+   "t": 13.27,
+   "why": [
+    "swing peak on a cut/glitch (pose pose ground pose ground pose ground pose pose pose pose)"
+   ]
+  },
+  {
+   "t": 16.25,
+   "why": [
+    "swing peak on a cut/glitch (root root root root root root root root root)"
+   ]
+  },
+  {
+   "t": 18.73,
+   "why": [
+    "swing peak on a cut/glitch (pose pose flip pose flip pose flip pose flip pose flip ground pose flip ground pose flip ground pose ground)"
+   ]
+  },
+  {
+   "t": 21.22,
+   "why": [
+    "cut/glitch at 20.98 s between stance and contact (ground)"
+   ]
+  },
+  {
+   "t": 23.48,
+   "why": [
+    "swing peak on a cut/glitch (root root root root root root root root root)"
+   ]
+  },
+  {
+   "t": 25.65,
+   "why": [
+    "swing peak on a cut/glitch (root root root root root root root root root)"
+   ]
+  },
+  {
+   "t": 26.83,
+   "why": [
+    "by eye: no batting stance: stands upright with the feet together and the arms held out at shoulder height (a mis-tracked replay)"
+   ]
+  },
+  {
+   "t": 27.78,
+   "why": [
+    "swing peak on a cut/glitch (pose pose pose pose flip pose flip pose flip root pose flip)"
+   ]
+  },
+  {
+   "t": 30.35,
+   "why": [
+    "by eye: pull that turns into a pirouette: pelvis round 135 deg, the front leg kicked up and the legs crossing at the finish"
+   ]
+  },
+  {
+   "t": 32.03,
+   "why": [
+    "swing peak on a cut/glitch (root pose flip root pose flip root pose flip root pose flip root pose flip ground root pose flip root pose flip root pose flip root pose flip)"
+   ]
+  },
+  {
+   "t": 33.6,
+   "why": [
+    "swing peak on a cut/glitch (root root ground root ground root ground root root root root root)"
+   ]
+  },
+  {
+   "t": 34.38,
+   "why": [
+    "swing peak on a cut/glitch (pose pose)"
+   ]
+  },
+  {
+   "t": 36.43,
+   "why": [
+    "swing peak on a cut/glitch (root pose root pose root pose root pose ground root pose root pose root pose root pose root)"
+   ]
+  },
+  {
+   "t": 39.88,
+   "why": [
+    "swing peak on a cut/glitch (pose ground pose ground pose pose)"
+   ]
+  },
+  {
+   "t": 41.47,
+   "why": [
+    "by eye: pull with the pelvis turned 150 deg and the legs crossed at the finish (side-to-side flip in the capture)"
+   ]
+  },
+  {
+   "t": 43.33,
+   "why": [
+    "swing peak on a cut/glitch (root pose flip root pose flip root pose flip root pose flip root pose flip ground pose flip ground pose flip pose flip root)"
+   ]
+  }
+ ]
+}
