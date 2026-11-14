@@ -251,6 +251,7 @@ export class BattingSession {
     if (this.freeHit) { g.umpires.signal('freehit', g.clock); g.ui.prompt('FREE HIT — you can only be run out', 3.5, '#ffd34d'); }
     if (this.field) { this.field.reset(); this.field.setSpinner(!!settings.spinner); this.field.beginDelivery(); }
     if (this.bowlerFig) this.bowlerFig.show(true);
+    g.ui.clearHints();                         // the delivery has started: no instruction cards in the view
     if (this.bowler === 'machine') {
       g.machine.setRelease(settings.release || 'over');
       this.state = 'cue';
@@ -269,7 +270,6 @@ export class BattingSession {
 
   release(t) {
     const g = this.game, d = this.delivery, s = this.settingsUsed;
-    g.ui.clearHints();                         // the ball is on its way: no instruction cards in the view
     g.world.launch({ pos: d.releasePos, vel: d.vel, spin: d.spin, swing: d.swing, seamDeg: d.seamDeg });
     g.ballOverride = null;
     if (this.field) this.field.released();
