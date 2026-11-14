@@ -1,6 +1,6 @@
 # Progress
 
-_Last updated after the tenth pass (batting grip, stance and footwork against a broadcast reference)._
+_Last updated after the eleventh pass (batting shots from video motion capture)._
 
 ## Done
 - **Phase 1: Nets (batting core)**
@@ -193,6 +193,18 @@ Checked against broadcast footage of a classic side-on stance and drive, and a c
 - **Drive:** the head goes out over the front knee at contact.
 - Stray tennis wristband geometry removed from the athlete asset (it showed as slivers at the wrists).
 
+## Eleventh pass: batting shots from video motion capture
+The owner converted a compilation of real cricket shots into a 3D take with mimem.ai (47 s, 24 swing windows).
+`tools/build_shots.mjs` finds each swing, rejects the broken ones (camera cuts, teleports, floating feet, crossed
+legs), cleans the rest (canonical facing, grounded, planted feet pinned, drift removed, smoothed, knee IK) and
+retargets them to the 17-bone rig: `assets/anim/shots.*` (29 KB), played by `src/render/shots.js`.
+- Kept: a front-foot drive (6.15 s), a pull (38.28 s) and a sweep (45.57 s); 21 windows rejected, reasons in `shots.json`.
+- The AI batter's body (feet, stride, knees, hips, trunk turn, head, weight) follows the captured drive for drives,
+  forward defence (held at contact) and flicks, and the captured pull for pulls, time-warped to the plan's
+  stance / top of backswing / contact / finish. The hands stay on the physics bat through the grip; contact physics is
+  unchanged. Cut and back-foot defence keep the procedural body (no usable capture).
+- Your sweep takes its front-knee bend and trailing back foot from the captured sweep.
+
 ## Known issues / not verified
 - **Not tested on a real headset.** All XR paths ran only under Meta's IWER emulator in headless Chromium
   (no pose velocities, haptics, hit-test or passthrough there). Haptics, `updateTargetFrameRate`, pose velocities
@@ -220,6 +232,8 @@ Checked against broadcast footage of a classic side-on stance and drive, and a c
   thigh, and trouser stripes and the shirt yoke disappear on distant figures.
 - Grip/stance pass: compared with the reference in headless renders only. The AI's backlift is lower and its drive
   stride shorter than in the reference; a VR player who stands tall with the hands high will still show bent elbows.
+- Mocap shots: the flick still crosses the legs (the plan puts the front foot behind the back foot's line); wrists
+  still bend over 45 deg in much of the pull; no clean cut, back-foot defence, slog or reverse sweep in the capture.
 - The AI batter defending a chest-high ball still lifts his hands above the helmet.
 - Batters running between the wickets still stop dead at the line and turn on the spot; fielders' throw and pick-up
   were not reworked in this pass.
