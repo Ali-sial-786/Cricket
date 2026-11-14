@@ -621,7 +621,7 @@ export class Game {
       this.replay.placeVignette(this.eye);
       this.ballFinder.hide();
       Humanoid.updateLods(this.eye.p);
-      this.nearCull.update(this.eye.p, Humanoid.all, 0.6, true);
+      this.nearCull.update(this.eye.p, Humanoid.all, 0.6, this.replay.eyesView);
       this.commentary.update(realDt);
     } else {
       this.updatePlayerBat(paused);
@@ -851,6 +851,7 @@ export class Game {
       this.playerBody.actor.h.setGhost(ghost);
       this.playerBody.show((deskThird || ((behind || ghost) && batting)) && !runnerOut);
       this.playerBody.actor.h.replayVisible = batting && !runnerOut;      // replays show your body
+      this.batReplayVisible = !runnerOut;                                 // …and your bat, unless your runner has it
       const bowling = !!(this.session && this.session.isBowling);
       if (bowling) {
         const R = this.input.right, L = this.input.left;
