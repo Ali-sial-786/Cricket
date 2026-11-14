@@ -145,15 +145,27 @@ function buildGear(o) {
         gearPart(P, cyl(0.052, 0.06, 0.09, 10), hand, 0xf4f4f2, [0, -0.005, 0.01]);                            // cuff
         gearPart(P, cyl(0.061, 0.061, 0.02, 10), hand, KIT2, [0, 0.03, 0.01]);
       } else {
-        // Batting gloves, closed round a handle: a fist a palm's length beyond
-        // the wrist, sausage finger pads over the back of it, the thumb lying
-        // along the handle toward the blade (+Z), and a coloured cuff.
-        gearPart(P, sphere(1, 12, 9), hand, 0xf6f6f6, [0, -0.072, 0.004], null, [0.05, 0.058, 0.056]);
-        for (const fz of [-0.036, -0.012, 0.012, 0.036]) gearPart(P, cyl(0.0125, 0.0125, 0.082, 6), hand, 0xffffff, [sx * 0.043, -0.082, fz], [0, 0, -sx * 0.28]);   // finger pads
-        gearPart(P, sphere(1, 8, 6), hand, 0xffffff, [sx * 0.012, -0.132, 0.0], null, [0.04, 0.02, 0.052]);          // knuckles curling over
-        gearPart(P, sphere(1, 8, 6), hand, 0xf0f0f0, [-sx * 0.012, -0.07, 0.058], [0.25, 0, 0], [0.021, 0.036, 0.024]);   // thumb
-        gearPart(P, cyl(0.046, 0.05, 0.062, 10), hand, KIT2, [0, -0.008, 0.006]);                             // cuff
-        gearPart(P, cyl(0.05, 0.047, 0.07, 8), 'elbow' + s, 0xf5f5f5, [0, -0.215, 0]);                         // arm guard
+        // Batting gloves as a closed fist. In the hand's frame the wrist is at
+        // the origin, the knuckles lie along -Y and a held handle runs along Z
+        // through the palm at y = -GRIP. Four padded fingers curl right round
+        // that line from the back of the hand (the +sx side) to the palm; the
+        // thumb closes the other end; a slim cuff covers the wrist.
+        const GRIP = 0.075, R = 0.031, WHITE = 0xf7f7f4, LEATHER = 0xdedbd2;
+        for (const fz of [-0.0325, -0.0108, 0.0108, 0.0325]) {
+          const f = new THREE.TorusGeometry(R, 0.0108, 7, 12, Math.PI * 1.38);
+          f.rotateZ(sx > 0 ? -Math.PI * 1.2 : Math.PI * 0.82);          // from the knuckle, over the far side, back to the palm
+          gearPart(P, f, hand, WHITE, [0, -GRIP, fz]);
+          gearPart(P, sphere(0.0112, 7, 5), hand, WHITE, [-sx * R * 0.81, -GRIP + R * 0.59, fz]);     // fingertip
+        }
+        gearPart(P, sphere(1, 10, 8), hand, LEATHER, [0, -GRIP, 0], null, [R - 0.004, R - 0.004, 0.047]);   // the palm inside the fist
+        gearPart(P, box(0.02, 0.066, 0.088), hand, WHITE, [sx * 0.03, -0.03, 0], [0, 0, sx * 0.1]);          // padded back of the hand
+        for (const fz of [-0.022, 0, 0.022]) gearPart(P, box(0.004, 0.058, 0.004), hand, 0xcfd3d6, [sx * 0.0415, -0.03, fz], [0, 0, sx * 0.1]);   // seams
+        gearPart(P, box(0.005, 0.014, 0.08), hand, KIT2, [sx * 0.0425, -0.012, 0], [0, 0, sx * 0.1]);          // team stripe
+        gearPart(P, box(0.02, 0.05, 0.078), hand, LEATHER, [-sx * 0.024, -0.03, 0], [0, 0, -sx * 0.12]);       // heel of the palm
+        gearPart(P, sphere(1, 8, 6), hand, WHITE, [-sx * 0.014, -GRIP + 0.016, 0.05], [0.5, 0, 0], [0.017, 0.02, 0.03]);   // thumb, along the handle
+        gearPart(P, cyl(0.033, 0.036, 0.05, 10), hand, WHITE, [0, 0.0, 0]);                                    // cuff
+        gearPart(P, cyl(0.0375, 0.0375, 0.014, 10), hand, KIT2, [0, 0.012, 0]);                                // strap
+        gearPart(P, cyl(0.04, 0.037, 0.055, 8), 'elbow' + s, 0xf5f5f5, [0, -0.2, 0]);                          // forearm guard
       }
     }
   }

@@ -144,7 +144,7 @@ export const HINTS = {
   run:      { hand: 'L', button: 'a', label: 'RUN', sub: 'press X', key: 'Space' },
   another:  { hand: 'L', button: 'a', label: 'ANOTHER', sub: 'X when home', key: 'Space' },
   back:     { hand: 'L', button: 'trigger', label: 'GO BACK', sub: 'left trigger', key: 'G' },
-  dive:     { hand: 'L', button: 'b', label: 'DIVE', sub: 'press Y', key: 'V' },
+  dive:     { hand: 'L', button: 'b', label: 'DIVE', sub: 'hold Y', key: 'V' },
   move:     { hand: 'L', button: 'stick', label: 'MOVE', sub: 'left stick', key: 'Arrows' },
   menu:     { hand: 'L', button: 'click', label: 'MENU', sub: 'click left stick', key: 'Esc' },
   review:   { hand: 'R', button: 'a', label: 'REVIEW', sub: 'press A', key: 'Z' },

@@ -617,7 +617,7 @@ export class Game {
       // Replay: play is frozen; the recording poses everything.
       this.applyView();
       this.updateEye();
-      this.playerBody.actor.h.setGhost(false);
+      this.playerBody.actor.h.setGhost(false); this.playerBowler.h.setGhost(false);
       this.replay.placeVignette(this.eye);
       this.ballFinder.hide();
       Humanoid.updateLods(this.eye.p);
@@ -848,7 +848,11 @@ export class Game {
         const R = this.input.right, L = this.input.left;
         this.playerBowler.update(pdt || 1e-4, this.simTime, this.bowlerHead(), R.connected ? R.gripPose.p : null, L.connected && this.input.xr ? L.gripPose.p : null, lookBall);
       }
-      this.playerBowler.visible = bowling && (behind || (!this.input.xr && (this.desktopView % 4) === 3));
+      // Bowling through your own eyes: the same faint body, so you can see your
+      // feet against the crease as you land.
+      const bGhost = bowling && this.input.xr && !behind && !this.viewOverride && this.settings.ownBody !== false;
+      this.playerBowler.h.setGhost(bGhost);
+      this.playerBowler.visible = bowling && (behind || bGhost || (!this.input.xr && (this.desktopView % 4) === 3));
       this.playerBowler.h.replayVisible = bowling;
     }
     // Nobody (and no bat) is ever drawn inside your head.

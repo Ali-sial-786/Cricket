@@ -49,7 +49,7 @@ export class Sfx {
     f.type = type; f.frequency.value = freq; f.Q.value = q;
     const g = c.createGain();
     g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(gain, t + attack);
+    g.gain.exponentialRampToValueAtTime(Math.max(0.0002, gain), t + attack);      // (an exponential ramp cannot reach 0)
     g.gain.exponentialRampToValueAtTime(0.0001, t + attack + decay);
     src.connect(f).connect(g).connect(this.master);
     src.start(t, Math.random());
@@ -65,7 +65,7 @@ export class Sfx {
     if (slide) o.frequency.exponentialRampToValueAtTime(Math.max(20, freq * slide), t + dur);
     const g = c.createGain();
     g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(gain, t + attack);
+    g.gain.exponentialRampToValueAtTime(Math.max(0.0002, gain), t + attack);      // (an exponential ramp cannot reach 0)
     g.gain.exponentialRampToValueAtTime(0.0001, t + attack + dur);
     o.connect(g).connect(this.master);
     o.start(t);

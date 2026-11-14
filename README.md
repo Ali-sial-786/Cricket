@@ -57,12 +57,13 @@ bigger sweet spot. *Hard* is real time and real size.
 |---|---|
 | Swing | The **bat face angle at contact** decides ground or air: a straight/closed face keeps it down, an open face lofts it. |
 | Hold **right trigger** | Stride down the pitch (about 1.6 m). The sweet spot shrinks, but a clean hit goes up to 32% harder and carries further. Miss and the keeper can stump you. |
-| Hold **right grip** (side button) | Sweep. Swing toward the leg side for a sweep, toward the off side for a **reverse sweep**. |
+| Hold **right grip** (side button) | Sweep: your player goes down on the back knee with the front leg bent out in front, for as long as you hold it. Swing toward the leg side for a sweep, toward the off side for a **reverse sweep**. |
 | **Trigger + grip** | Come down the pitch and slog-sweep. |
 | **Left stick**, or really stepping | Move around in your crease: stick forward = the way your left controller points. |
 | **X** | Call a run. The batters stop after each run; press **X** again once they are home for another. |
 | **Left trigger** | Turn back mid-run. |
-| **Y** | Dive for the crease. |
+| Hold **Y** | Dive: as soon as the crease is within about 4 m your batter throws himself full length, bat stretched out along the ground, and slides in. He then needs a moment to get up before another run. |
+| Look down | You see a faint body (no head): your pads and boots show where you are standing in the crease. A stumping or run-out is judged on those feet **and** on your bat: either one grounded behind the line and you are in (Settings → Own body). |
 | **A** | Review an LBW decision (1 review per innings) while the prompt is up. |
 | — | **No-ball:** the AI bowler oversteps now and then. One run, the ball is bowled again and the next one is a **free hit** (you can only be run out). |
 | **Left stick click** | Menu (also **Y** between balls). |
@@ -123,6 +124,11 @@ view also faces forward by itself before each ball, on recenter, catches and rep
   batter home for a run out.
 * **Finding the ball:** after a hit, a yellow arrow at the edge of your view points to the ball when it's out of
   sight, a halo marks it when it's far away, and a ring shows where it will land (Settings → Ball finder).
+* **The keeper is physical:** he moves across with the line of the ball, takes it on his feet if he can, leaps for
+  a bouncer and dives for a wide one. He only ever has the ball if he actually reaches it. Standing up to the
+  spinners he takes the bails off himself; standing back to the quicks he has to throw at the stumps, and can miss.
+* **Byes:** a ball that beats the bat and the keeper is live. Press **X** to run; if it reaches the rope it is four
+  byes (plus the wide, if it was one). Byes go down as extras, not to the batter or the bowler.
 * **Reviews:** if an LBW appeal is turned down, press **A** to send it upstairs (ball tracking, umpire's call).
   Close run-outs and stumpings go to the third umpire automatically.
 * Umpires signal fours, sixes, wides and wickets. Two commentators, Kate Marsden and Geoff Hollins, call the game
@@ -138,7 +144,9 @@ view also faces forward by itself before each ball, on recenter, catches and rep
   your bat, head and hands; menus and catches always switch back to your own eyes).
 * **Settings → Replays:** after every ball a short replay plays, from the *bowler's view* (default) or the
   *batter's view*; once the ball is hit the camera chases it. In the headset you are moved through it with a dimmed
-  edge to the view; press any button to skip. *Off* turns them off.
+  edge to the view; press any button to skip. *Off* turns them off. When the wicket is broken with a batter near
+  the line (a stumping, a run-out or a close call) the replay is shot **square-on at that crease**, in slow motion:
+  the take, the gloves going to the stumps, the bat or boot at the line.
 * **Settings → Contact assist** (off / low / normal / high, default normal): an invisible margin around your bat so a
   ball that would have just missed is still played (and pulled toward the middle of the bat). The bat itself is
   14 cm wide with a 61 cm blade.

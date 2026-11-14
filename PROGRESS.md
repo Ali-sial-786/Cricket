@@ -1,6 +1,6 @@
 # Progress
 
-_Last updated after the seventh pass (bowling by feel, bounce, ball finder, recentering, commentary, players)._
+_Last updated after the eighth pass (bodies, grip, sweep, dive, physical keeper and byes, crease replays, bowling run-up and delivery picker)._
 
 ## Done
 - **Phase 1: Nets (batting core)**
@@ -139,6 +139,29 @@ _Last updated after the seventh pass (bowling by feel, bounce, ball finder, rece
 - The crowd is drawn as four merged meshes (much cheaper than 25,000 instances).
 - 107 unit tests.
 
+## Eighth pass (after a recorded headset session)
+- **Your batter's body** is solved from where your headset and hands really are: hips back and down, trunk leaning
+  to the head, shoulders turned to the hands, feet that step to stay under you. Longer arms; both fists close round
+  the handle with the wrists in line; no bare fingers poking out of gloves; the bat hangs by the leg when carried.
+- **Swing mechanics from motion capture:** `tools/build_swing.mjs` measures a captured bat swing (hips coil and lead
+  the shoulders, the back heel lifts and the foot pivots) into `src/render/swingProfile.js`; the AI batter's trunk
+  and back foot follow those curves, scaled per shot. Arms always go to the real (physics) bat.
+- **Sweep:** holding grip puts the body on the back knee, front leg bent, head over the front knee (slog sweep more upright).
+- **Own body:** a faint body with no head when you look down (batting and bowling), legs and feet drawn more solidly.
+- **Crease:** stumpings and run-outs are judged on your displayed feet and your bat.
+- **Dive:** hold Y; launches inside 4.2 m, flight, slide with the bat grounded ahead, then a get-up delay.
+- **Keeper:** tracks the line, regulation take / leap / dive from real reach limits (`CONFIG.keeper`); a miss is byes
+  (run or four); a stumping needs the take; standing back he shies at the stumps. Keeper stands 5 m back to pace.
+- **Byes** in the scoring (extras, not charged to batter or bowler).
+- **Crease replay:** square-on slow motion whenever the wicket is broken with a batter near the line.
+- **Bowling:** bowler chosen on a page before every over; deliveries picked with A/B and listed on a card with what
+  each does; target marker back on; run-up per bowler type (hold right grip or left trigger; pull out early, committed
+  near the crease, dead ball if you don't bowl); momentum adds pace; result line after each ball.
+- **Right stick** turns your view (snap, smooth or off); click to face forward.
+- **AI bowler:** separate actions for quicks and spinners, feet planted, hand exactly on the release point; corrected
+  AI backlift; umpire stance and leg-bye signal.
+- 126 unit tests.
+
 ## Known issues / not verified
 - **Not tested on a real headset.** All XR paths ran only under Meta's IWER emulator in headless Chromium
   (no pose velocities, haptics, hit-test or passthrough there). Haptics, `updateTargetFrameRate`, pose velocities
@@ -154,6 +177,13 @@ _Last updated after the seventh pass (bowling by feel, bounce, ball finder, rece
   a headset: palm / back-of-hand detection for doosra and googly, whether the wrist turn for swing feels natural
   and stays put through a real wind-up (it works under the emulator), the feel of the stride and of catching, the
   in-VR switch to mixed reality, commentary timing by ear.
+- The eighth pass was checked with headless renders and scripted balls only (desktop input, software GL): the
+  body solver, grip, sweep, dive, keeper takes / leaps / misses, byes, a stumping and its crease replay, the bowling
+  card, bowler page and run-up. **Not** seen in a headset: how the see-through body and stepping feet feel, run-up
+  comfort and the feel of releasing on the run, snap / smooth turning, readability of the delivery card.
+- The AI batter defending a chest-high ball still lifts his hands above the helmet.
+- Batters running between the wickets still stop dead at the line and turn on the spot; fielders' throw and pick-up
+  were not reworked in this pass.
 - Only the pads have a collider (for LBW). The ball passes through the rest of a body.
 - Left-handed batting is not supported yet.
 - Desktop bowling with the mouse is awkward by nature. Use **B** (auto-bowl at the marker) for quick tests.

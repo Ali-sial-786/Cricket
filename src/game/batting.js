@@ -99,7 +99,7 @@ export class BattingSession {
   }
 
   footer() {
-    if (this.game.input.xr) return this.field ? 'X run · L-trigger back · Y dive · stick click: menu' : 'X: next ball · left stick click: menu · hold left grip: recenter';
+    if (this.game.input.xr) return this.field ? 'X run · L-trigger back · hold Y dive · stick click: menu' : 'X: next ball · left stick click: menu · hold left grip: recenter';
     return this.field ? 'Space run · G back · V dive · Shift step out · S sweep · Esc menu' : 'Mouse: bat · Space: next ball · Shift step out · S sweep · Esc menu';
   }
 

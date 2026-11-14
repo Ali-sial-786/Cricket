@@ -359,7 +359,9 @@ export class UI {
       { const r = L(0, 5), hw = (r.w - 12) / 2;
         btn('assist', { x: r.x, y: r.y, w: hw, h: r.h }, `Aim assist: ${s.aimAssist ? 'ON' : 'OFF'}`, () => g.actions.toggle('aimAssist'), { active: s.aimAssist, size: 24 });
         btn('relcal', { x: r.x + hw + 12, y: r.y, w: hw, h: r.h }, 'Calibrate release', () => g.actions.bowlCalib(), { size: 24 }); }
-      btn('marker', L(1, 5), `Aim marker: ${s.aimMarker ? 'ON' : 'OFF'}`, () => g.actions.toggle('aimMarker'), { active: s.aimMarker });
+      { const r = L(1, 5), hw = (r.w - 12) / 2;
+        btn('marker', { x: r.x, y: r.y, w: hw, h: r.h }, `Aim marker: ${s.aimMarker ? 'ON' : 'OFF'}`, () => g.actions.toggle('aimMarker'), { active: s.aimMarker, size: 24 });
+        btn('body', { x: r.x + hw + 12, y: r.y, w: hw, h: r.h }, `Own body: ${s.ownBody ? 'ON' : 'OFF'}`, () => g.actions.toggle('ownBody'), { active: s.ownBody, size: 24 }); }
       const r4 = L(0, 6), tw3 = (r4.w - 20) / 3;
       btn('trail', { x: r4.x, y: r4.y, w: tw3, h: r4.h }, `Trail ${s.trail ? 'ON' : 'OFF'}`, () => g.actions.toggle('trail'), { active: s.trail, size: 24 });
       btn('boost', { x: r4.x + tw3 + 10, y: r4.y, w: tw3, h: r4.h }, `Big ball ${s.ballBoost ? 'ON' : 'OFF'}`, () => g.actions.toggle('ballBoost'), { active: s.ballBoost, size: 24 });
