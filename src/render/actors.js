@@ -407,6 +407,7 @@ export class BowlerActor extends Actor {
 // ---------------------------------------------------------------- batters
 const STANCE = { footL: [-0.31, -1.43], footR: [-0.35, -0.95] };
 const ARM_STRETCH = 1.2;
+const PALM = 0.075;                 // wrist to the middle of the palm (where a handle sits)
 
 export class BatterActor extends Actor {
   constructor(scene, opts = {}) {
@@ -663,18 +664,24 @@ export class BatterActor extends Actor {
     h.worldPos('chest', _ch);
     const out = (sh, sign, lift) => _pole.copy(sh).lerp(sign < 0 ? bottom : top, 0.5).sub(_ch).setY(0).normalize().multiplyScalar(0.25)
       .addScaledVector(_left, sign * 0.3).add(sh).add(_e.set(0, -0.5 + lift, 0));
-    h.ikArm('R', bottom, out(_sR, -1, 0));
-    h.ikArm('L', top, out(_sL, 1, 0.75 * elbowUp));
-    // Fists wrapped round the handle, wrists in line with the forearms.
+    // Each fist closes round the handle: the handle runs through the palm (a
+    // little beyond the wrist), the wrist stays in line with the forearm, and
+    // the V between thumb and forefinger points down the handle to the blade.
     for (const side of ['R', 'L']) {
-      h.update();
-      const hand = h.worldPos('hand' + side, _hp), elbow = h.worldPos('elbow' + side, _el);
-      _f.subVectors(hand, elbow);
-      _f.addScaledVector(up, -_f.dot(up));                 // across the handle
-      if (_f.lengthSq() < 1e-6) _f.copy(_fwd);
-      _f.normalize();
-      _y.copy(_f).negate();                                // the hand bone runs wrist -> knuckles along its -Y
-      _z.copy(up).negate();                                // thumb side down the handle, toward the blade
+      const at = side === 'R' ? bottom : top, sh = side === 'R' ? _sR : _sL;
+      _pole.copy(out(sh, side === 'R' ? -1 : 1, side === 'R' ? 0 : 0.75 * elbowUp));
+      _wr.copy(at);
+      for (let pass = 0; pass < 2; pass++) {
+        h.ikArm(side, _wr, _pole);
+        h.update();
+        _f.subVectors(at, h.worldPos('elbow' + side, _el));   // forearm on toward the handle…
+        _f.addScaledVector(up, -_f.dot(up));                  // …squared up across it
+        if (_f.lengthSq() < 1e-6) _f.copy(_fwd);
+        _f.normalize();
+        _wr.copy(at).addScaledVector(_f, -PALM);
+      }
+      _y.copy(_f).negate();                                   // the hand bone runs wrist -> knuckles along its -Y
+      _z.copy(up).negate();                                   // thumb side toward the blade
       _x.crossVectors(_y, _z);
       h.setWorldQuat('hand' + side, _q.setFromRotationMatrix(_m.makeBasis(_x, _y, _z)));
     }
@@ -746,15 +753,35 @@ export class BatterActor extends Actor {
     h.syncShadow();
   }
 
-  // Bat held in the right hand while running / standing.
+  // Bat in the right hand while running or standing: it carries on the line
+  // of the forearm, so it hangs toe-down by the leg when the arm hangs and
+  // points ahead when the arm is pumping; the toe never goes into the ground.
   carry() {
     const h = this.h;
     h.update();
-    const hand = h.bones.handR;
-    hand.getWorldPosition(_a);
-    hand.getWorldQuaternion(_q);
-    this.bat.quaternion.copy(_q).multiply(_carryRot);
-    this.bat.position.copy(_a).add(_b.set(0, -0.07, 0.02).applyQuaternion(_q));
+    h.bones.handR.getWorldPosition(_a);
+    h.bones.elbowR.getWorldPosition(_el);
+    this.forward(_fwd);
+    _f.subVectors(_a, _el).normalize().multiplyScalar(0.7).add(_b.set(0, -0.45, 0)).addScaledVector(_fwd, 0.18).normalize();
+    const toeY = _a.y + _f.y * 0.8;
+    if (toeY < 0.03) { _f.y += (0.03 - toeY) / 0.8; _f.normalize(); }
+    _y.copy(_f).negate();                                     // bat +Y: back up the handle
+    _z.copy(_fwd).addScaledVector(_y, -_fwd.dot(_y));         // face forward
+    if (_z.lengthSq() < 1e-4) _z.set(_fwd.z, 0, -_fwd.x);
+    _z.normalize();
+    _x.crossVectors(_y, _z);
+    this.bat.quaternion.setFromRotationMatrix(_m.makeBasis(_x, _y, _z));
+    this.bat.position.copy(_a).addScaledVector(_f, PALM);
+    // The fist round the handle.
+    _f.subVectors(_a, _el);
+    _f.addScaledVector(_y, -_f.dot(_y));
+    if (_f.lengthSq() > 1e-6) {
+      _f.normalize();
+      _v1.copy(_f).negate();
+      _v2.copy(_y).negate();
+      _x.crossVectors(_v1, _v2);
+      h.setWorldQuat('handR', _q.setFromRotationMatrix(_m.makeBasis(_x, _v1, _v2)));
+    }
   }
 
   // Non-striker style: bat grounded in front, leaning on it.
@@ -789,5 +816,6 @@ const _e = new THREE.Vector3(), _up = new THREE.Vector3(0, 1, 0), _hold = new TH
 const _H = new THREE.Vector3(), _iL = new THREE.Vector3(), _iR = new THREE.Vector3(), _v1 = new THREE.Vector3(), _v2 = new THREE.Vector3(), _top = new THREE.Vector3();
 const _ql = new THREE.Quaternion(), _ft = new THREE.Vector3(), _sR = new THREE.Vector3(), _sL = new THREE.Vector3(), _ch = new THREE.Vector3(), _pole = new THREE.Vector3();
 const _hp = new THREE.Vector3(), _el = new THREE.Vector3(), _f = new THREE.Vector3(), _x = new THREE.Vector3(), _y = new THREE.Vector3(), _z = new THREE.Vector3(), _m = new THREE.Matrix4();
+const _wr = new THREE.Vector3();
 const _toeDown = new THREE.Quaternion().setFromEuler(new THREE.Euler(1.25, 0, 0));
 const _carryRot = new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2 + 0.3, 0, 0));

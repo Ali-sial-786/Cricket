@@ -145,11 +145,14 @@ function buildGear(o) {
         gearPart(P, cyl(0.052, 0.06, 0.09, 10), hand, 0xf4f4f2, [0, -0.005, 0.01]);                            // cuff
         gearPart(P, cyl(0.061, 0.061, 0.02, 10), hand, KIT2, [0, 0.03, 0.01]);
       } else {
-        // Batting gloves: padded fingers on the back, white with a coloured cuff.
-        gearPart(P, sphere(1, 10, 8), hand, 0xf6f6f6, [0, -0.078, 0.012], null, [0.054, 0.088, 0.048]);
-        for (const fz of [-0.012, 0.012, 0.034]) gearPart(P, cyl(0.011, 0.011, 0.08, 6), hand, 0xffffff, [sx * 0.04, -0.085, fz]);   // finger rolls
-        gearPart(P, sphere(1, 8, 6), hand, 0xf6f6f6, [0, -0.05, 0.05], [0.5, 0, 0], [0.02, 0.042, 0.02]);    // thumb
-        gearPart(P, cyl(0.046, 0.05, 0.06, 10), hand, KIT2, [0, -0.012, 0.01]);                               // cuff
+        // Batting gloves, closed round a handle: a fist a palm's length beyond
+        // the wrist, sausage finger pads over the back of it, the thumb lying
+        // along the handle toward the blade (+Z), and a coloured cuff.
+        gearPart(P, sphere(1, 12, 9), hand, 0xf6f6f6, [0, -0.072, 0.004], null, [0.05, 0.058, 0.056]);
+        for (const fz of [-0.036, -0.012, 0.012, 0.036]) gearPart(P, cyl(0.0125, 0.0125, 0.082, 6), hand, 0xffffff, [sx * 0.043, -0.082, fz], [0, 0, -sx * 0.28]);   // finger pads
+        gearPart(P, sphere(1, 8, 6), hand, 0xffffff, [sx * 0.012, -0.132, 0.0], null, [0.04, 0.02, 0.052]);          // knuckles curling over
+        gearPart(P, sphere(1, 8, 6), hand, 0xf0f0f0, [-sx * 0.012, -0.07, 0.058], [0.25, 0, 0], [0.021, 0.036, 0.024]);   // thumb
+        gearPart(P, cyl(0.046, 0.05, 0.062, 10), hand, KIT2, [0, -0.008, 0.006]);                             // cuff
         gearPart(P, cyl(0.05, 0.047, 0.07, 8), 'elbow' + s, 0xf5f5f5, [0, -0.215, 0]);                         // arm guard
       }
     }
@@ -199,12 +202,14 @@ function kitMaterial() {
     uNoHead: { value: 0 },         // 1: the head and neck are not drawn (your own see-through body)
     uHeadBones: { value: new THREE.Vector2(RIG.index.neck, RIG.index.head) },
     uLegBones: { value: new THREE.Vector2(Math.min(RIG.index.hipL, RIG.index.hipR), Math.max(RIG.index.ankleL, RIG.index.ankleR)) },
+    uHandBones: { value: new THREE.Vector2(RIG.index.handL, RIG.index.handR) },
+    uGloved: { value: 0 },         // 1: bare hands are not drawn (they are inside gloves)
     uTrunkAlpha: { value: 1 },     // opacity of everything above the legs (x the material's opacity)
   };
   mat.onBeforeCompile = (sh) => {
     Object.assign(sh.uniforms, uniforms);
     sh.vertexShader = sh.vertexShader
-      .replace('#include <common>', '#include <common>\nattribute float kit;\nuniform vec2 uHeadBones;\nuniform vec2 uLegBones;\nvarying float vHeadW;\nvarying float vLegW;\nuniform vec3 uKit1;\nuniform vec3 uKit2;\nuniform vec3 uKit3;\nuniform vec3 uKit4;\nuniform vec3 uSkin;\nuniform vec3 uHair;\nuniform vec3 uPanel;')
+      .replace('#include <common>', '#include <common>\nattribute float kit;\nuniform vec2 uHeadBones;\nuniform vec2 uLegBones;\nuniform vec2 uHandBones;\nuniform float uGloved;\nvarying float vHeadW;\nvarying float vLegW;\nuniform vec3 uKit1;\nuniform vec3 uKit2;\nuniform vec3 uKit3;\nuniform vec3 uKit4;\nuniform vec3 uSkin;\nuniform vec3 uHair;\nuniform vec3 uPanel;')
       .replace('#include <color_vertex>', `#include <color_vertex>
         #ifdef USE_COLOR
           if (kit > 6.5) vColor.rgb = uPanel; else if (kit > 5.5) vColor.rgb = uHair; else if (kit > 4.5) vColor.rgb = uSkin; else if (kit > 3.5) vColor.rgb = uKit4;
@@ -216,14 +221,16 @@ function kitMaterial() {
             float b = skinIndex[i];
             if (abs(b - uHeadBones.x) < 0.5 || abs(b - uHeadBones.y) < 0.5) vHeadW += skinWeight[i];
             if (b > uLegBones.x - 0.5 && b < uLegBones.y + 0.5) vLegW += skinWeight[i];
+            // Skin on a gloved hand: fold it into the 'hidden' weight.
+            if (uGloved > 0.5 && kit > 4.5 && kit < 5.5 && (abs(b - uHandBones.x) < 0.5 || abs(b - uHandBones.y) < 0.5)) vHeadW += 2.0 * skinWeight[i];
           }
         #endif`);
     sh.fragmentShader = sh.fragmentShader
       .replace('#include <common>', '#include <common>\nuniform float uNoHead;\nuniform float uTrunkAlpha;\nvarying float vHeadW;\nvarying float vLegW;')
       .replace('#include <color_fragment>', '#include <color_fragment>\n  diffuseColor.a *= mix(uTrunkAlpha, 1.0, clamp(vLegW, 0.0, 1.0));')
-      .replace('#include <clipping_planes_fragment>', '#include <clipping_planes_fragment>\n  if (uNoHead > 0.5 && vHeadW > 0.35) discard;');
+      .replace('#include <clipping_planes_fragment>', '#include <clipping_planes_fragment>\n  if ((uNoHead > 0.5 && vHeadW > 0.35 && vHeadW < 1.5) || vHeadW > 1.5) discard;');
   };
-  mat.customProgramCacheKey = () => 'cricket-kit-v5';
+  mat.customProgramCacheKey = () => 'cricket-kit-v6';
   mat.userData.uniforms = uniforms;
   return mat;
 }
@@ -271,6 +278,7 @@ export class Humanoid {
     this.bones.head.scale.setScalar(0.88);
     this.ankleHeight = RIG.J.ankleL.y;            // sole to ankle joint (model units)
     this.armLength = RIG.J.shoulderL.distanceTo(RIG.J.elbowL) + RIG.J.elbowL.distanceTo(RIG.J.handL);
+    u.uGloved.value = gloves ? 1 : 0;
     this.setTeam(team);
     // Contact shadow: a slot in the shared instanced shadow mesh.
     this.shadowSlot = ShadowPool.alloc();
