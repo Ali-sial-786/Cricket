@@ -270,7 +270,7 @@ export class BowlingSession {
   }
 
   footer() {
-    return this.game.input.xr ? 'Left stick: aim · A/B: delivery (then throw end, review) · right stick: look · Y: menu' : 'Arrows: aim · R: run in · Z/X: delivery · B: auto-bowl · 1–4: bowler · Esc: menu';
+    return this.game.input.xr ? 'Left stick: aim · A/B: delivery (then throw end · B appeal · A review) · right stick: look · Y: menu' : 'Arrows: aim · R: run in · Z/X: delivery · B: auto-bowl · 1–4: bowler · Esc: menu';
   }
 
   resetEnds() {
