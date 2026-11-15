@@ -19,7 +19,7 @@ import { LbwFlow, padHit, deflectOffPad } from './lbwFlow.js';
 import { ThirdUmpireFlow } from './thirdUmpire.js';
 import { BackFoot, creaseShort } from './crease.js';
 import { HINTS } from '../ui/controllerHint.js';
-import { ShotEvidence, pointVelocity, intoSpeed } from './shotOffered.js';
+import { ShotEvidence, pointVelocity } from './shotOffered.js';
 import { sweepShot } from './sweepShot.js';
 import { BatGeometry } from '../physics/bat.js';
 
@@ -35,9 +35,11 @@ const ANNOUNCE = 1.8;            // s a new bowler's card / a free hit is up bef
 // Between balls the bowler waits for everyone to be in place: after
 // WAIT_HURRY s whoever is not runs; after the cap the ball is bowled anyway.
 const WAIT_HURRY = 2.5, WAIT_CAP = 7, WAIT_CAP_WICKET = 13;
-// Down low yourself = a sweep: eyes below `on` x your standing eye height (out above `off`), the middle
-// of the bat below `bat` x it and across the line or swinging at the ball (> `swing` m/s), `hold` s.
-const LOW = { on: 0.68, off: 0.76, bat: 0.42, swing: 3, hold: 0.12 };
+// Down low yourself = a sweep (readLowSweep): eyes below `on` x your standing eye height (out above `off`),
+// the middle of the bat below `bat` x it and across the line or swinging round (> `swing` m/s), `hold` s;
+// out too when the middle of the bat stays above `high` x standing for `highFor` s; never to a ball
+// coming at you above `short` x standing.
+const LOW = { on: 0.68, off: 0.76, bat: 0.3, swing: 3, hold: 0.12, high: 0.55, highFor: 0.15, short: 0.55 };
 const SWEEP_IN = 4.5, SWEEP_OUT = 3.5;   // 1/s: the sweep button's hold on your figure comes in over 0.22 s, goes over 0.29 s
 
 export class BattingSession {
@@ -458,27 +460,36 @@ export class BattingSession {
     return this.state === 'review' ? 0 : 1;
   }
 
-  // Down low yourself (headset): your real eyes below LOW.on x your standing eye height, held
-  // LOW.hold s, with the middle of the bat low (below LOW.bat x standing) and either lying across the
-  // line or swinging at the ball - that is a sweep, as if the grip were held. Back up past LOW.off
-  // and it is over (the follow-through can lift the bat as it likes). Not a sweep: a batting crouch
-  // or a lunge (the head nowhere near that low), a duck under a bouncer (the bat up or out of the
-  // way, not swung at the ball), crouching to ground the bat (the bat upright, still).
+  // Down low yourself (headset): your real eyes below LOW.on x your standing
+  // eye height, held LOW.hold s, with the middle of the bat low (below LOW.bat
+  // x standing) and either lying across the line or swinging round at the
+  // ball (its HORIZONTAL speed over LOW.swing m/s) - that is a sweep, as if the
+  // grip were held. Over when you come back up past LOW.off, or the middle of
+  // the bat stays up above LOW.high x standing for LOW.highFor s. Never to a
+  // short ball (its height at you over LOW.short x standing: that is a duck).
+  // Not a sweep either: a batting crouch or a lunge (the head nowhere near that
+  // low), a duck (the bat up or out of the way, or the hands dropping - that is
+  // speed downward, not round), crouching to ground the bat (upright, still).
   readLowSweep(dt) {
-    const g = this.game, S = this.lowS || (this.lowS = { on: false, t: 0 });
-    if (!g.input.xr || !g.input.right.connected || !g.standEye) { S.on = false; S.t = 0; return false; }
-    const stand = g.standEye, y = g.input.headRef.p.y;
-    if (S.on) { if (y > stand * LOW.off) { S.on = false; S.t = 0; } return S.on; }
-    const pose = g.playerBatProvider.curr.pose;
+    const g = this.game, S = this.lowS || (this.lowS = { on: false, t: 0, hi: 0 });
+    if (!g.input.xr || !g.input.right.connected || !g.standEye) { S.on = false; S.t = 0; S.hi = 0; return false; }
+    const stand = g.standEye, y = g.input.headRef.p.y, pose = g.playerBatProvider.curr.pose;
     if (_sweetY == null) _sweetY = new BatGeometry(CONFIG.bat).sweetY;
     pose.dirToWorld(_lever.set(0, 1, 0), _lever);
     const across = Math.abs(_lever.y) < 0.6;
     const midY = pose.p.y + _lever.y * _sweetY - (g.rig ? g.rig.position.y : 0);     // (its real height: the view drop moves the bat too)
     pose.dirToWorld(_lever.set(0, _sweetY, 0), _lever);
     pointVelocity(_bv, g.input.right.linVel, g.input.right.angVel, _lever);
-    const sweepy = y < stand * LOW.on && midY < stand * LOW.bat && (across || intoSpeed(_bv) > LOW.swing);
+    const round = Math.hypot(_bv.x, _bv.z);
+    if (S.on) {
+      S.hi = midY > stand * LOW.high ? S.hi + dt : 0;
+      if (y > stand * LOW.off || S.hi >= LOW.highFor) { S.on = false; S.t = 0; S.hi = 0; }
+      return S.on;
+    }
+    const bi = this.ballInfo, short = this.state === 'live' && !this.hit && bi && bi.y != null && bi.y > stand * LOW.short;
+    const sweepy = !short && y < stand * LOW.on && midY < stand * LOW.bat && (across || round > LOW.swing);
     S.t = sweepy ? S.t + dt : 0;
-    if (S.t >= LOW.hold) S.on = true;
+    if (S.t >= LOW.hold) { S.on = true; S.hi = 0; }
     return S.on;
   }
 

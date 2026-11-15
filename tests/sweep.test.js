@@ -61,11 +61,12 @@ const skip = BattingSession ? false : 'three.js is not installed (npm install)';
 const { Quat, Pose } = await import('../src/physics/math.js');
 
 // Down low yourself: eyes at `eye` m (standing 1.62), the bat's middle at `mid` lying `flat` (or upright), moving at `v` m/s.
-function lowRead(steps) {
+function lowRead(steps, ball = null) {
   const pose = new Pose(), R = { connected: true, linVel: new Vec3(), angVel: new Vec3() };
   const g = { input: { xr: true, headRef: { p: { x: 0, y: 1.56, z: 0 } }, right: R }, standEye: 1.62, playerBatProvider: { curr: { pose } }, rig: { position: { y: 0 } } };
   const s = Object.create(BattingSession.prototype);
   s.game = g;
+  if (ball) { s.state = 'live'; s.hit = null; s.ballInfo = ball; }
   const out = [];
   for (const st of steps) for (let i = 0; i < st.n; i++) {
     g.input.headRef.p.y = st.eye;
@@ -73,7 +74,7 @@ function lowRead(steps) {
     if (st.flat) pose.q.setFromAxisAngle(new Vec3(0, 0, 1), Math.PI / 2); else pose.q.set(0, 1, 0, 0);
     const up = new Vec3(0, 1, 0).applyQuat(pose.q);
     pose.p.set(0.1, st.mid, -1.2).addScaled(up, 0.62);
-    R.linVel.set(0, 0, -(st.v || 0));
+    R.linVel.set(0, st.vy || 0, -(st.v || 0));
     out.push(s.readLowSweep(1 / 72));
   }
   return out;
@@ -95,7 +96,20 @@ test('not a sweep: a batting crouch, a lunge, a duck under a bouncer, a quick cr
   const duckFlat = lowRead([{ eye: 0.9, mid: 1.05, flat: true, n: 60 }]);                   // ducked, the bat held flat over the head
   const ground = lowRead([{ eye: 1.0, mid: 0.2, flat: false, n: 60 }]);                     // crouched, the bat grounded upright, still
   const blip = lowRead([{ eye: 0.95, mid: 0.3, flat: true, n: 6 }, { eye: 1.5, mid: 0.6, flat: false, n: 30 }]);   // down and up in 80 ms
-  for (const [n, o] of [['crouch', crouch], ['duck', duck], ['duck, bat flat', duckFlat], ['grounding the bat', ground], ['a blip', blip]]) assert.ok(!o.some(Boolean), `${n}: read as a sweep`);
+  const duckWaist = lowRead([{ eye: 0.9, mid: 0.55, flat: true, n: 60 }]);                  // ducked, the bat flat at the waist
+  const duckDrop = lowRead([{ eye: 0.9, mid: 0.4, flat: false, vy: -3.5, n: 30 }]);          // ducking, the hands dropping at 3.5 m/s
+  const duckShort = lowRead([{ eye: 0.9, mid: 0.3, flat: true, n: 60 }], { y: 1.4 });         // the bat flat and low, but the ball is a bouncer
+  for (const [n, o] of [['crouch', crouch], ['duck', duck], ['duck, bat flat', duckFlat], ['grounding the bat', ground], ['a blip', blip],
+    ['duck, bat flat at the waist', duckWaist], ['duck, hands dropping', duckDrop], ['down low to a short ball', duckShort]]) assert.ok(!o.some(Boolean), `${n}: read as a sweep`);
+  // the same low, flat bat to a full ball is a sweep
+  assert.ok(lowRead([{ eye: 0.9, mid: 0.3, flat: true, n: 30 }], { y: 0.4 })[29]);
+});
+
+test('a low sweep is over once the middle of the bat stays up (0.15 s), or you stand up', { skip }, () => {
+  const o = lowRead([{ eye: 0.95, mid: 0.3, flat: true, n: 20 }, { eye: 0.95, mid: 1.0, flat: false, n: 8 }, { eye: 0.95, mid: 1.0, flat: false, n: 10 }]);
+  assert.ok(o[19], 'on');
+  assert.ok(o[20 + 5], 'a moment up: still on');
+  assert.ok(!o[37], 'the bat up 0.15 s: over');
 });
 
 test('the sweep button drops your view to a kneeling sweeper\'s eyes in ~0.2 s; your own head still moves it 1:1; never twice; back up in ~0.3 s', { skip: Game ? false : skip }, () => {
