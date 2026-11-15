@@ -7,7 +7,8 @@
 //                           with the trigger too = slog sweep)
 //   left stick / arrows     move in the crease
 //   X / Space               RUN (and "next ball" in the nets)
-//   left trigger / G        turn back mid-run        Y / V   dive for the line
+//   Y / G                   turn back mid-run        hold left (off-hand) trigger / V   dive for the line
+//   left (off-hand) trigger, ball dead: skip to the next delivery (quickSkip.js)
 //   A / Z                   review an LBW decision
 import * as THREE from 'three';
 import { CONFIG } from '../config.js';
@@ -61,6 +62,15 @@ export function shotWhere(v) {
 export function shotReadout(h) {
   const load = h.load != null ? ` · backlift ${Math.round(h.load * 100)}%` : '';
   return `Exit ${KMH(h.exit)} km/h · ${Math.round(h.launch)}° · ${shotWhere(h.dir)} · bat ${h.batSpeed.toFixed(1)} m/s${load} · sweet ${Math.round(h.quality * 100)}%${h.advanced ? ' · stepped out' : ''}\nCarry ${Math.round(h.carry)} m`;
+}
+
+// The running buttons (while the batters can run): in the headset Y turns
+// back and the off-hand trigger (held) dives; on a monitor G turns back and
+// V dives (the keys stand in for the left trigger and Y: input.js).
+export function runControls(input, off) {
+  const L = input.left;
+  if (!input.xr) return { back: L.buttons.trigger, dive: L.buttons.b, diveHand: L };
+  return { back: L.buttons.b, dive: off.buttons.trigger, diveHand: off };
 }
 
 export class BattingSession {
@@ -137,7 +147,7 @@ export class BattingSession {
   }
 
   footer() {
-    if (this.game.input.xr) return this.field ? 'X run · L-trigger back · hold Y dive · stick click: menu' : 'X: next ball · left stick click: menu · hold left grip: recenter';
+    if (this.game.input.xr) return this.field ? 'X run · Y back · hold L-trigger dive · stick click: menu' : 'X: next ball · left stick click: menu · hold left grip: recenter';
     return this.field ? 'Space run · G back · V dive · Shift step out · S sweep · Esc menu' : 'Mouse: bat · Space: next ball · Shift step out · S sweep · Esc menu';
   }
 
@@ -207,11 +217,12 @@ export class BattingSession {
     if (run) {
       const r = g.runs;
       if (L.buttons.a.down || (input.xr && !L.connected && R.buttons.a.down)) { if (this.field.callRun()) g.ui.prompt('RUN!', 1.0, '#7dff8a'); }
-      if (L.buttons.trigger.down && this.field.turnBack()) g.ui.prompt('BACK!', 1.0, '#ff9f43');
-      // Hold Y to dive: your batter throws himself at the line as soon as it is in range.
-      r.diveHeld = L.buttons.b.pressed;
+      // Y turns back; hold the off-hand trigger to dive: your batter throws himself at the line as soon as it is in range.
+      const rb = runControls(input, g.replay ? g.replay.skipHand() : L);
+      if (rb.back.down && this.field.turnBack()) g.ui.prompt('BACK!', 1.0, '#ff9f43');
+      r.diveHeld = rb.dive.pressed;
       r.diveEnd = this.field.throwEnd();
-      if (r.diveStarted) { r.diveStarted = false; g.ui.prompt('DIVE!', 0.8, '#ffd34d'); L.pulse(0.6, 60); g.sample('footstep', { gain: 0.9 }); }
+      if (r.diveStarted) { r.diveStarted = false; g.ui.prompt('DIVE!', 0.8, '#ffd34d'); rb.diveHand.pulse(0.6, 60); g.sample('footstep', { gain: 0.9 }); }
       // The running controls stay up for as long as you can run.
       if (!r.running && !r.closed) g.hint(r.completed > 0 ? [HINTS.another] : [HINTS.run], 0.5);
       else if (r.running) g.hint([HINTS.back, HINTS.dive], 0.5);

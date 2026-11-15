@@ -359,7 +359,8 @@ export class UI {
         ['RUNNING', [
           'After you hit it:  X = RUN.',
           'The batters stop after each run. X again for another.',
-          'Left TRIGGER = turn back.   Y = DIVE for the line.',
+          'Y = turn back.   Hold left TRIGGER = DIVE for the line.',
+          'Ball dead? Left TRIGGER skips to the next ball.',
           'A throw that beats you home is a RUN OUT.',
           'Close run-outs and stumpings go to the third umpire.',
           'Given out LBW? Press A to review (1 per innings).',

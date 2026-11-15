@@ -63,8 +63,8 @@ bat's speed is always measured in real time.
 | Get **down low yourself** | Crouch right down (your eyes at about two thirds of your standing height or lower) with the bat low across the line, or swing at the ball from down there, and it is a sweep, exactly as if you held the grip (no extra view drop). A batting crouch, a lunge, ducking under a bouncer with the bat out of the way, or crouching to ground the bat are not sweeps. |
 | **Left stick**, or really stepping | Move around in your crease: stick forward = the way your left controller points. |
 | **X** | Call a run. The batters stop after each run; press **X** again once they are home for another. |
-| **Left trigger** | Turn back mid-run. |
-| Hold **Y** | Dive: as soon as the crease is within about 4 m your batter throws himself full length, bat stretched out along the ground, and slides in. He then needs a moment to get up before another run. |
+| **Y** | Turn back mid-run. |
+| Hold **left trigger** | Dive: as soon as the crease is within about 4 m your batter throws himself full length, bat stretched out along the ground, and slides in. He then needs a moment to get up before another run. (The trigger of your off hand, the one without the bat.) |
 | Look down | You see a faint body (no head): your pads and boots show where you are standing in the crease. A stumping or run-out is judged on those feet **and** on your bat: either one grounded behind the line and you are in (Settings → Own body). |
 | **A** | Review an LBW decision (1 review per innings) while the prompt is up. |
 | — | **No-ball:** the AI bowler oversteps now and then. One run, the ball is bowled again and the next one is a **free hit** (you can only be run out). |
