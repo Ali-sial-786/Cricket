@@ -143,12 +143,14 @@ export function drawHotspot(g, rect, { marks = [], reveal = 1, seed = 7, dims = 
   }
   // labels
   g.textBaseline = 'top'; g.textAlign = 'left';
-  g.fillStyle = 'rgba(0,0,0,0.55)'; rr(g, L.main.x + 10, L.main.y + 10, 270, 38, 7); g.fill();
-  g.fillStyle = '#ffffff'; g.font = '800 24px system-ui, sans-serif';
-  g.fillText('HOT SPOT · FRONT-ON', L.main.x + 20, L.main.y + 17);
-  g.fillStyle = 'rgba(0,0,0,0.55)'; rr(g, L.zoom.x + 10, L.zoom.y + 6, Math.min(200, L.zoom.w - 20), 30, 7); g.fill();
-  g.fillStyle = '#ffffff'; g.font = '800 20px system-ui, sans-serif';
-  g.fillText('THE BAT', L.zoom.x + 20, L.zoom.y + 11);
+  // (each tag's box fitted to its text)
+  const tag = (text, x, y, size, h) => {
+    g.font = `800 ${size}px system-ui, sans-serif`;
+    g.fillStyle = 'rgba(0,0,0,0.55)'; rr(g, x, y, g.measureText(text).width + 20, h, 7); g.fill();
+    g.fillStyle = '#ffffff'; g.fillText(text, x + 10, y + (h - size) / 2 + 1);
+  };
+  tag('HOT SPOT · FRONT-ON', L.main.x + 10, L.main.y + 10, 24, 38);
+  tag('THE BAT', L.zoom.x + 10, L.zoom.y + 6, 20, 30);
   const zb = L.zBat;
   g.fillStyle = '#9fb2c4'; g.font = '700 16px system-ui, sans-serif'; g.textBaseline = 'middle';
   // the edges named, clear of the blade (and of any mark on it)

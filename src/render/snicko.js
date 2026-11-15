@@ -8,7 +8,7 @@
 // that frame (edgeTrack.js keeps its pose with every frame), the ball coming
 // up to it — a little bigger while nearer the camera — and hidden by the blade
 // once it has gone behind it.
-import { frameAt } from '../game/edgeTrack.js';
+import { frameAt, passOf } from '../game/edgeTrack.js';
 import { CONFIG } from '../config.js';
 
 const TELE = 7;             // m: the front-on camera's distance (perspective: a long lens)
@@ -192,7 +192,9 @@ export function drawSnicko(g, rect, { trace, log, k = 0, dims = batDims() }) {
   const atBat = Math.abs(tNow - trace.tc) < fdt * 0.5;
   if (atBat) {
     g.fillStyle = '#ffd34d'; g.font = `800 ${Math.round(I.h * 0.1)}px system-ui, sans-serif`;
-    g.fillText('BALL AT THE BAT', I.x, I.y + I.h * 0.76);
+    // (touched it, or within a few cm: at the bat; a clear miss: past it, its nearest)
+    const pass = log ? passOf(log) : null;
+    g.fillText(!pass || pass.contact || pass.d < 0.05 ? 'BALL AT THE BAT' : `BALL PASSES · ${Math.round(pass.d * 100)} cm`, I.x, I.y + I.h * 0.76);
   } else if (f) {
     g.fillStyle = '#9fb2c4'; g.font = `600 ${Math.round(I.h * 0.085)}px system-ui, sans-serif`;
     g.fillText(tNow < trace.tc ? 'BALL COMING TO THE BAT' : 'BALL PAST THE BAT', I.x, I.y + I.h * 0.76);
