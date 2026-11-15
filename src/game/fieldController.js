@@ -312,9 +312,11 @@ export class FieldController {
     const g = this.game, L = this.logic, r = this.runs;
     if (e.type === 'stumps') { this.breakNow(e.end, t); return; }
     if (this.outcome || L.dead) return;
-    if (e.type === 'overthrow') {
-      g.ui.prompt(this.playerBatting ? 'OVERTHROW!  Run?' : 'Overthrow!', 1.6, this.playerBatting ? '#7dff8a' : '#ffb347');
-      g.crowdReact('close');
+    if (e.type === 'overthrow' || e.type === 'loose') {
+      if (e.type === 'overthrow' && L.hitT != null) {       // (the keeper's missed shy: the session calls that one)
+        g.ui.prompt(this.playerBatting ? 'OVERTHROW!  Run?' : 'Overthrow!', 1.6, this.playerBatting ? '#7dff8a' : '#ffb347');
+        g.crowdReact('close');
+      }
       // The AI batters: more runs if the ball is well away and nobody is backing up.
       if (!this.playerBatting && r.active && !r.closed) {
         const bold = 0.25 + 0.5 * (g.aiBatter.aggression || 0.4);

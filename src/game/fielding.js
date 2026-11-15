@@ -872,8 +872,10 @@ export class Fielding {
     const lx = dx * Math.cos(f.yaw) - dz * Math.sin(f.yaw);
     const dive = { type: 'catch', t0: t, success: false, dive: true, side: lx >= 0 ? 1 : -1, dir: { x: dx / d, z: dz / d }, lunge: Math.max(0, dxz - 0.35), target: new Vec3(ball.pos.x, Math.max(0.1, ball.pos.y), ball.pos.z) };
     if (this.rng() >= p) {
-      // (it beats the dive: he is on the ground, and it goes on)
+      // (it beats the dive: he is on the ground, it goes on, and someone else goes after it)
       f.action = dive; f.state = 'set'; f.noGatherUntil = t + 1.0;
+      if (world) this.planChase(predict(ball, { maxTime: 8, h: 1 / 240 }), t, { ground: true, exclude: f });
+      this.events.push({ type: 'loose', t });
       return false;
     }
     this.tally.stops = (this.tally.stops || 0) + 1;
