@@ -393,6 +393,7 @@ export class FieldController {
     if (L.bowlerFields) {
       const i = L.fielders.length - 1, f = L.fielders[i], BA = g.figures.bowler.actor, FA = g.fieldView.actors[i];
       if (f.out && L.dead && !f.action && (f.state === 'return' || f.state === 'set') && g.fieldView.visible) {
+        if (L.ballOverride && L.ballOverride.holder === i) L.ballOverride = null;   // (the ball goes with him, into his own figure)
         BA.takeOver(FA, f.speed);
         f.out = false; f.state = 'set'; f.target = null; f.speed = 0; f.vel.set(0, 0, 0);
         g.figures.bowler.show(true);
@@ -405,6 +406,11 @@ export class FieldController {
       }
     }
     this.keepClear(dt);
+    // A broken wicket is put back up once the ball is dead and its replay has
+    // played (the view comes back in from dark then); with no replay, before the next ball.
+    if (L.dead && g.replay && g.replay.marks && g.replay.marks.played && !g.replay.active && (g.stumps.batting.broken || g.stumps.bowling.broken)) {
+      g.stumps.batting.reset(); g.stumps.bowling.reset(); w.resetWickets();
+    }
     L.update(dt, t, b.active ? b : null, w);
     this.updateCatch(t);
     this.endCatchView();
@@ -493,8 +499,7 @@ export class FieldController {
           this.outcome = { kind: 'runout', runs: r.completed, end, margin: short, who: r.headingTo(end), direct: !!ta.direct };
           if (ta.direct) this.breakNow(end, t);          // (the ball has broken them itself)
           else this.breakStumps(end, t, 0.12);
-          r.close({ stop: !r.diving });
-          r.close();
+          r.close({ stop: !r.diving, short });
         } else if (ta.direct && !(r.rate !== 0 && short > -0.45)) {
           // A direct hit with the batters home: the ball comes off the stumps
           // and is still in play (they may run again on it).
@@ -520,6 +525,8 @@ export class FieldController {
     others.length = 0;
     if (g.umpires.visible) for (const u of g.umpires.spots()) others.push(u);
     for (const a of [g.batterView.shown && g.batterView.actor, g.nonStrikerView.visible && g.nonStrikerView.actor, g.figures.bowler.actor]) if (a && a.visible) others.push(a.h.root.position);
+    const hp = this.playerSpot();
+    if (hp) others.push(hp);                             // (nor into you)
     // (ready and crouched while the ball is on its way: not once the keeper has taken it or it has beaten him)
     const ready = this.delivering && !L.keeperHold && !L.keeperMissed;
     g.fieldView.update(dt, states, { t, ball: ballPos, delivering: ready, cam: g.input.headPose.p, others });
@@ -547,6 +554,13 @@ export class FieldController {
         const a = L.throw.f.action;
         const picked = !a || a.type !== 'pickup' || t - a.t0 > a.dur * 0.5;
         if (picked) g.fieldView.handPos(i, _w); else _w.copy(o.pos).setY(0.04);
+      } else if (L.lob && L.lob.released && L.lobFrom) {
+        // The ball tossed back: from his hand, the difference fading out along the lob.
+        const lb = L.lob, i = L.fielders.indexOf(L.lobFrom);
+        if (!lb.handFrom) { lb.handFrom = new THREE.Vector3(); g.fieldView.handPos(i, lb.handFrom); }
+        const k = 1 - clamp((t - lb.tStart) / Math.max(1e-3, lb.tArrive - lb.tStart), 0, 1);
+        _w.copy(o.pos);
+        _w.x += (lb.handFrom.x - lb.from.x) * k; _w.y += (lb.handFrom.y - lb.from.y) * k; _w.z += (lb.handFrom.z - lb.from.z) * k;
       } else {
         _w.copy(o.pos);
         // A throw leaves from the thrower's hand (where it was drawn a frame

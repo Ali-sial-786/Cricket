@@ -209,6 +209,7 @@ export class Fielding {
     this.backer = null;          // who is backing up behind the stumps being thrown to
     this.overthrow = null;       // { t, base, atThrow, count }: a throw has got away
     this.events = [];            // for the controller: { type: 'stumps' | 'overthrow' | 'fumble', end, t }
+    this.lob = null;             // the ball tossed back once it is dead
     this.planT0 = null;          // the time the chase plan's sample times count from
     this.started = false;        // a ball has been bowled since the field was set
     this.dead = true;            // no ball in play (between balls)
@@ -236,7 +237,7 @@ export class Fielding {
     this.boundary = null; this.throw = null; this.ballOverride = null; this.message = ''; this.dropped = false;
     this.keeperHold = false; this.keeperMissed = null; this.keeperTookAt = null; this.shy = null; this.byes = false;
     this.throwArrived = null;
-    this.cover = { batting: null, bowling: null }; this.backer = null; this.overthrow = null; this.events = []; this.planT0 = null;
+    this.cover = { batting: null, bowling: null }; this.backer = null; this.overthrow = null; this.events = []; this.planT0 = null; this.lob = null;
     this.dead = true;
     for (const f of this.fielders) {
       f.playerControlled = false;
@@ -274,10 +275,34 @@ export class Fielding {
         || (a.type === 'break' && t < a.at + 0.9)
         || ((a.type === 'catch' || a.type === 'keep' || a.type === 'kmiss') && (this.deadFor < 2.0 || t < a.t0 + 1.3)));
       if (busy || (th && th.f === f && !th.released) || (f.state === 'celebrate' && this.deadFor < 2.4)) continue;
+      // Holding the ball: he lobs it back toward the bowler first (nobody walks
+      // about with it, and it never hangs in the air at a hidden hand).
+      if (this.ballOverride && this.ballOverride.holder === this.fielders.indexOf(f) && !this.lob && !(f.bowler && this.bowlerFields)) { this.startLob(f, t); continue; }
       f.action = null; f.leap = null; f.runIn = null; f.coverEnd = null; f.backEnd = null;
       if (Math.hypot(f.pos.x - f.home.x, f.pos.z - f.home.z) > 0.4) { f.state = 'return'; f.target = null; }
       else { f.state = 'set'; f.target = null; }
     }
+  }
+
+  // The ball dead, the man holding it lobs it back toward the bowler's end
+  // (to you if you are the bowler): a gentle under-arm toss; it is gone when it gets there.
+  startLob(f, t) {
+    const o = this.ballOverride, ko = this.keepOut;
+    const to = !this.bowlerFields && ko ? new Vec3(ko.x, 1.2, ko.z) : new Vec3(0.9, 1.3, PITCH.bowlingStumpsZ - 2.5);
+    const from = new Vec3(f.pos.x, 1.1, f.pos.z), d = Math.hypot(to.x - from.x, to.z - from.z);
+    this.lob = { from, to, tStart: t + 0.35, tArrive: t + 0.35 + Math.max(0.5, d / 13), arc: Math.min(5, 0.6 + d * 0.16) };
+    f.action = { type: 'throw', t0: t + 0.35 - THROW.windup, quick: true };
+    f.face = Math.atan2(to.x - f.pos.x, to.z - f.pos.z);
+    this.lobFrom = f;
+  }
+  updateLob(t) {
+    const L = this.lob;
+    if (!L || !this.ballOverride) { this.lob = null; return; }
+    if (t < L.tStart) return;                         // (still in his hand)
+    if (!L.released) { L.released = true; this.ballOverride.holder = null; L.from.set(this.lobFrom.pos.x, 1.1, this.lobFrom.pos.z); }
+    const k = clamp((t - L.tStart) / (L.tArrive - L.tStart), 0, 1);
+    throwPoint(L, k, this.ballOverride.pos);
+    if (k >= 1) { this.lob = null; this.ballOverride = null; }
   }
 
   // Everyone within this distance of their mark? (the bowler's own figure
@@ -460,7 +485,10 @@ export class Fielding {
       let s = side != null ? side : (this.cover[end] && this.cover[end].coverSide) || 1;
       // (never into the player's space: he may be standing at those stumps)
       const ko = this.keepOut;
-      if (ko) { const sp = receiverSpot(end, s); if (Math.hypot(sp.x - ko.x, sp.z - ko.z) < ko.r + 0.4) s = -s; }
+      if (ko) {
+        const dd = (q) => { const sp = receiverSpot(end, q); return Math.hypot(sp.x - ko.x, sp.z - ko.z); };
+        if (dd(s) < ko.r + 0.15 && dd(-s) > dd(s) + 0.05) s = -s;
+      }
       return s;
     };
     for (const [end, f] of [['batting', bat], ['bowling', bowl]]) {
@@ -748,6 +776,7 @@ export class Fielding {
 
     this.separate();
     this.updateShy(t);
+    this.updateLob(t);
     // While the ball is in play, the stumps are covered.
     if (this.hitT != null && !this.dead && !this.outcome && !(this.throwArrived && !this.throwArrived.direct)) this.assignCovers(t);
     if (this.outcome || this.hitT == null || !ball || this.dead) return this.updateThrow(dt, t, world);
@@ -1180,16 +1209,18 @@ export class Fielding {
         if (!fixedB) { b.pos.x += ux * amt; b.pos.z += uz * amt; }
       }
     }
-    // The player's space wins over everything else.
+    // The player's space wins over everything else (the keeper -- pads, gloves,
+    // a wide crouch -- keeps a little further off).
     const ko = this.keepOut;
-    if (ko) for (const f of F) if (!skip(f)) push(f, ko.x, ko.z, ko.r);
+    if (ko) for (const f of F) if (!skip(f)) push(f, ko.x, ko.z, ko.r + (f.keeper ? KEEPER_PADS : 0));
   }
 
   // A movement goal moved out of the player's space and out of the stumps.
   clearGoal(goal, f, ko) {
     let g = goal;
     for (const s of STUMPS) if (Math.hypot(g.x - s.x, g.z - s.z) < STUMP_CLEAR) { g = clampGoal(g.x, g.z, f.pos.x, f.pos.z, { x: s.x, z: s.z, r: STUMP_CLEAR }, _goal); }
-    if (ko && Math.hypot(g.x - ko.x, g.z - ko.z) < ko.r) g = clampGoal(g.x, g.z, f.pos.x, f.pos.z, ko, _goal);
+    const kr = ko ? ko.r + (f.keeper ? KEEPER_PADS : 0) : 0;
+    if (ko && Math.hypot(g.x - ko.x, g.z - ko.z) < kr) g = clampGoal(g.x, g.z, f.pos.x, f.pos.z, { x: ko.x, z: ko.z, r: kr }, _goal);
     return g;
   }
 

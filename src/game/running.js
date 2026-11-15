@@ -16,7 +16,7 @@ const ss = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
 
 // Lanes either side of the pitch, and how wide of the player's head a runner passes.
 const LANE = 0.85;
-const LIE = 0.25;            // s a diver lies where he stopped before he starts to get up
+const LIE = 0.3;             // s a diver lies where he stopped before he starts to get up (then CONFIG.field.getUp - LIE to get up)
 const DIVE_PUSH = 20;        // m/s^2: the push into a dive, up to the dive's speed
 export const RUNNER_CLEAR = 1.4;
 
@@ -102,12 +102,20 @@ export class Runs {
   // walk back to the crease they left (unless all but home). `to`: the run
   // in progress counts all the same (overthrows to the rope, crossed when the
   // throw was made): they finish it.
-  close({ stop = false, boundary = false, to = null } = {}) {
+  close({ stop = false, boundary = false, to = null, short = null } = {}) {
     if (this.closed) return;
     this.closed = true;
     this.boundary = boundary;
     this.official = { completed: this.completed, crossed: this.crossed };
     this.diveWanted = false; this.diveHeld = false;
+    // Run out in the middle of a dive (`short`: m short when the wicket was
+    // broken): the slide carries him on only a little, so he comes to rest
+    // short of the line as given, not across it.
+    if (this.diving && short != null && short > 0) {
+      const more = Math.max(0, short - 0.3) * 0.4 / CREASE_TO_CREASE;
+      this.target = this.p + Math.sign(this.target - this.p) * Math.min(this.remaining, more);
+      return;
+    }
     if (!this.running || this.diving) return;
     if (to != null && !this.goingBack && Math.ceil(this.p - 1e-6) === to) { this.target = to; return; }
     if (stop) this.target = this.p;
