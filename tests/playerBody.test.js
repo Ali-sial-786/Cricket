@@ -55,8 +55,8 @@ function segDist(p1, q1, p2, q2) {
 }
 
 // One scripted stroke through the live solver; per frame the pose and the measures.
-function play(m, name) {
-  const { body, A, h, PITCH } = m, trk = shotTrack(name);
+function play(m, name, tweak = null) {
+  const { body, A, h, PITCH } = m, trk = tweak ? tweak(shotTrack(name)) : shotTrack(name);
   body.reset();
   const bp = V(), bq = new THREE.Quaternion(), top = V(), sc = h.root.scale.x, ankleY = h.ankleHeight * sc;
   const ix = BODY.map((n) => h.boneList.indexOf(h.bones[n]));
@@ -66,7 +66,7 @@ function play(m, name) {
   for (let i = 0; i < trk.length; i++) {
     const e = trk[i];
     bp.set(e.bp.x, e.bp.y, e.bp.z); bq.set(e.bq.x, e.bq.y, e.bq.z, e.bq.w);
-    body.update(e.dt, e.t, bp, bq, null, e.head, e.extra, e.off, e.turn || 0);
+    body.update(e.dt, e.t, bp, bq, null, e.head, e.extra, e.off, e.turn || 0, e.mt != null ? { t: e.mt, dt: e.mdt } : null);
     h.update();
     const f = { t: e.t, q: h.boneList.map((b) => b.quaternion.clone()), hp: h.bones.hips.position.clone(), rp: h.root.position.clone(),
       ankL: h.worldPos('ankleL', V()), ankR: h.worldPos('ankleR', V()), trunk: h.worldPos('neck', V()).sub(h.worldPos('hips', V())).normalize() };
@@ -215,4 +215,19 @@ test('the same tracks give the same body, every time (deterministic)', { skip },
   const m = await load();
   const a = play(m, 'pull').R.frames, b = play(m, 'pull').R.frames;
   for (let i = 0; i < a.length; i++) a[i].q.forEach((q, k) => assert.ok(same(q, b[i].q[k]), `frame ${i} bone ${k}`));
+});
+
+test('slow motion does not change your body: the same swing at time scale 0.7 and 0.85 is posed exactly as at full speed', { skip }, async () => {
+  const m = await load();
+  // (the game clock runs slower than the real one your movements are made on; the body is on the real clock)
+  const slowed = (ts) => (trk) => trk.map((e) => ({ ...e, t: trk[0].t + (e.t - trk[0].t) * ts, dt: e.dt * ts, mt: e.t, mdt: e.dt }));
+  for (const n of ['cover_drive', 'sweep']) {
+    const ref = play(m, n, slowed(1)).R.frames;
+    for (const ts of [0.85, 0.7]) {
+      const a = play(m, n, slowed(ts)).R.frames;
+      let worst = 0;
+      for (let i = 0; i < a.length; i++) a[i].q.forEach((q, k) => { worst = Math.max(worst, q.angleTo(ref[i].q[k])); });
+      assert.ok(worst < 1e-6, `${n} at x${ts}: ${(worst * 57.3).toFixed(4)} deg from the body at full speed`);
+    }
+  }
 });

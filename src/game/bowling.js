@@ -334,7 +334,7 @@ export class BowlingSession {
     let pk = null, pkS = -1;
     for (let i = R.history.length - 1; i >= 0; i--) {
       const h = R.history[i];
-      if (g.simTime - h.t > CONFIG.bowling.peakWindowMs / 1000) break;
+      if (last.t - h.t > CONFIG.bowling.peakWindowMs / 1000) break;     // (the history is on the real clock: relative to its last sample)
       const sp = Math.hypot(h.v.x, h.v.y, h.v.z - vz);
       if (sp > pkS) { pkS = sp; pk = h; }
     }

@@ -59,7 +59,11 @@ export class Controller {
 
   // Record pose; derive velocities by finite difference when XR does not
   // provide them (or when forced to by config).
+  // t: the real (frame) clock in seconds, never the slowed game clock.
   _record(t, useXRVel) {
+    // (a long gap - a hitch, a pause, tracking back after a loss - or time going backwards: no velocity
+    // is read across it and the history starts again, so it can never read as a swing)
+    if (this._prevT >= 0 && (t < this._prevT || t - this._prevT > MOTION_GAP)) { this._prevT = -1; this.history.length = 0; }
     if (this._prevT >= 0 && t > this._prevT) {
       const dt = t - this._prevT;
       if (!useXRVel) {
@@ -94,6 +98,7 @@ export class Controller {
   }
 }
 const _tmpV = new Vec3(), _tmpW = new Vec3();
+export const MOTION_GAP = 0.25;    // s between samples: more than this and the motion history starts again
 
 const _m = new THREE.Matrix4(), _p = new THREE.Vector3(), _q = new THREE.Quaternion(), _s = new THREE.Vector3();
 const _rq = new THREE.Quaternion(), _v = new THREE.Vector3();

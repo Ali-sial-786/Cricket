@@ -46,6 +46,7 @@ const HAND_TOP = 0.105;            // m up the handle from the bottom hand to th
 const KNEE_LOW = 0.3;              // m: a knee joint lower than this has its pad checked against the turf (kneesUp)
 const KNEE_MIN = 0.12;             // knee joint above the turf at least (the pad's knee roll rests on it)
 const SNAP_EVERY = 12;             // frames between saved solver states in the log
+const LOG_SECONDS = 24, LOG_MAX = 3200;   // the log covers what the replay tape does (24 s of game time; 120 Hz frames)
 const LOOK_RATE = 7;               // rad/s: the head turns (and nods) at most this fast
 const UPRIGHT = ['forward_defence', 'straight_drive', 'cover_drive', 'lofted_drive'];
 const HALF_PI = Math.PI / 2, TAU = Math.PI * 2;
@@ -122,16 +123,22 @@ export class PlayerBodyView {
 
   show(v) { this.visible = v; this.actor.visible = v; this.actor.bat.visible = false; }
 
-  // head: your headset pose {p, q} (VR), or null on a monitor. extra: the
-  // batting session's bodyState() ({ sweep, hit, crease, ball }). off: your other
-  // controller's position, or null. turn: how far the stick has turned you
-  // (rad about +Y, the game's lookYaw): your stance turns with it, about your
-  // head, and your feet step round (looking round with your head does not).
-  update(dt, t, batPos, batQuat, ball, head = null, extra = null, off = null, turn = 0) {
+  // dt, t: the game clock (slowed while the ball is live: the log, the replay
+  // and the hit are on it). head: your headset pose {p, q} (VR), or null on a
+  // monitor. extra: the batting session's bodyState() ({ sweep, hit, crease,
+  // ball }). off: your other controller's position, or null. turn: how far the
+  // stick has turned you (rad about +Y, the game's lookYaw): your stance turns
+  // with it, about your head, and your feet step round (looking round with
+  // your head does not). motion: { t, dt } the real clock your movements are
+  // made on (the frame time, unscaled); the body reads your speeds and moves
+  // at its rates on it (logged per frame, so a replay solves the same). Null:
+  // the game clock (no slow motion).
+  update(dt, t, batPos, batQuat, ball, head = null, extra = null, off = null, turn = 0, motion = null) {
     const L = this.log, h = this.actor.h;
     if (L.length && t < L[L.length - 1].t) this.reset();
     const e = {
-      t, dt, bp: { x: batPos.x, y: batPos.y, z: batPos.z }, bq: { x: batQuat.x, y: batQuat.y, z: batQuat.z, w: batQuat.w },
+      t, dt, mt: motion ? motion.t : t, mdt: motion ? motion.dt : dt,
+      bp: { x: batPos.x, y: batPos.y, z: batPos.z }, bq: { x: batQuat.x, y: batQuat.y, z: batQuat.z, w: batQuat.w },
       head: head ? { p: { x: head.p.x, y: head.p.y, z: head.p.z }, q: { x: head.q.x, y: head.q.y, z: head.q.z, w: head.q.w } } : null,
       off: off ? { x: off.x, y: off.y, z: off.z } : null,
       ball: ball ? { x: ball.x, y: ball.y, z: ball.z } : null,
@@ -142,7 +149,7 @@ export class PlayerBodyView {
     this.solve(e);
     e.arm = this.armsNow();
     L.push(e);
-    while (L.length > 1400 || (L.length && t - L[0].t > 16)) L.shift();
+    while (L.length > LOG_MAX || (L.length && t - L[0].t > LOG_SECONDS)) L.shift();
     this.actor.bat.visible = false;
   }
 
@@ -264,7 +271,8 @@ export class PlayerBodyView {
 
   // The solver: one frame's inputs -> the pose. Live and replay both come through here.
   solve(e) {
-    const A = this.actor, h = A.h, sc = h.root.scale.x, st = this.st, dt = e.dt;
+    // (rates and speeds on the real motion clock; entries logged without one are on the game clock)
+    const A = this.actor, h = A.h, sc = h.root.scale.x, st = this.st, dt = e.mdt ?? e.dt, mt = e.mt ?? e.t;
     const bp = _bp.set(e.bp.x, e.bp.y, e.bp.z), bq = _bq.set(e.bq.x, e.bq.y, e.bq.z, e.bq.w);
     const standJ = A.headRestY * sc;
     // the way your stance faces: side-on, turned by the stick
@@ -289,7 +297,7 @@ export class PlayerBodyView {
       sg = _sg.set(bp.x - hp.x, bp.y - hp.y, bp.z - hp.z).applyQuaternion(_qt).add(_hd.set(hp.x, hp.y, hp.z));
       if (so) so = _so.set(so.x - hp.x, so.y - hp.y, so.z - hp.z).applyQuaternion(_qt).add(_hd);
     }
-    const o = dt > 5e-4 || !st.out ? this.sense.update(e.t, dt, hp, sg, _ax, so, { sweep: ex ? ex.sweep : null, hitT: ex && ex.hit ? ex.hit.t : null, live: ex ? ex.live ?? null : null, face: _fc }) : st.out;
+    const o = dt > 5e-4 || !st.out ? this.sense.update(mt, dt, hp, sg, _ax, so, { sweep: ex ? ex.sweep : null, hitT: ex && ex.hit ? ex.hit.t : null, simT: e.t, live: ex ? ex.live ?? null : null, face: _fc }) : st.out;
     st.out = { state: o.state, phase: o.phase, engage: o.engage, leader: o.leader, weights: o.weights, quiet: o.quiet, offOn: o.offOn };
     const E = shotsReady() ? o.engage : 0;
     const Hj = _Hj.set(hp.x, Math.min(hp.y - EYES, standJ - SOFT), hp.z);
@@ -351,7 +359,7 @@ export class PlayerBodyView {
     _yp.copy(bp);
     if (e.off && o.offOn < 0.5) _yp.lerp(_a.set(e.off.x, e.off.y, e.off.z), 0.3 * (1 - 2 * o.offOn));
     const yawL = HALF_PI + F.L.yaw, yawR = HALF_PI + F.R.yaw;
-    A.solveBody({ heading, weight, head: Hj, batPos: bp, batQuat: bq, elbowUp: 0, heel: 0, sweep: st.kneelK > 0.01 ? { k: st.kneelK, planted: true } : null, swing: null, t: e.t, yawL, yawR, noGrip: true, noLegClear: true, yawPoint: _yp });
+    A.solveBody({ heading, weight, head: Hj, batPos: bp, batQuat: bq, elbowUp: 0, heel: 0, sweep: st.kneelK > 0.01 ? { k: st.kneelK, planted: true } : null, swing: null, t: mt, yawL, yawR, noGrip: true, noLegClear: true, yawPoint: _yp });
     // (a leg that cannot reach its foot, e.g. you stood up out of a lunge before the foot has come back: sit until it does)
     if (st.kneelK < 0.01) {
       h.update();

@@ -26,6 +26,7 @@ export const FAMILIES = ['forward_defence', 'back_defence', 'straight_drive', 'c
   'square_cut', 'late_cut', 'pull', 'hook', 'sweep', 'slog_sweep', 'reverse_sweep'];
 const IX = Object.fromEntries(FAMILIES.map((n, i) => [n, i]));
 const NF = FAMILIES.length;
+const GAP = 0.2;     // s: a longer gap between frames and the velocity history starts again
 
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const sstep = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
@@ -131,14 +132,25 @@ export class ShotSense {
   get leader() { return this.s.leader >= 0 && this.s.E > 0.02 ? FAMILIES[this.s.leader] : null; }
   get home() { return this.s.home; }
 
-  // t (s), dt; head {x, y, z} (the eyes); grip {x, y, z} (the bottom hand on
-  // the handle); axis: the bat's +Y (up the handle), unit; off: the other
-  // controller {x, y, z} or null; ctx: { sweep: {k, slog, reverse} | null, hitT: time the ball was hit | null,
+  // t (s), dt: the REAL motion clock (your movements' own time, not the slowed
+  // game clock: speeds are physical m/s at every difficulty); head {x, y, z}
+  // (the eyes); grip {x, y, z} (the bottom hand on the handle); axis: the
+  // bat's +Y (up the handle), unit; off: the other controller {x, y, z} or
+  // null; ctx: { sweep: {k, slog, reverse} | null, hitT: game time the ball
+  // was hit | null, simT: the game time now (hitT is compared with it),
   // face: the bat's face direction (its +Z) {x, y, z} | null, live: a delivery is on its way (true / false, or
   // null when not known: between balls a slow block is only waggling, not a stroke) }.
   update(t, dt, head, grip, axis, off = null, ctx = null) {
     const S = this.s;
-    if (S.t != null && (t < S.t || t - S.t > 1.5)) { this.reset(); return this.update(t, dt, head, grip, axis, off, ctx); }
+    if (S.t != null && (t < S.t || t - S.t > 1.5)) {
+      // (a long gap - a replay, another session - starts afresh; how tall you stand and where you took guard are kept)
+      const keep = t >= S.t ? { stand: S.stand, home: S.home } : null;
+      this.reset();
+      if (keep) Object.assign(this.s, keep);
+      return this.update(t, dt, head, grip, axis, off, ctx);
+    }
+    // (a shorter gap: no velocity is read across it)
+    if (S.t != null && t - S.t > GAP) S.hist.length = 0;
     S.t = t; S.n++;
     const dx = -axis.x, dy = -axis.y, dz = -axis.z;                         // the blade, from the hands to the toe
     const sx = grip.x + dx * SENSE.sweet, sy = grip.y + dy * SENSE.sweet, sz = grip.z + dz * SENSE.sweet;
@@ -186,7 +198,8 @@ export class ShotSense {
     const blockOK = !(ctx && ctx.live === false);
     // which way the face looks, along the ground (+ off side): a cover drive opens it, an on drive closes it
     const fc = ctx && ctx.face, fh = fc ? Math.hypot(fc.x, fc.z) : 0, faceX = fh > 0.3 ? fc.x / fh : 0;
-    const hitNow = ctx && ctx.hitT != null && ctx.hitT > t - 0.1 && ctx.hitT <= t + 1e-6;
+    const simT = ctx && ctx.simT != null ? ctx.simT : t;
+    const hitNow = ctx && ctx.hitT != null && ctx.hitT > simT - 0.1 && ctx.hitT <= simT + 1e-6;
     // into the ball: toward the bowler, downward, or across (not the pick-up: upward and back)
     // (and the blade coming down, or sweeping round: lifting the bat is not a stroke however fast)
     const into = speed > 1e-3 ? (-vz + 0.8 * Math.max(0, -vy) + 0.3 * Math.abs(vx)) / speed : 0;

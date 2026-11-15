@@ -619,7 +619,12 @@ export class Game {
     const sdt = dt * (this.session ? this.timeScale : 1);
     this.realDt = realDt;
     if (!paused && !(this.replay && this.replay.active)) this.simTime += sdt;
-    this.input.update(this.simTime, xrFrame);
+    // Your controllers and head are sampled on the real clock (the raw frame
+    // time): a velocity from pose differences is physical m/s whatever the
+    // slow motion, as the runtime's own XR velocities are. The ball, the
+    // physics, collisions and the replay tape run on simTime.
+    this.realNow = now;
+    this.input.update(now, xrFrame);
 
     if (this.pendingRecenter != null && this.input.xr) {
       if (--this.pendingRecenter <= 0) { this.pendingRecenter = null; this.recenter(); this.afterXRSettled(); }
@@ -898,7 +903,8 @@ export class Game {
       if (batting || deskThird) {
         if (this.input.xr) this.poseBatMesh();
         this.playerBody.update(pdt || 1e-4, this.simTime, this.batMesh.position, this.batMesh.quaternion, lookBall, this.input.xr ? this.input.headPose : null,
-          this.session && this.session.bodyState ? this.session.bodyState() : null, this.offHandPos(), this.input.xr ? this.lookYaw || 0 : 0);
+          this.session && this.session.bodyState ? this.session.bodyState() : null, this.offHandPos(), this.input.xr ? this.lookYaw || 0 : 0,
+          { t: this.realNow ?? this.clock, dt: paused ? 1e-4 : this.realDt || pdt || 1e-4 });
       }
       // Through your own eyes you see a faint body below you (no head), so you
       // know where your feet are in the crease.
