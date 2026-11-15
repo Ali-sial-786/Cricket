@@ -179,7 +179,7 @@ test('replay: the sliced re-solve gives exactly the body you had, and the gloves
     for (const p of poses) {
       const e = trk.find((x) => x.t === p.t);
       h.boneList.forEach((b, k) => b.quaternion.copy(p.q[k])); h.bones.hips.position.copy(p.hp); h.root.position.copy(p.rp); h.root.quaternion.copy(p.rq);
-      body.replayArms(p.t + 1e-4); h.update();
+      body.replayArms(p.t); h.update();            // (at the exact time of the pose: that entry's arms)
       bp.set(e.bp.x, e.bp.y, e.bp.z); bq.set(e.bq.x, e.bq.y, e.bq.z, e.bq.w);
       rg = Math.max(rg, Math.abs(h.worldPos('handR', V()).distanceTo(bp) - 0.075), Math.abs(h.worldPos('handL', V()).distanceTo(V().set(0, 0.105, 0).applyQuaternion(bq).add(bp)) - 0.075));
     }
@@ -230,4 +230,64 @@ test('slow motion does not change your body: the same swing at time scale 0.7 an
       assert.ok(worst < 1e-6, `${n} at x${ts}: ${(worst * 57.3).toFixed(4)} deg from the body at full speed`);
     }
   }
+});
+
+test('replay tape: record -> re-solve -> overwrite -> apply keeps your gloves on the recorded bat (120 Hz input, decimated tape, ring wrap, a long review)', { skip }, async () => {
+  const m = await load(), { body, A, h } = m;
+  const { Replay } = await import('../src/game/replay.js');
+  const batMesh = new THREE.Object3D(); batMesh.visible = true;
+  const g = { scene: new THREE.Scene(), input: { headPose: { p: V(), q: new THREE.Quaternion() }, xr: false },
+    ballView: { mesh: new THREE.Object3D(), visible: false, setVisible(v) { this.visible = v; } },
+    batMesh, batReplayVisible: true, stumps: { batting: { pieces: [] }, bowling: { pieces: [] } }, playerBody: body };
+  const R = new Replay(g);
+  h.replayVisible = true;                // (as the game has it while you bat: your figure is on the tape)
+  // strokes one after another at 120 Hz (the tape records at most 90 a second), long enough to wrap the ring
+  const names = ['waggle', 'cover_drive', 'sweep', 'advance_drive', 'pull', 'cut', 'hook', 'straight_drive', 'on_drive', 'wild_slog', 'forward_defence', 'back_foot_punch', 'cover_drive', 'sweep'];
+  const trk = [];
+  let t0 = 100, clip = null;
+  for (const n of names) {
+    const s = shotTrack(n, { hz: 120, t0 });
+    if (n === names[names.length - 1]) clip = [s[0].t, s[s.length - 1].t];
+    trk.push(...s); t0 = s[s.length - 1].t + 1 / 120;
+  }
+  body.reset();
+  const bp = V(), bq = new THREE.Quaternion();
+  const feed = (e) => {
+    bp.set(e.bp.x, e.bp.y, e.bp.z); bq.set(e.bq.x, e.bq.y, e.bq.z, e.bq.w);
+    body.update(e.dt, e.t, bp, bq, null, e.head, e.extra, e.off, e.turn || 0);
+    batMesh.position.copy(bp); batMesh.quaternion.copy(bq);     // (posed, then recorded: as Game.frame does)
+  };
+  for (const e of trk) { feed(e); R.record(e.t); }
+  assert.ok(R.count === R.times.length && trk[trk.length - 1].t - R.timeAt(0) < trk[trk.length - 1].t - trk[0].t, 'the ring wrapped');
+  // the replay re-solves the last stroke and writes it over the tape, exact frame by exact frame
+  const job = body.resolveBegin(clip[0] + 0.3, clip[1]);
+  assert.ok(job, 'the clip is in the log');
+  let written = 0;
+  while (!body.resolveStep(job, 4, (t, hh) => { R.overwrite(R.humans.indexOf(h), t, hh, body.armsNow()); written++; }));
+  body.resolveEnd(job);
+  assert.ok(written > 100);
+  const gloves = (from, to, mid) => {
+    let worst = 0, n = 0;
+    for (let i = 0; i < R.count; i++) {
+      const t = R.timeAt(i) + (mid ? 0.5 * (R.timeAt(Math.min(R.count - 1, i + 1)) - R.timeAt(i)) : 0);
+      if (t < from || t > to) continue;
+      R.apply(t); h.update(); n++;
+      const top = V().set(0, 0.105, 0).applyQuaternion(batMesh.quaternion).add(batMesh.position);
+      worst = Math.max(worst, Math.abs(h.worldPos('handR', V()).distanceTo(batMesh.position) - 0.075), Math.abs(h.worldPos('handL', V()).distanceTo(top) - 0.075));
+    }
+    return { worst, n };
+  };
+  for (const [what, a, b] of [['re-solved stroke', clip[0] + 0.3, clip[1]], ['first frames on the tape', R.timeAt(0), R.timeAt(0) + 3], ['the stroke before', clip[0] - 4, clip[0]]]) {
+    const ex = gloves(a, b, false), md = gloves(a, b, true);
+    assert.ok(ex.n > 50, `${what}: ${ex.n} frames`);
+    assert.ok(ex.worst < 0.005, `${what}: gloves ${(ex.worst * 100).toFixed(2)} cm off the recorded bat at the recorded frames`);
+    assert.ok(md.worst < 0.03, `${what}: gloves ${(md.worst * 100).toFixed(2)} cm off between frames`);
+  }
+  // a long review (30 s more of you standing there, not recorded): the log has moved on, the tape has not
+  const stand = shotTrack('waggle', { hz: 120, t0 }).slice(0, 120 * 6);
+  for (let k = 0; k < 5; k++) for (const e of stand) feed({ ...e, t: e.t + k * 6 });
+  assert.equal(body.resolveBegin(clip[0] + 0.3, clip[1]), null, 'the log no longer holds the clip');
+  const late = gloves(clip[0] + 0.3, clip[1], false);
+  assert.ok(late.worst < 0.005, `after a long review: gloves ${(late.worst * 100).toFixed(2)} cm off`);
+  A.restArms(); h.replayVisible = undefined;
 });

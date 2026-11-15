@@ -236,15 +236,18 @@ export class PlayerBodyView {
       A._stretched = true;
     }
   }
-  // In a replay at game time t: the arms as long as they were in the pose
-  // shown then (the replay sets the joints; this, the arms' length), so the
-  // gloves are on the bat in the replay as they were live.
+  // The arms as long as they were at game time t, from the log (between the
+  // two entries either side of t; an entry at exactly t is that one). The
+  // replay keeps its own copy per recorded frame (Replay.apply); this is for
+  // anything else that poses the figure from the log.
   replayArms(t) {
     const L = this.log;
     let lo = 0, hi = L.length - 1;
-    if (hi < 0 || L[0].t >= t) { this.setArms(null); return; }
-    while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (L[mid].t < t) lo = mid; else hi = mid - 1; }
-    this.setArms(L[lo].arm || null);
+    if (hi < 0 || t < L[0].t) { this.setArms(null); return; }
+    while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (L[mid].t <= t) lo = mid; else hi = mid - 1; }
+    const a = L[lo], b = L[Math.min(L.length - 1, lo + 1)], k = b.t > a.t ? clamp((t - a.t) / (b.t - a.t), 0, 1) : 0;
+    const ka = a.arm || [1, 1], kb = b.arm || [1, 1];
+    this.setArms([mix(ka[0], kb[0], k), mix(ka[1], kb[1], k)]);
   }
 
   // Each capture's footwork: where its feet are at contact against its own

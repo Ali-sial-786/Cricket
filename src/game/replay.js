@@ -31,7 +31,7 @@ const RATE = 90;                 // recorded frames per second (max): every fram
 const SECONDS = 24;              // ring buffer length (a ball can be live for 20 s)
 const CAP = RATE * SECONDS;
 const _v = new THREE.Vector3(), _v2 = new THREE.Vector3(), _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion();
-const _cam = {};
+const _cam = {}, _arms = [1, 1];
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const FADE_IN = 0.22;            // real seconds the view takes to come in from dark after it was moved
 const DESK_FOV = 36;             // the replay camera's lens on a monitor (the headset has its own)
@@ -63,6 +63,11 @@ export class Replay {
     this.hStride = 1 + 3 + 4 + 1 + 3 + this.nb * 4;
     this.stride = 7 + 9 + 8 + this.humans.length * this.hStride + this.extras.length * 8 + this.pieces.length * 7;
     this.buf = new Float32Array(CAP * this.stride);
+    // your figure's arm lengths (its arms lengthen to keep the gloves on a bat out of its reach), per frame:
+    // the joints alone would put the gloves off the handle
+    const pb = g.playerBody;
+    this.armK = pb && pb.armsNow ? this.humans.indexOf(pb.actor.h) : -1;
+    this.arms = new Float32Array(CAP * 2).fill(1);
     this.head = 0; this.count = 0;                     // (frames in the old layout can't be read any more)
   }
 
@@ -102,17 +107,21 @@ export class Replay {
     }
     for (const x of this.extras) { o = put(B, o, x.position, x.quaternion); B[o++] = x.visible ? 1 : 0; }
     for (const m of this.pieces) o = put(B, o, m.position, m.quaternion);
+    this.putArms(slot, this.armK >= 0 ? g.playerBody.armsNow() : null);
   }
+  putArms(slot, a) { this.arms[slot * 2] = a ? a[0] : 1; this.arms[slot * 2 + 1] = a ? a[1] : 1; }
 
-  // Replace figure k's pose in the recorded frame that shows the pose made at
-  // game time t (a frame is recorded before the figures are posed, so that is
-  // the first frame after t).
-  overwrite(k, t, h) {
-    let i = this.find(t + 1e-6);
-    if (i < 0) return;
-    if (this.timeAt(i) <= t + 1e-6) i++;
-    if (i >= this.count) return;
+  // Replace figure k's pose in the recorded frame of game time t (Game.frame
+  // poses the figures and then records the frame, so a frame holds the pose
+  // made at its own time). Only a frame recorded at exactly t is written: a
+  // pose made for a frame that was not recorded (frames over RATE are
+  // skipped) is not moved into a neighbouring one. arms: your figure's arm
+  // lengths for that pose ([left, right], null = their own length).
+  overwrite(k, t, h, arms = null) {
+    const i = this.find(t);
+    if (i < 0 || Math.abs(this.timeAt(i) - t) > 1e-6) return;
     const B = this.buf;
+    if (k === this.armK) this.putArms(this.slotAt(i), arms);
     let o = this.slotAt(i) * this.stride + 7 + 9 + 8 + k * this.hStride;
     o += 1;                                                 // (visibility as recorded)
     const r = h.root;
@@ -272,7 +281,7 @@ export class Replay {
   stepJob() {
     const J = this.job;
     if (!J) return;
-    const pb = this.g.playerBody, write = (t, h) => this.overwrite(J.k, t, h);
+    const pb = this.g.playerBody, write = (t, h) => this.overwrite(J.k, t, h, pb.armsNow());
     let done = pb.resolveStep(J.job, 4, write);
     while (!done && J.job.t >= J.job.t0 - 0.05 && J.job.t < this.rt + 0.15) done = pb.resolveStep(J.job, 1, write);
     if (done) { pb.resolveEnd(J.job); this.job = null; }
@@ -293,8 +302,9 @@ export class Replay {
     a += 9; b += 9;
     lerpTo(B, a, b, k, g.batMesh.position, g.batMesh.quaternion); g.batMesh.visible = B[a + 7] > 0.5;
     a += 8; b += 8;
-    for (const h of this.humans) {
-      const vis = B[a] > 0.5;
+    const sa = this.slotAt(i0) * 2, sb = this.slotAt(i1) * 2, A = this.arms;
+    for (let n = 0; n < this.humans.length; n++) {
+      const h = this.humans[n], vis = B[a] > 0.5;
       h.visible = vis;
       if (vis) {
         const r = h.root;
@@ -307,6 +317,8 @@ export class Replay {
           bone.quaternion.slerpQuaternions(_q, _q2, k);
           o += 4; p += 4;
         }
+        // (your figure's arms as long as they were, between the same two frames as its joints)
+        if (n === this.armK) { _arms[0] = mix(A[sa], A[sb], k); _arms[1] = mix(A[sa + 1], A[sb + 1], k); g.playerBody.setArms(_arms); }
         r.updateMatrixWorld(true);
         h.syncShadow();
       }

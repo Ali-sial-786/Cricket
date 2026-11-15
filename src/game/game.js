@@ -644,8 +644,7 @@ export class Game {
       // Replay: play is frozen; the recording poses everything.
       this.applyView();
       this.updateEye();
-      this.playerBody.actor.h.setGhost(false); this.playerBowler.h.setGhost(false);
-      this.playerBody.replayArms(this.replay.rt);     // (the replay poses joints only: the arms as long as they were then)
+      this.playerBody.actor.h.setGhost(false); this.playerBowler.h.setGhost(false);   // (Replay.apply poses the joints and your figure's arm lengths)
       if (this.playerBowler.showHand) this.playerBowler.showHand(null);
       if (this.session && this.session.field) this.crew.duringReplay(realDt);   // (a batter walking off / in keeps going)
       this.replay.placeOverlays(this.eye, realDt);
