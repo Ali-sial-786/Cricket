@@ -223,7 +223,7 @@ export class LbwFlow {
     this.phase = 'appeal'; this.t = 0;
     g.sample('appeal') || g.sample('howzat');
     g.sample('howzat', { gain: 0.9 });
-    g.say('appeal');
+    if (this.kind === 'lbw') g.say('appeal');     // (its lines include "hit the pad", "leg before": not for a catch)
     g.crowdReact('appeal');
     g.ui.prompt(by === 'player' && !(this.outRes && this.outRes.by === 'you') ? 'HOWZAT?! — you appeal' : 'HOWZAT?!', 1.6, '#ffd34d');
     g.ui.setHud({ big: 'Appeal…', bigColor: '#ffd34d', detail: '' });     // (not the last ball's result)

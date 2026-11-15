@@ -13,7 +13,8 @@ tested without a headset.
   and throw; batters run, turn and dive; umpires signal.
 * **A live ground:** about 25,000 spectators who stand, bounce and do the Mexican wave, recorded crowd reactions
   (oohs, gasps, cheers, groans) and a terrace of clapping chants, drums and whistles.
-* **Full match rules:** bowled, caught, LBW (with DRS ball tracking), stumped and run out; wides, no-balls and free
+* **Full match rules:** bowled, caught, LBW (DRS with Snicko, Hot Spot and ball tracking, 2 reviews per side per
+  innings), stumped and run out; wides, no-balls and free
   hits; a third umpire for close run-outs and stumpings (your bat grounded behind the line counts, even after
   coming down the pitch); manual running; player-taken catches in slow motion;
   two-voice commentary.
@@ -64,12 +65,16 @@ bigger sweet spot. *Hard* is real time and real size.
 | **Left trigger** | Turn back mid-run. |
 | Hold **Y** | Dive: as soon as the crease is within about 4 m your batter throws himself full length, bat stretched out along the ground, and slides in. He then needs a moment to get up before another run. |
 | Look down | You see a faint body (no head): your pads and boots show where you are standing in the crease. A stumping or run-out is judged on those feet **and** on your bat: either one grounded behind the line and you are in (Settings → Own body). |
-| **A** | Review an LBW decision (1 review per innings) while the prompt is up. |
+| **A** | Review a decision that went against you — LBW, or caught off an edge — while the prompt is up. Each side has **2 reviews per innings**; a review that fails is lost, one that overturns the decision or ends on umpire's call is kept. Reviews left are on the HUD between balls. |
 | — | **No-ball:** the AI bowler oversteps now and then. One run, the ball is bowled again and the next one is a **free hit** (you can only be run out). |
 | **Left stick click** | Menu (also **Y** between balls). |
 | Hold **left grip** 1 s | Recenter: puts you back on your mark wherever you are looking (the pitch keeps its direction in your room). Menu → **Face this way** re-aims the pitch to where you look. |
 
 ### Bowling (right controller is your bowling hand)
+* **Appeal yourself:** your fielders go up for the obvious shouts. When they keep quiet — the batter was hit on
+  the pad, or an edge was caught (or taken by the keeper off what might have been the bat) — and the ball is
+  dead, a hint shows **APPEAL · B** for 2.6 s. Press **B** and the umpire answers; if he says not out you can
+  **review** it with **A** (2 per innings). Never shown during your run-up.
 
 1. **Choose your bowler** — a page opens when you start bowling and before the first ball of every over: *Fast*,
    *Medium-fast*, *Off-spin* or *Leg-spin*. In the nets you can change any time from the menu (**Change bowler**);
@@ -130,8 +135,16 @@ view also faces forward by itself before each ball, on recenter, catches and rep
   spinners he takes the bails off himself; standing back to the quicks he has to throw at the stumps, and can miss.
 * **Byes:** a ball that beats the bat and the keeper is live. Press **X** to run; if it reaches the rope it is four
   byes (plus the wide, if it was one). Byes go down as extras, not to the batter or the bowler.
-* **Reviews:** if an LBW appeal is turned down, press **A** to send it upstairs (ball tracking, umpire's call).
-  Close run-outs and stumpings go to the third umpire automatically.
+* **Reviews (DRS):** if a decision goes against your side, press **A** while "Review?" is up (2 per side per
+  innings, kept when the decision is overturned or it is umpire's call). The board shows the on-field call,
+  then, when the bat was involved, **Snicko** (the stump microphone's trace under the camera frames, stepped
+  through by the third umpire: a sharp spike exactly as the ball passes the bat is an edge; a spike when the
+  ball is nowhere near is the bat hitting the ground; the pad is a broad low bump) and **Hot Spot** (the
+  infra-red picture: a bright white mark where the ball touched the bat's edge or the pad), then for an LBW
+  ball tracking (pitching, impact, wickets). An inside edge on to the pad is NOT OUT (bat first). Catches
+  where the edge is the question — caught behind, at slip, bat-pad — get an on-field decision first (the
+  umpire can miss a faint edge, and is sometimes fooled by the bat hitting the ground); a clean catch off the
+  middle of the bat is just out. Close run-outs and stumpings go to the third umpire automatically.
 * Umpires signal fours, sixes, wides and wickets. Two commentators, Kate Marsden and Geoff Hollins, call the game
   (audio only, no captions; Settings → Sound).
 
@@ -175,7 +188,7 @@ Open the page in any WebGL2 browser without a headset. The page starts on the me
 | `B` | — | Run in and bowl a clean delivery at the aim marker by itself |
 | `1`–`4` | — | Bowler: fast, medium-fast, off-spin, leg-spin (also on the bowler page) |
 | `Q` / `E` (+ `F`) | — | Wrist roll clockwise / anticlockwise (`F` = back of the hand) |
-| `Z` / `X` | Review (`Z`) | Next / previous delivery (by feel: seam out / in) · throw to keeper / bowler's end |
+| `Z` / `X` | Review (`Z`) | Next / previous delivery (by feel: seam out / in) · throw to keeper / bowler's end · after the ball: appeal (`X`), review (`Z`) |
 | `Esc` or `M` | Menu (click buttons with the mouse) | Menu |
 | `C` / `T` | Cycle cameras / toggle ball trail | |
 | `Space` / `Enter` during a replay | Skip it | Skip it |
@@ -213,12 +226,14 @@ src/physics/          pure JS, node-tested: math, ball (aero + bounce), bat (SDF
                       wicket, world (fixed step, bat providers), trajectory (prediction), bowlingMachine (solver)
 src/game/             game.js (orchestrator + frame loop), batting.js / bowling.js sessions, modes.js,
                       aiBatter.js, aiBowler.js (bowler types), fielding.js (+fieldController), running.js,
-                      lbw.js + lbwFlow.js (appeal, decision, review), thirdUmpire.js, scoring.js, scorecard.js,
+                      lbw.js + lbwFlow.js (appeal, decision, review), edgeTrack.js (what the ball touched: Snicko,
+                      Hot Spot), reviews.js, thirdUmpire.js, scoring.js, scorecard.js,
                       squad.js, bowlerTypes.js + bowlingInput.js (your bowlers and their deliveries),
                       replay.js (recording and replays)
                       calibration.js, settings.js
 src/render/           env (stadium), objects (bat/ball/stumps/machine), humanoid (skinned athlete + IK), gear (helmets, pads, gloves),
-                      actors + people + anim, clips (authored animation clips), umpires, drsView (review board + ball tracking),
+                      actors + people + anim, clips (authored animation clips), umpires, drsView (review board + ball tracking;
+                      snicko / hotspot draw its screen),
                       viewModes (helmet grille, your bowling body, hiding bodies inside your head)
 src/ui/               canvas-texture panels: menus, HUD, scoreboard, laser pointer
 src/xr/               session.js (VR/MR, frame rate, foveation), input.js (controllers + desktop emulation), mr.js
