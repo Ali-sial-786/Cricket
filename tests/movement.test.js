@@ -258,3 +258,57 @@ test('when you bowl, the bowler\'s-end umpire stands behind the stumps: clear of
     assert.ok(off > 8 * Math.PI / 180, `${(off * 180 / Math.PI).toFixed(1)} degrees off your line to the striker`);
   }
 });
+
+test('the keeper comes up to the ball: a ball arriving at the chest is not taken from a squat, and he stands up after the take', { skip }, async () => {
+  const { actors, scene } = await load();
+  const K = new actors.FielderActor(scene, { team: 'away', seed: 4, keeper: true, pads: true, gloves: true });
+  const hipsAt = (y) => {
+    K.cut(); K.kCrouch = null;
+    let out = {};
+    for (let t = -1.0; t < 1.2; t += 1 / 60) {
+      const took = t >= 0;
+      const s = { x: 0, z: 1.2, face: Math.PI, speed: 0, state: took ? 'set' : 'gather', action: took ? { type: 'keep', t0: 0, target: { x: 0, y, z: 1.2 }, hold: true, how: 'take', side: 1 } : null,
+        leap: { t: 0, how: 'take', x: 0, y, side: 1, done: took } };
+      K.update(1 / 60, s, { t, ball: null, delivering: !took });
+      K.h.update();
+      const hy = K.h.worldPos('hips', new THREE.Vector3()).y;
+      if (Math.abs(t + 0.6) < 0.01) out.early = hy;
+      if (Math.abs(t) < 0.01) out.at = hy;
+      if (Math.abs(t - 1.15) < 0.01) out.after = hy;
+    }
+    return out;
+  };
+  const low = hipsAt(0.25), high = hipsAt(1.15);
+  assert.ok(Math.abs(low.early - high.early) < 0.03, 'the same crouch while the ball is on its way');
+  assert.ok(high.at > low.at + 0.12, `up to a chest-high ball: hips ${high.at.toFixed(2)} vs ${low.at.toFixed(2)} m for a low one`);
+  assert.ok(low.after > low.at + 0.15, `stands up after the take: ${low.at.toFixed(2)} -> ${low.after.toFixed(2)} m`);
+});
+
+test('the non-striker walks back to his crease, stops and leans on his bat: the arm and bat swing over, never jump', { skip }, async () => {
+  const { scene } = await load();
+  const { NonStrikerView } = await import('../src/render/people.js');
+  const ns = new NonStrikerView(scene);
+  ns.show(true); ns.reset();
+  const a = ns.actor; a.phase = 0; a.idleOff = 9;
+  const watch = new THREE.Vector3(0.6, 1.5, -31);
+  const held = new THREE.Vector3(0.1, 0.9, 0.9);                     // (the ball in the keeper's gloves: he looks at it walking and leaning)
+  const dt = 1 / 60;
+  for (const [dx, dz] of [[2.5, 3], [-1.2, -0.8], [0.6, 1.5]]) {
+    a.place(ns.home.x + dx, ns.home.z + dz, 0); a.cut();            // (put there unseen, as a session start does)
+    let prev = null, prevBat = null, worst = 0, worstBat = 0, when = '', whenBat = '', leant = false;
+    for (let t = 0; t < 8; t += dt) {
+      ns.update(dt, t, { backingUp: false, ball: held, watch });
+      if (prev) {
+        const j = jointJump(a.h, prev);
+        if (j > worst) { worst = j; when = `${a.poseKey} ${lastBone} @${t.toFixed(2)}`; }
+        const bj = a.bat.position.distanceTo(prevBat) - a.speed * dt;
+        if (bj > worstBat) { worstBat = bj; whenBat = `${a.poseKey} @${t.toFixed(2)}`; }
+      }
+      if (a.poseKey === 'lean') leant = true;
+      prev = snap(a.h); prevBat = a.bat.position.clone();
+    }
+    assert.ok(leant, 'he got back to his crease and leant on the bat');
+    assert.ok(worst / dt < 28, `from ${dx},${dz}: a joint turned at ${(worst / dt).toFixed(0)} rad/s (${when})`);
+    assert.ok(worstBat < 0.08, `from ${dx},${dz}: the bat jumped ${worstBat.toFixed(3)} m in a frame (${whenBat})`);
+  }
+});

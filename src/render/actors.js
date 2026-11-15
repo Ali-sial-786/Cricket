@@ -140,10 +140,9 @@ export class Actor {
       if (jump > Math.max(0.7, 25 * dt) || (switched && jump > 0.02)) { this._from = copySnap(this._shown || raw, this._from || undefined); this._bt = 0; }
     }
     this._raw = h.snapshot(this._raw || undefined);
-    this._blendW = 1;
     if (this._from) {
       this._bt += dt;
-      const w = this._blendW = sstep(0, 1, this._bt / dur);
+      const w = sstep(0, 1, this._bt / dur);
       // (A cross-fade between two grounded poses can put a foot under the
       // turf half-way, e.g. legs straightening before the hips rise: re-land it.)
       if (w >= 1) this._from = null; else { h.blendFrom(this._from, w); h.update(); settle(h); h.update(); }
@@ -941,12 +940,13 @@ export class BatterActor extends Actor {
     this.carryBat = false;
   }
   set visible(v) { if (v && !this._vis) this.cut(); this._vis = v; if (this.h) this.h.visible = v; if (this.bat) this.bat.visible = v; }
-  cut() { super.cut(); this._batFrom = null; this._batKey = undefined; this._batShown = null; this._grip = null; }
+  cut() { super.cut(); this._batFrom = null; this._batKey = undefined; this._batShown = null; this._grip = null; this._armFrom = null; this._armKey = undefined; this._armShown = null; }
   // (the bat too: it swings round from where it was to where it is carried)
   handover() {
     super.handover();
     this._batFrom = { p: this.bat.position.clone(), q: this.bat.quaternion.clone(), t: 0 };
     this._batKey = undefined; this.noteBat();
+    this._armFrom = null; this._armKey = undefined;
   }
   // Call after the bat has been placed for the frame (and before the hand
   // grips it). Whenever the way the bat is held changes (carried on the move,
@@ -967,6 +967,26 @@ export class BatterActor extends Actor {
       }
     }
     this.noteBat();
+  }
+  // The bat arm swings over too when the way the bat is held changes (the
+  // lean's arm on the grounded bat, the carry's arm by the side): the body's
+  // own cross-fade (smooth()) does not see it -- leaning and standing play the
+  // same idle underneath -- so the right arm is blended here from where it was
+  // shown last frame. Call after the arm is posed for the frame.
+  armBlend(dt, dur = 0.25) {
+    const h = this.h, key = this.poseKey;
+    if (this._armKey !== undefined && key !== this._armKey && this._armShown) this._armFrom = { q: this._armShown.map((q) => q.clone()), t: 0 };
+    this._armKey = key;
+    const A = this._armFrom;
+    if (!A) return;
+    A.t += dt;
+    const w = sstep(0, 1, A.t / dur);
+    if (w >= 1) { this._armFrom = null; return; }
+    ARM_J.forEach((b, i) => { _q.copy(h.bones[b].quaternion); h.bones[b].quaternion.copy(A.q[i]).slerp(_q, w); });
+  }
+  noteArm() {
+    const S = this._armShown || (this._armShown = ARM_J.map(() => new THREE.Quaternion()));
+    ARM_J.forEach((b, i) => S[i].copy(this.h.bones[b].quaternion));
   }
   // The bat as shown this frame (where the next change of hold starts from).
   noteBat() {
@@ -1855,9 +1875,11 @@ export class BatterActor extends Actor {
     }
     if (look && !diving) h.lookAt(look, 0.8);
     this.smooth(dt);
+    this.armBlend(dt);
     this.placeCarriedBat();
     this.batSmooth(dt);
     this.gripHandle();
+    this.noteArm();
     this._shown = h.snapshot(this._shown || undefined);     // (what is shown: the hand round the handle)
     h.syncShadow();
   }
@@ -1948,6 +1970,7 @@ export class BatterActor extends Actor {
     }
     // (the dive places the bat itself, continuous from and back to the carry)
     this._batFrom = null; this._batKey = this.poseKey; this.noteBat();
+    this._armFrom = null; this._armKey = this.poseKey; this.noteArm();
     h.syncShadow();
   }
 
@@ -2109,13 +2132,10 @@ export class BatterActor extends Actor {
     _y.set(0, 1, 0).applyQuaternion(this.bat.quaternion);
     const wrist = _hold.copy(this.bat.position).addScaledVector(_y, PALM);
     const poleR = h.worldPos('shoulderR', _pole).add(_v2.set(0, -0.5, 0)).addScaledVector(_left, -0.4);
-    // (while the body cross-fades into the lean the arm goes onto the bat with
-    // it, from where it was: the IK's elbow is not where the arm was)
-    const bw = this._blendW ?? 1, fa = this._leanArm || (this._leanArm = ARM_J.map(() => new THREE.Quaternion()));
-    if (bw < 1) ARM_J.forEach((b, i) => fa[i].copy(h.bones[b].quaternion));
     h.ikArm('R', wrist, poleR);
-    if (bw < 1) ARM_J.forEach((b, i) => { _q.copy(h.bones[b].quaternion); h.bones[b].quaternion.copy(fa[i]).slerp(_q, bw); });
+    this.armBlend(dt);
     this.gripHandle();
+    this.noteArm();
     this._shown = h.snapshot(this._shown || undefined);     // (what is shown: the arm on the bat)
     h.syncShadow();
   }
