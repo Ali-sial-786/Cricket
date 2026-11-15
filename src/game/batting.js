@@ -19,8 +19,11 @@ import { LbwFlow, padHit, deflectOffPad } from './lbwFlow.js';
 import { ThirdUmpireFlow } from './thirdUmpire.js';
 import { BackFoot, creaseShort } from './crease.js';
 import { HINTS } from '../ui/controllerHint.js';
+import { ShotEvidence, pointVelocity } from './shotOffered.js';
+import { BatGeometry } from '../physics/bat.js';
 
-const _fw = new Vec3(), _toe = new Vec3();
+const _fw = new Vec3(), _toe = new Vec3(), _lever = new Vec3(), _bv = new Vec3(), _mid = new Vec3();
+let _sweetY = null;               // the middle of the (visible) bat, along its +Y from your hand
 const PLAYER_PAD = { halfX: 0.15, front: 0.1, back: 0.26, top: 0.7 };
 import { Innings } from './scoring.js';
 
@@ -58,6 +61,7 @@ export class BattingSession {
     this.reviewFlow = null; this.pendingRes = null;
     this.noBall = false; this.freeHit = false;
     this.path = [];
+    this.offer = new ShotEvidence();     // did you play at this ball (shotOffered.js)
     this.partnership = 0;
     this.dots = 0;
   }
@@ -310,7 +314,7 @@ export class BattingSession {
     this.announced = false;
     this.settingsUsed = settings;
     this.hit = null; this.byes = null; this.firstBounce = null; this.wide = false; this.crossedCrease = false;
-    this.maxBatSpeedNear = 0; this.stumpAt = 0; this.stumpBroke = false; this.path.length = 0; this.shotName = '';
+    this.offer.reset(); this.stumpAt = 0; this.stumpBroke = false; this.path.length = 0; this.shotName = '';
     this.pendingRes = null; this.reviewFlow = null;
     this.backFoot.reset();           // taking guard
     // Extras: the AI bowler oversteps now and then; the ball after a no-ball is a free hit.
@@ -359,10 +363,9 @@ export class BattingSession {
   checkLive(t) {
     const g = this.game, b = g.world.ball;
     if (b.active && !b.batted) this.path.push({ x: b.pos.x, y: b.pos.y, z: b.pos.z });
-    // Track bat speed while the ball is near the batter (play-and-miss vs leave).
-    if (!b.batted && b.pos.z > -3.5 && b.pos.z < 0.5) {
-      this.maxBatSpeedNear = Math.max(this.maxBatSpeedNear, g.input.right.linVel.length());
-    }
+    // Did you play at it? The middle of your bat while the ball comes to you (shotOffered.js):
+    // played and missed vs left alone, and the LBW "shot offered".
+    if (!b.batted && b.pos.z > -7 && b.pos.z < 0.5) this.trackOffer();
     if (!this.crossedCrease && b.pos.z > battingPoppingZ) {
       this.crossedCrease = true;
       if (!b.batted && (Math.abs(b.pos.x) > PITCH.wideLineX || b.pos.y > CONFIG.match.wideHeight)) this.wide = true;   // too wide, or over your head
@@ -377,7 +380,7 @@ export class BattingSession {
         deflectOffPad(b, g.rng);
         if (this.noBall || this.freeHit) { this.finish({ kind: 'beaten', padded: true }); return; }
         this.state = 'review';
-        this.lbw.start({ impactState: impact, path: this.path.slice(), shotOffered: this.maxBatSpeedNear > 2, playerIsBatter: true });
+        this.lbw.start({ impactState: impact, path: this.path.slice(), shotOffered: this.offer.offered, playerIsBatter: true });
         return;
       }
     }
@@ -392,7 +395,7 @@ export class BattingSession {
       if (this.field.keeperHold) {
         // He has it. Only now can you be stumped (or thrown out from where he stands back).
         if (!this.stumpAt) {
-          if (this.shortOfGround() <= 0.02) { this.finish({ kind: this.maxBatSpeedNear > 3.5 ? 'beaten' : 'left' }); return; }
+          if (this.shortOfGround() <= 0.02) { this.finish({ kind: this.offer.offered ? 'beaten' : 'left' }); return; }
           this.stumpAt = this.field.keeperAttack(t);
           g.ui.prompt('GET BACK!', 1, '#ff5a5a');
           return;
@@ -412,7 +415,7 @@ export class BattingSession {
       // It beat the keeper as well: byes. Run if you like; it can go for four.
       if (this.field.keeperMissed && b.active) { this.startByes(t); return; }
     } else if (!b.batted && b.pos.z > 2.4) {                           // nets: past the stumps
-      this.finish({ kind: this.maxBatSpeedNear > 3.5 ? 'beaten' : 'left' });
+      this.finish({ kind: this.offer.offered ? 'beaten' : 'left' });
       return;
     }
     if (b.batted && !this.field) {
@@ -433,6 +436,19 @@ export class BattingSession {
     this.field.onHit(b, t, predict(b, { maxTime: 9, h: 1 / 240 }), { byes: true });
     g.ui.prompt(this.wide ? 'WIDE — and past the keeper! Run?' : 'Past the keeper — BYES! Run?', 2.2, '#ffd34d');
     g.crowdReact('close');
+  }
+
+  // The middle of your bat this frame (real velocity: the controller's plus its turning x the lever
+  // down the blade) into the evidence of a shot played at the ball.
+  trackOffer() {
+    const g = this.game, R = g.input.right, pose = g.playerBatProvider.curr.pose;
+    if (!R.connected) return;
+    if (_sweetY == null) _sweetY = new BatGeometry(CONFIG.bat).sweetY;
+    pose.dirToWorld(_lever.set(0, _sweetY, 0), _lever);
+    _mid.copy(pose.p).add(_lever);
+    pointVelocity(_bv, R.linVel, R.angVel, _lever);
+    const head = g.input.xr ? g.input.headPose.p : this.body();
+    this.offer.add(_bv, _mid, head, g.realDt || 1 / 72);
   }
 
   netsHitResult(b) {
@@ -621,7 +637,7 @@ export class BattingSession {
     } else if (outcome.runs > 0) {
       g.sample('applause_polite', { gain: 0.7 });
       if (res.closeCall != null && res.closeCall < 0.9) g.crowdReact('close');
-    } else if (res.kind === 'beaten' && !res.padded && !res.backInTime) g.crowdReact(this.maxBatSpeedNear > 9 ? 'miss' : 'beaten');
+    } else if (res.kind === 'beaten' && !res.padded && !res.backInTime) g.crowdReact(this.offer.wild ? 'miss' : 'beaten');
     else if (res.backInTime || (res.kind === 'beaten' && res.padded)) g.crowdReact('close');
     else if (outcome.wide || outcome.noBall) { /* nothing */ } else g.crowdReact('dot');
 
