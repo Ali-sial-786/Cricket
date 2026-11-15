@@ -151,8 +151,10 @@ export function drawHotspot(g, rect, { marks = [], reveal = 1, seed = 7, dims = 
   g.fillText('THE BAT', L.zoom.x + 20, L.zoom.y + 11);
   const zb = L.zBat;
   g.fillStyle = '#9fb2c4'; g.font = '700 16px system-ui, sans-serif'; g.textBaseline = 'middle';
-  g.save(); g.translate(zb.x - 14, zb.y + zb.h * 0.55); g.rotate(-Math.PI / 2); g.textAlign = 'center'; g.fillText('OUTSIDE EDGE', 0, 0); g.restore();
-  g.save(); g.translate(zb.x + zb.w + 14, zb.y + zb.h * 0.55); g.rotate(Math.PI / 2); g.textAlign = 'center'; g.fillText('INSIDE EDGE', 0, 0); g.restore();
+  // the edges named, clear of the blade (and of any mark on it)
+  const lx = Math.max(L.zoom.x + 14, zb.x - 34), rx = Math.min(L.zoom.x + L.zoom.w - 14, zb.x + zb.w + 34);
+  g.save(); g.translate(lx, zb.y + zb.h * 0.55); g.rotate(-Math.PI / 2); g.textAlign = 'center'; g.fillText('◂ OUTSIDE EDGE (OFF)', 0, 0); g.restore();
+  g.save(); g.translate(rx, zb.y + zb.h * 0.55); g.rotate(Math.PI / 2); g.textAlign = 'center'; g.fillText('INSIDE EDGE (LEG) ▸', 0, 0); g.restore();
   g.textAlign = 'center'; g.fillText('TOE', zb.cx, zb.y + zb.h + 16);
   // caption
   const C = L.caption, text = reveal > 0 ? hotspotCaption(marks, dims) : 'HOT SPOT';

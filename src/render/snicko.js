@@ -3,15 +3,16 @@
 // marker, broadcast style. Canvas 2D only, redrawn when the third umpire
 // steps a frame (not every video frame).
 //
-// The camera frame is drawn in the bat's own frame (edgeTrack.js frames: x
-// across the face, y up the bat, z out of the front face), seen from in front
-// of the face: the bat stands still and the ball goes past it, bigger while it
-// is in front of the face, smaller and hidden by the blade once behind it.
+// The camera frame is the front-on camera's (from the bowler's end, a long
+// lens: world +X, the off side, is screen left): the bat drawn as it stood in
+// that frame (edgeTrack.js keeps its pose with every frame), the ball coming
+// up to it — a little bigger while nearer the camera — and hidden by the blade
+// once it has gone behind it.
 import { frameAt } from '../game/edgeTrack.js';
 import { CONFIG } from '../config.js';
 
-const CAM_D = 1.4;          // m: the camera's distance in front of the face (perspective)
-const VIEW_W = 0.5;         // m of the bat's frame across the picture
+const TELE = 7;             // m: the front-on camera's distance (perspective: a long lens)
+const VIEW_W = 0.5;         // m across the picture
 
 export function batDims(cfg = CONFIG) {
   const b = cfg.bat;
@@ -35,18 +36,37 @@ export function snickoLayout(rect) {
 // Where (px) on the waveform a moment falls.
 export function traceX(trace, wave, t) { return wave.x + (t - trace.t0) / (trace.t1 - trace.t0) * wave.w; }
 
-// The camera's view centre (bat-local x, y) and scale for this log.
+// A point given in the bat's frame, in the world, for frame f (its bat pose).
+function batPoint(f, lx, ly, lz) {
+  const { qx, qy, qz, qw } = f;
+  // v + 2 q x (q x v + w v)
+  const tx = qy * lz - qz * ly + qw * lx, ty = qz * lx - qx * lz + qw * ly, tz = qx * ly - qy * lx + qw * lz;
+  return { x: f.px + lx + 2 * (qy * tz - qz * ty), y: f.py + ly + 2 * (qz * tx - qx * tz), z: f.pz + lz + 2 * (qx * ty - qy * tx) };
+}
+const batDir = (f, lx, ly, lz) => { const a = batPoint(f, lx, ly, lz), o = batPoint(f, 0, 0, 0); return { x: a.x - o.x, y: a.y - o.y, z: a.z - o.z }; };
+
+// A frame without the bat's pose (old logs, tests): upright, face to the bowler.
+function withPose(f) {
+  if (!f || f.qw != null) return f;
+  const g = { ...f, qx: 0, qy: 1, qz: 0, qw: 0, px: 0, py: 0, pz: 0 };
+  const w = batPoint(g, f.lx, f.ly, f.lz);
+  return { ...g, px: f.x - w.x, py: f.y - w.y, pz: f.z - w.z };
+}
+
+// The front-on camera for this log: centred between the ball as it passes
+// and the bat beside it; S px per m; z0 the bat's depth.
 export function cameraView(log, trace, cam, dims = batDims()) {
-  const f = log && log.frames.length ? frameAt(log, trace.tc) : null;
-  const S = cam.w / VIEW_W;
-  let cx = 0, cy = dims.toeY + 0.24;
-  if (f) {
-    const edge = Math.max(-dims.hx, Math.min(dims.hx, f.lx));
-    cx = (edge + Math.max(-dims.hx - 0.16, Math.min(dims.hx + 0.16, f.lx))) / 2;
-    const room = (cam.h / S) / 2 - 0.05;
-    cy = Math.max(dims.toeY + room - 0.06, Math.min(dims.shoulderY + 0.1 - room, f.ly));
-  }
-  return { cx, cy, S };
+  const S = cam.w / VIEW_W, ox = cam.x + cam.w / 2, oy = cam.y + cam.h / 2;
+  const f = log && log.frames.length ? withPose(frameAt(log, trace.tc)) : null;
+  if (!f) return { cx: 0, cy: 0.4, z0: -1.2, S, ox, oy };
+  const bp = batPoint(f, Math.max(-dims.hx, Math.min(dims.hx, f.lx)), Math.max(dims.toeY + 0.05, Math.min(dims.shoulderY - 0.05, f.ly)), 0);
+  return { cx: f.x + (bp.x - f.x) * 0.45, cy: f.y + (bp.y - f.y) * 0.45, z0: bp.z, S, ox, oy };
+}
+
+// Where a world point is in the picture: [x, y, scale].
+export function project(view, x, y, z) {
+  const k = TELE / Math.max(1, TELE + (z - view.z0));
+  return [view.ox - (x - view.cx) * view.S * k, view.oy - (y - view.cy) * view.S * k, k];
 }
 
 function rr(g, x, y, w, h, r) {
@@ -69,38 +89,50 @@ function drawBall(g, x, y, r, alpha = 1) {
   g.restore();
 }
 
-function drawBat(g, toScreen, dims, S) {
-  const { hx, toeY, shoulderY, handleTopY, handleR } = dims;
-  const [x0, y0] = toScreen(-hx, shoulderY), [x1, y1] = toScreen(hx, toeY);
-  const bw = x1 - x0, bh = y1 - y0;
-  // blade: willow, grain, darker edges
-  const gr = g.createLinearGradient(x0, 0, x1, 0);
-  gr.addColorStop(0, '#9c8150'); gr.addColorStop(0.1, '#d8bf8a'); gr.addColorStop(0.5, '#e8d3a2'); gr.addColorStop(0.9, '#d8bf8a'); gr.addColorStop(1, '#9c8150');
-  g.fillStyle = gr;
-  rr(g, x0, y0, bw, bh, Math.min(bw, bh) * 0.08);
-  g.fill();
-  g.strokeStyle = 'rgba(120,96,56,0.55)'; g.lineWidth = 1.5;
-  for (let i = 1; i < 9; i++) {
-    const gx = x0 + bw * (i / 9) + Math.sin(i * 2.1) * 2;
-    g.beginPath(); g.moveTo(gx, y0 + 6); g.lineTo(gx + Math.sin(i) * 3, y1 - 6); g.stroke();
+const FACES = [
+  // local normal, the 4 corners (signs of x, y (0 toe / 1 shoulder), z), colour
+  { n: [0, 0, 1], c: [[-1, 0, 1], [1, 0, 1], [1, 1, 1], [-1, 1, 1]], col: 'front' },
+  { n: [0, 0, -1], c: [[-1, 0, -1], [1, 0, -1], [1, 1, -1], [-1, 1, -1]], col: '#b39462' },
+  { n: [1, 0, 0], c: [[1, 0, -1], [1, 0, 1], [1, 1, 1], [1, 1, -1]], col: '#9c7f4e' },
+  { n: [-1, 0, 0], c: [[-1, 0, -1], [-1, 0, 1], [-1, 1, 1], [-1, 1, -1]], col: '#9c7f4e' },
+  { n: [0, -1, 0], c: [[-1, 0, -1], [1, 0, -1], [1, 0, 1], [-1, 0, 1]], col: '#806640' },
+];
+
+// The bat as the front-on camera saw it in frame f.
+function drawBatFront(g, view, f, dims) {
+  const { hx, hz, toeY, shoulderY, handleTopY, handleR } = dims;
+  const P = (lx, ly, lz) => { const w = batPoint(f, lx, ly, lz); return project(view, w.x, w.y, w.z); };
+  // handle and gloves first (behind the top of the blade)
+  const a = P(0, shoulderY, 0), b = P(0, handleTopY, 0);
+  g.strokeStyle = '#2a2f36'; g.lineCap = 'round'; g.lineWidth = Math.max(3, 2 * handleR * view.S * a[2]);
+  g.beginPath(); g.moveTo(a[0], a[1]); g.lineTo(b[0], b[1]); g.stroke();
+  for (const gy of [shoulderY + 0.1, shoulderY + 0.22]) {
+    const c = P(0, gy, 0), w = 0.1 * view.S * c[2], h = 0.085 * view.S * c[2];
+    g.fillStyle = '#eef2f5'; rr(g, c[0] - w / 2, c[1] - h / 2, w, h, w * 0.3); g.fill();
+    g.fillStyle = '#2f6fd6'; g.fillRect(c[0] - w / 2 + 3, c[1] - h * 0.1, w - 6, h * 0.16);
   }
-  g.strokeStyle = 'rgba(60,44,20,0.9)'; g.lineWidth = 2.5;
-  rr(g, x0, y0, bw, bh, Math.min(bw, bh) * 0.08); g.stroke();
-  // handle and the grip
-  const [hx0, hy0] = toScreen(-handleR, handleTopY), [hx1] = toScreen(handleR, handleTopY);
-  g.fillStyle = '#2a2f36';
-  g.fillRect(hx0, hy0, hx1 - hx0, y0 - hy0);
-  g.strokeStyle = 'rgba(255,255,255,0.12)'; g.lineWidth = 1;
-  for (let yy = hy0 + 4; yy < y0; yy += 7) { g.beginPath(); g.moveTo(hx0, yy); g.lineTo(hx1, yy + 3); g.stroke(); }
-  // gloves on the handle
-  const gw = (hx1 - hx0) * 3.4;
-  for (const gy of [shoulderY + 0.07, shoulderY + 0.19]) {
-    const [, sy] = toScreen(0, gy + 0.055);
-    const cx = (hx0 + hx1) / 2;
-    g.fillStyle = '#eef2f5';
-    rr(g, cx - gw / 2, sy, gw, 0.1 * S, gw * 0.3); g.fill();
-    g.fillStyle = '#2f6fd6';
-    g.fillRect(cx - gw / 2 + 3, sy + 0.035 * S, gw - 6, 0.012 * S);
+  // the faces of the blade that look toward the camera
+  for (const F of FACES) {
+    const nw = batDir(f, F.n[0], F.n[1], F.n[2]);
+    if (nw.z > -0.03) continue;                       // facing away (the camera looks along +z)
+    const pts = F.c.map(([sx, sy, sz]) => P(sx * hx, sy ? shoulderY : toeY, sz * hz));
+    g.beginPath(); pts.forEach((p, i) => (i ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1]))); g.closePath();
+    if (F.col === 'front') {
+      const l = P(-hx, (toeY + shoulderY) / 2, hz), r = P(hx, (toeY + shoulderY) / 2, hz);
+      const gr = g.createLinearGradient(l[0], l[1], r[0], r[1]);
+      gr.addColorStop(0, '#a88b58'); gr.addColorStop(0.1, '#d8bf8a'); gr.addColorStop(0.5, '#ead6a6'); gr.addColorStop(0.9, '#d8bf8a'); gr.addColorStop(1, '#a88b58');
+      g.fillStyle = gr;
+    } else g.fillStyle = F.col;
+    g.fill();
+    g.strokeStyle = 'rgba(60,44,20,0.85)'; g.lineWidth = 2; g.stroke();
+    if (F.col === 'front') {
+      g.strokeStyle = 'rgba(120,96,56,0.5)'; g.lineWidth = 1.4;
+      for (let i = 1; i < 9; i++) {
+        const lx = -hx + 2 * hx * (i / 9);
+        const u = P(lx, toeY + 0.02, hz), v = P(lx + Math.sin(i) * 0.002, shoulderY - 0.02, hz);
+        g.beginPath(); g.moveTo(u[0], u[1]); g.lineTo(v[0], v[1]); g.stroke();
+      }
+    }
   }
 }
 
@@ -120,24 +152,23 @@ export function drawSnicko(g, rect, { trace, log, k = 0, dims = batDims() }) {
   bg.addColorStop(0, '#3b4a3c'); bg.addColorStop(0.6, '#2a372c'); bg.addColorStop(1, '#1d261f');
   g.fillStyle = bg; g.fillRect(C.x, C.y, C.w, C.h);
   const view = cameraView(log, trace, C, dims);
-  const ox = C.x + C.w / 2, oy = C.y + C.h / 2;
-  const toScreen = (lx, ly, kk = 1) => [ox + (lx - view.cx) * view.S * kk, oy - (ly - view.cy) * view.S * kk];
-  const f = log && log.frames.length ? frameAt(log, tNow) : null;
+  const has = log && log.frames.length;
+  const f = has ? withPose(frameAt(log, tNow)) : null;
   const ball = (fr, alpha) => {
-    const kk = CAM_D / Math.max(0.3, CAM_D - fr.lz);
-    const [bx, by] = toScreen(fr.lx, fr.ly, kk);
+    const [bx, by, kk] = project(view, fr.x, fr.y, fr.z);
     drawBall(g, bx, by, dims.R * view.S * kk, alpha);
   };
   // ghosts of the last frames (motion), then the ball behind or in front of the blade
   const ghosts = [];
-  for (let j = 3; j >= 1; j--) if (k - j >= 0 && log && log.frames.length) ghosts.push(frameAt(log, frames[k - j]));
+  for (let j = 3; j >= 1; j--) if (k - j >= 0 && has) ghosts.push(frameAt(log, frames[k - j]));
   const behind = f && f.lz < -dims.hz;
-  if (behind) { for (const [i, gf] of ghosts.entries()) ball(gf, 0.12 + 0.08 * i); ball(f, 1); }
-  drawBat(g, toScreen, dims, view.S);
-  if (f && !behind) { for (const [i, gf] of ghosts.entries()) if (gf.lz >= -dims.hz) ball(gf, 0.12 + 0.08 * i); ball(f, 1); }
-  if (!f) {
+  if (f) {
+    if (behind) { ghosts.forEach((gf, i) => ball(gf, 0.12 + 0.08 * i)); ball(f, 1); }
+    drawBatFront(g, view, f, dims);
+    if (!behind) { ghosts.forEach((gf, i) => { if (gf.lz >= -dims.hz) ball(gf, 0.12 + 0.08 * i); }); ball(f, 1); }
+  } else {
     g.fillStyle = 'rgba(255,255,255,0.55)'; g.font = '600 30px system-ui, sans-serif'; g.textAlign = 'center';
-    g.fillText('NO PICTURES', ox, oy);
+    g.fillText('NO PICTURES', C.x + C.w / 2, C.y + C.h / 2);
   }
   // broadcast frame furniture
   g.fillStyle = 'rgba(0,0,0,0.55)';

@@ -152,7 +152,9 @@ export class ContactLog {
       if (bat.id !== this.batId) continue;
       if (!this.dims) this.dims = geomDims(bat.geom, R);
       this.frames.push({ t: t1, x: b.pos.x, y: b.pos.y, z: b.pos.z, lx: this._l.x, ly: this._l.y, lz: this._l.z, d,
-        ax: this._w.copy(this._c.set(1, 0, 0)).applyQuat(P.q).x });
+        ax: this._w.copy(this._c.set(1, 0, 0)).applyQuat(P.q).x,
+        // the bat as it was (the front-on camera draws it): grip position and orientation
+        px: P.p.x, py: P.p.y, pz: P.p.z, qx: P.q.x, qy: P.q.y, qz: P.q.z, qw: P.q.w });
       if (d < this._closest) { this._closest = d; this._closestT = t1; }
       if (this._closestT != null && t1 - this._closestT > 0.3) this._frameStop = true;
     }
@@ -362,7 +364,7 @@ export function snickoTrace(log, { seed = 1, n = 640, half = EDGE.window, frameD
   }
   const rng = makeRng((seed >>> 0) || 1);
   const values = new Float32Array(n), env = new Float32Array(n);
-  let floor = 0.045, phase = rng() * 6.28;
+  let floor = 0.045, sign = 1;
   for (let i = 0; i < n; i++) {
     const t = t0 + (t1 - t0) * (i / (n - 1));
     // a wandering noise floor (crowd, wind, the batter's feet)
@@ -377,8 +379,12 @@ export function snickoTrace(log, { seed = 1, n = 640, half = EDGE.window, frameD
     }
     a = Math.min(1, a);
     env[i] = a;
-    phase += 1.9 + rng() * 1.4;            // a jagged, audio-like carrier
-    values[i] = a * Math.sin(phase) * (0.62 + 0.38 * rng());
+    // An audio-like carrier: the sign flips most samples (a dense trace);
+    // where a sound rises over the floor the swing is near full, so a spike
+    // reaches its height, while the floor is a ragged hiss below it.
+    const loud = a > floor * 2.2;
+    sign = loud || rng() < 0.7 ? -sign : sign;
+    values[i] = sign * a * (loud ? 0.82 + 0.18 * rng() : 0.3 + 0.7 * rng());
   }
   const frames = [];
   const k0 = Math.ceil((t0 - tc) / frameDt - 1e-9), k1 = Math.floor((t1 - tc) / frameDt + 1e-9);
@@ -403,7 +409,14 @@ export function frameAt(log, t) {
   while (i < F.length - 1 && F[i].t < t) i++;
   const a = F[i - 1], b = F[i], f = b.t > a.t ? (t - a.t) / (b.t - a.t) : 0;
   const L = (k) => a[k] + (b[k] - a[k]) * f;
-  return { t, x: L('x'), y: L('y'), z: L('z'), lx: L('lx'), ly: L('ly'), lz: L('lz'), d: L('d'), ax: a.ax };
+  const out = { t, x: L('x'), y: L('y'), z: L('z'), lx: L('lx'), ly: L('ly'), lz: L('lz'), d: L('d'), ax: a.ax };
+  if (a.qw != null && b.qw != null) {
+    const s = a.qx * b.qx + a.qy * b.qy + a.qz * b.qz + a.qw * b.qw < 0 ? -1 : 1;
+    let qx = a.qx + (s * b.qx - a.qx) * f, qy = a.qy + (s * b.qy - a.qy) * f, qz = a.qz + (s * b.qz - a.qz) * f, qw = a.qw + (s * b.qw - a.qw) * f;
+    const n = Math.hypot(qx, qy, qz, qw) || 1;
+    Object.assign(out, { px: L('px'), py: L('py'), pz: L('pz'), qx: qx / n, qy: qy / n, qz: qz / n, qw: qw / n });
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------- Hot Spot
