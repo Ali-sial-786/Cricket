@@ -791,8 +791,10 @@ export class Fielding {
       if (f.bowler && !this.bowlerFields) continue;
       if (f.playerControlled) continue;                  // the player is taking this one
       if (f.state !== 'chase' && f.state !== 'backup' && f.state !== 'gather' && f.state !== 'set' && f.state !== 'stumps' && f.state !== 'walkin' && f.state !== 'return' && f.state !== 'backstop') continue;
-      if (f.noGatherUntil > t) continue;                 // (it has just left his hands / gone past him)
       const dxz = Math.hypot(ball.pos.x - f.pos.x, ball.pos.z - f.pos.z);
+      // A throw getting past him (an overthrow): he dives across to stop it.
+      if (ball.thrown && this.tryStop(f, ball, dxz, t, world)) return;
+      if (f.noGatherUntil > t) continue;                 // (it has just left his hands / gone past him)
       const airborne = ball.batted && ball.bouncesSinceBat === 0;
       if (this.byes && f.keeper) continue;                // it has already beaten him
       if (airborne) {
@@ -853,6 +855,32 @@ export class Fielding {
       this.message = 'Fielded by you';
       return;
     }
+  }
+
+  // A thrown ball going past within a dive (and below the knee): he goes
+  // full length for it as it passes him. Returns true if he stops it.
+  tryStop(f, ball, dxz, t, world) {
+    const F = this.cfg.field;
+    const prev = f.prevStop ?? Infinity;
+    f.prevStop = dxz;
+    if (f.stopTried || f === (this.lastThrower || null) || dxz >= F.diveReach || dxz < F.reach * 0.6 || ball.pos.y > 0.7) return false;
+    const sp = Math.hypot(ball.vel.x, ball.vel.z);
+    if (sp < 3 || dxz <= prev) return false;          // (still coming: he waits for it; slow: he walks to it)
+    f.stopTried = true;
+    const p = clamp(0.85 - 0.4 * (dxz - F.reach) / (F.diveReach - F.reach), 0.4, 0.85) * Math.min(1.1, this.throwSkill);
+    const dx = ball.pos.x - f.pos.x, dz = ball.pos.z - f.pos.z, d = Math.max(1e-3, dxz);
+    const lx = dx * Math.cos(f.yaw) - dz * Math.sin(f.yaw);
+    const dive = { type: 'catch', t0: t, success: false, dive: true, side: lx >= 0 ? 1 : -1, dir: { x: dx / d, z: dz / d }, lunge: Math.max(0, dxz - 0.35), target: new Vec3(ball.pos.x, Math.max(0.1, ball.pos.y), ball.pos.z) };
+    if (this.rng() >= p) {
+      // (it beats the dive: he is on the ground, and it goes on)
+      f.action = dive; f.state = 'set'; f.noGatherUntil = t + 1.0;
+      return false;
+    }
+    this.tally.stops = (this.tally.stops || 0) + 1;
+    this.gather(f, ball, t, world);
+    f.action = dive;                                 // (down full length; up, then the throw)
+    this.throw.tStart += 0.75; this.throw.tPick += 0.75; this.throw.hurried = true;
+    return true;
   }
 
   tryCatch(f, ball, dist, plan, t) {
@@ -1105,6 +1133,8 @@ export class Fielding {
     b.batted = !this.byes;
     b.bounces = 1; b.bouncesSinceBat = 1;            // (not a catch now, and no seam / swing)
     b.thrown = true;
+    for (const f of this.fielders) { f.stopTried = false; f.prevStop = Infinity; }
+    this.lastThrower = th ? th.f : null;
     if (kind !== 'fumble') {
       const r = this.runs;
       if (!this.overthrow) this.overthrow = { t, base: r && r.active ? r.completed + (r.running && !r.goingBack ? 1 : 0) : 0, count: 0, atThrow: null };

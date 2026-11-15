@@ -38,7 +38,8 @@ export const THROW = {
   runInFrom: 24,         // m: holding it further out than this, he runs the ball in
   fumble: 0.03,          // chance a clean take over the stumps goes down (skill 1)
   backDist: 14,          // m behind the stumps a man backing up stands, in line with the throw
-  carry: 0.82,           // of a throw's speed left when it passes the stumps (drag, a skid off the turf)
+  carry: 0.82,           // of a throw's speed left when it passes the stumps (drag)
+  carryBounce: 0.62,     // ... of one that came in on the bounce (the turf takes more)
 };
 
 const WICKETS = { batting: new Wicket('batting', STUMPS_Z.batting), bowling: new Wicket('bowling', STUMPS_Z.bowling) };
@@ -202,7 +203,7 @@ export function continuation(th, out = new Vec3()) {
   const T = Math.max(1e-3, th.tArrive - th.tStart), e = 0.02;
   throwPoint(th, 1 - e, _p0); throwPoint(th, 1, _p1);
   out.set((_p1.x - _p0.x) / (e * T), (_p1.y - _p0.y) / (e * T), (_p1.z - _p0.z) / (e * T));
-  return out.scale(THROW.carry);
+  return out.scale(th.bounce ? THROW.carryBounce : THROW.carry);
 }
 
 // Off the stumps (the response the ball physics gives a ball hitting the
