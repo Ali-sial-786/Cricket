@@ -168,6 +168,57 @@ export class Game {
     this.ui.setHud({ title: 'Crease VR', sub: 'Choose a mode from the menu', footer: this.footerText() });
     this.ui.setBoard(['CREASE VR', 'Welcome', 'Nets · Run Chase · Bowl an Over · Match']);
     this.ui.openMenu('main');
+    this.prewarm();
+  }
+
+  // Everything that is drawn only now and then (the DRS review and its board,
+  // the replay's vignette, fade and label, the menus, cards and message strips,
+  // the catch and hand markers, the ball finder, fireworks) has its shader
+  // programs compiled and its textures uploaded now, at load, instead of the
+  // first time it shows: the first LBW appeal compiled 2 programs, the first
+  // review 6, the first replay uploaded 9 textures. On Quest a frame that
+  // stalls on that is reprojected by the compositor, which smears / darkens
+  // the side of the view you are turning toward (the recording: the first LBW
+  // appeal, a replay).
+  prewarm() {
+    const r = this.renderer;
+    if (!r || !r.compile) return;
+    try {
+      this.drs._build();
+      r.compile(this.scene, this.camera);
+      // the figures' other looks: see-through (your own body when you bat) and fading (coming / going)
+      const me = this.playerBody.actor.h, any = Humanoid.all.find((h) => h !== me);
+      if (me && !me.ghost) { me.setGhost(true); r.compile(me.root, this.camera, this.scene); me.setGhost(false); }
+      if (any && (any.fade ?? 1) === 1) { any.setFade(0.5); r.compile(any.root, this.camera, this.scene); any.setFade(1); }
+      r.compile(this.drs.group, this.camera, this.scene);    // (the review is out of the scene until it starts)
+      const seen = new Set();
+      const up = (o) => {
+        const mats = Array.isArray(o.material) ? o.material : o.material ? [o.material] : [];
+        for (const m of mats) for (const k of ['map', 'alphaMap', 'emissiveMap', 'normalMap', 'aoMap', 'lightMap', 'bumpMap', 'roughnessMap', 'metalnessMap', 'specularMap']) {
+          const t = m[k];
+          if (t && t.isTexture && !seen.has(t)) { seen.add(t); r.initTexture(t); }
+        }
+      };
+      this.scene.traverse(up);
+      this.drs.group.traverse(up);
+      // One draw of everything, hidden things too, both levels of detail of
+      // every figure, into a single pixel of the canvas (the next frame draws
+      // over it): the geometry buffers and skeleton textures are made now, not
+      // the first time a figure comes near or a replay shows one up close.
+      const restore = [], layers = this.camera.layers.mask;
+      this.scene.add(this.drs.group);
+      this.scene.traverse((o) => { restore.push([o, o.visible, o.frustumCulled]); o.visible = true; o.frustumCulled = false; });
+      this.camera.layers.enableAll();
+      const vp = r.getViewport(new THREE.Vector4()), sc = r.getScissor(new THREE.Vector4()), sct = r.getScissorTest();
+      r.setViewport(0, 0, 1, 1); r.setScissor(0, 0, 1, 1); r.setScissorTest(true);
+      const lods = Humanoid.all.map((h) => h.lod);
+      for (const lod of [1, 0]) { for (const h of Humanoid.all) h.setLod(lod); r.render(this.scene, this.camera); }
+      Humanoid.all.forEach((h, i) => h.setLod(lods[i]));
+      r.setViewport(vp); r.setScissor(sc); r.setScissorTest(sct);
+      this.camera.layers.mask = layers;
+      for (const [o, v, f] of restore) { o.visible = v; o.frustumCulled = f; }
+      this.scene.remove(this.drs.group);
+    } catch (e) { console.warn('prewarm', e); }
   }
 
   // ------------------------------------------------------------- settings

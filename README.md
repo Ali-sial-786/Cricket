@@ -145,12 +145,20 @@ view also faces forward by itself before each ball, on recenter, catches and rep
   your bat, head and hands; menus and catches always switch back to your own eyes).
 * **Settings → Replays** (*after every ball* / *off*): every ball that is bowled — a leave, a dot ball, a hit, a
   boundary, a wicket, a run-out, a reviewed ball, the balls you bowl — gets its replay, once, at real speed: one
-  camera high behind the bowler's arm watches the last strides, the release and the ball's flight, then turns and
-  glides after the ball until it is dead. One continuous move: no cuts, no second angle. After an appeal, a DRS
-  review or the third umpire, the replay comes after the verdict. In the headset you are moved through it (level,
-  gently, the edges of the view dimmed while it moves). Your **off-hand trigger** (the hand without the bat or the
-  ball: the left one) skips it at any moment, and that press does nothing else; no other button stops it, and the
-  menu only pauses it.
+  camera high behind the bowler's arm watches the last strides, the release and the ball's flight, then turns to
+  the ball and closes in on it (to about 15 m: the keeper taking it, the fielder picking it up and his throw, the
+  catch) until a second after it is dead. One continuous move: no cuts, no second angle. After an appeal, a DRS
+  review or the third umpire, the replay comes after the verdict; asking for the next ball (X) during a result only
+  cuts the wait short, the replay still shows the whole of the play. In the headset you are moved through it (level,
+  gently, the edges of the view dimmed while it moves), and the play is where you face when you bat, wherever you
+  happened to be looking when it started. Your **off-hand trigger** (the hand without the bat or the ball: the left
+  one) skips it at any moment, and that press does nothing else; no other button stops it, and the menu only
+  pauses it.
+* **The HUD panel** (beside the pitch, between balls only) shows the last ball's result, the delivery and your shot
+  (exit speed, launch angle above the horizontal and where the ball went, e.g. "41° · fine leg", bat speed, sweet
+  spot, carry). It is cleared when the next ball starts and in a new game; during an appeal it reads *Appeal…*, then
+  the umpire's call, *Third umpire…* for a run-out upstairs, then the verdict. The innings ends at the last wicket
+  (5 in a 5-over chase): no ball is bowled after it, however quickly X is pressed.
 * **Text while the ball is coming:** from the moment the bowler sets off (the machine's countdown; your own run-up
   when you bowl) until the ball reaches the batter, nothing floats in your view. A new bowler's name and a free hit
   are shown just before the run-up, the last ball's result between balls.

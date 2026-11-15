@@ -462,7 +462,10 @@ function buildVignette() {
   const c = document.createElement('canvas');
   c.width = c.height = 256;
   const x = c.getContext('2d');
-  // clear out to ~32° from the centre of the view, dark by ~58° (the plane is 0.5 m wide, 0.12 m away)
+  // clear out to ~32° from the centre of the view, dark by ~58° (the plane is
+  // 4.2 m wide, 1 m away: far enough that both eyes see the same ring; at
+  // 0.12 m each eye saw it ~15° toward the other, its dark edge 20° from the
+  // centre on the outer side of each eye)
   const gr = x.createRadialGradient(128, 128, 0, 128, 128, 128);
   gr.addColorStop(0, 'rgba(0,0,0,0)');
   gr.addColorStop(0.3, 'rgba(0,0,0,0)');
@@ -470,8 +473,8 @@ function buildVignette() {
   gr.addColorStop(1, 'rgba(0,0,0,1)');
   x.fillStyle = gr; x.fillRect(0, 0, 256, 256);
   const tex = new THREE.CanvasTexture(c);
-  const m = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 0.5), new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false, opacity: 0 }));
-  m.geometry.translate(0, 0, -0.12);
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(0.5 / 0.12, 0.5 / 0.12), new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false, opacity: 0 }));
+  m.geometry.translate(0, 0, -1.0);
   m.renderOrder = 20;
   m.frustumCulled = false;
   m.visible = false;

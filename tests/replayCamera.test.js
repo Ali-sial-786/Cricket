@@ -188,3 +188,19 @@ test('replayAt: shortly after the result; after a review, a moment after the ver
   assert.equal(replayAt({ dead: 10.9 }, 24.0), 25.0);              // DRS: result 13 s after the ball was dead
   assert.equal(replayAt({}, 7), 7 + TAIL + 0.05);
 });
+
+test('clipFor: the whole passage of play: a keeper catch, a catch in the deep and a run-out run on TAIL s past the moment the ball was dead', () => {
+  const plays = {
+    keeperCatch: { release: 10, hit: 10.6, caught: 10.95, held: 10.95, dead: 10.96 },
+    deepCatch:   { release: 10, hit: 10.6, caught: 13.1, held: 13.1, dead: 13.12 },
+    runOut:      { release: 10, hit: 10.6, held: 12.1, break: 13.7, dead: 13.6 },
+  };
+  for (const [name, m] of Object.entries(plays)) {
+    const due = replayAt(m, m.dead);                       // the replay waits for this much tape…
+    const c = clipFor(m, 0, due, 10.6);                    // …so when it starts, it is all there
+    assert.equal(c.end, m.dead + TAIL, name);
+    for (const k of ['caught', 'held', 'break']) if (m[k] != null) assert.ok(m[k] >= c.start && m[k] <= c.end, `${name}: ${k} outside the clip`);
+    // started straight after the result (the old "next ball" press), the clip lost the end of the play
+    assert.ok(clipFor(m, 0, m.dead + 0.2, 10.6).end < m.dead + TAIL, name);
+  }
+});
