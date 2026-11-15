@@ -32,6 +32,25 @@ const ANNOUNCE = 1.8;            // s a new bowler's card / a free hit is up bef
 // WAIT_HURRY s whoever is not runs; after the cap the ball is bowled anyway.
 const WAIT_HURRY = 2.5, WAIT_CAP = 7, WAIT_CAP_WICKET = 13;
 
+// The shot read-out. launch: degrees above the horizontal of the ball as it
+// left the bat (whichever way it went); where: which way it went, as a
+// fielding position (a right-hander's: off side +x, the bowler -z), so a top
+// edge that climbs over your shoulder reads "41° · fine leg", not a low drive.
+export function launchAngle(v) { return Math.atan2(v.y, Math.hypot(v.x, v.z)) * 180 / Math.PI; }
+export function shotWhere(v) {
+  if (Math.hypot(v.x, v.z) < 0.15 * Math.hypot(v.x, v.y, v.z) + 1e-6) return v.y > 0 ? 'straight up' : 'into the ground';
+  const a = Math.atan2(v.x, -v.z) * 180 / Math.PI, d = Math.abs(a), off = a > 0;   // 0: back past the bowler, 90: square, 180: behind
+  if (d < 12) return 'straight';
+  if (d > 168) return 'over the keeper';
+  const names = off ? [[27, 'mid-off'], [50, 'extra cover'], [72, 'cover'], [104, 'point'], [135, 'gully'], [168, 'third man']]
+    : [[27, 'mid-on'], [62, 'midwicket'], [104, 'square leg'], [135, 'backward square'], [168, 'fine leg']];
+  for (const [lim, n] of names) if (d < lim) return n;
+  return off ? 'third man' : 'fine leg';
+}
+export function shotReadout(h) {
+  return `Exit ${KMH(h.exit)} km/h · ${Math.round(h.launch)}° · ${shotWhere(h.dir)} · bat ${h.batSpeed.toFixed(1)} m/s · sweet ${Math.round(h.quality * 100)}%${h.advanced ? ' · stepped out' : ''}\nCarry ${Math.round(h.carry)} m`;
+}
+
 export class BattingSession {
   constructor(game, { kind = 'nets', title = 'Nets · Batting', innings = null, bowler = 'machine', fielders = null, aiBowler = null, onDone = null } = {}) {
     this.game = game;
@@ -487,7 +506,7 @@ export class BattingSession {
       const land = pred.bounces[0];
       const carry = land ? Math.hypot(land.pos.x - b.pos.x, land.pos.z - b.pos.z) : 0;
       const v = b.vel;
-      const launch = Math.atan2(v.y, Math.hypot(v.x, v.z)) / (Math.PI / 180);
+      const launch = launchAngle(v);
       this.hit = {
         t: e.t, quality: e.quality, edge: e.isEdge, exit: v.length(), batSpeed: e.batSpeed, launch, carry, dir: { x: v.x, y: v.y, z: v.z },
         sixOnFull: !!(pred.boundary && pred.boundary.onFull), pred, advanced: this.advance > 0.5,
@@ -500,6 +519,11 @@ export class BattingSession {
       if (!e.isEdge && e.quality > 0.8 && v.length() > 30) g.cheer(0.3);
       if (e.isEdge) g.crowdReact('edge');
       else if (launch > 22 && v.length() > 22) g.crowdReact('skied');
+    } else if (e.type === 'bat' && e.batId === 'player' && this.hit && e.t - this.hit.t < 1) {
+      // Struck again (the bat came round into it): the read-out is of the ball
+      // as it finally left the bat, not of the first touch.
+      const b = g.world.ball, v = b.vel, land = predict(b, { maxTime: 9, h: 1 / 240 }).bounces[0];
+      Object.assign(this.hit, { exit: v.length(), launch: launchAngle(v), dir: { x: v.x, y: v.y, z: v.z }, carry: land ? Math.hypot(land.pos.x - b.pos.x, land.pos.z - b.pos.z) : 0, again: true });
     }
     if (e.type === 'wicket' && e.end === 'batting' && this.state === 'live') {
       if (!this.field || (!this.field.fielded && !this.hit)) this.finish({ kind: 'bowled', wicket: 'bowled' });
@@ -515,7 +539,7 @@ export class BattingSession {
   shotDetail() {
     const h = this.hit;
     if (!h) return '';
-    return `Exit ${KMH(h.exit)} km/h · ${Math.round(h.launch)}° · bat ${h.batSpeed.toFixed(1)} m/s · sweet ${Math.round(h.quality * 100)}%${h.advanced ? ' · stepped out' : ''}\nCarry ${Math.round(h.carry)} m`;
+    return shotReadout(h);
   }
 
   // Non-striker backs up while the ball is being bowled.
