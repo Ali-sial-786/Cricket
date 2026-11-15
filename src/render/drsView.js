@@ -23,7 +23,7 @@ import { CanvasPanel, roundRect } from '../ui/panel.js';
 import { PITCH, battingPoppingZ, bowlingPoppingZ } from '../physics/pitch.js';
 import { CONFIG } from '../config.js';
 import { verdictRows } from '../game/lbw.js';
-import { frameAt } from '../game/edgeTrack.js';
+import { frameAt, snickoTrace, hotspotMarks } from '../game/edgeTrack.js';
 import { radialTexture } from './util.js';
 import { drawSnicko, batDims } from './snicko.js';
 import { drawHotspot } from './hotspot.js';
@@ -365,6 +365,27 @@ export class DRSView {
 
   // The screen's mesh (Snicko / Hot Spot).
   get screen() { this._build(); return this._screen.mesh; }
+
+  // Game.prewarm(): Snicko and Hot Spot drawn once into the screen from a
+  // made-up edge (an outside edge, then the pad), each uploaded, so the first
+  // review neither builds the canvas work (gradients, glow, text) nor uploads
+  // the screen texture for the first time. The mesh stays hidden.
+  prewarmScreen(renderer = null) {
+    this._build();
+    const t = 1, frame = (dt) => ({ t: t + dt, x: 0.1, y: 0.45, z: -1.2 + dt * 30, lx: 0.1, ly: 0.3, lz: -dt * 30, d: 0.003, ax: 1, px: 0, py: 0.15, pz: -1.2, qx: 0, qy: 1, qz: 0, qw: 0 });
+    const log = {
+      events: [{ type: 'bat', t, where: 'edge', edge: 'outside', thickness: 'thin', strength: 0.4, u: 0.95, v: 0.3, vBlade: 0.3 },
+        { type: 'pad', t: t + 0.008, leg: 'front', u: 0.3, v: 0.4, speed: 20 }],
+      frames: [-0.012, -0.008, -0.004, 0, 0.004, 0.008, 0.012].map(frame),
+    };
+    this._edge = { trace: snickoTrace(log, { seed: 1 }), marks: hotspotMarks(log), log };
+    for (const [stage, k] of [['snicko', 0], ['snicko', 3], ['hotspot', -1]]) {
+      this._stage = stage; this._frameK = k; this._markOn = true;
+      this._screen.dirty = true; this._screen.update();
+      if (renderer && renderer.initTexture) renderer.initTexture(this._screen.tex);
+    }
+    this._edge = null; this._stage = null; this._frameK = -1; this._markOn = false;
+  }
 
   _drawScreen(g) {
     const P = this._screen, ed = this._edge;

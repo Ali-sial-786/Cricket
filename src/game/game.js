@@ -220,6 +220,7 @@ export class Game {
     const t0 = performance.now();
     try {
       this.drs._build();
+      this.drs.prewarmScreen(r);       // (the DRS screen: Snicko and Hot Spot drawn and uploaded once)
       r.compile(this.scene, this.camera);
       // the figures' other looks: see-through (your own body when you bat) and fading (coming / going)
       const me = this.playerBody.actor.h, any = Humanoid.all.find((h) => h !== me);
