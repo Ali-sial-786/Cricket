@@ -908,7 +908,7 @@ export class Game {
       // Through your own eyes you see a faint body below you (no head), so you
       // know where your feet are in the crease.
       const ghost = batting && this.input.xr && !behind && !this.viewOverride && !this.mr && this.settings.ownBody !== false;
-      this.playerBody.actor.h.setGhost(ghost);
+      this.playerBody.actor.h.setGhost(ghost, GHOST_LEGS);    // (pads and boots clear enough to read when you look down; one layer: the depth pre-pass)
       // (through your own eyes the faint body stays under you: it is where you stand)
       if (!ghost) this.playerBody.actor.h.setFade(1 - cover);
       this.playerBody.show((deskThird || ((behind || ghost) && batting)) && (ghost || cover < 0.98));
@@ -1028,6 +1028,7 @@ export class Game {
 const _identity = new Quat();
 const _off = new Quat(), _tilt = new Quat(), _xAxis = new Vec3(1, 0, 0);
 const _batPose = new Pose();
+const GHOST_LEGS = 0.72;          // opacity of your see-through pads when you look down (boots +0.3, thighs x0.7; Humanoid.setGhost)
 const _bd = new Vec3();
 const _eq = new THREE.Quaternion();
 const _render = new Vec3();
