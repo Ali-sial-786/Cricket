@@ -41,11 +41,13 @@ const KNEEL_ON = 0.36, KNEEL_OFF = 0.27;   // x the figure's scale: head this fa
 // Blade from its shoulder to its toe, along the bat's +Y from the grip point (m); leg axis to the blade's centre line at least.
 const BLADE_TOP = CONFIG.bat.gripFromHandleTop - CONFIG.bat.handleLength, BLADE_TOE = BLADE_TOP - CONFIG.bat.bladeLength, LEG_CLEAR = 0.19;
 const HIP_DOWN = 2.5;              // the pelvis moving down costs this many times moving along the ground (reachBoth)
+const HAND_TOP = 0.105;            // m up the handle from the bottom hand to the top hand (actors.js HAND_GAP)
 const KNEE_MIN = 0.12;             // knee joint above the turf at least (the pad's knee roll rests on it)
 const SNAP_EVERY = 12;             // frames between saved solver states in the log
 const LOOK_RATE = 7;               // rad/s: the head turns (and nods) at most this fast
 const UPRIGHT = ['forward_defence', 'straight_drive', 'cover_drive', 'lofted_drive'];
 const HALF_PI = Math.PI / 2, TAU = Math.PI * 2;
+const NO_LEAN = [0, 0], NO_SHIFT = { along: 0, down: 0 };
 const NB = 17;
 const TRUNK = ['hips', 'spine', 'chest'], TRUNK_RATE = 10;     // rad/s: the captured trunk turns at most this fast (steadyTrunk)
 const HIP_TWIST = [-0.6, 0.9];     // rad: the hips' turn from the way the feet point, at most (closed .. open; hipsToFeet)
@@ -374,6 +376,8 @@ export class PlayerBodyView {
           h.setWorldQuat('ankle' + sd, _q.copy(N['q' + sd]).slerp(M['q' + sd], E));
         }
         h.update(); h.clearFoot('L', M.oL); h.clearFoot('R', M.oR);
+        // (the blend of two trunks does not keep the head on yours: aimed at it again)
+        this.leanTo(Hj, 0.4);
       }
       poleL = M.oL; poleR = M.oR;
       // front elbow up and leading through an upright-bat front-foot stroke
@@ -386,8 +390,13 @@ export class PlayerBodyView {
     this.kneesUp(dt);
     this.look(hq, e.ball, dt);
     h.syncShadow();
-    // (lifted clear of the turf: the gloves go back on the handle)
-    if (h.guardLift > 0.002) A.gripBat(bp, bq, elbowUp);
+    // (lifted clear of the turf: the gloves go back on the handle; the arms only, the trunk has leant already)
+    if (h.guardLift > 0.002) {
+      const lm = A.leanMax, rl = A.reachLimit;
+      A.leanMax = NO_LEAN; A.reachLimit = NO_SHIFT;
+      A.gripBat(bp, bq, elbowUp);
+      A.leanMax = lm; A.reachLimit = rl;
+    }
   }
 
   // The weighted captures' body, placed for you: the pelvis where your head
@@ -449,18 +458,28 @@ export class PlayerBodyView {
     P.y = Math.max(P.y, A.kneelHipY * sc * 0.82);
     h.bones.hips.position.copy(h.bones.hips.parent.worldToLocal(_a.copy(P)));
     h.update();
-    // the trunk leans the rest of the way to your head (it was clamped, or the legs could not reach)
-    {
-      const sp = h.worldPos('spine', _a), hd = h.worldPos('head', _b);
-      _c.subVectors(hd, sp).normalize();
-      _d.subVectors(Hj, sp).normalize();
-      const ang = Math.acos(clamp(_c.dot(_d), -1, 1));
-      if (ang > 1e-3) {
-        _e.copy(_c).lerp(_d, Math.min(1, 0.6 / ang)).normalize();
-        h.bones.spine.getWorldQuaternion(_q2);
-        h.setWorldQuat('spine', _q2.premultiply(_q.setFromUnitVectors(_c, _e)));
-      }
+    // shoulders turned toward the hands where the capture's are turned away
+    h.update();
+    const ch = h.worldPos('chest', _a);
+    h.bones.chest.getWorldQuaternion(_q2);
+    _b.set(0, 0, 1).applyQuaternion(_q2);
+    const want = Math.atan2(bp.x - ch.x, bp.z - ch.z), have = Math.atan2(_b.x, _b.z);
+    // (all the way round to them when they are out of the arms' reach: a turn of the
+    // shoulders reaches further than a lean, and does not take the head off yours)
+    _c.set(0, HAND_TOP, 0).applyQuaternion(bq).add(bp);
+    const reach = A.armLen * sc / A.armScale0 + 0.06;
+    const over = Math.max(h.worldPos('shoulderR', _d).distanceTo(bp), h.worldPos('shoulderL', _e).distanceTo(_c)) - reach;
+    const dyaw = clamp(angDiff(have, want), -1.2, 1.2) * mix(0.45, 0.9, sstep(0, 0.12, over));
+    // (about the trunk's own line, spine to head: a turn of the shoulders does not move the head)
+    _yp.subVectors(h.worldPos('head', _d), h.worldPos('spine', _e)).normalize();
+    if (_yp.y < 0.2) _yp.copy(_up);
+    for (const [b, f] of [['spine', 0.45], ['chest', 0.55]]) {
+      h.bones[b].getWorldQuaternion(_q2);
+      h.setWorldQuat(b, _q2.premultiply(_q.setFromAxisAngle(_yp, dyaw * f)));
     }
+    h.update();
+    // the trunk leans the rest of the way to your head (it was clamped, or the legs could not reach)
+    this.leanTo(Hj, 0.6);
     h.update();
     for (const sd of ['L', 'R']) {
       const T = M['t' + sd], hip = h.worldPos('hip' + sd, _a);
@@ -474,17 +493,20 @@ export class PlayerBodyView {
     h.setWorldQuat('ankleR', _q.setFromAxisAngle(_up, yawR));
     if (toe > 0) h.addRot('ankleR', toe, 0, 0);
     h.update(); h.clearFoot('L', M.oL); h.clearFoot('R', M.oR);
-    // shoulders turned toward the hands where the capture's are turned away
+  }
+
+  // The trunk (from the spine joint) turned toward your head, by at most maxAng.
+  leanTo(Hj, maxAng) {
+    const h = this.actor.h;
     h.update();
-    const ch = h.worldPos('chest', _a);
-    h.bones.chest.getWorldQuaternion(_q2);
-    _b.set(0, 0, 1).applyQuaternion(_q2);
-    const want = Math.atan2(bp.x - ch.x, bp.z - ch.z), have = Math.atan2(_b.x, _b.z);
-    const dyaw = clamp(angDiff(have, want), -1.2, 1.2) * 0.45;
-    for (const [b, f] of [['spine', 0.45], ['chest', 0.55]]) {
-      h.bones[b].getWorldQuaternion(_q2);
-      h.setWorldQuat(b, _q2.premultiply(_q.setFromAxisAngle(_up, dyaw * f)));
-    }
+    const sp = h.worldPos('spine', _a), hd = h.worldPos('head', _b);
+    _c.subVectors(hd, sp).normalize();
+    _d.subVectors(Hj, sp).normalize();
+    const ang = Math.acos(clamp(_c.dot(_d), -1, 1));
+    if (ang < 1e-3) return;
+    _e.copy(_c).lerp(_d, Math.min(1, maxAng / ang)).normalize();
+    h.bones.spine.getWorldQuaternion(_q2);
+    h.setWorldQuat('spine', _q2.premultiply(_q.setFromUnitVectors(_c, _e)));
   }
 
   // No faster than a body turns: the trunk follows the captures at a limited

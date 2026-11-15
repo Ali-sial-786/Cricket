@@ -162,8 +162,9 @@ export class Footwork {
     for (const [f, t, yawT, rate] of [[L, tL, yawL, 1.5], [R, tR, yawR, 5]]) {
       const m = f.m;
       if (m) {
-        // the landing spot follows where the foot ought to be (you are still moving)
-        const dx = t.x - m.tx, dz = t.z - m.tz, d = Math.hypot(dx, dz), mv = Math.min(d, F.retarget * dt);
+        // the landing spot follows where the foot ought to be (you are still moving), while the foot
+        // is up: less and less as it comes down, so it lands where it is going instead of sliding there
+        const dx = t.x - m.tx, dz = t.z - m.tz, d = Math.hypot(dx, dz), mv = Math.min(d, F.retarget * dt) * (1 - ease(m.k));
         if (d > 1e-6) { m.tx += dx / d * mv; m.tz += dz / d * mv; }
         m.k = Math.min(1, m.k + dt / m.dur);
         const e = ease(m.k);
