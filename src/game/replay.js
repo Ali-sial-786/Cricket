@@ -39,6 +39,7 @@ const _cam = {};
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const FADE_IN = 0.22;            // real seconds the view takes to come in from dark after it was moved
 const DESK_FOV = 36;             // the replay camera's lens on a monitor (the headset has its own)
+const LABEL_SECS = 1.5, LABEL_FADE = 0.5;   // the REPLAY label: up this long (real s), then fades out over this
 
 export class Replay {
   constructor(game) {
@@ -206,11 +207,11 @@ export class Replay {
       const job = k >= 0 ? pb.resolveBegin(Math.min(clip.start + 0.8, clip.key - 0.6), clip.end) : null;
       if (job) this.job = { job, k };
     }
-    // Nothing but a small label low in the corner (the UI hides its panels while a replay is on).
+    // Nothing but a small label low in the corner for the first moments (the UI hides its panels while a replay is on).
     g.ui.clearHints?.();
     g.ui.prompt('', 0);
     setLabel(this.label, 'REPLAY', xr ? `off-hand (${this.skipHand().hand}) trigger skips` : 'Space skips');
-    this.label.visible = true;
+    this.label.visible = true; this.label.material.opacity = 1; this.labelT = 0;
     if (g.ballView.trail) g.ballView.clearTrail?.();
     // The camera's whole move, and where your head is in the room (it moves the rig under that).
     this.path = this.layoutCamera(clip, xr ? CAM.xr : CAM.desk);
@@ -405,6 +406,12 @@ export class Replay {
     const v = this.vignette;
     if (v.visible) { v.position.copy(eye.p); v.quaternion.copy(eye.q); }
     const L = this.label;
+    if (L.visible && this.active) {
+      // Up for LABEL_SECS, then gone (it would sit over the replayed run-up); the skip still works.
+      this.labelT += dt;
+      L.material.opacity = clamp(1 - (this.labelT - LABEL_SECS) / LABEL_FADE, 0, 1);
+      if (L.material.opacity <= 0) L.visible = false;
+    }
     if (L.visible) {
       // Low and to the left, at the edge of the view; in the headset 0.6 m away,
       // about 20° left and 16° down; on a monitor the same place on the screen.
