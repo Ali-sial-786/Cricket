@@ -42,14 +42,15 @@ export class SwingLoad {
   reset() { this.h = []; }
 
   // t: game (physics) time of the pose; rt: the real clock (your movements' own time); pose: the bat
-  // {p, q} (world; p = your hand, the bat's +Y up the handle); ref: your head {x, z} or null.
+  // {p, q} (world; p = your hand, the bat's +Y up the handle); ref: your head {x, z} or null (and
+  // y: how far the view has been moved up or down - the sweep's drop is not a swing).
   push(t, rt, pose, ref = null) {
     const H = this.h, q = pose.q, y = this.sweetY;
     // the bat's +Y in the world, and the middle of the bat
     const ax = 2 * (q.x * q.y - q.w * q.z), ay = 1 - 2 * (q.x * q.x + q.z * q.z), az = 2 * (q.y * q.z + q.w * q.x);
     const last = H[H.length - 1];
     if (last && (rt < last.rt || t < last.t || rt - last.rt > LOAD.window)) H.length = 0;      // (a gap or time going back: start again)
-    H.push({ t, rt, x: pose.p.x + ax * y - (ref ? ref.x : 0), y: pose.p.y + ay * y, z: pose.p.z + az * y - (ref ? ref.z : 0), lift: Math.acos(ay > 1 ? 1 : ay < -1 ? -1 : ay) });
+    H.push({ t, rt, x: pose.p.x + ax * y - (ref ? ref.x : 0), y: pose.p.y + ay * y - (ref && ref.y ? ref.y : 0), z: pose.p.z + az * y - (ref ? ref.z : 0), lift: Math.acos(ay > 1 ? 1 : ay < -1 ? -1 : ay) });
     while (H.length > 2 && rt - H[0].rt > LOAD.keep) H.shift();
   }
 

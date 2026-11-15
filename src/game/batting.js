@@ -19,7 +19,7 @@ import { LbwFlow, padHit, deflectOffPad } from './lbwFlow.js';
 import { ThirdUmpireFlow } from './thirdUmpire.js';
 import { BackFoot, creaseShort } from './crease.js';
 import { HINTS } from '../ui/controllerHint.js';
-import { ShotEvidence, pointVelocity } from './shotOffered.js';
+import { ShotEvidence, pointVelocity, intoSpeed } from './shotOffered.js';
 import { sweepShot } from './sweepShot.js';
 import { BatGeometry } from '../physics/bat.js';
 
@@ -35,6 +35,9 @@ const ANNOUNCE = 1.8;            // s a new bowler's card / a free hit is up bef
 // Between balls the bowler waits for everyone to be in place: after
 // WAIT_HURRY s whoever is not runs; after the cap the ball is bowled anyway.
 const WAIT_HURRY = 2.5, WAIT_CAP = 7, WAIT_CAP_WICKET = 13;
+// Down low yourself = a sweep: eyes below `on` x your standing eye height (out above `off`), the middle
+// of the bat below `bat` x it and across the line or swinging at the ball (> `swing` m/s), `hold` s.
+const LOW = { on: 0.68, off: 0.76, bat: 0.42, swing: 3, hold: 0.12 };
 const SWEEP_IN = 4.5, SWEEP_OUT = 3.5;   // 1/s: the sweep button's hold on your figure comes in over 0.22 s, goes over 0.29 s
 
 export class BattingSession {
@@ -166,8 +169,10 @@ export class BattingSession {
     g.playerBat.mods = { faceLed: B.faceLed, power: 1 + B.advancePower * f, sigmaScale: 1 - B.advanceSweetShrink * f, loftPower: 0.2 * f };
 
     // Sweep: your figure goes down on the back knee whenever the grip is held - before the ball, through
-    // the shot, after it - however you are standing yourself, and gets up when you let go.
-    const sweeping = R.buttons.squeeze.pressed;
+    // the shot, after it - however you are standing yourself, and gets up when you let go. Down low
+    // yourself, with the bat across the line low or swinging at the ball, is a sweep too (readLowSweep).
+    this.lowSweep = this.readLowSweep(dt);
+    const sweeping = R.buttons.squeeze.pressed || this.lowSweep;
     this.sweepK = clamp((this.sweepK || 0) + (sweeping ? SWEEP_IN : -SWEEP_OUT) * dt, 0, 1);
     this.sweepSlog = sweeping ? R.buttons.trigger.pressed || this.advance > 0.4 : this.sweepSlog;
     // a reverse sweep: the middle of the bat swung toward the off side of your stance while sweeping
@@ -441,6 +446,42 @@ export class BattingSession {
     g.crowdReact('close');
   }
 
+  // A sweep is on: the grip held, or you are down low in a sweep (readLowSweep).
+  sweepHeld() { return this.game.input.right.buttons.squeeze.pressed || !!this.lowSweep; }
+
+  // The button's own hold on the view (Game.updateRigDrop: it lowers your eyes to a kneeling
+  // sweeper's): 1 while the grip is held and nothing else has the view, else 0.
+  sweepDrop() {
+    const g = this.game, r = g.runs;
+    if (this.isBowling || !g.input.right.buttons.squeeze.pressed) return 0;
+    if (r && (r.running || r.diving)) return 0;
+    return this.state === 'review' ? 0 : 1;
+  }
+
+  // Down low yourself (headset): your real eyes below LOW.on x your standing eye height, held
+  // LOW.hold s, with the middle of the bat low (below LOW.bat x standing) and either lying across the
+  // line or swinging at the ball - that is a sweep, as if the grip were held. Back up past LOW.off
+  // and it is over (the follow-through can lift the bat as it likes). Not a sweep: a batting crouch
+  // or a lunge (the head nowhere near that low), a duck under a bouncer (the bat up or out of the
+  // way, not swung at the ball), crouching to ground the bat (the bat upright, still).
+  readLowSweep(dt) {
+    const g = this.game, S = this.lowS || (this.lowS = { on: false, t: 0 });
+    if (!g.input.xr || !g.input.right.connected || !g.standEye) { S.on = false; S.t = 0; return false; }
+    const stand = g.standEye, y = g.input.headRef.p.y;
+    if (S.on) { if (y > stand * LOW.off) { S.on = false; S.t = 0; } return S.on; }
+    const pose = g.playerBatProvider.curr.pose;
+    if (_sweetY == null) _sweetY = new BatGeometry(CONFIG.bat).sweetY;
+    pose.dirToWorld(_lever.set(0, 1, 0), _lever);
+    const across = Math.abs(_lever.y) < 0.6;
+    const midY = pose.p.y + _lever.y * _sweetY - (g.rig ? g.rig.position.y : 0);     // (its real height: the view drop moves the bat too)
+    pose.dirToWorld(_lever.set(0, _sweetY, 0), _lever);
+    pointVelocity(_bv, g.input.right.linVel, g.input.right.angVel, _lever);
+    const sweepy = y < stand * LOW.on && midY < stand * LOW.bat && (across || intoSpeed(_bv) > LOW.swing);
+    S.t = sweepy ? S.t + dt : 0;
+    if (S.t >= LOW.hold) S.on = true;
+    return S.on;
+  }
+
   // Which way the middle of your bat is going across your stance (the stick turns it): its speed, and
   // the share of that toward the off side (+1) or the leg side (-1).
   sweepSide() {
@@ -489,7 +530,7 @@ export class BattingSession {
     if (e.type === 'bounce' && !e.batted && !this.firstBounce) this.firstBounce = e.pos.clone();
     if (e.type === 'bat' && e.batId === 'player' && !this.hit) {
       const b = g.world.ball;
-      if (g.input.right.buttons.squeeze.pressed) this.applySweep(e);
+      if (this.sweepHeld()) this.applySweep(e);
       const pred = predict(b, { maxTime: 9, h: 1 / 240 });
       const land = pred.bounces[0];
       const carry = land ? Math.hypot(land.pos.x - b.pos.x, land.pos.z - b.pos.z) : 0;
@@ -535,7 +576,7 @@ export class BattingSession {
   bodyState() {
     const b = this.game.world.ball, bi = this.ballInfo;
     return {
-      sweep: this.sweepK > 0.01 ? { k: this.sweepK * this.sweepK * (3 - 2 * this.sweepK), slog: !!this.sweepSlog, reverse: !!this.sweepReverse } : null,
+      sweep: this.sweepK > 0.01 ? { k: this.sweepK * this.sweepK * (3 - 2 * this.sweepK), slog: !!this.sweepSlog, reverse: !!this.sweepReverse, low: !!this.lowSweep } : null,
       ball: bi ? { id: bi.id, live: this.state === 'live' && b.active && !b.batted && !this.hit, arrive: bi.arrive, y: bi.y, length: bi.length } : null,
       hit: this.hit ? { t: this.hit.t, launch: this.hit.launch, name: this.shotName, dir: this.hit.dir } : null,
       // your real back foot (world z, headset only) and how far the figure's is held on it

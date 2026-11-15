@@ -127,6 +127,13 @@ export class PlayerBodyView {
 
   show(v) { this.visible = v; this.actor.visible = v; this.actor.bat.visible = false; }
 
+  // Where the eyes are when the figure kneels in a sweep, at its size now (the game lowers your view
+  // to this while the sweep button is held): its kneeling sweeper's head + the eyes above it.
+  kneelEyeY(slog = false) {
+    const A = this.actor;
+    return (A.kneelHipY + A.spineLen * (slog ? 0.9 : 0.8)) * A.h.root.scale.x + EYES;
+  }
+
   // dt, t: the game clock (slowed while the ball is live: the log, the replay
   // and the hit are on it). head: your headset pose {p, q} (VR), or null on a
   // monitor. extra: the batting session's bodyState() ({ sweep, hit, crease,

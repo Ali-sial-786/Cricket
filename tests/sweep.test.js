@@ -48,3 +48,76 @@ test('the slog sweep goes up in front of square; edges and the back of the bat a
   sweepShot(a, FACE, { slog: true }); sweepShot(b, FACE, { slog: true });
   assert.ok(a.x === b.x && a.y === b.y && a.z === b.z, 'deterministic');
 });
+
+// The session and the game (need three.js through their imports; skipped without it).
+let BattingSession = null, Game = null;
+try {
+  const ctx = new Proxy({}, { get: (o, k) => (k in o ? o[k] : () => ({ addColorStop() {} })), set: (o, k, v) => { o[k] = v; return true; } });
+  globalThis.document ??= { createElement: () => ({ width: 0, height: 0, getContext: () => ctx, style: {} }) };
+  ({ BattingSession } = await import('../src/game/batting.js'));
+  ({ Game } = await import('../src/game/game.js'));
+} catch { BattingSession = null; }
+const skip = BattingSession ? false : 'three.js is not installed (npm install)';
+const { Quat, Pose } = await import('../src/physics/math.js');
+
+// Down low yourself: eyes at `eye` m (standing 1.62), the bat's middle at `mid` lying `flat` (or upright), moving at `v` m/s.
+function lowRead(steps) {
+  const pose = new Pose(), R = { connected: true, linVel: new Vec3(), angVel: new Vec3() };
+  const g = { input: { xr: true, headRef: { p: { x: 0, y: 1.56, z: 0 } }, right: R }, standEye: 1.62, playerBatProvider: { curr: { pose } }, rig: { position: { y: 0 } } };
+  const s = Object.create(BattingSession.prototype);
+  s.game = g;
+  const out = [];
+  for (const st of steps) for (let i = 0; i < st.n; i++) {
+    g.input.headRef.p.y = st.eye;
+    // the bat: flat (handle to the leg side, toe to the off side) or upright (handle up), its middle at st.mid
+    if (st.flat) pose.q.setFromAxisAngle(new Vec3(0, 0, 1), Math.PI / 2); else pose.q.set(0, 1, 0, 0);
+    const up = new Vec3(0, 1, 0).applyQuat(pose.q);
+    pose.p.set(0.1, st.mid, -1.2).addScaled(up, 0.62);
+    R.linVel.set(0, 0, -(st.v || 0));
+    out.push(s.readLowSweep(1 / 72));
+  }
+  return out;
+}
+
+test('down low yourself with the bat across the line low: a sweep (and over once you stand up)', { skip }, () => {
+  const o = lowRead([{ eye: 1.56, mid: 0.5, flat: false, n: 30 }, { eye: 0.95, mid: 0.3, flat: true, n: 30 }, { eye: 1.35, mid: 0.6, flat: false, n: 30 }]);
+  assert.ok(!o[29], 'standing: no sweep');
+  assert.ok(o.slice(30 + 9, 60).every(Boolean), 'down low with the bat flat: a sweep within 0.12 s');
+  assert.ok(!o[89], 'stood back up: over');
+  // swinging at the ball low down counts as well, the bat upright
+  const sw = lowRead([{ eye: 0.95, mid: 0.3, flat: false, v: 6, n: 30 }]);
+  assert.ok(sw[29], 'swinging at the ball, low');
+});
+
+test('not a sweep: a batting crouch, a lunge, a duck under a bouncer, a quick crouch to ground the bat', { skip }, () => {
+  const crouch = lowRead([{ eye: 1.38, mid: 0.3, flat: true, n: 60 }]);                    // a deep batting crouch / forward-defence lunge
+  const duck = lowRead([{ eye: 0.9, mid: 1.0, flat: false, n: 60 }]);                      // ducked, the bat up out of the way
+  const duckFlat = lowRead([{ eye: 0.9, mid: 1.05, flat: true, n: 60 }]);                   // ducked, the bat held flat over the head
+  const ground = lowRead([{ eye: 1.0, mid: 0.2, flat: false, n: 60 }]);                     // crouched, the bat grounded upright, still
+  const blip = lowRead([{ eye: 0.95, mid: 0.3, flat: true, n: 6 }, { eye: 1.5, mid: 0.6, flat: false, n: 30 }]);   // down and up in 80 ms
+  for (const [n, o] of [['crouch', crouch], ['duck', duck], ['duck, bat flat', duckFlat], ['grounding the bat', ground], ['a blip', blip]]) assert.ok(!o.some(Boolean), `${n}: read as a sweep`);
+});
+
+test('the sweep button drops your view to a kneeling sweeper\'s eyes in ~0.2 s, never twice, back up in ~0.3 s, not in a menu', { skip: Game ? false : skip }, () => {
+  let held = true;
+  const g = { input: { xr: true, headRef: { p: { y: 1.6 } }, refreshHeadWorld() {} }, mr: false, end: 'batting', state: 'play', ui: { menuOpen: false }, viewOverride: null, replay: { active: false },
+    session: { isBowling: false, sweepSlog: false, sweepDrop: () => (held ? 1 : 0) }, playerBody: { kneelEyeY: () => 1.0 }, rig: { position: { y: 0 }, updateMatrixWorld() {} }, rigDrop: 0, rigDropV: 0 };
+  const step = (n) => { const o = []; for (let i = 0; i < n; i++) { Game.prototype.updateRigDrop.call(g, 1 / 72); o.push(g.rigDrop); } return o; };
+  const down = step(30);
+  const t90 = down.findIndex((d) => d >= 0.9 * 0.6) / 72;
+  assert.ok(t90 > 0 && t90 <= 0.25, `90% down in ${t90.toFixed(3)} s`);
+  assert.ok(Math.max(...down) <= 0.6 + 1e-6, 'no overshoot');
+  assert.ok(Math.abs(g.rig.position.y + g.rigDrop) < 1e-9, 'the rig moved down by the drop');
+  // crouching yourself as well: the eyes stay at the kneeling height, the view does not drop twice
+  g.input.headRef.p.y = 1.25; step(40);
+  assert.ok(Math.abs(g.rigDrop - 0.25) < 0.01, `crouched: drop ${g.rigDrop.toFixed(3)}`);
+  g.input.headRef.p.y = 0.9; step(40);
+  assert.ok(g.rigDrop < 0.01, 'right down yourself: no drop');
+  g.input.headRef.p.y = 1.6; step(40);
+  held = false;
+  const up = step(40), back = up.findIndex((d) => d <= 0.06) / 72;
+  assert.ok(back > 0.15 && back <= 0.4, `back up in ${back.toFixed(3)} s`);
+  assert.ok(up.every((d) => d >= 0), 'never above your real head');
+  held = true; step(40); g.ui.menuOpen = true; step(60);
+  assert.ok(g.rigDrop < 0.005, 'a menu opens: back up');
+});
