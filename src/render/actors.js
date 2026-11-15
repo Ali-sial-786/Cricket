@@ -405,7 +405,7 @@ const BAILS_SWEEP = 0.15;
 // Lying in a dive: these rest on the turf (hands and boots are kept on top of it separately).
 const LIE_BONES = ['hips', 'spine', 'chest', 'neck', 'head', 'shoulderL', 'shoulderR'];
 const LIE_Y = 0.015;
-const GRIP_TURN = 0.3;               // rad a frame: the fastest the fist turns about the handle
+const GRIP_TURN = 0.2;               // rad a frame: the fastest the fist turns about the handle
 const KEEP_LOW = 0.75;               // the keeper's crouch as the ball comes (poseReady depth)
 const LUNGE_RATE = 7;                // m/s: the fastest a diving / lunging body comes off its spot
 const WRIST_MIN = 0.1;               // wrist above the turf when a hand reaches down (the glove is under it)
@@ -665,9 +665,10 @@ export class BowlerActor extends Actor {
     for (const [side, land, lift, fx, fz, yaw] of this.style.feet) {
       const off = 1 - sstep(lift, lift + 0.08, u);
       const w = sstep(land - 0.06, land, u) * off;
-      // (the foot turns to its planted angle in the air, before it lands: a
-      // back foot landing side-on is turned through the bound, not on the turf)
-      const wA = Math.max(w, sstep(land - 0.2, land, u) * off);
+      // (the foot turns to its planted angle in the air, before it lands -- a
+      // back foot landing side-on is turned through the bound, not on the
+      // turf -- and back again after it lifts, over a stride, not a frame)
+      const wA = Math.max(w, sstep(land - 0.2, land, u) * (1 - sstep(lift, lift + 0.2, u)));
       if (wA < 0.002) continue;
       const J = LEG_J[side], fk = this._fkLeg || (this._fkLeg = J.map(() => new THREE.Quaternion()));
       J.forEach((b, i) => fk[i].copy(h.bones[b].quaternion));
@@ -683,19 +684,11 @@ export class BowlerActor extends Actor {
       // Out of the leg's reach (up on the toes to reach the release): the heel
       // comes up and the ball of the foot stays on the turf.
       // (only once the foot is down: in the air it is just out of reach)
-      const up = h.worldPos('ankle' + side, _a).y - _pl.y, onToes = sstep(0.3, 0.9, w);
+      // (it comes in over the first tenth on the ground and stays through the
+      // lift: a foot leaves the turf off its toes)
+      const up = h.worldPos('ankle' + side, _a).y - _pl.y, onToes = sstep(land - 0.02, land + 0.1, u);
       if (up > 0.004 && onToes > 0) h.addRot('ankle' + side, Math.asin(Math.min(0.95, up / (h.toeLength * h.root.scale.y))) * onToes, 0, 0);
-      // (the toes dipping under the turf: the foot comes up, solved with the same
-      // pole -- left to clearFoot, whose pole flips on a straight leg, the knee would)
-      h.update();
-      const fi = this._footIdx || (this._footIdx = {});
-      const under = h.lowest(fi[side] || (fi[side] = ['ankle' + side, 'knee' + side].map((n) => h.boneList.indexOf(h.bones[n]))));
-      if (under < 0) {
-        h.bones['ankle' + side].getWorldQuaternion(_q2);
-        _pl.copy(h.worldPos('ankle' + side, _a)); _pl.y -= under;
-        h.ikLeg(side, _pl, pole);
-        h.setWorldQuat('ankle' + side, _q2);
-      }
+      this.liftFoot(side, pole, false);
       if (w < 1 || wA < 1) {
         // the solved leg blended in from the FK leg (rotations, not the target:
         // the knee would jump to the IK's plane as the plant starts or ends)
@@ -703,8 +696,29 @@ export class BowlerActor extends Actor {
         for (let i = 0; i < 2; i++) { _q.copy(h.bones[J[i]].quaternion); h.bones[J[i]].quaternion.copy(fk[i]).slerp(_q, w); }
         h.update();
         h.setWorldQuat('ankle' + side, _q.copy(fkA).slerp(ikA, wA));
+        this.liftFoot(side, pole, true);
       }
     }
+  }
+  // The foot (or shin) under the turf: up onto it. With keepPlane the knee
+  // stays in the plane it is bending in (pole only if the leg is straight);
+  // without, solved with `pole` (a leg just solved with it). Humanoid.clearFoot's
+  // own pole flips when the leg is nearly straight, and the knee with it.
+  liftFoot(side, pole = null, keepPlane = true) {
+    const h = this.h;
+    h.update();
+    const fi = this._footIdx || (this._footIdx = {});
+    const under = h.lowest(fi[side] || (fi[side] = ['ankle' + side, 'knee' + side].map((n) => h.boneList.indexOf(h.bones[n]))));
+    if (under >= -0.001) return;
+    const hip = h.worldPos('hip' + side, _a), knee = h.worldPos('knee' + side, _b), ank = h.worldPos('ankle' + side, _e);
+    const bend = _v1.copy(knee).sub(_v2.copy(hip).lerp(ank, 0.5));
+    let P = pole;
+    if (keepPlane && bend.length() > 0.06) P = _v2.copy(knee).addScaledVector(bend.normalize(), 0.5);
+    else if (!P) P = _v2.copy(hip).lerp(ank, 0.5).addScaledVector(this.forward(_fwd), 0.6);
+    h.bones['ankle' + side].getWorldQuaternion(_q2);
+    _pl.copy(ank); _pl.y -= under;
+    h.ikLeg(side, _pl, P);
+    h.setWorldQuat('ankle' + side, _q2);
   }
 
   // Straight-arm circle in the vertical plane through the shoulder, accelerating
@@ -766,7 +780,7 @@ export class BowlerActor extends Actor {
           }
           this.apply();
           if (r.wide) this.apply(this.wideOff(u), 0);
-          if (u > -0.7) { h.update(); h.clearFoot('L'); h.clearFoot('R'); }      // stride into the bound
+          if (u > -0.7) { this.liftFoot('L'); this.liftFoot('R'); }      // stride into the bound
         } else {
           this.poseDelivery(u);
           if (u >= st.gaitAt) {                      // the run-off strides take over
@@ -786,7 +800,7 @@ export class BowlerActor extends Actor {
           const free = 1 - this.plantWeight(u);
           if (free > 0.002) { h.update(); h.bones.hips.position.y += settle(h) * free; }
           this.plantSteps(u);
-          this.h.update(); this.h.clearFoot('L'); this.h.clearFoot('R');      // the landing / trailing / swinging leg
+          this.liftFoot('L'); this.liftFoot('R');      // the landing / trailing / swinging leg
           this.bowlingArmIK(u);
         }
         h.lookAt(_gaze, u < 0.3 ? 0.9 : 0.6);       // eyes on the target throughout

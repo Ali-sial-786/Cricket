@@ -119,8 +119,10 @@ const snap = (h) => h.boneList.map((b) => b.quaternion.clone());
 test('AI bowler: no joint jumps in one frame through a whole delivery, every run-up kind', { skip }, async () => {
   const { actors, scene } = await load();
   const A = new actors.BowlerActor(scene, { team: 'away', seed: 5, headgear: 'bare' });
-  for (const [kind, x] of [['long', 0.42], ['medium', 0.42], ['short', 0.42], ['long', -0.42], ['short', -0.42]]) {
+  // (every kind, both sides of the wicket, and the stride at four different phases as he arrives)
+  for (const [kind, x] of [['long', 0.42], ['medium', 0.42], ['short', 0.42], ['long', -0.42], ['short', -0.42]]) for (const ph of [0, 1.6, 3.2, 4.8]) {
     let t = 100;
+    A.phase = ph; A.idleOff = 3;
     A.startRunup(t, new THREE.Vector3(x, kind === 'short' ? 1.98 : 2.2, -18.75), kind);
     const tr = A.run.tr, dt = 1 / 60;
     let prev = snap(A.h), worst = 0, at = 0, bone = '';
@@ -131,7 +133,7 @@ test('AI bowler: no joint jumps in one frame through a whole delivery, every run
       prev = snap(A.h);
     }
     // (a bowling arm turns at up to ~30 rad/s; a pop is far more than that in one frame)
-    assert.ok(worst / dt < 36, `${kind} ${x > 0 ? 'over' : 'round'}: ${bone} turned at ${(worst / dt).toFixed(0)} rad/s at u=${at.toFixed(2)}`);
+    assert.ok(worst / dt < 36, `${kind} ${x > 0 ? 'over' : 'round'} (stride phase ${ph}): ${bone} turned at ${(worst / dt).toFixed(0)} rad/s at u=${at.toFixed(2)}`);
   }
 });
 
@@ -139,6 +141,7 @@ test('the non-striker\'s bat: leaning on it, walking, standing and leaning again
   const { actors, scene } = await load();
   const a = new actors.BatterActor(scene, { team: 'home', seed: 23 });
   a.place(-1.35, -19, 1.07);
+  a.phase = 0; a.idleOff = 11;
   const dt = 1 / 60, look = new THREE.Vector3(0.5, 1.3, -30);
   let t = 0, prev = null, prevBat = null, worst = 0, worstBat = 0, when = '';
   const plan = [['lean', 1.2], ['walk', 1.2], ['stand', 0.6], ['lean', 1.0], ['walk', 0.8], ['lean', 1.0]];
@@ -157,7 +160,8 @@ test('the non-striker\'s bat: leaning on it, walking, standing and leaning again
     }
   }
   assert.ok(worst / dt < 28, `a joint turned at ${(worst / dt).toFixed(0)} rad/s (${when})`);
-  assert.ok(worstBat < 0.05, `the bat jumped ${worstBat.toFixed(3)} m in a frame`);
+  // (it swings over between his hand and the turf in about a quarter of a second: up to ~4 m/s, never a jump)
+  assert.ok(worstBat < 0.08, `the bat jumped ${worstBat.toFixed(3)} m in a frame`);
 });
 
 test('a dive for the crease lands: the body on the turf, never held off it by the ground guard, and up again', { skip }, async () => {
