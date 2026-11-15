@@ -224,7 +224,7 @@ test('the keeper chasing the ball himself: the nearest free man covers his stump
   assert.equal(d.kind, 'direct');
 });
 
-test('the man over the stumps keeps them until the keeper would get there sooner', () => {
+test('the man over the stumps keeps them until the keeper, coming back, is there too', () => {
   const world = new PhysicsWorld(), f = field();
   hitBall(world, { x: 1.5, z: 6 }, 5, -0.2);
   f.onHit(world.ball, 0, predict(world.ball, { maxTime: 10, h: 1 / 240 }));
@@ -236,6 +236,8 @@ test('the man over the stumps keeps them until the keeper would get there sooner
   f.throw = null; f.ballOverride = null;
   f.assignCovers(2);
   assert.equal(f.cover.batting, slip, 'he stays');
+  assert.equal(k.state, 'stumps', 'the keeper comes back to his stumps all the same');
+  assert.ok(k.target && Math.sign(k.target.x) === -Math.sign(slip.target.x), '... to the other side of them');
   k.pos.set(0.4, 0, 0.65);
   slip.pos.set(2.5, 0, 2.5);
   f.assignCovers(2.1);

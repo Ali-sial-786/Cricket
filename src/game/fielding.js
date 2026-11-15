@@ -419,6 +419,11 @@ export class Fielding {
     }
     this.plan = best;
     this.planT0 = t0;
+    // (whoever was after the ball under an older plan leaves it to the new man)
+    for (let fi = 0; fi < this.fielders.length; fi++) {
+      const f = this.fielders[fi];
+      if ((f.state === 'chase' || f.state === 'gather') && !(best && best.fi === fi) && this.hitT != null) { f.state = 'set'; f.target = null; }
+    }
     if (best) {
       const f = this.fielders[best.fi];
       f.state = 'chase';
@@ -455,7 +460,7 @@ export class Fielding {
   // Is he tied up with the ball (chasing it, holding it, throwing it, in a
   // catch or a dive he has not got up from)?
   busyWithBall(f, t) {
-    if (!f || f.playerControlled || f.state === 'chase' || f.state === 'throwing' || f.state === 'celebrate') return true;
+    if (!f || f.playerControlled || f.state === 'chase' || f.state === 'gather' || f.state === 'throwing' || f.state === 'celebrate') return true;
     if (this.throw && this.throw.f === f && !this.throw.released) return true;
     if (this.ballOverride && this.ballOverride.holder === this.fielders.indexOf(f)) return true;
     const a = f.action;
@@ -481,7 +486,7 @@ export class Fielding {
         // (the man over the stumps keeps them until the keeper / bowler would be there sooner)
         if (!curOk || cur === pref) return pref;
         const spot = receiverSpot(end, cur.coverSide || 1);
-        return this.etaTo(pref, spot) < this.etaTo(cur, spot) ? pref : cur;
+        return this.etaTo(pref, spot) <= this.etaTo(cur, spot) ? pref : cur;
       }
       if (curOk) return cur;                                    // (keeps whoever is on his way)
       const spot = receiverSpot(end, 1);
@@ -520,6 +525,15 @@ export class Fielding {
         f.state = 'stumps'; f.coverEnd = end; f.coverSide = s; f.backEnd = null;
         f.target = receiverSpot(end, s);
       }
+    }
+    // The keeper (or the AI bowler) free again but not the man over his stumps
+    // (someone took them while he was busy): he comes back to them all the same,
+    // to the other side, and takes them over once he is there.
+    for (const [end, own] of [['batting', k], ['bowling', bw]]) {
+      if (!own || this.cover[end] === own || own === bat || own === bowl || busy(own) || !this.cover[end]) continue;
+      if (own.action && (own.action.type === 'take' || own.action.type === 'break')) continue;
+      const s = -(this.cover[end].coverSide || 1);
+      if (own.state !== 'stumps' || own.coverEnd !== end || own.coverSide !== s) { own.state = 'stumps'; own.coverEnd = end; own.coverSide = s; own.backEnd = null; own.target = receiverSpot(end, s); }
     }
     this.bowlEndReceiver = this.cover.bowling;
   }
