@@ -97,6 +97,20 @@ test('contact log: a new delivery starts a new log; a snapshot keeps the old one
   assert.equal(snap.events.length, 1);
 });
 
+test('contact log: a fielder\'s throw carrying on (ball.thrown) is not part of the delivery', () => {
+  const { w, log } = flyPast(0.08);
+  const n = { ev: log.events.length, fr: log.frames.length, last: { ...log.lastBall } };
+  // a throw coming in past the striker's bat (fielding.js relaunch: launchTime kept, thrown set)
+  const b = w.ball;
+  b.active = true; b.thrown = true; b.batted = true; b.padded = false;
+  b.pos.set(0.08, 0.45, BAT_Z - 3); b.vel.set(0, 0.5, 25);
+  w.advanceTo(w.time + 0.3);
+  assert.equal(log.events.length, n.ev);
+  assert.equal(log.frames.length, n.fr);
+  assert.deepEqual(log.lastBall, n.last);
+  assert.equal(edgeTruth(log).thickness, 'thin');
+});
+
 // Synthetic logs for Snicko: a bat contact of a given thickness at t = 0.5.
 function synthLog({ thickness = null, pad = null, ground = null, passD = 0.2, tPass = 0.5 } = {}) {
   const log = new ContactLog(CONFIG);

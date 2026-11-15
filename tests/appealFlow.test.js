@@ -42,7 +42,7 @@ function stubGame({ rng = () => 0.5, contacts = new ContactLog(CONFIG) } = {}) {
     settings: { difficulty: 'medium' }, rng, contacts, drs, clock: 0, diff: { lbwAgainstPlayer: true },
     world: { time: 1, ball: new BallState(), removeBall() {} },
     input: { xr: true, right: { buttons: { a: button(), b: button() } }, left: { buttons: { a: button(), b: button() } }, headPose: { p: { x: 0, y: 1.6, z: -19 } } },
-    ui: { prompt(text) { log.push(['prompt', text]); }, showHud() {} },
+    ui: { prompt(text) { log.push(['prompt', text]); }, showHud() {}, setHud(p) { if (p.big) log.push(['hud', p.big]); } },
     hint(list) { log.push(['hint', list[0].label]); },
     sample() { return true; }, say(what, ctx) { log.push(['say', what, ctx]); }, crowdReact() {},
     umpires: { signal(s) { log.push(['signal', s]); } },
@@ -95,6 +95,9 @@ test('appeal button: the fielders keep quiet, you appeal (B), given not out, you
   assert.equal(flow.done, true);
   assert.deepEqual(flow.result({ kind: 'dot', padded: true }), { kind: 'lbw' });
   assert.equal(reviews.player, 2, 'overturned: review kept');
+  // the HUD result line follows it (not the last ball's result)
+  const hud = g.log.filter((l) => l[0] === 'hud').map((l) => l[1]);
+  assert.deepEqual(hud, ['Appeal?', 'Appeal…', 'NOT OUT', 'Under review…', 'OUT — LBW']);
 });
 
 test('appeal button: no press, no appeal (and the ball is not out)', () => {

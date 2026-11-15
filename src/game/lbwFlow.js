@@ -36,7 +36,7 @@ import {
 // stands. The box reaches `front` m toward the bowler and `back` m behind.
 // (Where he stood is kept on the ball for the contact log / Hot Spot.)
 export function padHit(ball, bx, bz, { halfX = 0.2, front = 0.24, back = 0.24, top = 0.74 } = {}) {
-  if (!ball.active || ball.batted || ball.padded || ball.vel.z <= 0) return false;
+  if (!ball.active || ball.batted || ball.padded || ball.thrown || ball.vel.z <= 0) return false;
   const p = ball.pos;
   const hit = p.y < top && Math.abs(p.x - bx) < halfX && p.z > bz - front && p.z < bz + back;
   if (hit) ball.padAt = { x: bx, z: bz, halfX };
@@ -46,7 +46,7 @@ export function padHit(ball, bx, bz, { halfX = 0.2, front = 0.24, back = 0.24, t
 // An edge onto the pad: a batted ball, EDGE.batPadGap s or less after the bat,
 // still going toward the stumps, in the same box.
 export function padHitAfterEdge(ball, bx, bz, box = {}, since = 0) {
-  if (!ball.active || !ball.batted || ball.padded || ball.vel.z <= 0.5 || since > EDGE.batPadGap) return false;
+  if (!ball.active || !ball.batted || ball.padded || ball.thrown || ball.vel.z <= 0.5 || since > EDGE.batPadGap) return false;
   const { halfX = 0.2, front = 0.24, back = 0.24, top = 0.74 } = box;
   const p = ball.pos;
   const hit = p.y < top && Math.abs(p.x - bx) < halfX && p.z > bz - front && p.z < bz + back;
@@ -226,6 +226,7 @@ export class LbwFlow {
     g.say('appeal');
     g.crowdReact('appeal');
     g.ui.prompt(by === 'player' && !(this.outRes && this.outRes.by === 'you') ? 'HOWZAT?! — you appeal' : 'HOWZAT?!', 1.6, '#ffd34d');
+    g.ui.setHud({ big: 'Appeal…', bigColor: '#ffd34d', detail: '' });     // (not the last ball's result)
     if (this.kind === 'lbw') g.sample('pad', { gain: 0.9 });
   }
 
@@ -249,6 +250,7 @@ export class LbwFlow {
     }
     if (!this.playerIsBatter) g.drs.placeBoard(_head, { distance: 9, scale: 2.2, height: 3.4 });
     g.ui.showHud(false);          // the review board takes its place
+    g.ui.setHud({ big: 'Under review…', bigColor: '#7fd3ff' });
     g.umpires.signal('review', g.clock);
     g.say('review');
     g.ui.prompt(byPlayer ? 'You review the decision' : this.playerIsBatter ? 'The fielding side reviews' : 'The batter reviews', 2.5, '#7fd3ff');
@@ -272,7 +274,11 @@ export class LbwFlow {
       const R = g.input.right;
       if (this.t > 0.2) {
         g.hint([HINTS.appeal], 0.4);
-        if (!this.windowTold) { this.windowTold = true; g.ui.prompt(`No appeal — ${g.input.xr ? 'B' : 'X'} to appeal`, APPEAL.window - 0.2, '#cfe3f5'); }
+        if (!this.windowTold) {
+          this.windowTold = true;
+          g.ui.prompt(`No appeal — ${g.input.xr ? 'B' : 'X'} to appeal`, APPEAL.window - 0.2, '#cfe3f5');
+          g.ui.setHud({ big: 'Appeal?', bigColor: '#cfe3f5', detail: '' });
+        }
       }
       if (this.t > 0.15 && R.buttons.b.down) {
         if (R.buttons.b.swallow) R.buttons.b.swallow();
@@ -286,6 +292,7 @@ export class LbwFlow {
       g.sample(out ? 'umpire_out' : 'umpire_not_out');
       if (this.kind === 'lbw' || !out) g.say('lbw_call', { out: this.kind === 'lbw' && out });
       g.ui.prompt(out ? (this.kind === 'lbw' ? 'OUT — LBW' : 'OUT — CAUGHT') : 'NOT OUT', 2.2, out ? '#ff5a5a' : '#7dff8a');
+      g.ui.setHud({ big: out ? `Given OUT — ${this.kind === 'lbw' ? 'LBW' : 'CAUGHT'}` : 'NOT OUT', bigColor: out ? '#ff5a5a' : '#7dff8a' });
       this.phase = 'decision'; this.t = 0;
       // The ball is dead: it doesn't lie about on the pitch through the review.
       if (this.kind === 'lbw') {
@@ -324,6 +331,7 @@ export class LbwFlow {
         g.say('review_result', { overturned: r.out !== this.onFieldOut, umpires_call: r.umpiresCall });
         g.umpires.signal(r.out ? 'out' : 'notout', g.clock);
         g.ui.prompt(r.out ? 'DECISION: OUT' : 'DECISION: NOT OUT', 2.5, r.out ? '#ff5a5a' : '#7dff8a');
+        g.ui.setHud({ big: r.out ? `OUT — ${this.kind === 'lbw' ? 'LBW' : 'CAUGHT'}` : 'NOT OUT', bigColor: r.out ? '#ff5a5a' : '#7dff8a' });
         // The review is over: its tracking line, markers and board go now
         // (the board has already held the decision), and the HUD comes back.
         g.drs.hide();

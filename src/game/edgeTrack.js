@@ -99,9 +99,11 @@ export class ContactLog {
     return this;
   }
 
+  // (A fielder's throw carrying on — ball.thrown, fielding.js relaunch — is
+  // not part of the delivery: it never resets, adds to or moves the log.)
   before(world, t0) {
     const b = world.ball;
-    if (!b.active) return;
+    if (!b.active || b.thrown) return;
     if (b.launchTime !== this.launchT) this.reset(b.launchTime);
     this._vin.copy(b.vel);
     // A pad strike happens between steps (the session deflects the ball):
@@ -114,6 +116,7 @@ export class ContactLog {
 
   after(world, t0, t1, n) {
     const b = world.ball;
+    if (b.thrown) return;
     for (let i = n; i < world.events.length; i++) {
       const e = world.events[i];
       if (e.type === 'bat') {
