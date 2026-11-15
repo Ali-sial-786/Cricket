@@ -358,7 +358,8 @@ export class Replay {
     const prev = this.camPrev;
     const speed = prev && dt > 0 ? Math.hypot(c.x - prev.x, c.z - prev.z) / dt : 0;
     const turn = prev && dt > 0 ? Math.abs(c.yaw - prev.yaw) / dt : 0;
-    this.camPrev = { x: c.x, z: c.z, yaw: c.yaw };
+    const cp = this.camPrev || (this.camPrev = { x: 0, z: 0, yaw: 0 });          // (no allocation per frame)
+    cp.x = c.x; cp.z = c.z; cp.yaw = c.yaw;
     const bm = g.ballView.mesh.position;
     if (g.input.xr) {
       // The rig carries the point of the room your head was at when the replay

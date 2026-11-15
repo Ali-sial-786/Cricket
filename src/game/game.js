@@ -34,6 +34,7 @@ import { UmpireView } from '../render/umpires.js';
 import { BatGeometry } from '../physics/bat.js';
 import { Runs } from './running.js';
 import { ShadowPool, Humanoid } from '../render/humanoid.js';
+import { FrameLog } from './frameLog.js';
 
 export const BAT_HEAD = { z: -1.05, legOffset: -0.35 };      // head relative to guard (hand) x
 export const BOWL_HEAD = { x: 0.75, z: -19.6 };
@@ -169,6 +170,29 @@ export class Game {
     this.ui.setBoard(['CREASE VR', 'Welcome', 'Nets · Run Chase · Bowl an Over · Match']);
     this.ui.openMenu('main');
     this.prewarm();
+    // Long frames (src/game/frameLog.js), sampled by the animation loop (main.js): window.__longFrames.
+    this.frameLog = new FrameLog();
+    if (typeof window !== 'undefined') { window.__longFrames = this.frameLog.entries; window.__frameLog = this.frameLog; }
+  }
+
+  // The animation loop's measure of one frame (main.js): ms spent in frame() + render().
+  sampleFrame(now, work) {
+    const i = this.renderer && this.renderer.info;
+    if (!i) return;
+    this.frameLog.sample(now, work, { programs: i.programs ? i.programs.length : 0, textures: i.memory.textures, geometries: i.memory.geometries }, () => this.frameContext());
+  }
+
+  // What was going on (for a long frame): game / session state, the replay's time and phase.
+  frameContext() {
+    const s = this.session, R = this.replay, c = R && R.active ? R.clip : null;
+    const mem = typeof performance !== 'undefined' && performance.memory ? +(performance.memory.usedJSHeapSize / 1e6).toFixed(1) : null;
+    return {
+      clock: +this.clock.toFixed(2), state: this.state, xr: !!this.input.xr, menu: !!(this.ui && this.ui.menuOpen),
+      session: s ? `${s.kind}:${s.state}` : null,
+      replay: c ? { t: +(R.rt - c.start).toFixed(2), phase: R.rt < c.release ? 'run-up' : R.rt < c.key ? 'delivery' : c.dead != null && R.rt >= c.dead ? 'tail' : 'play', job: !!R.job }
+        : R && R.pending ? 'due' : null,
+      heapMB: mem,
+    };
   }
 
   // Everything that is drawn only now and then (the DRS review and its board,
