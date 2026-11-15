@@ -180,6 +180,11 @@ export class Game {
     const i = this.renderer && this.renderer.info;
     if (!i) return;
     this.frameLog.sample(now, work, { programs: i.programs ? i.programs.length : 0, textures: i.memory.textures, geometries: i.memory.geometries }, () => this.frameContext());
+    // (debug setting: the count on the HUD footer, between balls)
+    if (this.settings.debugFrames && this.frameLog.count !== this._longShown && this.ui) {
+      this._longShown = this.frameLog.count;
+      this.ui.setHud({ footer: `${this.session ? this.session.footer() : this.footerText()} · long frames ${this.frameLog.count}` });
+    }
   }
 
   // What was going on (for a long frame): game / session state, the replay's time and phase.
