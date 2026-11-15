@@ -24,6 +24,7 @@ import { CrowdAudio } from '../audio/crowd.js';
 import { MRPlacer } from '../xr/mr.js';
 import { AIBatter } from './aiBatter.js';
 import { BatterView, BowlerView, FieldView, NonStrikerView, PlayerBodyView } from '../render/people.js';
+import { BatterCrew } from '../render/crew.js';
 import { FIELD } from './fielding.js';
 import { Particles } from '../render/particles.js';
 import { Samples } from '../audio/samples.js';
@@ -83,6 +84,11 @@ export class Game {
     this.figures = { bowler: new BowlerView(scene) };
     this.fieldView = new FieldView(scene, FIELD);
     this.nonStrikerView = new NonStrikerView(scene);
+    // Who walks where between balls (batters changing ends, off and in at a wicket).
+    this.crew = new BatterCrew(this, scene);
+    this.batterView.crew = this.nonStrikerView.crew = this.crew;
+    // (the AI bowler is drawn by his own figure and, when he fields, by a fielder's: the same man)
+    this.fieldView.actors[this.fieldView.actors.length - 1].h.copyLook(this.figures.bowler.actor.h);
     this.runs = new Runs(CONFIG);
     this.umpires = new UmpireView(scene);
     this.drs = new DRSView(scene);
@@ -636,6 +642,7 @@ export class Game {
       this.playerBody.actor.h.setGhost(false); this.playerBowler.h.setGhost(false);
       this.playerBody.replayArms(this.replay.rt);     // (the replay poses joints only: the arms as long as they were then)
       if (this.playerBowler.showHand) this.playerBowler.showHand(null);
+      if (this.session && this.session.field) this.crew.duringReplay(realDt);   // (a batter walking off / in keeps going)
       this.replay.placeOverlays(this.eye, realDt);
       this.ballFinder.hide();
       Humanoid.updateLods(this.eye.p);
@@ -866,7 +873,7 @@ export class Game {
     const lookBall = b.active ? _look.set(b.pos.x, b.pos.y, b.pos.z) : (this.ballOverride ? _look.set(this.ballOverride.pos.x, this.ballOverride.pos.y, this.ballOverride.pos.z) : null);
     const pdt = paused ? 0 : dt;
     this.batterView.update(this.simTime, pdt || 1e-4, lookBall);
-    this.nonStrikerView.update(pdt || 1e-4, this.simTime, { backingUp: !!(this.session && this.session.backingUp && this.session.backingUp()), ball: lookBall });
+    this.nonStrikerView.update(pdt || 1e-4, this.simTime, { backingUp: this.nonStrikerBacksUp(), ball: lookBall, watch: this.bowlerSpot(_watch) });
     if (!this.session || !this.session.field) {
       if (!this.session || this.session.isBowling || this.session.bowler !== 'ai') this.figures.bowler.show(false);
     }
@@ -876,7 +883,9 @@ export class Game {
     const replaying = !!(this.replay && this.replay.active);
     const batting = !!(this.session && !this.session.isBowling && this.end === 'batting');
     const deskThird = !this.input.xr && (this.desktopView % 5) !== 1 && !(this.session && this.session.isBowling) && this.end === 'batting';
-    const runnerOut = this.batterView.runnerOnly && this.batterView.shown;     // a runner has taken over
+    // A runner in your kit has taken over: your (solid) figure fades out as he fades in beside it.
+    const cover = this.batterView.runnerOnly && this.batterView.shown ? (this.batterView.actor.h.fade ?? 1) : 0;
+    const runnerOut = cover > 0.5;
     if (!replaying) {
       // Your figure is your height: sized from the tallest you have stood in the headset.
       if (this.input.xr) {
@@ -895,7 +904,9 @@ export class Game {
       // know where your feet are in the crease.
       const ghost = batting && this.input.xr && !behind && !this.viewOverride && !this.mr && this.settings.ownBody !== false;
       this.playerBody.actor.h.setGhost(ghost);
-      this.playerBody.show((deskThird || ((behind || ghost) && batting)) && !runnerOut);
+      // (through your own eyes the faint body stays under you: it is where you stand)
+      if (!ghost) this.playerBody.actor.h.setFade(1 - cover);
+      this.playerBody.show((deskThird || ((behind || ghost) && batting)) && (ghost || cover < 0.98));
       this.playerBody.actor.h.replayVisible = batting && !runnerOut;      // replays show your body
       this.batReplayVisible = !runnerOut;                                 // …and your bat, unless your runner has it
       const bowling = !!(this.session && this.session.isBowling);
@@ -915,6 +926,25 @@ export class Game {
     this.updateBallFinder(paused ? 0 : dt);
   }
 
+  // The non-striker backs up as the ball is bowled, not all through the
+  // run-up: from the bowler's last strides (the AI: 0.8 s before release;
+  // you: your delivery stride) until the ball is hit or dead.
+  nonStrikerBacksUp() {
+    const ses = this.session;
+    if (!ses || !ses.backingUp || !ses.backingUp()) return false;
+    if (ses.state === 'live') return true;
+    if (ses.isBowling) return !!(ses.run && ses.run.canRelease);
+    const run = this.figures.bowler.actor.run;
+    return ses.state === 'runup' && !!run && this.simTime > run.tr - 0.8;
+  }
+  // Where the bowler is (for the non-striker to watch): the AI's figure, or you.
+  bowlerSpot(out) {
+    const ses = this.session;
+    if (ses && ses.isBowling) { const p = this.bowlerHead().p; return out.set(p.x, p.y, p.z); }
+    const a = this.figures.bowler.actor;
+    return a.visible ? out.set(a.pos.x, 1.5, a.pos.z) : null;
+  }
+
   // Kit colours: the player's team is 'home'.
   setTeams(playerBatting) {
     const bat = playerBatting ? 'home' : 'away', bowl = playerBatting ? 'away' : 'home';
@@ -922,6 +952,7 @@ export class Game {
     this.figures.bowler.setTeam(bowl);
     this.batterView.setTeam(bat);
     this.nonStrikerView.setTeam(bat);
+    this.crew.setTeam(bat);
   }
 
   // After an odd number of runs the batters have changed ends.
@@ -999,6 +1030,7 @@ const _look = new THREE.Vector3();
 const _dbs = new THREE.Vector2();
 const _ro = new THREE.Vector3(), _rd = new THREE.Vector3();
 const _lk = new THREE.Vector3();
+const _watch = new THREE.Vector3();
 
 // Run-up floor marks: a white line at the top of your mark, an amber one where
 // you are committed (inside it the run carries you to the crease).

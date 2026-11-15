@@ -5,48 +5,98 @@ import { FielderActor, BowlerActor, BatterActor } from './actors.js';
 import { toV3, toQ } from './util.js';
 import { sstep, clamp } from './anim.js';
 import { CONFIG } from '../config.js';
+import { walkTask, stepWalk, fadeNearHead } from './crew.js';
 
-// While the runner in your kit is this close to your head he is not drawn
-// (you are looking out through his eyes as he sets off / comes home).
-const RUNNER_HIDE = 1.5;
+// The runner in your kit is not drawn close to your head (you are looking out
+// through his eyes as he sets off / comes home): he fades in as he leaves you
+// and out as he comes back (crew.js FADE_NEAR / FADE_FAR), never in one frame.
 // An AI batter standing about keeps this far from your head.
 const STAND_CLEAR = 1.4;
+const NO_OBS = [];
 
 const _p = new THREE.Vector3(), _q = new THREE.Quaternion(), _look = new THREE.Vector3(), _hf = new THREE.Vector3(), _ax = new THREE.Vector3(), _sw = new THREE.Vector3();
 
 // AI striker: posed around the AIBatter's analytic bat; runs when runs are taken.
+// When you bat (runnerOnly) the same view is the runner in your kit.
 export class BatterView {
   constructor(scene, ai) {
     this.ai = ai;
     this.actor = new BatterActor(scene, { team: 'away', seed: 11 });
     this.pose = new Pose();
     this.show(false);
-    this.running = null;   // {x, z, speed, heading} supplied by RunningController
+    this.running = null;   // {x, z, speed, heading} supplied by the running logic
     this.avoid = null;     // the player's head (world), when someone has set it
+    this.crew = null;      // BatterCrew (who walks where between balls)
+    this.blend = null;     // walking in -> taking guard
+    this.wasBat = false;
   }
-  show(v) { this.shown = v; this.actor.visible = v; }
+  // (your runner starts out not drawn: he fades in as he leaves you)
+  show(v) { if (v && !this.shown && this.runnerOnly) this.actor.h.setFade(0); this.shown = v; this.actor.visible = v; if (!v) this.actor.h.replayVisible = false; }
   setTeam(team) { this.actor.h.setTeam(team); }
+  obstacles(a) { return this.crew ? this.crew.obstacles(a) : NO_OBS; }
   update(t, dt = 1 / 72, ball = null) {
     if (!this.shown) return;
     const a = this.actor;
+    // Walking somewhere between balls (crew.js): to take guard, or into you.
+    if (a.task) {
+      const k = a.task;
+      // (from his stance into the walk: cross-faded from the pose he was in, bat and all)
+      if (this.wasBat) { a.handover(); this.wasBat = false; a.rebase(a.h.root.position.x, a.h.root.position.z); }
+      if (k.kind === 'merge' && this.avoid) k.to = this.avoid;
+      const there = stepWalk(a, dt, this.obstacles(a));
+      let fade = 1;
+      if (k.kind === 'merge') {
+        // (he may already be close to you when he turns into "you": the fade still takes its time)
+        fade = Math.max(fadeNearHead(Math.hypot(a.pos.x - k.to.x, a.pos.z - k.to.z)), (a.h.fade ?? 1) - 2.5 * dt);
+        if (fade <= 0.01) { a.task = null; a.h.setFade(0); this.show(false); return; }
+      } else if (k.kind === 'in') fade = sstep(0, 0.9, k.age);
+      a.h.setFade(fade);
+      a.h.replayVisible = fade > 0.5;
+      a.updateMoving(dt, t, ball);
+      this.wasBat = false;
+      if (there) { a.task = null; a.h.setFade(1); if (!this.runnerOnly) this.blend = { snap: a.h.snapshot(), p: a.bat.position.clone(), q: a.bat.quaternion.clone(), t: 0 }; }
+      return;
+    }
     if (this.running) {
+      // (from the shot into the run: cross-faded from the pose he was in, bat and all)
+      let rx = null, rz = null;
+      if (this.wasBat) { a.handover(); this.wasBat = false; rx = a.h.root.position.x; rz = a.h.root.position.z; }
+      this.blend = null;
       a.pos.set(this.running.x, 0, this.running.z);
-      // Your own runner is not drawn round your head.
-      if (this.runnerOnly) a.visible = !(this.avoid && Math.hypot(a.pos.x - this.avoid.x, a.pos.z - this.avoid.z) < RUNNER_HIDE);
-      if (!a.visible) return;
+      if (rx != null) a.rebase(rx, rz);          // (the run starts under his pelvis: the body stays where the shot left it)
+      // Your own runner is not drawn round your head: he fades as he leaves / rejoins you.
+      let fade = this.runnerOnly && this.avoid ? fadeNearHead(Math.hypot(a.pos.x - this.avoid.x, a.pos.z - this.avoid.z)) : 1;
+      const was = a.h.fade ?? 1;
+      fade = clamp(fade, was - 4 * dt, was + 4 * dt);
+      a.h.setFade(fade);
+      a.h.replayVisible = fade > 0.5;
       a.speed = this.running.speed;
-      a.turnToward(this.running.heading, dt, 9);
+      a.turnToward(this.running.heading, dt, this.running.moving ? 7 : 4.5);
       if (this.running.dive) a.updateDive(dt, t, this.running.dive); else a.updateMoving(dt, t, ball, false);
       return;
     }
+    if (this.runnerOnly) { a.h.setFade(0); return; }       // (your runner with nowhere to go: not drawn)
+    a.h.setFade(1);
+    a.h.replayVisible = true;
     this.ai.poseAt(t, this.pose);
     toV3(_p, this.pose.p);
     toQ(_q, this.pose.q);
     const plan = this.ai.plan;
     if (plan) { this._plan = this._plan || {}; Object.assign(this._plan, plan); this._plan.Tc = plan.TcTo ?? plan.Tc; }
+    // He has just walked in: the bat comes round from where he carried it and
+    // the body settles into the stance over a few tenths.
+    const B = this.blend;
+    let w = 1;
+    if (B) { B.t += dt; w = sstep(0, 0.45, B.t); _p.lerpVectors(B.p, _p, w); _q.copy(B.q).slerp(toQ(_bq, this.pose.q), w); }
     a.updateBatting(dt, _p, _q, { t, plan: plan ? this._plan : null, adv: this.ai.advanceAt(t), ball });
+    if (B) {
+      if (w >= 1) this.blend = null;
+      else { a.h.blendFrom(B.snap, w); a.h.update(); a.h.clearFoot('L'); a.h.clearFoot('R'); a.h.syncShadow(); }
+    }
+    this.wasBat = true;
   }
 }
+const _bq = new THREE.Quaternion();
 
 // AI bowler wrapper (keeps the session API).
 export class BowlerView {
@@ -58,6 +108,10 @@ export class BowlerView {
   show(v) { this.actor.visible = v; }
   setTeam(team) { this.actor.h.setTeam(team); }
   startRunup(t, releasePos, kind) { this.actor.startRunup(t, releasePos, kind); }
+  // The next ball's run-up: he walks to the top of it and turns; atMark(): he is there.
+  setMark(releasePos, kind) { this.actor.setMark(releasePos, kind); }
+  atMark() { return !this.actor.visible || this.actor.atMark(); }
+  hurry() { this.actor.hurry = true; }
   update(dt, t) { return this.actor.visible ? this.actor.update(dt, t) : false; }
   holdingBall() { return this.actor.visible && this.actor.holdingBall(); }
   handPos(out) { return this.actor.handPos(out, 'R'); }
@@ -147,66 +201,119 @@ const BODY_PTS = ['hips', 'chest', 'head', 'kneeL', 'kneeR', 'ankleL', 'ankleR',
 const _pts = BODY_PTS.map(() => new THREE.Vector3()), _bodies = [], _hipsW = [], _far = new THREE.Vector3(1e4, 0, 1e4);
 const BODY_GAP = 0.32;       // any joint of a lunging body to another's trunk axis (trunk ~0.17 + limb ~0.1 + a little)
 
-// Non-striker at the bowler's end: leans on the bat, backs up as the ball is
-// bowled, runs when runs are taken.
+// Non-striker at the bowler's end: stands side-on at his crease leaning on
+// the bat and watching the bowler, backs up as the ball is bowled, runs when
+// runs are taken. He is never put anywhere: whenever he is away from where he
+// should stand (after running, the bowler changing sides of the wicket, you
+// standing on his spot) he walks there, and the next ball waits for him.
+const NS_Z = -19.0;          // just behind the popping crease (bat grounded in his ground)
+const NS_BACKUP = 1.5;       // m he walks down the pitch as the ball is bowled
 export class NonStrikerView {
   constructor(scene) {
     this.actor = new BatterActor(scene, { team: 'home', seed: 23 });
-    this.home = new THREE.Vector3(-1.35, 0, -18.75);
-    this.actor.place(this.home.x, this.home.z, 0);
+    this.home = new THREE.Vector3(-1.35, 0, NS_Z);
+    this.actor.place(this.home.x, this.home.z, this.restFace());
     this.running = null;
     this.backing = 0;
     this.visible = false;
+    this.moving = false;                     // on his way somewhere (not yet settled for the next ball)
     this.avoid = null;                       // the player's head (world), when someone has set it
     this.side = new THREE.Vector3();         // stepped aside out of the player's way
+    this.crew = null;
+    this.goal = { x: this.home.x, z: this.home.z };
     this.show(false);
   }
-  show(v) { this.visible = v; this.actor.visible = v; }
+  show(v) { this.visible = v; this.actor.visible = v; if (!v) this.actor.h.replayVisible = false; }
   setTeam(team) { this.actor.h.setTeam(team); }
+  // Side-on, chest toward the pitch and opened a little down it; his head turns to the bowler.
+  restFace() { return (this.home.x <= 0 ? 1 : -1) * (Math.PI / 2 - 0.5); }
+  obstacles(a) { return this.crew ? this.crew.obstacles(a) : NO_OBS; }
   update(dt, t, opts = {}) {
     if (!this.visible) return;
     const a = this.actor;
     const ball = opts.ball || null;
     if (this.running) {
+      a.task = null;
+      a.h.setFade(1); a.h.replayVisible = true;
       a.pos.set(this.running.x, 0, this.running.z);
       a.speed = this.running.speed;
-      a.turnToward(this.running.heading, dt, 9);
+      a.turnToward(this.running.heading, dt, this.running.moving ? 7 : 4.5);
       if (this.running.dive) a.updateDive(dt, t, this.running.dive); else a.updateMoving(dt, t, ball, false);
+      this.moving = true;
       return;
     }
-    // Back up during the run-up, drift back afterwards.
-    const target = opts.backingUp ? 1.6 : 0;
-    this.backing += clamp(target - this.backing, -dt * 1.2, dt * 1.3);
-    // Out of the player's way: if you are where he would stand he steps aside
-    // (walking, not popping) to the edge of your space, and back when you go.
-    const { x: ox, z: oz } = this.clearOffset();
-    const sx = ox - this.side.x, sz = oz - this.side.z, sd = Math.hypot(sx, sz), step = 2.0 * dt;
-    if (sd > step) { this.side.x += sx / sd * step; this.side.z += sz / sd * step; } else this.side.set(ox, 0, oz);
-    const px = this.home.x + this.side.x, pz = this.home.z + this.backing + this.side.z;
-    const dz = Math.hypot(px - a.pos.x, pz - a.pos.z);
-    a.speed = dz > 0.02 ? Math.min(2.0, dz / Math.max(dt, 1e-3)) : 0;
-    a.pos.set(px, 0, pz);
-    a.turnToward(0, dt, 4);
-    if (a.speed > 0.3) a.updateMoving(dt, t, ball);
-    else a.updateLeaning(dt, t, ball || _look.set(0, 1.0, -1));
-  }
-  reset() {
-    this.running = null; this.backing = 0;
+    // Backing up: a few steps down the pitch as the ball is bowled.
+    const backing = !!opts.backingUp && !a.task;
+    if (backing) this.backing = Math.min(NS_BACKUP, this.backing + dt * 1.5);
+    else this.backing = 0;
+    // Out of the player's way: if you are where he would stand he stands at the edge of your space.
     const o = this.clearOffset();
     this.side.set(o.x, 0, o.z);
-    this.actor.place(this.home.x + o.x, this.home.z + o.z, 0);
+    const G = this.goal;
+    G.x = this.home.x + o.x; G.z = this.home.z + o.z;
+    const look = ball || opts.watch || _look.set(0.5, 1.3, -30);
+    if (backing) {
+      // facing down the pitch, walking forward
+      const pz = this.home.z + o.z + this.backing, dz = pz - a.pos.z;
+      a.speed = Math.abs(dz) > 0.005 ? Math.min(1.6, Math.abs(dz) / Math.max(dt, 1e-3)) : 0;
+      a.pos.z += clamp(dz, -1.6 * dt, 1.6 * dt);
+      a.pos.x += clamp(G.x - a.pos.x, -1.0 * dt, 1.0 * dt);
+      a.turnToward(0, dt, 4);
+      a.h.setFade(1); a.h.replayVisible = true;
+      if (a.speed > 0.3) a.updateMoving(dt, t, ball); else a.updateLeaning(dt, t, look);
+      this.moving = false;
+      return;
+    }
+    const d = Math.hypot(G.x - a.pos.x, G.z - a.pos.z);
+    if (!a.task && d > 0.12) a.task = walkTask(G, this.restFace(), { speed: d > 6 ? 3.4 : 1.7 });
+    if (a.task) {
+      const k = a.task;
+      k.to = G; k.face = this.restFace();
+      const there = stepWalk(a, dt, this.obstacles(a));
+      const fade = k.kind === 'in' ? sstep(0, 0.9, k.age) : 1;
+      a.h.setFade(fade); a.h.replayVisible = fade > 0.5;
+      a.updateMoving(dt, t, ball);
+      if (there) { a.task = null; a.h.setFade(1); }
+      this.moving = !there;
+      return;
+    }
+    a.speed = 0;
+    a.turnToward(this.restFace(), dt, 3);
+    a.h.setFade(1); a.h.replayVisible = true;
+    a.updateLeaning(dt, t, look);
+    this.moving = false;
+  }
+  // He walks to his mark (task: one he already has, e.g. coming in from the gate).
+  walkHome(task = null) {
+    const a = this.actor, o = this.clearOffset();
+    this.running = null; this.backing = 0;
+    this.goal.x = this.home.x + o.x; this.goal.z = this.home.z + o.z;
+    if (task) { task.to = this.goal; task.face = this.restFace(); a.task = task; }
+    else if (Math.hypot(this.goal.x - a.pos.x, this.goal.z - a.pos.z) > 0.12) a.task = walkTask(this.goal, this.restFace(), { speed: Math.hypot(this.goal.x - a.pos.x, this.goal.z - a.pos.z) > 6 ? 3.4 : 1.7 });
+    this.moving = !!a.task;
+  }
+  // Stood on his mark at once: only when nobody can see it (a session starting or ending).
+  reset() {
+    this.running = null; this.backing = 0; this.moving = false;
+    const o = this.clearOffset();
+    this.side.set(o.x, 0, o.z);
+    this.actor.task = null;
+    this.actor.h.setFade(1);
+    this.actor.cut();
+    this.actor.speed = 0;
+    this.actor.place(this.home.x + o.x, this.home.z + o.z, this.restFace());
   }
   // Offset from his mark that keeps him out of the player's space.
   clearOffset() {
-    const hp = this.avoid, gx = this.home.x, gz = this.home.z + this.backing;
+    const hp = this.avoid, gx = this.home.x, gz = this.home.z;
     if (!hp) return { x: 0, z: 0 };
     const dx = gx - hp.x, dz = gz - hp.z, d = Math.hypot(dx, dz);
     if (d >= STAND_CLEAR) return { x: 0, z: 0 };
     const ux = d > 1e-3 ? dx / d : (this.home.x >= hp.x ? 1 : -1), uz = d > 1e-3 ? dz / d : 0;
     return { x: hp.x + ux * STAND_CLEAR - gx, z: hp.z + uz * STAND_CLEAR - gz };
   }
-  // Stand on the far side from the bowler's run-up (+1: bowler over the wicket on +X).
-  setSide(side) { this.home.x = -1.35 * side; if (!this.running) { const o = this.clearOffset(); this.side.set(o.x, 0, o.z); this.actor.place(this.home.x + o.x, this.home.z + this.backing + o.z, 0); } }
+  // Stand on the far side from the bowler's run-up (+1: bowler over the wicket on +X): he walks across.
+  setSide(side) { this.home.x = -Math.abs(this.home.x) * side; }
 }
 
 // Both batters running between the wickets. Progress p counts runs (1.0 =

@@ -16,6 +16,8 @@ const ss = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
 
 // Lanes either side of the pitch, and how wide of the player's head a runner passes.
 const LANE = 0.85;
+const LIE = 0.25;            // s a diver lies where he stopped before he starts to get up
+const DIVE_PUSH = 20;        // m/s^2: the push into a dive, up to the dive's speed
 export const RUNNER_CLEAR = 1.4;
 
 export class Runs {
@@ -41,6 +43,9 @@ export class Runs {
     this.diveWho = null;     // 'striker' | 'nonStriker': which batter is diving
     this.diveEnd = null;     // the end to dive for ('batting' | 'bowling'); null = the striker's
     this.down = 0;           // s left on the ground after a dive
+    this.rest = 0;           // s since the diver came to rest
+    this.stay = false;       // stay down for now (the third umpire is looking at it): set by the controller
+    this.safe = false;       // the run in progress was judged safe (makeGround): it is being finished off
     this.diveStarted = false;// set on the frame a dive launches (cleared by whoever reads it)
     this.t0 = 0;
     this.sStart = { x: -0.4, z: -1.1 };
@@ -106,26 +111,43 @@ export class Runs {
     else if (this.remaining > (boundary ? 0.12 : 0.3) && !this.goingBack) this.target = Math.floor(this.p + 1e-6);
   }
 
+  // The throw has arrived and the batters were home (or near enough to be
+  // given in): the run counts. They are not moved: they run (or slide) the
+  // last of it as they were going. Returns the runs completed, this one included.
+  makeGround() {
+    const runs = this.running ? Math.round(this.target) : this.completed;
+    if (this.running) this.safe = true;
+    this.closed = true; this.boundary = false;
+    this.diveWanted = false; this.diveHeld = false;
+    this.official = { completed: runs, crossed: runs % 2 === 1 };
+    return runs;
+  }
+
   update(dt) {
     if (!this.active) { this.rate = 0; return; }
     const F = this.cfg.field;
     const prev = this.p;
-    if (this.down > 0 && !this.running) this.down = Math.max(0, this.down - dt);
+    if (this.down > 0 && !this.running) {
+      this.rest += dt;
+      // (lying where he landed while the third umpire looks at it; then up)
+      if (!(this.stay && this.down >= F.getUp - LIE)) this.down = Math.max(0, this.down - dt);
+    }
     if (this.running) {
       const first = this.completed === 0 && !this.goingBack && this.p < 1;
       let rate = 1 / (first ? F.runFirst : F.runNext);
       if (first) rate *= 0.55 + 0.9 * ss(0, 0.35, this.p);            // getting going from a standing start
-      if (this.closed) rate *= this.boundary ? 0.4 : 0.6;             // ball dead: easing up (walking, after a boundary)
+      if (this.closed && !this.safe) rate *= this.boundary ? 0.4 : 0.6;   // ball dead: easing up (walking, after a boundary)
       const left = this.remaining * CREASE_TO_CREASE;
       if (!this.diving && !this.closed && (this.diveHeld || this.diveWanted) && left <= F.diveFrom && left > 0.4) {
         this.diving = true; this.diveStarted = true; this.diveT = 0;
-        this.diveV = Math.max(F.diveSpeed, rate * CREASE_TO_CREASE);
+        this.diveV = rate * CREASE_TO_CREASE;                 // (leaves the ground at the speed he was running: no jump in speed)
         const end = this.diveEnd || (this.headingTo('bowling') === 'striker' ? 'bowling' : 'batting');
         this.diveWho = this.headingTo(end);
       }
       if (this.diving) {
         this.diveT += dt;
         if (this.diveT > 0.3) this.diveV = Math.max(2.5, this.diveV - F.diveSlide * dt);    // down and sliding
+        else if (this.diveV < F.diveSpeed) this.diveV = Math.min(F.diveSpeed, this.diveV + DIVE_PUSH * dt);   // the push off the ground
         rate = this.diveV / CREASE_TO_CREASE;
       }
       const d = this.target - this.p;
@@ -133,7 +155,7 @@ export class Runs {
       this.p += Math.sign(d) * step;
       if (Math.abs(this.target - this.p) < 1e-6) {
         this.p = this.target;
-        if (this.diving) this.down = F.getUp;
+        if (this.diving) { this.down = F.getUp; this.rest = 0; }
         this.diving = false; this.diveWanted = false;
       }
     }
@@ -199,7 +221,10 @@ export class Runs {
     const dir = Math.sign(z1 - z0) * (this.rate < 0 ? -1 : 1);
     // The dive (and the moment on the ground after it) belongs to one batter.
     const mine = (striker ? 'striker' : 'nonStriker') === this.diveWho;
-    const dive = mine && this.diving ? { t: this.diveT, down: 0 } : mine && this.down > 0 ? { t: this.diveT, down: F_GETUP(this) - this.down } : null;
+    // dive: { t: s since the launch, down: s since he came to rest (0: still moving), up: 0..1 getting up }
+    const G = F_GETUP(this);
+    const dive = mine && this.diving ? { t: this.diveT, down: 0, up: 0 }
+      : mine && this.down > 0 ? { t: this.diveT, down: Math.max(1e-3, this.rest), up: Math.min(1, Math.max(0, (G - this.down - LIE) / Math.max(1e-3, G - LIE))) } : null;
     const heading = (dive && !this.diving ? this.diveDir : dir) >= 0 ? 0 : Math.PI;
     if (this.diving) this.diveDir = dir;
     return { x, z, speed: Math.abs(this.rate) * CREASE_TO_CREASE, heading, moving, diving: !!dive, dive, f };

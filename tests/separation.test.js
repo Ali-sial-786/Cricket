@@ -53,7 +53,9 @@ test('separate: fielders, the keeper (wider), umpires, batters and the stumps al
   const f = new Fielding({ rng: makeRng(3) });
   const F = f.fielders;
   // pile everyone up on one spot next to the keeper, an umpire and the stumps
-  for (const p of F) { p.pos.set(0.3 + Math.random() * 0.05, 0, 1.0 + Math.random() * 0.05); p.action = null; }
+  // (the AI bowler counts as a fielder's body only while he is out fielding,
+  // `out`: the rest of the time his own figure is the body, an obstacle like the umpires)
+  for (const p of F) { p.pos.set(0.3 + Math.random() * 0.05, 0, 1.0 + Math.random() * 0.05); p.action = null; p.out = !!p.bowler; }
   f.obstacles = [{ x: 1.2, z: 1.0, r: 0.9 }, { x: -0.8, z: 0.4, r: 0.8 }];
   for (let i = 0; i < 400; i++) f.separate();
   for (let i = 0; i < F.length; i++) {
@@ -65,6 +67,20 @@ test('separate: fielders, the keeper (wider), umpires, batters and the stumps al
     assert.ok(Math.hypot(F[i].pos.x, F[i].pos.z - PITCH.battingStumpsZ) > STUMP_CLEAR - 0.02, `${F[i].name} in the stumps`);
     for (const o of f.obstacles) assert.ok(Math.hypot(F[i].pos.x - o.x, F[i].pos.z - o.z) > o.r - 0.02, `${F[i].name} in an obstacle`);
   }
+});
+
+test('separate: the AI bowler\'s idle fielder slot (his own figure is out there) neither pushes nor is pushed', () => {
+  const f = new Fielding({ rng: makeRng(3) });
+  const bw = f.fielders[f.fielders.length - 1], mid = f.fielders[3];
+  assert.ok(bw.bowler && !bw.out);
+  bw.pos.set(5, 0, 5); mid.pos.set(5.2, 0, 5);
+  f.obstacles = [];
+  for (let i = 0; i < 50; i++) f.separate();
+  assert.ok(Math.hypot(bw.pos.x - 5, bw.pos.z - 5) < 1e-9, 'the idle slot was moved');
+  assert.ok(Math.hypot(mid.pos.x - 5.2, mid.pos.z - 5) < 1e-9, 'a fielder was pushed by the idle slot');
+  bw.out = true;
+  for (let i = 0; i < 50; i++) f.separate();
+  assert.ok(Math.hypot(bw.pos.x - mid.pos.x, bw.pos.z - mid.pos.z) > 0.83, 'once fielding he is kept apart');
 });
 
 test('two fielders sent across each other and past an umpire never overlap on the way', () => {
