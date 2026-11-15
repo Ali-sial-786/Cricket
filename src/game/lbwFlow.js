@@ -25,7 +25,7 @@ import { CONFIG } from '../config.js';
 import { PITCH } from '../physics/pitch.js';
 import { predict } from '../physics/trajectory.js';
 import { HINTS } from '../ui/controllerHint.js';
-import { trackLbw, umpireDecision, reviewOutcome, lawOut } from './lbw.js';
+import { trackLbw, umpireDecision, reviewOutcome, lawOut, isMarginal } from './lbw.js';
 import { shouldAppeal } from './bowlingRules.js';
 import {
   ContactLog, edgeTruth, edgeEvidence, edgeInvolved, umpireCaught, umpireHearsEdge, fieldersAppeal,
@@ -74,7 +74,7 @@ export function replanAfterPad(field, ball, t) {
 const ACC = { easy: 0.8, medium: 0.86, hard: 0.92 };
 export const APPEAL = {
   window: 2.6,          // s (real) you have to appeal when the fielders keep quiet
-  quiet: 0.12,          // chance the fielders stay quiet on a shout they would make (unsighted, not sure)
+  quiet: 0.15,          // chance the fielders stay quiet on a close shout they would make (not sure); an obvious one always goes up
   hearEdge: { faint: 0.1, thin: 0.4, thick: 0.75, full: 0.9 },   // the fielders hear an edge onto the pad (then no LBW shout)
 };
 const _head = new THREE.Vector3();
@@ -99,8 +99,9 @@ export class LbwFlow {
     return c ? c.snapshot() : new ContactLog();
   }
 
-  // Would the fielders stay quiet on an LBW shout? (Then, bowling, you can appeal.)
-  fieldersQuiet() { return this.rng() < APPEAL.quiet; }
+  // Would the fielders stay quiet on an LBW shout they could make? Only on a
+  // close one (lbw.js isMarginal); then, bowling, you can appeal yourself.
+  fieldersQuiet(track = null) { return !!track && isMarginal(track) && this.rng() < APPEAL.quiet; }
 
   // The pad strike in the live log now (the log itself would only see it on
   // the next physics step).

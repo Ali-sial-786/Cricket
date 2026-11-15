@@ -575,7 +575,7 @@ export class BowlingSession {
         try { track = trackLbw({ impactState: impact, cfg: CONFIG }); } catch { track = null; }
         // The fielders keep quiet (not out on its face, or unsighted): you can
         // still appeal (B) once the ball is dead, before its replay (lbwFlow.js).
-        const quiet = !shouldAppeal(track, { shotOffered }) || this.lbw.fieldersQuiet();
+        const quiet = !shouldAppeal(track, { shotOffered }) || this.lbw.fieldersQuiet(track);
         this.state = 'review';
         this.lbw.start({ impactState: impact, path: this.path.slice(), shotOffered, playerIsBatter: false, by: quiet ? 'offer' : 'fielders' });
         return;

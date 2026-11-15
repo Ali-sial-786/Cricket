@@ -59,7 +59,7 @@ verdict → replay → next ball). The session reads `this.lbw.result(notOutLbw)
 
 | entry | from | does |
 |---|---|---|
-| `start({ impactState, path, shotOffered, playerIsBatter, by })` | pad strike (both sessions) | `by: 'fielders'` appeal; `'offer'` = your window (bowling, the fielders quiet: `!shouldAppeal(track)` or `fieldersQuiet()` 12%) |
+| `start({ impactState, path, shotOffered, playerIsBatter, by })` | pad strike (both sessions) | `by: 'fielders'` appeal; `'offer'` = your window (bowling, the fielders quiet: `!shouldAppeal(track)`, or `fieldersQuiet(track)`: 15% of close (`isMarginal`) shouts; an obvious one always goes up) |
 | `caught(res, { notOut, path, playerIsBatter })` | `field.result()` is a catch | false (out as it stands) unless `edgeQuestion(truth, { catchDist })`: an edge / glove / bat-pad, a thick edge only if caught within 30 m. Then the fielders appeal (thick 1, thin 0.95, faint 0.7; your own catch always), or you may (bowling), or not out (batting, nobody went up) |
 | `behind({ notOut, path, playerIsBatter })` | the keeper took a ball that beat the bat, batter in his ground | only if it passed within 30 cm (or a noise): fielders appeal (noise 0.6, close 0.42, near 0.12), else your window when within 12 cm or a noise. Not against you on easy |
 | `batPad(ball, at, box, opts)` | an edge (`hit.edge`) then the pad within 0.15 s | deflects it (softer), logs the pad; if the projection says out and the fielders did not hear the edge (faint 0.1 … thick 0.75) → LBW appeal (`'appeal'`), else the fielders plan again (`replanAfterPad`, `'play'`) |
