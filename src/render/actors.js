@@ -51,8 +51,27 @@ export class Actor {
     this.poseKey = '';                         // which kind of pose: a change cross-fades (see smooth())
     this.visible = true;
   }
-  set visible(v) { this._vis = v; if (this.h) this.h.visible = v; }
+  set visible(v) { if (v && !this._vis) this.cut(); this._vis = v; if (this.h) this.h.visible = v; }
   get visible() { return this._vis; }
+  // The figure was not being posed (hidden, or driven by something else): the
+  // next pose stands on its own. Without this smooth() would cross-fade from
+  // whatever he was doing when last seen (a dive, a throw) into the new pose.
+  cut() { this._from = null; this._raw = null; this._shown = null; this._key = undefined; }
+  // Something else posed the figure up to now (a batting stance, another
+  // figure it takes over from): the next smooth() cross-fades from this pose.
+  handover() { this._raw = this.h.snapshot(this._raw || undefined); this._shown = this.h.snapshot(this._shown || undefined); this._key = '(handover)'; this._from = null; }
+  // Take over from another figure of the same man (the AI bowler's own figure
+  // and the fielder's figure that fields for him): same place, facing, size,
+  // stride and pose, so that the swap cannot be seen; the next pose
+  // cross-fades from it.
+  takeOver(o, speed = o.speed) {
+    this.pos.copy(o.pos); this.heading = o.heading; this.speed = speed; this.phase = o.phase; this.idleOff = o.idleOff;
+    this.h.root.scale.copy(o.h.root.scale);
+    this.h.boneList.forEach((b, i) => b.quaternion.copy(o.h.boneList[i].quaternion));
+    this.h.bones.hips.position.copy(o.h.bones.hips.position);
+    this.h.root.position.copy(o.h.root.position); this.h.root.quaternion.copy(o.h.root.quaternion);
+    this.handover();
+  }
   place(x, z, heading = this.heading) { this.pos.set(x, 0, z); this.heading = heading; this.apply(); }
   turnToward(target, dt, rate = 8) {
     const d = angDiff(this.heading, target);
@@ -101,7 +120,7 @@ export class Actor {
   smooth(dt, dur = 0.18, allow = true) {
     const h = this.h;
     const raw = this._raw;
-    const switched = this.poseKey !== this._key;
+    const switched = this._key !== undefined && this.poseKey !== this._key;
     this._key = this.poseKey;
     if (!allow) this._from = null;
     else if (raw && dt > 0) {
@@ -109,7 +128,7 @@ export class Actor {
       h.boneList.forEach((b, i) => { const d = b.quaternion.angleTo(raw.q[i]); if (d > jump) jump = d; });
       if (jump > Math.max(0.7, 25 * dt) || (switched && jump > 0.02)) { this._from = copySnap(this._shown || raw, this._from || undefined); this._bt = 0; }
     }
-    this._raw = h.snapshot(this._raw);
+    this._raw = h.snapshot(this._raw || undefined);
     if (this._from) {
       this._bt += dt;
       const w = sstep(0, 1, this._bt / dur);
@@ -117,7 +136,7 @@ export class Actor {
       // turf half-way, e.g. legs straightening before the hips rise: re-land it.)
       if (w >= 1) this._from = null; else { h.blendFrom(this._from, w); h.update(); settle(h); h.update(); }
     }
-    this._shown = h.snapshot(this._shown);
+    this._shown = h.snapshot(this._shown || undefined);
   }
 
   handPos(out, side = 'R') {
@@ -140,11 +159,13 @@ export class FielderActor extends Actor {
     const h = this.h, t = ctx.t;
     this.pos.set(s.x, 0, s.z);
     this.speed = s.speed;
-    this.turnToward(s.face, dt, this.speed > 1 ? 10 : 5);
+    this.turnToward(s.face, dt, 12);                 // (the logic turns him at a body's pace: Fielding f.yaw)
     this.gait(dt);
     const wantReady = (s.state === 'set' || s.state === 'walkin' || s.state === 'ready') && ctx.delivering ? 1 : 0;
     this.ready += clamp(wantReady - this.ready, -dt * 3, dt * 4);
-    let offX = 0, offZ = 0;
+    // A dive carries the body off its spot (offX / offZ). When the dive is over
+    // the body is not put back: what is left of the offset is walked off.
+    let offX = 0, offZ = 0, lunging = false;
     h.reset();
     const act = s.action;
     const ta = act ? t - act.t0 : 0;
@@ -175,7 +196,8 @@ export class FielderActor extends Actor {
       const sideLocal = lp.side * Math.cos(this.heading) >= 0 ? 1 : -1;      // which way that is for the figure
       poseDive(h, k, sideLocal);
       const lunge = Math.max(0.3, lp.reach || 0.8) * sstep(0, 0.3, k);
-      this.apply(lp.side * lunge, 0);
+      offX = lp.side * lunge; lunging = true;
+      this.apply(offX, 0);
       h.update(); settle(h);                       // down on the turf, not through it
       this.lieDown(k);
       if (k < 0.5) this.reachBoth(_e.set(lp.x, Math.max(0.12, lp.y), this.pos.z - 0.1), 0.6);
@@ -184,7 +206,7 @@ export class FielderActor extends Actor {
       const k = ta / 0.95;
       poseDive(h, k, act.side);
       const lunge = act.lunge * sstep(0, 0.32, k);
-      offX = act.dir.x * lunge; offZ = act.dir.z * lunge;
+      offX = act.dir.x * lunge; offZ = act.dir.z * lunge; lunging = true;
       this.apply(offX, offZ);
       h.update(); settle(h);
       this.lieDown(k);
@@ -238,7 +260,6 @@ export class FielderActor extends Actor {
       poseReady(h, 0.65 * (1 - back * 0.7), true);
       const sx = act.stumps.x - this.pos.x, sz = act.stumps.z - this.pos.z, sd = Math.max(1e-3, Math.hypot(sx, sz));
       const lunge = Math.max(0, sd - 0.62) * k * (1 - back);          // hips (and the front pad) stop short of the stumps, the gloves do the rest
-      this.heading = Math.atan2(sx, sz);
       this.apply(sx / sd * lunge, sz / sd * lunge);
       this.plant(0.26, true);
       const reach = k * (1 - back);
@@ -289,6 +310,14 @@ export class FielderActor extends Actor {
       if (this.ready > 0.01) poseReady(h, this.ready, this.keeper);
       this.apply();
       this.plant(this.keeper ? 0.24 : 0.15, true);
+    }
+    // (the rest of a dive's lunge, walked off at a step's pace)
+    const O = this.off || (this.off = { x: 0, z: 0 });
+    if (lunging) { O.x = offX; O.z = offZ; }
+    else if (O.x || O.z) {
+      const d = Math.hypot(O.x, O.z), st = 1.6 * dt;
+      if (d <= st) { O.x = 0; O.z = 0; } else { O.x -= O.x / d * st; O.z -= O.z / d * st; }
+      h.root.position.x += O.x; h.root.position.z += O.z;
     }
     // Eyes on the ball while it is live (skipped for distant fielders).
     if (ctx.ball && !this.far) h.lookAt(ctx.ball, 0.9);
@@ -426,13 +455,16 @@ export class BowlerActor extends Actor {
   }
 
   // Plan the run-up so the ball in the bowling hand passes through `releasePos`
-  // at `t + duration`. kind: 'long' | 'medium' (seamers / quicks) | 'short' (spinners).
-  startRunup(t, releasePos, kind = 'long') {
+  // `dur` s after it starts. kind: 'long' | 'medium' (seamers / quicks) |
+  // 'short' (spinners). Nothing that can be seen is changed: the figure is
+  // posed to take the measurements and put back as it was.
+  planRunup(releasePos, kind = 'long') {
     const h = this.h;
+    const keep = { snap: h.snapshot(), pos: this.pos.clone(), heading: this.heading, scale: h.root.scale.x, run: this.run, style: this.style, side: this.side,
+      rp: h.root.position.clone(), rq: h.root.quaternion.clone() };
     const st = this.style = kind === 'short' ? BOWL.spin : BOWL.pace;
     const dur = { long: 2.7, medium: 2.3, short: 1.7 }[kind] || 2.7;
     const vTop = { long: 6.4, medium: 5.2, short: 3.3 }[kind] || 6.4;
-    const tr = t + dur;
     const psiR = st.arm.psiR;
     // Measure the shoulder at the release pose with the root at the origin.
     this.run = null;
@@ -469,23 +501,63 @@ export class BowlerActor extends Actor {
       prof.push({ u, z });
       z += vAt(u) * ((dur + 1.2) / N);
     }
-    this.run = { t0: t, tr, dur, prof, rootX, reach, lift: lift / (h.baseScale * scale), released: false, vAt, gait: false };
+    const run = this.run = { t0: 0, tr: dur, dur, prof, rootX, reach, lift: lift / (h.baseScale * scale), released: false, vAt, gait: false, style: st, scale: h.baseScale * scale,
+      kind, rel: { x: releasePos.x, y: releasePos.y, z: releasePos.z } };
     const z0 = this.zAt(0);
     for (const p of prof) p.z += rootZ - z0;
-    this.side = releasePos.x < 0 ? -1 : 1;
-    this.run.wide = 0; this.run.wide2 = 0;
-    this.run.wide = this.stumpClearance(-0.62, -0.1, wideAt, 0.4);
-    this.run.wide2 = this.stumpClearance(-0.14, 0.2, wide2At, 0.08);
-    this.pos.set(rootX, 0, prof[0].z);
-    this.home.set(rootX, 0, prof[0].z);
+    this.side = run.side = releasePos.x < 0 ? -1 : 1;
+    run.wide = 0; run.wide2 = 0;
+    run.wide = this.stumpClearance(-0.62, -0.1, wideAt, 0.4);
+    run.wide2 = this.stumpClearance(-0.14, 0.2, wide2At, 0.08);
+    // put the figure back as it was
+    this.run = keep.run; this.style = keep.style; this.side = keep.side;
+    this.pos.copy(keep.pos); this.heading = keep.heading;
+    h.root.scale.setScalar(keep.scale);
+    h.blendFrom(keep.snap, 0);
+    h.root.position.copy(keep.rp); h.root.quaternion.copy(keep.rq);
+    h.update();
+    return run;
+  }
+
+  // The next ball will be bowled from this run-up: he walks to the top of it
+  // (his mark) and turns to face the batter. The session starts the run-up
+  // once he is there (atMark()).
+  setMark(releasePos, kind = 'long') {
+    this.next = this.planRunup(releasePos, kind);
+    this.home.set(this.next.rootX, 0, this.next.prof[0].z);
+    if (this.state === 'idle') this.state = 'walkback';
+  }
+  atMark() {
+    return this.state === 'idle' && Math.hypot(this.home.x - this.pos.x, this.home.z - this.pos.z) < 0.4 && Math.abs(angDiff(this.heading, 0)) < 0.12;
+  }
+
+  // Start the run-up: the ball in the bowling hand passes through `releasePos`
+  // at `t + duration`. He should be standing on his mark (setMark() / atMark());
+  // if he is not (nobody waited for him) he is stood there.
+  startRunup(t, releasePos, kind = 'long') {
+    const h = this.h, n = this.next;
+    const same = n && n.kind === kind && Math.abs(n.rel.x - releasePos.x) < 1e-6 && Math.abs(n.rel.y - releasePos.y) < 1e-6 && Math.abs(n.rel.z - releasePos.z) < 1e-6;
+    const run = same ? n : this.planRunup(releasePos, kind);
+    this.next = null;
+    run.t0 = t; run.tr = t + run.dur; run.released = false; run.gait = false;
+    this.run = run;
+    this.style = run.style;
+    this.side = run.side;
+    h.root.scale.setScalar(run.scale);
+    const onMark = Math.hypot(run.rootX - this.pos.x, run.prof[0].z - this.pos.z) < 0.45;
+    this.pos.set(run.rootX, 0, run.prof[0].z);
+    this.home.set(run.rootX, 0, run.prof[0].z);
     this.heading = 0;
     this.state = 'runup';
-    // (Until the first update he stands at his mark, not where the release
-    // pose was measured: that was at the origin, the batter's stumps.)
-    h.reset();
-    this.idle(t);
-    this.apply();
-    h.syncShadow();
+    this.hurry = false;
+    if (!onMark) {
+      // (Until the first update he stands at his mark.)
+      this.cut();
+      h.reset();
+      this.idle(t);
+      this.apply();
+      h.syncShadow();
+    }
   }
 
   // Past the stumps in the bound the leading leg swings across the body: on a
@@ -673,14 +745,21 @@ export class BowlerActor extends Actor {
       if (this.speed < 0.9) this.state = 'walkback';
     }
     if (this.state === 'walkback') {
-      if (dist > 0.35) {
+      if (dist > 0.3) {
         const u = steerAmong(this.pos.x, this.pos.z, this.home.x, this.home.z, obs, _st);
         const want = Math.atan2(u.x, u.z);
         const err = Math.abs(angDiff(this.heading, want));
-        this.turnToward(want, dt, 2.2);
-        const vt = Math.min(2.1, 0.3 + dist * 1.2) * clamp(0.45 + 0.7 * Math.cos(err), 0.45, 1);
-        this.speed += clamp(vt - this.speed, -dt * 1.5, dt * 1.2);
+        this.turnToward(want, dt, dist < 1.5 ? 4.5 : 2.4);
+        // (a walk; a jog when it is a long way or the batter is waiting for him)
+        const top = this.hurry ? 4.4 : dist > 16 ? 3.2 : 2.1;
+        const vt = Math.min(top, 0.25 + dist * 1.2) * clamp(0.3 + 0.85 * Math.cos(err), 0.2, 1);
+        this.speed += clamp(vt - this.speed, -dt * 2.5, dt * (this.hurry ? 2.5 : 1.4));
       } else this.state = 'idle';
+    }
+    // (he grows or shrinks to the next ball's bowler a little at a time, never in one frame)
+    if (this.next && this.state !== 'runup') {
+      const sc = h.root.scale.x, d = this.next.scale - sc;
+      if (Math.abs(d) > 1e-5) h.root.scale.setScalar(sc + clamp(d, -0.04 * dt, 0.04 * dt));
     }
     if (this.state === 'runoff' || this.state === 'walkback') {
       this.pos.x += Math.sin(this.heading) * this.speed * dt;
@@ -692,10 +771,14 @@ export class BowlerActor extends Actor {
       this.gait(dt);
       this.locomote(t);
     } else {
+      // At his mark: he turns to face the batter, stepping round (not spun on the spot).
       this.state = 'idle';
-      this.speed = 0;
-      this.turnToward(0, dt, 2.5);
-      this.idle(t);
+      this.speed = Math.max(0, this.speed - dt * 4);
+      const e = angDiff(this.heading, 0);
+      this.turnToward(0, dt, 2.8);
+      if (dist > 0.02 && dist < 0.6) { const k = Math.min(1, 2.5 * dt); this.pos.x += dx * k; this.pos.z += dz * k; }
+      if (Math.abs(e) > 0.1) { const v = this.speed; this.speed = 0.8; this.gait(dt); this.locomote(t); this.speed = v; }
+      else this.idle(t);
     }
     this.poseKey = this.state === 'idle' ? 'idle' : 'move';
     this.apply();
@@ -709,6 +792,8 @@ export class BowlerActor extends Actor {
   }
 
   holdingBall() { return this.state === 'runup' && this.run && !this.run.released; }
+  // From the fielder's figure that fielded for him: he walks back to his mark from there.
+  takeOver(o, speed) { super.takeOver(o, speed); this.state = 'walkback'; }
 }
 const LIFT = [[-0.3, 0], [0, 1], [0.2, 0]];
 // Swinging wide of the stumps in the bound (see stumpClearance): in by the
@@ -773,7 +858,20 @@ export class BatterActor extends Actor {
     this.kneelHipY = (this.h.worldPos('hipR', new THREE.Vector3()).distanceTo(this.h.worldPos('kneeR', new THREE.Vector3())) * 0.93 + KNEEL_PAD) / this.armScale0;
     this.carryBat = false;
   }
-  set visible(v) { this._vis = v; if (this.h) this.h.visible = v; if (this.bat) this.bat.visible = v; }
+  set visible(v) { if (v && !this._vis) this.cut(); this._vis = v; if (this.h) this.h.visible = v; if (this.bat) this.bat.visible = v; }
+  cut() { super.cut(); this._batFrom = null; }
+  // (the bat too: it swings round from where it was to where it is carried)
+  handover() { super.handover(); this._batFrom = { p: this.bat.position.clone(), q: this.bat.quaternion.clone(), t: 0 }; }
+  // Call after the bat has been placed for the frame.
+  batSmooth(dt, dur = 0.28) {
+    const B = this._batFrom;
+    if (!B) return;
+    B.t += dt;
+    const w = sstep(0, 1, B.t / dur);
+    if (w >= 1) { this._batFrom = null; return; }
+    this.bat.position.lerpVectors(B.p, this.bat.position, w);
+    _q.copy(this.bat.quaternion); this.bat.quaternion.copy(B.q).slerp(_q, w);
+  }
   get visible() { return this._vis; }
 
   // Batting: pose the body around a bat pose.
@@ -1657,36 +1755,75 @@ export class BatterActor extends Actor {
     if (look && !diving) h.lookAt(look, 0.8);
     this.smooth(dt);
     this.carry();
+    this.batSmooth(dt);
     h.syncShadow();
   }
 
   // Full-length dive for the crease. dv = { t: s since the launch, down: s
-  // since coming to rest (0 while still moving) }. Tip forward, go horizontal,
-  // land on the chest and slide with the bat stretched out along the ground
-  // in front; then push up again.
+  // since coming to rest (0 while still moving), up: 0..1 getting up }.
+  // A real dive: the last stride throws him forward, a low flat flight of
+  // about a third of a second, down on the chest and thighs with the bat at
+  // full stretch along the ground, sliding in; he lies where he stops for a
+  // moment (as long as the third umpire is looking at it), then pushes up
+  // onto his hands and a knee, onto his feet, and stands.
+  // The body is put on the turf, not held over it: its height is set from the
+  // lowest point of the trunk and thighs (down to the turf from the landing
+  // on), and hands, forearms, shins and boots are kept on top of the turf.
   updateDive(dt, t, dv) {
     const h = this.h, sc = h.root.scale.y;
     this.mode = 'run';
     this.poseKey = 'dive';
-    const u = dv.t, up = dv.down > 0 ? sstep(0.3, 0.85, dv.down) : 0;
-    const go = sstep(0, 0.2, u) * (1 - up);                 // committing: arms and bat thrown forward
-    const flat = sstep(0.08, 0.36, u) * (1 - up);           // body horizontal
-    const ground = sstep(0.26, 0.44, u);                    // chest on the turf
+    const u = dv.t, g = dv.up || 0;
+    const flat = sstep(0, 0.24, u);                         // tipping forward to horizontal
+    const air = 1 - sstep(0.28, 0.4, u);                    // still in the air (1) -> down (0)
+    const reach = sstep(0, 0.16, u);                        // arms and bat thrown forward
+    const rest = dv.down > 0 ? sstep(0, 0.35, dv.down) : 0; // stopped: the head comes up
     h.reset();
-    h.bones.hips.position.y = mix(mix(h.hipsRest.y * 0.9, 0.2 / sc, ground), h.hipsRest.y * 0.8, up);
-    h.rot('hips', 1.46 * flat + 0.45 * go * (1 - flat) + 0.5 * up * (1 - up) * 2, 0, 0);
-    h.rot('spine', -0.16 * flat * ground + 0.3 * go * (1 - flat), 0, 0);
-    h.rot('chest', -0.14 * flat * ground, 0, 0);
-    h.rot('neck', -0.5 * flat, 0, 0); h.rot('head', -0.45 * flat, 0, 0);             // eyes on the line
-    h.rot('shoulderR', -2.95 * go, 0, -0.06); h.rot('elbowR', -0.04, 0, 0);          // bat arm at full stretch
-    h.rot('shoulderL', -2.35 * go, 0, 0.4 * flat); h.rot('elbowL', -0.55 * flat - 0.2, 0, 0);
-    h.rot('hipL', -0.75 * go * (1 - flat) + 0.06 * flat - 0.9 * up * (1 - up) * 2, 0, 0.1); h.rot('kneeL', 0.9 * go * (1 - flat) + 0.12 * flat + 1.2 * up * (1 - up) * 2, 0, 0);
-    h.rot('hipR', 0.5 * go * (1 - flat) + 0.14 * flat, 0, -0.1); h.rot('kneeR', 0.3 * go * (1 - flat) + 0.32 * flat * (1 - ground * 0.5), 0, 0);
-    h.rot('ankleL', 0.95 * flat, 0, 0); h.rot('ankleR', 0.95 * flat, 0, 0);          // toes pointed back
+    if (g <= 0) {
+      h.rot('hips', DIVE_PITCH * flat, 0, 0);
+      h.rot('spine', 0.25 * (1 - flat) - 0.12 * flat - 0.1 * rest, 0, 0);
+      h.rot('chest', -0.1 * flat, 0, 0);
+      h.rot('neck', -0.5 * flat - 0.12 * rest, 0, 0); h.rot('head', -0.42 * flat - 0.1 * rest, 0, 0);     // eyes on the line
+      h.rot('shoulderR', -2.98 * reach, 0, -0.05); h.rot('elbowR', -0.04, 0, 0);                         // bat arm at full stretch
+      h.rot('shoulderL', mix(-2.75, -2.2, 1 - air) * reach, 0, 0.32 * flat); h.rot('elbowL', -0.2 - 0.75 * (1 - air), 0, 0);
+      // the take-off leg trails straight, the other knee drives through and then straightens
+      const drive = reach * (1 - flat);                                                                 // (only as he leaves the ground)
+      h.rot('hipL', -0.95 * drive + 0.05 * flat, 0, 0.09); h.rot('kneeL', 1.2 * drive + (0.5 * air + 0.14 * (1 - air)) * flat, 0, 0);
+      h.rot('hipR', 0.45 * drive + (0.22 * air + 0.1 * (1 - air)) * flat, 0, -0.09); h.rot('kneeR', 0.2 * drive + 0.22 * flat, 0, 0);
+      h.rot('ankleL', 0.95 * flat, 0, 0); h.rot('ankleR', 0.95 * flat, 0, 0);                            // toes pointed back
+    } else {
+      // getting up: prone -> hands and a knee -> crouched on the feet -> standing
+      h.rot('hips', keys(GETUP.pitch, g), 0, 0);
+      h.rot('spine', keys(GETUP.spine, g), 0, 0);
+      h.rot('chest', -0.1 * (1 - g), 0, 0);
+      h.rot('neck', -0.62 * (1 - sstep(0, 0.7, g)), 0, 0); h.rot('head', -0.52 * (1 - sstep(0, 0.7, g)), 0, 0);
+      h.rot('shoulderR', keys(GETUP.shR, g), 0, -0.05); h.rot('elbowR', keys(GETUP.elR, g), 0, 0);
+      h.rot('shoulderL', keys(GETUP.shL, g), 0, 0.32 * (1 - g)); h.rot('elbowL', keys(GETUP.elL, g), 0, 0);
+      h.rot('hipL', keys(GETUP.hipL, g), 0, 0.09); h.rot('kneeL', keys(GETUP.kneeL, g), 0, 0);
+      h.rot('hipR', keys(GETUP.hipR, g), 0, -0.09); h.rot('kneeR', keys(GETUP.kneeR, g), 0, 0);
+      const ank = keys(GETUP.ankle, g);
+      h.rot('ankleL', ank, 0, 0); h.rot('ankleR', ank, 0, 0);
+    }
     this.apply();
-    this.smooth(dt, 0.1);
-    // The bat: out in front of the right hand, toe down on the ground, sliding in.
+    this.smooth(dt, 0.12);
+    // Height. In the air: the underside of the trunk follows the flight (a
+    // low arc down to the turf). Down: the body lies on the turf. Getting up:
+    // whatever is lowest (hands and knee, then the feet) stands on it.
     h.update();
+    const body = h._diveIdx || (h._diveIdx = ['hips', 'spine', 'chest', 'hipL', 'hipR'].map((n) => h.boneList.indexOf(h.bones[n])));
+    const all = h.lowest() - h.root.position.y;
+    if (g > 0) h.bones.hips.position.y -= all / sc;
+    else {
+      // (the take-off foot is still on the turf for the first few hundredths:
+      // from the pose standing on its lowest point over to the flight's arc)
+      const low = h.lowest(body) - h.root.position.y, tau = Math.max(0, u - DIVE_OFF);
+      const arc = Math.max(0, DIVE_H0 - 0.5 * 9.81 * tau * tau) * sc;
+      h.bones.hips.position.y += (mix(low - all, arc, sstep(DIVE_OFF - 0.03, DIVE_OFF + 0.07, u)) - low) / sc;
+    }
+    h.update();
+    if (g <= 0) { h.clearFoot('L'); h.clearFoot('R'); h.update(); h.clearHand('L'); h.clearHand('R'); h.update(); }
+    // The bat: out in front of the right hand along the ground, toe on the
+    // turf, face down; carried again as he gets up.
     h.bones.handR.getWorldPosition(_a);
     this.forward(_fwd);
     const drop = Math.asin(clamp((_a.y - 0.03) / 0.8, -0.2, 0.9));                  // enough tilt for the toe to touch
@@ -1694,10 +1831,18 @@ export class BatterActor extends Actor {
     _x.set(_fwd.z, 0, -_fwd.x);
     _z.crossVectors(_x, _y);                                                        // face down
     _q.setFromRotationMatrix(_m.makeBasis(_x, _y, _z));
-    h.bones.handR.getWorldQuaternion(_ql);
-    _ql.multiply(_carryRot);
-    this.bat.quaternion.copy(_ql).slerp(_q, clamp(go + flat, 0, 1));
-    this.bat.position.copy(_a);
+    if (reach < 1 || g > 0) {
+      // (from / back to the way it is carried on the run)
+      this.carry();
+      _ql.copy(this.bat.quaternion);
+      const k = g > 0 ? 1 - sstep(0.15, 0.6, g) : reach;
+      this.bat.quaternion.copy(_ql).slerp(_q, k);
+      h.bones.handR.getWorldPosition(_a);
+      this.bat.position.lerp(_a, k);
+    } else {
+      this.bat.quaternion.copy(_q);
+      this.bat.position.copy(_a);
+    }
     h.syncShadow();
   }
 
@@ -1853,5 +1998,18 @@ function closestOnSeg(p, a, b, out) {
   const t = l2 > 1e-9 ? clamp(_hp.subVectors(p, a).dot(out) / l2, 0, 1) : 0;
   return out.multiplyScalar(t).add(a);
 }
+// Dive: how far the body tips (just short of flat: the chest a little up).
+const DIVE_PITCH = 1.5;
+const DIVE_OFF = 0.07, DIVE_H0 = 0.42;       // s after the launch that the feet leave the turf; the underside's height then (m): it falls from there
+// Getting up after a dive (0 = lying, 1 = on his feet).
+const GETUP = {
+  pitch: [[0, DIVE_PITCH], [0.3, 1.32], [0.62, 0.8], [1, 0.1]],
+  spine: [[0, -0.22], [0.3, -0.08], [0.62, 0.3], [1, 0.05]],
+  shR: [[0, -2.98], [0.3, -1.7], [0.62, -0.85], [1, -0.15]], elR: [[0, -0.04], [0.3, -0.35], [1, -0.3]],
+  shL: [[0, -2.2], [0.3, -1.62], [0.62, -0.8], [1, 0.05]], elL: [[0, -0.95], [0.3, -0.3], [1, -0.2]],
+  hipL: [[0, 0.05], [0.3, -1.25], [0.62, -1.75], [1, -0.08]], kneeL: [[0, 0.14], [0.3, 1.75], [0.62, 1.95], [1, 0.1]],
+  hipR: [[0, 0.1], [0.3, -0.25], [0.62, -1.3], [1, 0]], kneeR: [[0, 0.22], [0.3, 0.85], [0.62, 1.7], [1, 0.1]],
+  ankle: [[0, 0.95], [0.35, 0.25], [0.62, -0.35], [1, 0]],
+};
 const _toeDown = new THREE.Quaternion().setFromEuler(new THREE.Euler(1.25, 0, 0));
 const _carryRot = new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2 + 0.3, 0, 0));

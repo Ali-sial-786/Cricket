@@ -368,6 +368,13 @@ export class Humanoid {
     this.team = team;
   }
 
+  // Look like another figure (skin, hair, shirt number): the two figures that draw the same man.
+  copyLook(o) {
+    const u = this.material.userData.uniforms, v = o.material.userData.uniforms;
+    u.uSkin.value.copy(v.uSkin.value); u.uHair.value.copy(v.uHair.value);
+    this.setNumber(o.number);
+  }
+
   // 0 = full detail, 1 = distant.
   setLod(lod) {
     if (lod === this.lod) return;
@@ -385,12 +392,34 @@ export class Humanoid {
     this.ghost = on;
     const m = this.material, u = m.userData.uniforms;
     m.transparent = on; m.opacity = 1; m.depthWrite = !on; m.needsUpdate = true;
+    this.fade = 1;
     u.uNoHead.value = on ? 1 : 0;
     u.uTrunkAlpha.value = 1;
     u.uGhost.value.set(on ? trunk : 0, on ? legs * 0.7 : 0, on ? legs : 0, on ? Math.min(1, legs + 0.3) : 0);
     u.uGhostEdge.value = on ? 0.9 : 0;
     u.uGhostHands.value = on ? 0.4 : 0;
     this.mesh.renderOrder = on ? 3 : 0;
+  }
+
+  // Fade the whole figure (and its bat) in or out: a = 0..1. Nobody appears
+  // or disappears in one frame while he can be seen: a figure that has to
+  // come or go (your runner leaving / rejoining you, a batter at the
+  // pavilion gate) is faded. 1 = solid again (opaque material, depth written).
+  setFade(a) {
+    a = a < 0 ? 0 : a > 1 ? 1 : a;
+    if (a === (this.fade ?? 1)) return;
+    this.fade = a;
+    if (this.ghost) return;                       // (your see-through body has its own opacities)
+    const m = this.material;
+    const tr = a < 1;
+    if (m.transparent !== tr) { m.transparent = tr; m.needsUpdate = true; }
+    m.opacity = a;
+    for (const x of this.extras || []) x.traverse((o) => {
+      if (!o.isMesh) return;
+      if (!o.userData.fadeMat) { o.material = o.material.clone(); o.userData.fadeMat = true; }
+      if (o.material.transparent !== tr && !o.userData.wasTransparent) { if (o.userData.wasTransparent == null) o.userData.wasTransparent = o.material.transparent; if (!o.userData.wasTransparent) { o.material.transparent = tr; o.material.needsUpdate = true; } }
+      o.material.opacity = a * (o.userData.baseOpacity ?? (o.userData.baseOpacity = o.material.opacity || 1));
+    });
   }
 
   get visible() { return this.root.visible; }
@@ -402,7 +431,7 @@ export class Humanoid {
     this.groundGuard();                           // (hidden too: replays record the pose)
     if (!this.root.visible) return;
     this.bones.hips.getWorldPosition(_v);
-    ShadowPool.set(this.shadowSlot, _v.x, _v.z, true, this.root.scale.x * (0.8 + 0.4 * Math.min(1, (_v.y - this.root.position.y) / 1.0)));
+    ShadowPool.set(this.shadowSlot, _v.x, _v.z, true, this.root.scale.x * (0.8 + 0.4 * Math.min(1, (_v.y - this.root.position.y) / 1.0)) * (this.ghost ? 1 : this.fade ?? 1));
   }
 
   // Lowest point of the posed body (world y): every bone's hull points

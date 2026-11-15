@@ -6,6 +6,7 @@ import { Actor } from './actors.js';
 import { plantFeet, keys, sstep } from './anim.js';
 import { clipsReady } from './clips.js';
 import { PITCH } from '../physics/pitch.js';
+import { walkTask, stepWalk } from './crew.js';
 
 const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3();
 const _t = new THREE.Vector3(), _f = new THREE.Vector3(), _l = new THREE.Vector3();
@@ -28,9 +29,11 @@ class UmpireActor extends Actor {
   update(dt, now, look) {
     const h = this.h;
     h.reset();
-    this.idle(now);
+    // Walking to his place (the other side of the stumps, out of your way) or standing.
+    const walking = this.speed > 0.25;
+    if (walking) { this.gait(dt); this.locomote(now); } else this.idle(now);
     const s = this.sig;
-    this.poseKey = s ? s.type : 'idle';
+    this.poseKey = walking ? 'move' : s ? s.type : 'idle';
     let busyL = false, busyR = false;          // arms the current signal uses
     if (s) {
       const u = (now - s.t0) / s.dur;
@@ -78,9 +81,9 @@ class UmpireActor extends Actor {
       this.footWorld(_a, 0.13, 0.02); this.footWorld(_b, -0.13, 0);
       // (With the idle clip the feet are already planted where it stands them.)
       const legBye = s && s.type === 'legbye';
-      if (!clipsReady()) plantFeet(h, _a, legBye ? null : _b, this.forward(_c).multiplyScalar(0.6));
-      // Hands clasped behind the back (whichever hands the signal is not using).
-      if (!busyL || !busyR) this.clasp(!busyL, !busyR);
+      if (!clipsReady() && !walking) plantFeet(h, _a, legBye ? null : _b, this.forward(_c).multiplyScalar(0.6));
+      // Hands clasped behind the back (whichever hands the signal is not using); walking, the arms swing.
+      if ((!busyL || !busyR) && !walking) this.clasp(!busyL, !busyR);
     }
     if (look && !(s && s.type === 'notout')) h.lookAt(look, 0.7);
     if (!this.far) this.smooth(dt);
@@ -97,14 +100,24 @@ export class UmpireView {
     this.show(false);
     this.look = new THREE.Vector3(0, 1, -1);
   }
-  // When the player bowls, the bowler's-end umpire stands a little wider so he is in view.
-  // side: which side of the stumps the bowler runs in on (+1 = +X, i.e. right-arm
-  // over the wicket; -1 = around). The umpire stands on the other side.
+  // Where the umpires stand. The bowler's-end umpire: behind the stumps, on
+  // the far side of them from the bowler's run-up (side: which side the
+  // bowler runs in on, +1 = +X, i.e. right-arm over the wicket; -1 = around),
+  // clear of the bowler's line and of his view of the batter. When you bowl
+  // he is a little deeper and wider, so that you run in past him with room
+  // to spare and he is never between you and the batter.
+  // While the umpires are not on show they are simply stood there; otherwise
+  // they WALK to a new place (the bowler changing sides of the wicket).
   place(playerBowling, side = 1) {
     this.side = side;
-    this.main.place(playerBowling ? -1.9 * side : -0.95 * side, PITCH.bowlingStumpsZ - (playerBowling ? 0.6 : 1.9), 0);
-    this.leg.place(-17.5, -1.3, Math.PI / 2);
-    for (const u of [this.main, this.leg]) { u.mark = u.pos.clone(); u.off = new THREE.Vector3(); }
+    const mx = (playerBowling ? -1.0 : -0.95) * side, mz = PITCH.bowlingStumpsZ - (playerBowling ? 2.2 : 1.9);
+    const set = (u, x, z, face) => {
+      if (!u.mark) { u.mark = new THREE.Vector3(); u.off = new THREE.Vector3(); u.goal = { x, z }; }
+      u.mark.set(x, 0, z); u.rest = face;
+      if (!this.visible || !u.placed) { u.placed = true; u.task = null; u.speed = 0; u.off.set(0, 0, 0); u.place(x, z, face); u.cut(); }
+    };
+    set(this.main, mx, mz, 0);
+    set(this.leg, -17.5, -1.3, Math.PI / 2);
   }
   // Keep out of the player's space: an umpire whose spot you are standing in
   // (or next to) walks to the edge of it, and back to his mark once you go.
@@ -119,19 +132,31 @@ export class UmpireView {
           gx = head.x + ux * r - u.mark.x; gz = head.z + uz * r - u.mark.z;
         }
       }
-      const sx = gx - u.off.x, sz = gz - u.off.z, sd = Math.hypot(sx, sz), step = 1.6 * dt;
-      if (sd > step) { u.off.x += sx / sd * step; u.off.z += sz / sd * step; } else u.off.set(gx, 0, gz);
-      u.pos.set(u.mark.x + u.off.x, 0, u.mark.z + u.off.z);
+      u.off.set(gx, 0, gz);
     }
+  }
+  // Both where they should be, standing still?
+  settled() {
+    if (!this.visible) return true;
+    return [this.main, this.leg].every((u) => !u.task && u.speed < 0.1);
   }
   show(v) { this.visible = v; this.main.visible = v; this.leg.visible = v; }
   // Ground positions (x, z) of both umpires (for the fielders to run round).
   spots() { return [this.main.pos, this.leg.pos]; }
   signal(type, now) { if (!this.visible) return; this.main.signal(type, now); if (type !== 'review') this.leg.signal(type, now, 2.2); }
   setLook(v) { if (v) this.look.copy(v); }
+  // obstacles: circles {x, z, r} for a walking umpire to go round (set by the field controller).
   update(dt, now) {
     if (!this.visible) return;
-    this.main.update(dt, now, this.look);
-    this.leg.update(dt, now, this.look);
+    for (const u of [this.main, this.leg]) {
+      if (u.mark) {
+        u.goal.x = u.mark.x + u.off.x; u.goal.z = u.mark.z + u.off.z;
+        const d = Math.hypot(u.goal.x - u.pos.x, u.goal.z - u.pos.z);
+        if (!u.task && dt > 0 && (d > 0.06 || Math.abs(Math.atan2(Math.sin(u.rest - u.heading), Math.cos(u.rest - u.heading))) > 0.08)) u.task = walkTask(u.goal, u.rest, { speed: d > 5 ? 2.6 : 1.3, tol: 0.05 });
+        if (u.task && dt > 0) { u.task.to = u.goal; u.task.face = u.rest; if (stepWalk(u, dt, this.obstacles || null)) u.task = null; }
+        if (!u.task) u.speed = 0;
+      }
+      u.update(dt, now, this.look);
+    }
   }
 }

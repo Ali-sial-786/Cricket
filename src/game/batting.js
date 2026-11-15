@@ -27,6 +27,9 @@ import { Innings } from './scoring.js';
 const KMH = (v) => Math.round(msToKmh(v));
 const _hand = new THREE.Vector3();
 const STANCE = { x: -0.4, z: -1.05 };
+// Between balls the bowler waits for everyone to be in place: after
+// WAIT_HURRY s whoever is not runs; after the cap the ball is bowled anyway.
+const WAIT_HURRY = 2.5, WAIT_CAP = 7, WAIT_CAP_WICKET = 13;
 
 export class BattingSession {
   constructor(game, { kind = 'nets', title = 'Nets · Batting', innings = null, bowler = 'machine', fielders = null, aiBowler = null, onDone = null } = {}) {
@@ -184,9 +187,12 @@ export class BattingSession {
     g.timeScaleTarget = this.state === 'live' && !this.hit && !this.byes && !g.world.ball.padded && g.world.ball.active ? g.diff.timeScale : 1;
     if (this.state === 'idle') {
       if (this.autoNext() || this.timer <= 0) this.timer -= dt;
+      // The next ball is decided now, so that everyone can walk to where it
+      // needs him (the bowler to his mark, the umpire and the non-striker to
+      // the right side of the stumps) before the bowler runs in.
+      if (!this.planned) this.planNext();
       this.waitField = (this.waitField || 0) + dt;
-      const fieldReady = !this.field || this.field.inPosition() || this.waitField > 4;
-      if (this.timer <= 0 && fieldReady) { this.waitField = 0; this.prepare(t); }
+      if (this.timer <= 0 && this.peopleReady()) { this.waitField = 0; this.prepare(t); }
     } else if (this.state === 'cue') {
       const el = t - this.cueStart, cd = CONFIG.machine.countdownSec;
       const stage = el < cd / 2 ? 1 : el < cd ? 2 : 3;
@@ -219,18 +225,15 @@ export class BattingSession {
     g.umpires.setLook(g.ballView.visible ? g.ballView.mesh.position : null);
   }
 
-  prepare(t) {
+  // Decide the next delivery and tell everyone where it needs them (they walk there).
+  planNext() {
     const g = this.game;
-    this.resetEnds();
-    g.ballView.setVisible(false);
-    g.ballView.clearTrail();
-    g.world.removeBall();
-    if (this.newBatter) { g.ui.setHud({ detail: `New batter in: ${this.newBatter}` }); this.newBatter = null; }
     const settings = this.aiBowler ? this.aiBowler.next(this.innings) : g.settings.machine;
     const rel = this.bowler === 'ai'
       ? new Vec3((settings.release === 'around' ? -1 : 1) * CONFIG.machine.releaseX, settings.spinner ? CONFIG.bowlerAI.releaseHeight : CONFIG.bowlerAI.releaseHeightPace, CONFIG.machine.releaseZ)
       : null;
-    this.delivery = machineDelivery(settings, g.rng, CONFIG, rel);
+    const delivery = machineDelivery(settings, g.rng, CONFIG, rel);
+    this.planned = { settings, delivery };
     // The umpire and the non-striker stay out of the bowler's way.
     if (this.bowler === 'ai') {
       const side = settings.release === 'around' ? -1 : 1;
@@ -238,7 +241,37 @@ export class BattingSession {
       this.lastSide = side;
       g.umpires.place(false, side);
       if (this.innings) g.nonStrikerView.setSide(side);
+      if (this.bowlerFig && this.bowlerFig.setMark) this.bowlerFig.setMark(delivery.releasePos, settings.runup);
+      if (this.field) this.field.setSpinner(!!settings.spinner);      // (the keeper up to the stumps, or back)
     }
+  }
+
+  // Is everyone in place for the bowler to run in? Fielders on their marks,
+  // batters at their ends, umpires in position, the bowler on his mark facing
+  // you. The wait is capped: after WAIT_HURRY s whoever is not there runs, and
+  // after the cap the ball is bowled anyway (the bowler himself always walks
+  // to his mark first).
+  peopleReady() {
+    const g = this.game, w = this.waitField || 0;
+    const cap = g.crew && g.crew.busy && g.crew.busy() ? WAIT_CAP_WICKET : WAIT_CAP;
+    const fig = this.bowlerFig;
+    if (fig && fig.atMark && !fig.atMark()) { if (w > WAIT_HURRY) fig.hurry(); if (w < cap + 8) return false; }
+    if (!this.field || this.field.settled()) return true;
+    if (w > WAIT_HURRY) this.field.hurry(cap - w);
+    return w > cap;
+  }
+
+  prepare(t) {
+    const g = this.game;
+    this.resetEnds();
+    g.ballView.setVisible(false);
+    g.ballView.clearTrail();
+    g.world.removeBall();
+    if (this.newBatter) { g.ui.setHud({ detail: `New batter in: ${this.newBatter}` }); this.newBatter = null; }
+    if (!this.planned) this.planNext();
+    const settings = this.planned.settings;
+    this.delivery = this.planned.delivery;
+    this.planned = null;
     this.settingsUsed = settings;
     this.hit = null; this.byes = null; this.firstBounce = null; this.wide = false; this.crossedCrease = false;
     this.maxBatSpeedNear = 0; this.stumpAt = 0; this.stumpBroke = false; this.path.length = 0; this.shotName = '';
@@ -527,6 +560,9 @@ export class BattingSession {
     if (outcome.wicket && !Innings.canDismiss(outcome.wicket, { noBall: this.noBall, freeHit: this.freeHit })) {
       big = `NOT OUT — ${this.noBall ? 'no-ball' : 'free hit'}!`; color = '#7dff8a'; outcome.wicket = null;
     }
+    // Everyone starts for where the next ball needs him (src/render/crew.js, Fielding.ballDead).
+    if (this.field) this.field.ballDead({ wicket: outcome.wicket, who: res.who });
+    this.waitField = 0;
     // Byes: runs off a ball that was not hit go down as extras, not to you.
     if (this.byes && !outcome.wicket) {
       outcome.byes = true; outcome.boundary = 0;

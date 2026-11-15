@@ -21,6 +21,9 @@ const _v = new THREE.Vector3(), _w = new THREE.Vector3(), _g = new THREE.Vector3
 const BATTER_CLEAR = 0.95;     // (a batter's stance / lean on the bat reaches forward)
 const UMPIRE_CLEAR = 0.9;      // (his signals reach out)
 const BOWLER_CLEAR = 0.8;
+const PLAYER_PATH = 2.1;       // anyone running or walking past you gives you this much room
+const LANE_CLEAR = 1.5;        // half-width of your run-up lane kept empty between balls
+const BOWL_CREASE_Z = PITCH.bowlingStumpsZ + PITCH.poppingOffset;
 
 export class FieldController {
   constructor(game, { spinner = false, bowlerFields = true, playerBatting = true } = {}) {
@@ -45,17 +48,34 @@ export class FieldController {
     g.fieldView.show(true);
     this.logic.reset();
     g.fieldView.update(0, this.logic.states(), { t: g.simTime, ball: null, delivering: false });
-    this.clearRunners(false);
+    this.clearRunners();
   }
   exit() {
     const g = this.game;
     g.fieldView.show(false);
     g.ballOverride = null;
     this.endCatchView(true);
-    this.clearRunners(false);
+    this.clearRunners();
   }
 
-  // Next ball: fielders jog back, batters regroup (swapping ends after odd runs).
+  // The ball is dead (the session has its result): everyone starts for where
+  // he belongs for the next ball now -- fielders back to their marks, the
+  // batters to their ends (changed after an odd number of runs), a batter who
+  // is out off to the pavilion and the next one in. info: { wicket, who }.
+  ballDead(info = {}) {
+    this.logic.ballDead();
+    if (this.game.crew) this.game.crew.ballDead(info);
+    this.deadT = 0;
+  }
+  // Is everyone where he should be, standing still, for the bowler to run in?
+  settled() {
+    const g = this.game;
+    return this.logic.settled() && (!g.crew || g.crew.settled()) && (!g.umpires.settled || g.umpires.settled());
+  }
+  // The bowler is waiting: `secs` left before the ball is bowled regardless. Whoever is not back yet runs.
+  hurry(secs) { this.logic.hurry = Math.max(0.01, secs); }
+
+  // Next ball: whoever is still away from his place keeps going there (nobody is put anywhere).
   reset() {
     this.logic.newBall();
     this.pendingBreak = null;
@@ -70,12 +90,18 @@ export class FieldController {
     this.pred = null;
     this.throwPrompted = false;
     this.turnedBack = false;
-    this.clearRunners(true);
+    // (a ball that ended without a result, e.g. a dead ball: the batters still sort themselves out on foot)
+    const g = this.game;
+    if (g.crew) {
+      if (this.runs.active && !g.crew.pending) g.crew.ballDead({});
+      if (g.crew.pending) { const p = g.crew.pending; g.crew.pending = null; g.crew.resolve(p); }
+    } else this.clearRunners();
   }
-  clearRunners(allowSwap) {
+  // Everyone stood where he starts (a session beginning or ending: nobody is watching).
+  clearRunners() {
     const g = this.game, r = this.runs;
-    if (allowSwap && r.active && (r.official ? r.official.crossed : r.crossed) && !this.playerBatting) g.swapBatters();
     r.reset();
+    if (g.crew) g.crew.reset();
     g.batterView.running = null;
     g.nonStrikerView.running = null;
     g.nonStrikerView.reset();
@@ -101,6 +127,11 @@ export class FieldController {
   // ------------------------------------------------------------- the hit
   onHit(ball, t, pred, opts = undefined) {
     const g = this.game, L = this.logic;
+    // The bowler fields as himself: from where his follow-through has taken him, at the pace he is going.
+    if (L.bowlerFields) {
+      const A = g.figures.bowler.actor, f = L.fielders[L.fielders.length - 1];
+      if (A.visible && f.state === 'set') { f.pos.set(A.pos.x, 0, A.pos.z); f.face = f.yaw = A.heading; f.speed = A.speed; f.vel.set(Math.sin(A.heading) * A.speed, 0, Math.cos(A.heading) * A.speed); }
+    }
     L.onHit(ball, t, pred, opts);
     this.pred = pred;
     this.delivering = false;
@@ -162,7 +193,7 @@ export class FieldController {
       if (t < c.tStart) return;
       c.state = 'live';
       c.f.pos.set(c.stand.x, 0, c.stand.z);
-      c.f.speed = 0;
+      c.f.speed = 0; c.f.vel.set(0, 0, 0);
       g.beginViewOverride(c.stand.x, c.stand.z, -c.dir.x, -c.dir.z);
       g.timeScaleTarget = C.slowMo;
       g.ui.prompt('CATCH IT!  Get a hand to the ball', 8, '#ffd34d');
@@ -250,7 +281,8 @@ export class FieldController {
   keepClear(dt) {
     const g = this.game, L = this.logic, r = this.runs;
     const hp = this.playerSpot();
-    L.keepOut = hp ? { x: hp.x, z: hp.z, r: PLAYER_CLEAR } : null;
+    // (nobody stands within PLAYER_CLEAR of you; anyone on the move passes PLAYER_PATH wide)
+    L.keepOut = hp ? { x: hp.x, z: hp.z, r: PLAYER_CLEAR, path: PLAYER_PATH } : null;
     r.keepOut = hp ? { x: hp.x, z: hp.z, r: RUNNER_CLEAR, striker: this.playerBatting } : null;
     g.nonStrikerView.avoid = hp;
     g.batterView.avoid = hp;
@@ -262,7 +294,25 @@ export class FieldController {
     // The AI bowler walking back (not running in: his line is his own) is in everyone's way too.
     const bw = g.figures && g.figures.bowler.actor;
     if (bw && bw.visible && bw.state !== 'runup') obs.push({ x: bw.pos.x, z: bw.pos.z, r: BOWLER_CLEAR });
+    // Your run-up is yours: between balls nobody walks or stands in the lane
+    // from your mark to the crease.
+    const ses = g.session;
+    if (this.playerFielding && ses && ses.run && hp && L.dead) {
+      const z1 = BOWL_CREASE_Z, z0 = Math.min(hp.z, z1 - (ses.run.spec ? ses.run.spec.length : 0));
+      for (let z = z0 - 1; z <= z1 + 1.01; z += 1.5) obs.push({ x: hp.x, z, r: LANE_CLEAR, soft: true });     // (steered round; nobody is shoved out of it)
+    }
+    // a batter on his way off or in
+    if (g.crew) for (const a of g.crew.leaving) obs.push({ x: a.pos.x, z: a.pos.z, r: BATTER_CLEAR });
     L.obstacles = obs;
+    // (a walking umpire goes round the bowler and the batters)
+    const uo = this._umpObs || (this._umpObs = []);
+    uo.length = 0;
+    if (g.figures && g.figures.bowler.actor.visible) uo.push({ x: g.figures.bowler.actor.pos.x, z: g.figures.bowler.actor.pos.z, r: 0.9 });
+    if (bv.shown && bv.actor.visible) uo.push({ x: bv.actor.pos.x, z: bv.actor.pos.z, r: BATTER_CLEAR });
+    if (ns.visible) uo.push({ x: ns.actor.pos.x, z: ns.actor.pos.z, r: BATTER_CLEAR });
+    uo.push({ x: 0, z: PITCH.bowlingStumpsZ, r: STUMP_CLEAR + 0.2 });
+    if (hp) uo.push({ x: hp.x, z: hp.z, r: PLAYER_CLEAR });
+    g.umpires.obstacles = uo;
     // ... and he walks round the umpire, the batters and both sets of stumps.
     if (bw) {
       const bo = bw.obstacles || (bw.obstacles = []);
@@ -277,6 +327,23 @@ export class FieldController {
 
   update(dt, t) {
     const g = this.game, w = g.world, L = this.logic, b = w.ball, r = this.runs;
+    // The AI bowler is one man drawn by two figures: his own (run-up, delivery,
+    // the walk back) and a fielder's (when he fields). Each takes over from
+    // the other where he is, as he is: same place, facing, stride and pose.
+    if (L.bowlerFields) {
+      const i = L.fielders.length - 1, f = L.fielders[i], BA = g.figures.bowler.actor, FA = g.fieldView.actors[i];
+      if (f.out && L.dead && !f.action && (f.state === 'return' || f.state === 'set') && g.fieldView.visible) {
+        BA.takeOver(FA, f.speed);
+        f.out = false; f.state = 'set'; f.target = null; f.speed = 0; f.vel.set(0, 0, 0);
+        g.figures.bowler.show(true);
+        FA.visible = false;
+      } else if (!f.out && L.hitT != null && !L.dead && f.state !== 'set' && BA.visible) {
+        f.out = true;
+        FA.visible = true;
+        FA.takeOver(BA);
+        g.figures.bowler.show(false);
+      }
+    }
     this.keepClear(dt);
     L.update(dt, t, b.active ? b : null, w);
     this.updateCatch(t);
@@ -324,19 +391,22 @@ export class FieldController {
       if (g.batterView.runnerOnly && !g.batterView.shown && (r.running || r.completed > 0)) g.batterView.show(true);
       // The batters keep moving after the ball is dead (finishing a run,
       // trotting back, getting up from a dive): nobody is left frozen mid-stride.
+      r.stay = !!(g.session && g.session.state === 'review');     // a diver stays down while the third umpire looks at it
       r.update(dt);
       if (r.running && !r.closed && Math.floor(t * 4.5) !== Math.floor((t - dt) * 4.5)) g.sample('footstep', { gain: 0.5 });
-      g.batterView.running = r.state(true);
+      // The AI striker stays in his shot until he actually sets off (the run,
+      // if there is one, starts from wherever the shot has left him).
+      const started = r.p > 1e-6 || r.running || r.down > 0;
+      if (!started && !g.batterView.runnerOnly) {
+        const a = g.batterView.actor;
+        r.sStart = { x: a.pos.x, z: a.pos.z };
+        g.batterView.running = null;
+      } else g.batterView.running = r.state(true);
       g.nonStrikerView.running = g.nonStrikerView.visible ? r.state(false) : null;
     }
-
-    // …and once the ball is dead and everyone has stopped, the batters go
-    // straight back to their places (swapped after an odd number of runs)
-    // instead of standing where they finished until the next ball.
-    if (r.active && this.outcome && !r.running && r.down <= 0 && g.session && g.session.state === 'settle') {
-      this.homeIn = (this.homeIn ?? 1.0) - dt;
-      if (this.homeIn <= 0) { this.homeIn = null; this.clearRunners(true); }
-    } else this.homeIn = null;
+    // …and once the ball is dead and everyone has stopped, the batters walk to
+    // their places for the next ball (crew.js).
+    if (g.crew) g.crew.update(dt, t);
 
     // ---- the player picks the end to throw to ----
     const th = L.throw;
@@ -361,8 +431,10 @@ export class FieldController {
           this.breakStumps(end, t, 0.12);
           r.close({ stop: !r.diving });
         } else {
-          if (r.running) r.p = r.target;                // made their ground
-          this.outcome = { kind: 'runs', runs: r.completed, closeCall: r.rate !== 0 && short > -1.2 ? -short : null, end };
+          // Made their ground: the run counts, and they finish it as they were going
+          // (running through, or sliding in on the chest) instead of being put on the line.
+          const close = r.rate !== 0 && short > -1.2 ? -short : null;
+          this.outcome = { kind: 'runs', runs: r.makeGround(), closeCall: close, end };
           g.sample('gloves', { gain: 0.7 });
         }
         r.close();
@@ -371,7 +443,8 @@ export class FieldController {
 
     const ballPos = b.active ? _v.set(b.pos.x, b.pos.y, b.pos.z) : (g.ballOverride ? _v.copy(g.ballOverride.pos) : null);
     const states = L.states();
-    if (this.catch && this.catch.state === 'live') states[this.catch.fi].hidden = true;
+    // (the fielder you are catching as: not drawn until your view goes back, so he never appears round your head)
+    if (this.catch && (this.catch.state === 'live' || (this.catch.state === 'done' && g.viewOverride))) states[this.catch.fi].hidden = true;
     // (everyone else whose body a lunging fielder must not go into)
     const others = this._others || (this._others = []);
     others.length = 0;
@@ -427,9 +500,6 @@ export class FieldController {
       g.ballOverride = null;
     }
 
-    // The AI bowler figure hands over to the fielding bowler once it moves.
-    const bf = states[states.length - 1];
-    if (L.bowlerFields && g.figures.bowler.actor.visible === !bf.hidden && L.hitT != null) g.figures.bowler.show(bf.hidden);
   }
 }
 

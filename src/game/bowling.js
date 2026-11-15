@@ -4,6 +4,8 @@
 import { CONFIG } from '../config.js';
 import { Vec3, clamp, DEG } from '../physics/math.js';
 
+// After the result is shown, wait this long (s) at most for the batters and fielders to be in place.
+const WAIT_HURRY = 1.0, WAIT_CAP = 4, WAIT_CAP_WICKET = 10;
 const _hold = new Vec3();
 import { PITCH, lengthName, lineName, groundDistance, battingPoppingZ, bowlingPoppingZ } from '../physics/pitch.js';
 import { predict, crossingAtZ } from '../physics/trajectory.js';
@@ -488,7 +490,17 @@ export class BowlingSession {
       }
     } else if (this.state === 'settle') {
       this.timer -= dt;
-      if (this.timer <= 0) {
+      // You get the ball back once the batters are at their ends (a new batter
+      // has come in) and the fielders are back; the wait is capped, and past
+      // WAIT_HURRY s whoever is not there runs.
+      let ready = true;
+      if (this.timer <= 0 && this.field && !(this.innings && this.innings.complete)) {
+        this.waitPeople = (this.waitPeople || 0) + dt;
+        const cap = g.crew && g.crew.busy && g.crew.busy() ? WAIT_CAP_WICKET : WAIT_CAP;
+        ready = this.field.settled() || this.waitPeople > cap;
+        if (!ready && this.waitPeople > WAIT_HURRY) this.field.hurry(cap - this.waitPeople);
+      }
+      if (this.timer <= 0 && ready) {
         if (this.innings && this.innings.complete) { this.complete(); return; }
         if (this.field) { this.field.reset(); this.field.setSpinner(this.keeperUp); }
         this.state = 'ready';
@@ -661,6 +673,9 @@ export class BowlingSession {
     if (outcome.wicket && !Innings.canDismiss(outcome.wicket, { noBall: this.noBall, freeHit: this.freeHit })) {
       big = `NOT OUT — ${this.noBall ? 'no-ball' : 'free hit'}`; color = '#ffb347'; outcome.wicket = null;
     }
+    // Everyone starts for where the next ball needs him (src/render/crew.js, Fielding.ballDead).
+    if (this.field) this.field.ballDead({ wicket: outcome.wicket, who: res.who });
+    this.waitPeople = 0;
     // Byes: runs off a ball that was not hit are extras.
     if (this.byes && !outcome.wicket) {
       outcome.byes = true; outcome.boundary = 0;
