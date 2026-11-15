@@ -1,21 +1,24 @@
 # Handoff: batting body overhaul (branch wt-bat2)
 
 ## Current status (second engineer, keep this section up to date)
-- `npm test`: 205 pass (new: tests/shotSense.test.js 8, tests/footwork.test.js 9, tests/playerBody.test.js 7 on the
-  real rig: gloves, pops, trunk tilt, slide, turf, stumps, head, sliced replay == live, determinism).
-- Node-only metrics runner (no browser, ~12 s for all 14 tracks): `<scratchpad>/bat2n/run.mjs [shot,shot]`
-  (ROOT=<tree> for the baseline: `ROOT=<scratchpad>/bat2_before_tree OUT=before.json`); traces: trace.mjs, stages*.mjs,
-  slide.mjs, feet.mjs, reach.mjs, kneeang.mjs, caphips.mjs (capture pelvis yaw), capscan.mjs.
-- Browser strips: harness/bat2_shots.mjs (out: harness/bat2_out_b2 = latest full set), capture reference gallery
-  harness/bat2_caps.mjs -> harness/bat2_out_caps/cap_<shot>.jpg.
-- Done since 9de5b08 (see commits): sliced replay re-solve (resolveBegin/Step/End, same interface as wt-replay2),
-  arm length logged per frame + replayArms(t) (game.js replay branch calls it), head look rate-limited, knee kept
-  out of the turf continuously (liftPole) + shin pad check, pelvis placed by weighted two-ball projection (no squat),
-  trunk follows captures at <= 10 rad/s, hips within [-0.6, 0.9] rad of the feet (back foot pivots), knee bend
-  direction rate-limited, landing retarget fades out (no slide), shoulders turned about the trunk axis, head
-  re-aimed after blends, re-grip after the guard without a second lean, kneel smooth in head height, bat face
-  in shot reading (cover vs straight vs on), extra.live logged (between balls only a full shadow stroke engages).
-- Next: ghost look (item 6), AI striker smoothing (item 5), final strips, DECISIONS.md, before/after table.
+Work is complete as reported; this section is for whoever continues.
+- `npm test`: 209 pass (new: shotSense 8, footwork 11, playerBody 8 on the real rig, aiStriker 1). Smoke (final.mjs, 4 modes) clean.
+- Design: see DECISIONS.md B11-B19. Files: src/render/playerBody.js (solver), shotSense.js (reading), footwork.js
+  (feet, stance frame turned by the stick), legs.js (knees, shared with the AI striker), humanoid.js (ghost depth
+  pre-pass), actors.js (AI striker smoothing in updateBatting / mocapBody / steadyLegs; legsClearOfBat knee way),
+  game.js (off hand from mainHand, lookYaw passed, replayArms in the replay branch).
+- Interfaces: PlayerBodyView.update(dt, t, batPos, batQuat, ball, head, extra, off, turn);
+  resolve(t0, t1, write); resolveBegin(t0, t1) -> job|null; resolveStep(job, count, write, ms?) -> done;
+  resolveEnd(job); replayArms(t); shotLabel(); reset(). Log entries: {t, dt, bp, bq, head, off, ball,
+  extra: {sweep, hit, crease, live}, sc, turn, arm, state?}.
+- Tools (scratchpad): bat2n/run.mjs (player metrics, node only, ~15 s), bat2n/ai.mjs (AI striker over 44
+  deliveries), bat2n/*.mjs traces; harness/bat2_shots.mjs (strips + metrics), bat2_caps.mjs (capture gallery),
+  bat2_ghost.mjs (first-person ghost views). Latest strips: harness/bat2_out_final, harness/bat2_out_ghost_b.
+- Still off (see the final report): cut/pull follow-throughs look a little knock-kneed side-on; cover drive and
+  advance head error up to 12 cm (a lean toward hands beyond the figure's arm reach); arms lengthen 4-5% in a
+  normal stance (the figure's arms are ~2.5 cm short of the bottom-hand wrist); AI striker still has a 3.5 cm/frame
+  front-foot slide as the capture takes over from the stance, and 25-42 deg/frame peaks; the AI reading of early
+  downswing names can change once within the same kind of stroke.
 
 ## First engineer's handoff (kept for reference)
 
