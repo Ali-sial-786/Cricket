@@ -172,7 +172,8 @@ export class FielderActor extends Actor {
     this.speed = s.speed;
     this.turnToward(s.face, dt, 12);                 // (the logic turns him at a body's pace: Fielding f.yaw)
     this.gait(dt);
-    const wantReady = (s.state === 'set' || s.state === 'walkin' || s.state === 'ready') && ctx.delivering ? 1 : 0;
+    // (set as the ball is bowled; over the stumps waiting for a throw, part way: gloves up, knees a little bent)
+    const wantReady = (s.state === 'set' || s.state === 'walkin' || s.state === 'ready') && ctx.delivering ? 1 : s.await && this.speed < 1.2 ? (this.keeper ? 0.32 : 0.45) : 0;
     this.ready += clamp(wantReady - this.ready, -dt * 3, dt * 4);
     // A dive carries the body off its spot (offX / offZ). When the dive is over
     // the body is not put back: what is left of the offset is walked off.

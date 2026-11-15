@@ -121,8 +121,20 @@ view also faces forward by itself before each ball, on recenter, catches and rep
 
 * **Catches:** when a catch comes your way, time slows and you become the fielder. Reach out and get a hand to
   the ball. No button.
-* **Throws:** when a fielder picks up, **A** throws to the keeper's end and **B** to the bowler's end. Beat the
-  batter home for a run out.
+* **Throws:** the fielders throw like fielders. As soon as the ball is hit the keeper runs to his stumps (from
+  wherever he is) and the AI bowler to his (or whoever is free, when one of them has the ball), and a fielder backs
+  up behind the end the ball is coming to. When you bowl, nobody comes to stand by your stumps: a throw to your end
+  is at the stumps, with a man backing up behind them. With a run-out on, the man with the ball shies at the
+  stumps (from close in, and he can miss) or throws into the gloves of whoever is over them; with nothing on, a
+  safe return (on one bounce from the deep), or he waits a moment for someone to get there. When your side is
+  fielding, **A** sends the throw to the keeper's end and **B** to the bowler's end.
+* **Overthrows:** a throw nobody takes runs on (backing-up fielders dive to stop it) and the batters can run
+  again: you with the usual buttons, the AI batters when the ball is well away. To the rope it is four overthrows
+  plus the runs completed and the one in progress if they had crossed when the throw was made (Law 19.8), all to
+  the batter (byes if the ball was not hit); shown as "2 + 2 overthrows", "1 + 4 overthrows". A keeper's shy at
+  the stumps that misses is a live ball too. Once the ball is dead it is tossed back to the bowler and a broken
+  wicket is put back up. A thrown ball never meets a bat, and a throw into the stumps can run a batter out
+  (never "bowled").
 * **Finding the ball:** after a hit, a yellow arrow at the edge of your view points to the ball when it's out of
   sight, a halo marks it when it's far away, and a ring shows where it will land (Settings → Ball finder).
 * **The keeper is physical:** he moves across with the line of the ball, takes it on his feet if he can, leaps for
@@ -221,7 +233,8 @@ src/config.js         ALL tuning constants (physics, bat, haptics, bowling, fiel
 src/physics/          pure JS, node-tested: math, ball (aero + bounce), bat (SDF sweep + response),
                       wicket, world (fixed step, bat providers), trajectory (prediction), bowlingMachine (solver)
 src/game/             game.js (orchestrator + frame loop), batting.js / bowling.js sessions, modes.js,
-                      aiBatter.js, aiBowler.js (bowler types), fielding.js (+fieldController), running.js,
+                      aiBatter.js, aiBowler.js (bowler types), fielding.js (+fieldController), throwing.js
+                      (where a fielder throws, accuracy, overthrows and their scoring), running.js,
                       lbw.js + lbwFlow.js (appeal, decision, review), thirdUmpire.js, scoring.js, scorecard.js,
                       squad.js, bowlerTypes.js + bowlingInput.js (your bowlers and their deliveries),
                       replay.js (recording and replays)
