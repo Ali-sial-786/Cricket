@@ -862,7 +862,7 @@ export class Game {
       if (batting || deskThird) {
         if (this.input.xr) this.poseBatMesh();
         this.playerBody.update(pdt || 1e-4, this.simTime, this.batMesh.position, this.batMesh.quaternion, lookBall, this.input.xr ? this.input.headPose : null,
-          this.session && this.session.bodyState ? this.session.bodyState() : null);
+          this.session && this.session.bodyState ? this.session.bodyState() : null, this.input.xr && this.input.left.connected ? this.input.left.gripPose.p : null);
       }
       // Through your own eyes you see a faint body below you (no head), so you
       // know where your feet are in the crease.

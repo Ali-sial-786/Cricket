@@ -435,7 +435,8 @@ export class Humanoid {
 
   // A swinging (not planted) foot that dips into the turf: bend that leg
   // (IK, same knee direction, same foot orientation) so the sole clears it.
-  clearFoot(side) {
+  // pole: the knee's IK pole to keep (default: out along the knee's current direction).
+  clearFoot(side, pole = null) {
     const ia = RIG.index['ankle' + side], ik = RIG.index['knee' + side];
     const low = this.lowest(FOOT_ONLY[side] || (FOOT_ONLY[side] = [ia, ik]));
     if (low >= 0) return 0;
@@ -445,7 +446,7 @@ export class Humanoid {
     this.bones['knee' + side].getWorldPosition(_v);
     this.bones['hip' + side].getWorldPosition(_v2);
     _v.add(_v.clone().sub(_v2).setY(0).multiplyScalar(2));       // pole: out along the knee's current direction
-    this.ikLeg(side, _T, _v);
+    this.ikLeg(side, _T, pole || _v);
     this.setWorldQuat('ankle' + side, _bq);
     return -low;
   }
