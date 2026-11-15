@@ -31,7 +31,7 @@ export const THROW = {
   sure: 1.2,             // m: ... and this far short, a good one (a shy is worth it with nobody backing up)
   directMax: 32,         // m: nobody shies at the stumps from further than this
   minHit: 0.1,           // chance of hitting below which nobody shies
-  aloneHit: 0.22,        // ... and with nobody at or behind the stumps to stop a miss
+  aloneHit: 0.35,        // ... and with nobody at or behind the stumps to stop a miss (he would rather wait for a teammate)
   bounceFrom: 38,        // m: a safe return from further than this comes in on one bounce
   holdRunning: 1.4,      // s at most he holds the ball for a teammate while the batters are running
   holdStill: 4.0,        // ... while they are standing in their ground

@@ -139,7 +139,8 @@ export function steerAmong(px, pz, gx, gz, obs, out = { x: 0, z: 0 }) {
 }
 const _obs = [];
 const ARRIVE = 0.05;         // m: there
-const SELF_RUN = 3.2;        // m: a man with the ball this close to a set of stumps runs in and breaks them himself
+const SELF_RUN = 3.2;
+const LOB_AFTER = 1.3;       // s after the ball is dead before it is tossed back (after the replay's tape ends: TAIL 1 s)        // m: a man with the ball this close to a set of stumps runs in and breaks them himself
 const RELEASE_SET = 4;       // m: a fielder this close to his mark at the release stops and gets set
 const BRAKE = 13;            // m/s^2 pulling up
 function angDiff(a, b) { let d = b - a; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI; return d; }
@@ -278,20 +279,22 @@ export class Fielding {
       if (busy || (th && th.f === f && !th.released) || (f.state === 'celebrate' && this.deadFor < 2.4)) continue;
       // Holding the ball: he lobs it back toward the bowler first (nobody walks
       // about with it, and it never hangs in the air at a hidden hand).
-      if (this.ballOverride && this.ballOverride.holder === this.fielders.indexOf(f) && !this.lob && !(f.bowler && this.bowlerFields)) { this.startLob(f, t); continue; }
+      if (this.ballOverride && this.ballOverride.holder === this.fielders.indexOf(f) && !this.lob && !(f.bowler && this.bowlerFields)) { if (this.deadFor >= LOB_AFTER) this.startLob(f, t); continue; }
       f.action = null; f.leap = null; f.runIn = null; f.coverEnd = null; f.backEnd = null;
       if (Math.hypot(f.pos.x - f.home.x, f.pos.z - f.home.z) > 0.4) { f.state = 'return'; f.target = null; }
       else { f.state = 'set'; f.target = null; }
     }
   }
 
-  // The ball dead, the man holding it lobs it back toward the bowler's end
-  // (to you if you are the bowler): a gentle under-arm toss; it is gone when it gets there.
+  // The ball dead, the man holding it tosses it back: into the AI bowler's
+  // hand (lobTarget, set by the controller: where his hand is), or, when you
+  // bowl, rolled along the turf to just in front of your feet.
   startLob(f, t) {
-    const o = this.ballOverride, ko = this.keepOut;
-    const to = !this.bowlerFields && ko ? new Vec3(ko.x, 1.2, ko.z) : new Vec3(0.9, 1.3, PITCH.bowlingStumpsZ - 2.5);
+    const lt = this.lobTarget;
+    const roll = !lt || !!lt.roll;
+    const to = lt ? new Vec3(lt.x, roll ? this.cfg.ball.radius : lt.y, lt.z) : new Vec3(0.9, this.cfg.ball.radius, PITCH.bowlingStumpsZ + 1.5);
     const from = new Vec3(f.pos.x, 1.1, f.pos.z), d = Math.hypot(to.x - from.x, to.z - from.z);
-    this.lob = { from, to, tStart: t + 0.35, tArrive: t + 0.35 + Math.max(0.5, d / 13), arc: Math.min(5, 0.6 + d * 0.16) };
+    this.lob = { from, to, roll, tStart: t + 0.35, tArrive: t + 0.35 + Math.max(0.5, d / (roll ? 11 : 13)), arc: roll ? Math.min(1.5, 0.3 + d * 0.04) : Math.min(5, 0.6 + d * 0.16), bounce: roll ? 0.3 : 0 };
     f.action = { type: 'throw', t0: t + 0.35 - THROW.windup, quick: true };
     f.face = Math.atan2(to.x - f.pos.x, to.z - f.pos.z);
     this.lobFrom = f;
@@ -303,7 +306,8 @@ export class Fielding {
     if (!L.released) { L.released = true; this.ballOverride.holder = null; L.from.set(this.lobFrom.pos.x, 1.1, this.lobFrom.pos.z); }
     const k = clamp((t - L.tStart) / (L.tArrive - L.tStart), 0, 1);
     throwPoint(L, k, this.ballOverride.pos);
-    if (k >= 1) { this.lob = null; this.ballOverride = null; }
+    // (in his hand: gone into his own figure; rolled to you: it lies at your feet until the next ball)
+    if (k >= 1) { if (!L.roll) this.ballOverride = null; this.lob = null; this.lobFrom = null; }
   }
 
   // Everyone within this distance of their mark? (the bowler's own figure

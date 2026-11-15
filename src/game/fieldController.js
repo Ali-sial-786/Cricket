@@ -14,7 +14,7 @@ import { PITCH } from '../physics/pitch.js';
 import { CONFIG } from '../config.js';
 import { HINTS } from '../ui/controllerHint.js';
 
-const _v = new THREE.Vector3(), _w = new THREE.Vector3(), _g = new THREE.Vector3();
+const _v = new THREE.Vector3(), _w = new THREE.Vector3(), _g = new THREE.Vector3(), _lob = new THREE.Vector3();
 
 // The player's space: no fielder, keeper or umpire's feet within PLAYER_CLEAR
 // of your head (on the ground), no runner within RUNNER_CLEAR.
@@ -417,6 +417,16 @@ export class FieldController {
       }
     }
     this.keepClear(dt);
+    // Where the ball goes back to once it is dead: the AI bowler's hand (his own
+    // figure, or his fielding one while he is out), or the turf in front of you when you bowl.
+    if (L.bowlerFields) {
+      const fb = L.fielders[L.fielders.length - 1], A = fb.out ? g.fieldView.actors[L.fielders.length - 1] : g.figures.bowler.actor;
+      A.handPos(_lob);
+      L.lobTarget = { x: _lob.x, y: _lob.y, z: _lob.z, roll: false };
+    } else {
+      const hp = this.playerSpot();
+      L.lobTarget = hp ? { x: hp.x, y: 0, z: hp.z + 0.6, roll: true } : null;
+    }
     // A broken wicket is put back up once the ball is dead and its replay has
     // played (the view comes back in from dark then); with no replay, before the next ball.
     if (L.dead && g.replay && g.replay.marks && g.replay.marks.played && !g.replay.active && (g.stumps.batting.broken || g.stumps.bowling.broken)) {
@@ -573,6 +583,9 @@ export class FieldController {
         const k = 1 - clamp((t - lb.tStart) / Math.max(1e-3, lb.tArrive - lb.tStart), 0, 1);
         _w.copy(o.pos);
         _w.x += (lb.handFrom.x - lb.from.x) * k; _w.y += (lb.handFrom.y - lb.from.y) * k; _w.z += (lb.handFrom.z - lb.from.z) * k;
+        // ... and into his hand wherever it has got to (he is walking back to his mark)
+        const lt = L.lobTarget;
+        if (!lb.roll && lt) { const e = sstep(0.5, 1, 1 - k); _w.x += (lt.x - lb.to.x) * e; _w.y += (lt.y - lb.to.y) * e; _w.z += (lt.z - lb.to.z) * e; }
       } else {
         _w.copy(o.pos);
         // A throw leaves from the thrower's hand (where it was drawn a frame
