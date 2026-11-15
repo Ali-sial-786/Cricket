@@ -155,8 +155,8 @@ view also faces forward by itself before each ball, on recenter, catches and rep
   one) skips it at any moment, and that press does nothing else; no other button stops it, and the menu only
   pauses it.
 * **The HUD panel** (beside the pitch, between balls only) shows the last ball's result, the delivery and your shot
-  (exit speed, launch angle above the horizontal and where the ball went, e.g. "41° · fine leg", bat speed, sweet
-  spot, carry). It is cleared when the next ball starts and in a new game; during an appeal it reads *Appeal…*, then
+  (exit speed, launch angle above the horizontal and where the ball went, e.g. "41° · fine leg", bat speed, how
+  full the backlift was when the swing reports it, sweet spot, carry). It is cleared when the next ball starts and in a new game; during an appeal it reads *Appeal…*, then
   the umpire's call, *Third umpire…* for a run-out upstairs, then the verdict. The innings ends at the last wicket
   (5 in a 5-over chase): no ball is bowled after it, however quickly X is pressed.
 * **Text while the ball is coming:** from the moment the bowler sets off (the machine's countdown; your own run-up

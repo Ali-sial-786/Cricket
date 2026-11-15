@@ -32,6 +32,12 @@ test('shot direction: the fielding position it went to (right-hander: off side +
 test('read-out: a top edge over the shoulder reads its real launch and fine leg, not a low shot', () => {
   const r = shotReadout({ exit: 17.5, launch: launchAngle({ x: -4, y: 4, z: 16.5 }), dir: { x: -4, y: 4, z: 16.5 }, batSpeed: 30.5, quality: 0.01, carry: 18 });
   assert.match(r, /· 13° · fine leg ·/);
+  assert.ok(!/backlift/.test(r));
+});
+
+test('read-out: the backlift, when the swing reports one (h.load 0..1)', () => {
+  const h = { exit: 30, launch: 8, dir: { x: 12, y: 2, z: -16 }, batSpeed: 14.2, quality: 0.9, carry: 25, load: 0.734 };
+  assert.match(shotReadout(h), /bat 14\.2 m\/s · backlift 73% · sweet 90%/);
 });
 
 test('read-out: struck a second time, the read-out is of the ball as it finally left the bat', () => {

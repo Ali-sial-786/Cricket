@@ -47,8 +47,10 @@ export function shotWhere(v) {
   for (const [lim, n] of names) if (d < lim) return n;
   return off ? 'third man' : 'fine leg';
 }
+// (h.load, 0..1, when the swing reports it: how full the backlift was.)
 export function shotReadout(h) {
-  return `Exit ${KMH(h.exit)} km/h · ${Math.round(h.launch)}° · ${shotWhere(h.dir)} · bat ${h.batSpeed.toFixed(1)} m/s · sweet ${Math.round(h.quality * 100)}%${h.advanced ? ' · stepped out' : ''}\nCarry ${Math.round(h.carry)} m`;
+  const load = h.load != null ? ` · backlift ${Math.round(h.load * 100)}%` : '';
+  return `Exit ${KMH(h.exit)} km/h · ${Math.round(h.launch)}° · ${shotWhere(h.dir)} · bat ${h.batSpeed.toFixed(1)} m/s${load} · sweet ${Math.round(h.quality * 100)}%${h.advanced ? ' · stepped out' : ''}\nCarry ${Math.round(h.carry)} m`;
 }
 
 export class BattingSession {
