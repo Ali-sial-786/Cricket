@@ -40,7 +40,7 @@ export const CONFIG = {
     outfield: {
       restitution: 0.40,
       friction: 0.40,
-      rollingDecel: 1.3,     // m/s^2 rolling resistance on grass
+      rollingDecel: 3.5,     // m/s^2 rolling resistance on grass (+ drag): a 90 km/h ground shot stops ~55 m out, 115+ km/h races to the rope
     },
     rollVerticalSpeed: 0.7,  // m/s: below this vertical rebound, the ball rolls
     spinTurnScale: 1.6,      // >1 exaggerates spin turn (energy neutral) — game feel
@@ -61,9 +61,10 @@ export const CONFIG = {
     sweetSpotFromToe: 0.17,
 
     // Response
-    speedMultiplier: 1.25,   // amplifies controller bat speed (home swings are gentle)
+    speedMultiplier: 1.25,   // amplifies controller bat speed (home swings are gentle); Settings -> Bat power
     restitutionSweet: 0.42,  // apparent COR at the sweet spot (relative restitution)
-    restitutionMin: 0.12,    // COR far from the sweet spot (toe / shoulder)
+    restitutionMin: 0.24,    // COR on the face far from the sweet spot: an off-centre hit loses some power, not most of it
+    restitutionEnd: 0.10,    // COR off the toe, the shoulder or the side of the blade
     restitutionBack: 0.10,   // ball hits the back of the bat
     restitutionHandle: 0.08,
     sweetSpotSigma: 0.13,    // m: Gaussian falloff of contact quality along the blade
@@ -81,7 +82,15 @@ export const CONFIG = {
     advanceSpeed: 3.6,       // m/s
     advancePower: 0.32,      // extra bat power at full advance (x1.32), more for lofted shots
     advanceSweetShrink: 0.4, // sweet spot shrinks by this fraction at full advance (harder to time)
-    sweepSpeedGain: 1.15,    // sweep exit speed = bat speed x this + a share of the ball's pace
+    // YOUR shot's power (src/physics/swingLoad.js, resolveBatContact). Exit speed off the face:
+    //   exit = e x H x ball + (1 + e x H) x bat x P
+    // bat: your bat's real speed into the ball x speedMultiplier; e: the bat's restitution where it
+    // hit (restitutionSweet .. restitutionMin); P = loadFloor + (1 - loadFloor) x load, load 0..1 =
+    // how far back and high you took the bat and how far it travelled to the ball; H = soft +
+    // (1 - soft) x smoothstep(hands, bat's real speed): a bat pushed gently is held softly and
+    // takes the pace off the ball (a dead bat), a swung one is firm.
+    power: { loadFloor: 0.45, soft: 0.5, hands: [1.5, 14] },
+    sweepLift: [0.42, 0.62], // rad: a slog sweep goes up between these (a sweep is kept down: sweepShot.js)
     creaseMoveSpeed: 1.3,    // m/s with the left thumbstick
     creaseBox: [0.9, 0.55],  // how far (x, z) the stick can move you in the crease
     velocitySource: 'auto',  // 'auto' | 'xr' | 'pose' — where controller velocity comes from
@@ -206,7 +215,7 @@ export const CONFIG = {
     diveSpeed: 7.6,          // m/s through the air…
     diveSlide: 7.0,          // …then slowing by this much a second along the ground (never below 2.5 m/s)
     diveReach: 2.1,          // m the bat reaches ahead of a batter at full stretch (1.0 running)
-    getUp: 0.9,              // s on the ground after a dive before another run can be called
+    getUp: 1.45,             // s on the ground after a dive (lying a moment, then ~1.1 s getting up) before another run can be called
   },
 
   keeper: {

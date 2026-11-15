@@ -45,7 +45,10 @@ test('a soft push into the gap gets runs, a block to a close fielder gets none',
   const gap = play({ toward: { x: Math.sin(a) * 40, z: -1.6 - Math.cos(a) * 40 }, speed: 21, elev: -0.08 }).outcome;
   assert.ok(gap.kind === 'runs' || gap.kind === 'boundary', gap.kind);
   assert.ok(gap.runs >= 1, `runs ${gap.runs}`);
-  const block = play({ toward: { x: 0, z: -12 }, speed: 7, elev: -0.2 }).outcome;
+  // A forward-defensive block off a quick ball (~35 km/h off the bat: DECISIONS W3) straight back to the
+  // bowler, who has it in his follow-through: no run. (A deader one that dies halfway, 9 m out, is a real
+  // quick single on the slower outfield, W4 - and the field logic gives it.)
+  const block = play({ toward: { x: 0, z: -12 }, speed: 9.7, elev: -0.2 }).outcome;
   assert.equal(block.kind, 'runs');
   assert.equal(block.runs, 0);
 });

@@ -22,6 +22,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Install test dependencies (three.js for the rig/scene tests)
+        run: npm ci --ignore-scripts
       - name: Physics + game logic unit tests
         run: npm test
 

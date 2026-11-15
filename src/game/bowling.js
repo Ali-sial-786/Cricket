@@ -15,7 +15,7 @@ import { trackLbw } from './lbw.js';
 import { isWide, shouldAppeal, heldBallAlpha } from './bowlingRules.js';
 import { ThirdUmpireFlow } from './thirdUmpire.js';
 import { Reviews } from './reviews.js';
-import { Innings } from './scoring.js';
+import { Innings, runsText } from './scoring.js';
 import { batProfile } from './squad.js';
 import { playerBowler, seamFromWrist, stepDelivery, deliveryInfo, PLAYER_BOWLER_ORDER } from './bowlerTypes.js';
 import { RunUp } from './runup.js';
@@ -330,12 +330,12 @@ export class BowlingSession {
     // Line: the way the hand was travelling across the ground over the last 0.12 s.
     // Running in moves the rig: take your own run out of the hand's world motion
     // (XR velocities are already relative to the rig; poses are not).
-    const runV = this.run.enabled ? this.run.speed : 0, vz = R.hasXRVel ? 0 : runV;
+    const runV = this.run.enabled ? this.run.speed : 0, vz = R.hasXRVel || g.input.xr ? 0 : runV;    // (headset velocities are the rig's own, either way)
     const last = R.history[R.history.length - 1];
     let pk = null, pkS = -1;
     for (let i = R.history.length - 1; i >= 0; i--) {
       const h = R.history[i];
-      if (g.simTime - h.t > CONFIG.bowling.peakWindowMs / 1000) break;
+      if (last.t - h.t > CONFIG.bowling.peakWindowMs / 1000) break;     // (the history is on the real clock: relative to its last sample)
       const sp = Math.hypot(h.v.x, h.v.y, h.v.z - vz);
       if (sp > pkS) { pkS = sp; pk = h; }
     }
@@ -561,7 +561,7 @@ export class BowlingSession {
     // Gone past a batter who came down the pitch: he scrambles back.
     if (!b.batted && plan && plan.adv && plan.C && b.pos.z > plan.C.z + 0.35) g.aiBatter.retreat(t);
     // Beaten the bat and struck the pad: appeal.
-    if (!this.hit && plan && plan.C && plan.shot.type !== 'pull' && plan.shot.type !== 'cut') {
+    if (!this.hit && !b.thrown && plan && plan.C && plan.shot.type !== 'pull' && plan.shot.type !== 'cut') {
       const body = g.aiBatter.bodyAt(t);
       if (padHit(b, plan.C.x - 0.14, body.z - 0.2)) {
         const impact = b.clone();
@@ -584,7 +584,7 @@ export class BowlingSession {
     // An edge onto the pad (lbwFlow.js batPad): an LBW shout (the review finds the bat first), or still in play.
     if (this.hit && this.hit.edge && plan && plan.C && !this.noBall && !this.freeHit && !b.padded) {
       const body = g.aiBatter.bodyAt(t);
-      const bp = this.lbw.batPad(b, { x: plan.C.x - 0.14, z: body.z - 0.2 }, undefined, { path: this.path.slice(), playerIsBatter: false, since: t - this.hit.t, field: this.field, t });
+      const bp = this.lbw.batPad(b, { x: plan.C.x - 0.14, z: body.z - 0.2 }, undefined, { path: this.path.slice(), shotOffered: plan.shot.type !== 'leave', playerIsBatter: false, since: t - this.hit.t, field: this.field, t });
       if (bp === 'appeal') { this.state = 'review'; this.reviewFlow = null; return; }
     }
     if (this.field && (b.batted || this.byes)) {
@@ -610,7 +610,8 @@ export class BowlingSession {
         }
         if (t < this.stumpAt) return;
         const atk = this.field.attack, margin = g.aiBatter.advanceAt(t) - 0.5, lim = CONFIG.match.thirdUmpire;   // m short of his ground
-        if (atk.kind === 'shy' && !atk.hit) { this.finish({ kind: 'dot', shyMissed: true }); return; }
+        // (his shy misses: the ball runs on past the stumps -- byes, if they run them)
+        if (atk.kind === 'shy' && !atk.hit) { if (b.active) this.startByes(t, true); return; }
         if (atk.kind === 'break') this.field.breakStumps('batting', t, 0);
         const res = margin <= 0 ? { kind: 'dot', backInTime: true }
           : atk.kind === 'break' ? { kind: 'stumped' } : { kind: 'runout', runs: 0, margin, end: 'batting', who: 'striker' };
@@ -636,11 +637,11 @@ export class BowlingSession {
   }
 
   // The ball has gone past the bat and the keeper: it is in play, like a hit.
-  startByes(t) {
+  startByes(t, shy = false) {
     const g = this.game, b = g.world.ball;
     this.byes = { t };
     this.field.onHit(b, t, predict(b, { maxTime: 9, h: 1 / 240 }), { byes: true });
-    g.ui.prompt(this.wide ? 'Wide — and past the keeper!' : 'Past the keeper — byes!', 2.2, '#ffb347');
+    g.ui.prompt(shy ? 'The keeper misses the stumps!' : this.wide ? 'Wide — and past the keeper!' : 'Past the keeper — byes!', 2.2, '#ffb347');
     g.crowdReact('close');
   }
 
@@ -676,7 +677,8 @@ export class BowlingSession {
       g.say('hit', { shot: plan0(g), edge: e.isEdge, top_edge: e.isEdge && v.y > 6, speed: v.length(), vel: { x: v.x, y: v.y, z: v.z } });
       if (this.field) this.field.onHit(g.world.ball, e.t, pred);
     }
-    if (e.type === 'wicket' && e.end === 'batting' && this.state === 'live' && (!this.field || !this.field.fielded) && (!this.hit || e.t - this.hit.t < 0.6)) this.finish({ kind: 'bowled', wicket: 'bowled' });
+    if (e.type === 'wicket' && e.thrown) { if (this.field && this.state === 'live') this.field.onThrownWicket(e); }      // (a throw into the stumps: a run-out chance, never "bowled")
+    else if (e.type === 'wicket' && e.end === 'batting' && this.state === 'live' && (!this.field || !this.field.fielded) && (!this.hit || e.t - this.hit.t < 0.6)) this.finish({ kind: 'bowled', wicket: 'bowled' });
     if (e.type === 'boundary' && (e.batted || this.byes)) {
       g.cheer(e.onFull && e.batted ? 1 : 0.7);
       if (this.hit) this.hit.sixOnFull = e.onFull;
@@ -699,8 +701,10 @@ export class BowlingSession {
       case 'lbw': big = 'LBW — OUT!'; color = '#7dff8a'; outcome.wicket = 'lbw'; break;
       case 'stumped': big = 'STUMPED!'; color = '#7dff8a'; outcome.wicket = 'stumped'; break;
       case 'runout': big = `RUN OUT! (${res.margin.toFixed(1)} m short)`; color = '#7dff8a'; outcome.wicket = 'run out'; outcome.runs = res.runs; break;
-      case 'boundary': big = res.runs === 6 ? 'Six…' : 'Four…'; color = '#ff8080'; outcome.runs = res.runs; outcome.boundary = res.runs; break;
-      case 'runs': big = res.runs ? `${res.runs} run${res.runs > 1 ? 's' : ''}` : 'Dot ball'; outcome.runs = res.runs || 0; break;
+      case 'boundary':
+        if (res.overthrows) { big = runsText(res) + '…'; color = '#ff8080'; outcome.runs = res.runs; outcome.overthrows = res.overthrows; g.umpires.signal('four', now); break; }   // (Law 19.8: not a four)
+        big = res.runs === 6 ? 'Six…' : 'Four…'; color = '#ff8080'; outcome.runs = res.runs; outcome.boundary = res.runs; break;
+      case 'runs': big = res.runs ? runsText(res) : 'Dot ball'; outcome.runs = res.runs || 0; if (res.overthrows) outcome.overthrows = res.overthrows; break;
       default:
         big = res.noAppeal ? 'Off the pad' : res.padded ? 'Not out' : res.backInTime ? 'Not out — back in time' : res.shyMissed ? 'Keeper misses the stumps' : this.hit ? 'Dot ball' : (g.aiBatter.plan && g.aiBatter.plan.shot.type === 'leave' ? 'Left alone' : 'Beaten!');
         if (!this.hit && g.aiBatter.plan && g.aiBatter.plan.shot.type !== 'leave') this.stats.beaten++;
@@ -716,7 +720,7 @@ export class BowlingSession {
     // Byes: runs off a ball that was not hit are extras.
     if (this.byes && !outcome.wicket) {
       outcome.byes = true; outcome.boundary = 0;
-      big = res.kind === 'boundary' ? 'Four byes' : outcome.runs ? `${outcome.runs} bye${outcome.runs > 1 ? 's' : ''}` : 'No run'; color = '#ffb347';
+      big = res.kind === 'boundary' && !res.overthrows ? 'Four byes' : outcome.runs ? runsText({ ...res, runs: outcome.runs, byes: true }) : 'No run'; color = '#ffb347';
       if (outcome.runs) g.umpires.signal('bye', now);
     }
     if (this.noBall) { outcome.noBall = true; if (!outcome.wicket && !outcome.boundary) big = `No-ball${outcome.runs ? ` + ${outcome.runs}` : ''}`; }

@@ -6,7 +6,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { SHOTS, shotTrack } from './battingTracks.js';
+import { SHOTS, shotTrack, buildTrack } from './battingTracks.js';
 
 let THREE = null;
 try { THREE = await import('three'); } catch { THREE = null; }
@@ -55,8 +55,8 @@ function segDist(p1, q1, p2, q2) {
 }
 
 // One scripted stroke through the live solver; per frame the pose and the measures.
-function play(m, name) {
-  const { body, A, h, PITCH } = m, trk = shotTrack(name);
+function play(m, name, tweak = null) {
+  const { body, A, h, PITCH } = m, trk = tweak ? tweak(shotTrack(name)) : shotTrack(name);
   body.reset();
   const bp = V(), bq = new THREE.Quaternion(), top = V(), sc = h.root.scale.x, ankleY = h.ankleHeight * sc;
   const ix = BODY.map((n) => h.boneList.indexOf(h.bones[n]));
@@ -66,7 +66,7 @@ function play(m, name) {
   for (let i = 0; i < trk.length; i++) {
     const e = trk[i];
     bp.set(e.bp.x, e.bp.y, e.bp.z); bq.set(e.bq.x, e.bq.y, e.bq.z, e.bq.w);
-    body.update(e.dt, e.t, bp, bq, null, e.head, e.extra, e.off, e.turn || 0);
+    body.update(e.dt, e.t, bp, bq, null, e.head, e.extra, e.off, e.turn || 0, e.mt != null ? { t: e.mt, dt: e.mdt } : null);
     h.update();
     const f = { t: e.t, q: h.boneList.map((b) => b.quaternion.clone()), hp: h.bones.hips.position.clone(), rp: h.root.position.clone(),
       ankL: h.worldPos('ankleL', V()), ankR: h.worldPos('ankleR', V()), trunk: h.worldPos('neck', V()).sub(h.worldPos('hips', V())).normalize() };
@@ -179,7 +179,7 @@ test('replay: the sliced re-solve gives exactly the body you had, and the gloves
     for (const p of poses) {
       const e = trk.find((x) => x.t === p.t);
       h.boneList.forEach((b, k) => b.quaternion.copy(p.q[k])); h.bones.hips.position.copy(p.hp); h.root.position.copy(p.rp); h.root.quaternion.copy(p.rq);
-      body.replayArms(p.t + 1e-4); h.update();
+      body.replayArms(p.t); h.update();            // (at the exact time of the pose: that entry's arms)
       bp.set(e.bp.x, e.bp.y, e.bp.z); bq.set(e.bq.x, e.bq.y, e.bq.z, e.bq.w);
       rg = Math.max(rg, Math.abs(h.worldPos('handR', V()).distanceTo(bp) - 0.075), Math.abs(h.worldPos('handL', V()).distanceTo(V().set(0, 0.105, 0).applyQuaternion(bq).add(bp)) - 0.075));
     }
@@ -215,4 +215,173 @@ test('the same tracks give the same body, every time (deterministic)', { skip },
   const m = await load();
   const a = play(m, 'pull').R.frames, b = play(m, 'pull').R.frames;
   for (let i = 0; i < a.length; i++) a[i].q.forEach((q, k) => assert.ok(same(q, b[i].q[k]), `frame ${i} bone ${k}`));
+});
+
+test('slow motion does not change your body: the same swing at time scale 0.7 and 0.85 is posed exactly as at full speed', { skip }, async () => {
+  const m = await load();
+  // (the game clock runs slower than the real one your movements are made on; the body is on the real clock)
+  const slowed = (ts) => (trk) => trk.map((e) => ({ ...e, t: trk[0].t + (e.t - trk[0].t) * ts, dt: e.dt * ts, mt: e.t, mdt: e.dt }));
+  for (const n of ['cover_drive', 'sweep']) {
+    const ref = play(m, n, slowed(1)).R.frames;
+    for (const ts of [0.85, 0.7]) {
+      const a = play(m, n, slowed(ts)).R.frames;
+      let worst = 0;
+      for (let i = 0; i < a.length; i++) a[i].q.forEach((q, k) => { worst = Math.max(worst, q.angleTo(ref[i].q[k])); });
+      assert.ok(worst < 1e-6, `${n} at x${ts}: ${(worst * 57.3).toFixed(4)} deg from the body at full speed`);
+    }
+  }
+});
+
+test('replay tape: record -> re-solve -> overwrite -> apply keeps your gloves on the recorded bat (120 Hz input, decimated tape, ring wrap, a long review)', { skip }, async () => {
+  const m = await load(), { body, A, h } = m;
+  const { Replay } = await import('../src/game/replay.js');
+  const batMesh = new THREE.Object3D(); batMesh.visible = true;
+  const g = { scene: new THREE.Scene(), input: { headPose: { p: V(), q: new THREE.Quaternion() }, xr: false },
+    ballView: { mesh: new THREE.Object3D(), visible: false, setVisible(v) { this.visible = v; } },
+    batMesh, batReplayVisible: true, stumps: { batting: { pieces: [] }, bowling: { pieces: [] } }, playerBody: body };
+  const R = new Replay(g);
+  h.replayVisible = true;                // (as the game has it while you bat: your figure is on the tape)
+  // strokes one after another at 120 Hz (the tape records at most 90 a second), long enough to wrap the ring
+  const names = ['waggle', 'cover_drive', 'sweep', 'advance_drive', 'pull', 'cut', 'hook', 'straight_drive', 'on_drive', 'wild_slog', 'forward_defence', 'back_foot_punch', 'cover_drive', 'sweep'];
+  const trk = [];
+  let t0 = 100, clip = null;
+  for (const n of names) {
+    const s = shotTrack(n, { hz: 120, t0 });
+    if (n === names[names.length - 1]) clip = [s[0].t, s[s.length - 1].t];
+    trk.push(...s); t0 = s[s.length - 1].t + 1 / 120;
+  }
+  body.reset();
+  const bp = V(), bq = new THREE.Quaternion();
+  const feed = (e) => {
+    bp.set(e.bp.x, e.bp.y, e.bp.z); bq.set(e.bq.x, e.bq.y, e.bq.z, e.bq.w);
+    body.update(e.dt, e.t, bp, bq, null, e.head, e.extra, e.off, e.turn || 0);
+    batMesh.position.copy(bp); batMesh.quaternion.copy(bq);     // (posed, then recorded: as Game.frame does)
+  };
+  for (const e of trk) { feed(e); R.record(e.t); }
+  assert.ok(R.count === R.times.length && trk[trk.length - 1].t - R.timeAt(0) < trk[trk.length - 1].t - trk[0].t, 'the ring wrapped');
+  // the replay re-solves the last stroke and writes it over the tape, exact frame by exact frame
+  const job = body.resolveBegin(clip[0] + 0.3, clip[1]);
+  assert.ok(job, 'the clip is in the log');
+  let written = 0;
+  while (!body.resolveStep(job, 4, (t, hh) => { R.overwrite(R.humans.indexOf(h), t, hh, body.armsNow()); written++; }));
+  body.resolveEnd(job);
+  assert.ok(written > 100);
+  const gloves = (from, to, mid) => {
+    let worst = 0, n = 0;
+    for (let i = 0; i < R.count; i++) {
+      const t = R.timeAt(i) + (mid ? 0.5 * (R.timeAt(Math.min(R.count - 1, i + 1)) - R.timeAt(i)) : 0);
+      if (t < from || t > to) continue;
+      R.apply(t); h.update(); n++;
+      const top = V().set(0, 0.105, 0).applyQuaternion(batMesh.quaternion).add(batMesh.position);
+      worst = Math.max(worst, Math.abs(h.worldPos('handR', V()).distanceTo(batMesh.position) - 0.075), Math.abs(h.worldPos('handL', V()).distanceTo(top) - 0.075));
+    }
+    return { worst, n };
+  };
+  for (const [what, a, b] of [['re-solved stroke', clip[0] + 0.3, clip[1]], ['first frames on the tape', R.timeAt(0), R.timeAt(0) + 3], ['the stroke before', clip[0] - 4, clip[0]]]) {
+    const ex = gloves(a, b, false), md = gloves(a, b, true);
+    assert.ok(ex.n > 50, `${what}: ${ex.n} frames`);
+    assert.ok(ex.worst < 0.005, `${what}: gloves ${(ex.worst * 100).toFixed(2)} cm off the recorded bat at the recorded frames`);
+    assert.ok(md.worst < 0.03, `${what}: gloves ${(md.worst * 100).toFixed(2)} cm off between frames`);
+  }
+  // a long review (30 s more of you standing there, not recorded): the log has moved on, the tape has not
+  const stand = shotTrack('waggle', { hz: 120, t0 }).slice(0, 120 * 6);
+  for (let k = 0; k < 5; k++) for (const e of stand) feed({ ...e, t: e.t + k * 6 });
+  assert.equal(body.resolveBegin(clip[0] + 0.3, clip[1]), null, 'the log no longer holds the clip');
+  const late = gloves(clip[0] + 0.3, clip[1], false);
+  assert.ok(late.worst < 0.005, `after a long review: gloves ${(late.worst * 100).toFixed(2)} cm off`);
+  A.restArms(); h.replayVisible = undefined;
+});
+
+// The batting session's sweep button as bodyState() gives it: held in [on, off) (ramps in 0.22 s, out 0.29 s, smoothed).
+function sweepButton(on, off, slog = false, reverse = false) {
+  let k = 0, last = null;
+  return (t) => {
+    const dt = last == null ? 0 : t - last; last = t;
+    k = Math.min(1, Math.max(0, k + (t >= on && t < off ? 4.5 : -3.5) * dt));
+    return { sweep: k > 0.01 ? { k: k * k * (3 - 2 * k), slog, reverse } : null, hit: null, crease: null, live: true };
+  };
+}
+function playKeys(m, keys, extra) {
+  const { body, h } = m, trk = buildTrack(keys, { extra });
+  body.reset();
+  const bp = V(), bq = new THREE.Quaternion(), out = [], ix = BODY.map((n) => h.boneList.indexOf(h.bones[n]));
+  let prev = null, jump = 0, armJump = 0, glove = 0;
+  for (let i = 0; i < trk.length; i++) {
+    const e = trk[i];
+    bp.set(e.bp.x, e.bp.y, e.bp.z); bq.set(e.bq.x, e.bq.y, e.bq.z, e.bq.w);
+    body.update(e.dt, e.t, bp, bq, null, e.head, e.extra, e.off, 0);
+    h.update();
+    const q = h.boneList.map((b) => b.quaternion.clone());
+    if (prev && i > 3) q.forEach((x, k) => { const a = x.angleTo(prev[k]) * 180 / Math.PI; if (ix.includes(k)) jump = Math.max(jump, a); else armJump = Math.max(armJump, a); });
+    prev = q;
+    const top = V().set(0, 0.105, 0).applyQuaternion(bq).add(bp);
+    glove = Math.max(glove, Math.abs(h.worldPos('handR', V()).distanceTo(bp) - 0.075), Math.abs(h.worldPos('handL', V()).distanceTo(top) - 0.075));
+    out.push({ t: e.t - trk[0].t, hips: h.worldPos('hips', V()).y, knee: Math.min(h.worldPos('kneeL', V()).y, h.worldPos('kneeR', V()).y), low: h.lowest(), lead: body.sense.leader });
+  }
+  return { trk, out, jump, armJump, glove };
+}
+const STANCE_KEY = { head: [-0.25, 1.56, -1.05], look: [0, -0.05], hand: [0.02, 0.8, -0.98], toe: [0.1, -0.95, 0.28], face: [0, 0, -1] };
+
+test('the sweep button: standing tall, your figure is down on the back knee within 0.25 s, stays down while held, gets up when you let go', { skip }, async () => {
+  const m = await load();
+  for (const [what, slog, reverse] of [['sweep', false, false], ['slog sweep', true, false], ['reverse sweep', false, true]]) {
+    const { out, jump, armJump, glove } = playKeys(m, [{ t: 0, ...STANCE_KEY }, { t: 4, ...STANCE_KEY }], sweepButton(0.5, 2.5, slog, reverse));
+    const hip0 = out.find((o) => o.t >= 0.45).hips, hipDown = out.find((o) => o.t >= 2.4).hips;
+    assert.ok(hip0 - hipDown > 0.3, `${what}: the pelvis comes down ${((hip0 - hipDown) * 100).toFixed(0)} cm (a kneel)`);
+    const down = out.find((o) => o.t > 0.5 && o.hips <= hip0 - 0.9 * (hip0 - hipDown));
+    assert.ok(down && down.t - 0.5 <= 0.25, `${what}: 90% down ${down ? (down.t - 0.5).toFixed(2) : 'never'} s after the press`);
+    const held = out.filter((o) => o.t > 0.9 && o.t < 2.5);
+    assert.ok(held.every((o) => Math.abs(o.hips - hipDown) < 0.03 && o.knee < 0.25), `${what}: stays down on the knee while held`);
+    assert.ok(Math.min(...out.map((o) => o.low)) > -0.005, `${what}: nothing in the turf`);
+    const up = out.find((o) => o.t > 2.5 && o.hips >= hip0 - 0.03);
+    assert.ok(up && up.t - 2.5 < 0.7, `${what}: back up ${up ? (up.t - 2.5).toFixed(2) : 'never'} s after letting go`);
+    assert.ok(jump < 35 && armJump < 35, `${what}: a joint turns ${jump.toFixed(1)} deg (arms ${armJump.toFixed(1)}) in a frame`);
+    assert.ok(glove < 0.005, `${what}: gloves ${(glove * 100).toFixed(2)} cm off the handle`);
+  }
+});
+
+test('the sweep button with a stroke: standing tall or down low, the stroke is read as the sweep held, on the knee, and replays the same', { skip }, async () => {
+  const m = await load(), { body } = m;
+  const tall = SHOTS.sweep.keys.map((k) => ({ ...k, head: k.head ? [k.head[0], Math.max(k.head[1], 1.5), k.head[2]] : k.head }));
+  for (const [what, keys, slog, reverse, want] of [
+    ['tall sweep', tall, false, false, 'sweep'], ['tall slog sweep', tall, true, false, 'slog_sweep'], ['tall reverse', tall, false, true, 'reverse_sweep'],
+    ['low sweep', SHOTS.sweep.keys, false, false, 'sweep']]) {
+    const { trk, out, jump, armJump, glove } = playKeys(m, keys, sweepButton(0.4, 2.6, slog, reverse));
+    const leads = [...new Set(out.filter((o) => o.lead).map((o) => o.lead))];
+    assert.deepEqual(leads, [want], `${what}: read as ${leads.join(' -> ')}`);
+    // (down through the stroke: the pelvis low, a knee by the turf - the reverse sweep's capture half-kneels at its finish)
+    const mid = out.filter((o) => o.t > 1.0 && o.t < 2.4);
+    assert.ok(Math.max(...mid.map((o) => o.hips)) < 0.62 && Math.max(...mid.map((o) => o.knee)) < 0.35, `${what}: down through the stroke (pelvis up to ${Math.max(...mid.map((o) => o.hips)).toFixed(2)} m, knee ${Math.max(...mid.map((o) => o.knee)).toFixed(2)} m)`);
+    // (the arms coming back from the sweep's high finish turn quickly, but never flip: < 60 deg a frame, was 170)
+    assert.ok(jump < 35 && armJump < 60 && glove < 0.005, `${what}: jump ${jump.toFixed(1)} deg (arms ${armJump.toFixed(1)}), gloves ${(glove * 100).toFixed(2)} cm`);
+    // the replay re-solve (the button is in the log) gives the same body
+    const t0 = trk[10].t, t1 = trk[trk.length - 1].t, live = new Map();
+    for (const e of body.log) live.set(e.t, e);
+    const job = body.resolveBegin(t0, t1);
+    assert.ok(job && job.saved, `${what}: re-solve`);
+    body.resolveEnd(job);
+    assert.ok(body.log.some((e) => e.extra && e.extra.sweep && e.extra.sweep.k > 0.9), `${what}: the button is logged`);
+  }
+});
+
+test('the sweep\'s view drop is not read as a stroke: the same swing with the view lowered under it reads the same', { skip }, async () => {
+  const m = await load(), { body } = m;
+  const read = (trk) => {
+    body.reset();
+    const bp = V(), bq = new THREE.Quaternion(), out = [];
+    for (const e of trk) {
+      bp.set(e.bp.x, e.bp.y, e.bp.z); bq.set(e.bq.x, e.bq.y, e.bq.z, e.bq.w);
+      body.update(e.dt, e.t, bp, bq, null, e.head, e.extra, e.off, 0, { t: e.t, dt: e.dt, drop: e.drop || 0 });
+      out.push({ E: body.st.out.engage, lead: body.st.out.leader });
+    }
+    return out;
+  };
+  const base = shotTrack('cover_drive');
+  // the view dropped by up to 0.5 m from 0.6 s (over 0.22 s), so your head, bat and other hand all come down with it
+  const dropped = base.map((e) => {
+    const k = Math.min(1, Math.max(0, (e.t - base[0].t - 0.6) / 0.22)), d = 0.5 * k * k * k * (k * (k * 6 - 15) + 10);
+    return { ...e, drop: d, bp: { ...e.bp, y: e.bp.y - d }, head: { ...e.head, p: { ...e.head.p, y: e.head.p.y - d } }, off: e.off ? { ...e.off, y: e.off.y - d } : null };
+  });
+  const a = read(base), b = read(dropped);
+  for (let i = 0; i < a.length; i++) assert.ok(Math.abs(a[i].E - b[i].E) < 1e-9 && a[i].lead === b[i].lead, `frame ${i}: engage ${a[i].E} / ${b[i].E}, ${a[i].lead} / ${b[i].lead}`);
 });

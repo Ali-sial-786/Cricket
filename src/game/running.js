@@ -16,7 +16,7 @@ const ss = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
 
 // Lanes either side of the pitch, and how wide of the player's head a runner passes.
 const LANE = 0.85;
-const LIE = 0.25;            // s a diver lies where he stopped before he starts to get up
+const LIE = 0.3;             // s a diver lies where he stopped before he starts to get up (then CONFIG.field.getUp - LIE to get up)
 const DIVE_PUSH = 20;        // m/s^2: the push into a dive, up to the dive's speed
 export const RUNNER_CLEAR = 1.4;
 
@@ -99,14 +99,25 @@ export class Runs {
   // run, anyone else trots back to the crease he left, a diver gets up. `stop`
   // (a run-out) leaves them standing where they are.
   // `boundary`: the ball has gone for four or six; they pull up at once and
-  // walk back to the crease they left (unless all but home).
-  close({ stop = false, boundary = false } = {}) {
+  // walk back to the crease they left (unless all but home). `to`: the run
+  // in progress counts all the same (overthrows to the rope, crossed when the
+  // throw was made): they finish it.
+  close({ stop = false, boundary = false, to = null, short = null } = {}) {
     if (this.closed) return;
     this.closed = true;
     this.boundary = boundary;
     this.official = { completed: this.completed, crossed: this.crossed };
     this.diveWanted = false; this.diveHeld = false;
+    // Run out in the middle of a dive (`short`: m short when the wicket was
+    // broken): the slide carries him on only a little, so he comes to rest
+    // short of the line as given, not across it.
+    if (this.diving && short != null && short > 0) {
+      const more = Math.max(0, short - 0.3) * 0.4 / CREASE_TO_CREASE;
+      this.target = this.p + Math.sign(this.target - this.p) * Math.min(this.remaining, more);
+      return;
+    }
     if (!this.running || this.diving) return;
+    if (to != null && !this.goingBack && Math.ceil(this.p - 1e-6) === to) { this.target = to; return; }
     if (stop) this.target = this.p;
     else if (this.remaining > (boundary ? 0.12 : 0.3) && !this.goingBack) this.target = Math.floor(this.p + 1e-6);
   }
@@ -240,5 +251,23 @@ export function planRuns(estReturn, boldness = 0.4, rng = Math.random, cfg = CON
   const margin = F.runSafetyMargin + 0.55 * (1 - boldness) - 0.25 * boldness;
   let n = 0;
   while (n < 3 && 0.3 + F.runFirst + n * F.runNext + margin <= estReturn + noise) n++;
+  return n;
+}
+
+// More runs off a ball that has got away again (an overthrow): `est` s from
+// now until it should be back at the stumps. The run in progress is finished
+// first; each further run is called from the crease. Returns how many more to
+// call (0..3). A ball nobody will reach before the rope (Infinity): two.
+export function planMoreRuns(est, runs = null, boldness = 0.4, rng = Math.random, cfg = CONFIG) {
+  const F = cfg.field;
+  if (est === Infinity) return 2;
+  if (!(est > 0)) return 0;
+  const noise = (rng() - 0.5) * 0.9 * (0.4 + boldness);
+  const margin = F.runSafetyMargin + 0.55 * (1 - boldness) - 0.25 * boldness;
+  const running = runs && runs.running;
+  const finish = running ? runs.remaining * (runs.completed === 0 && !runs.goingBack ? F.runFirst : F.runNext) : 0;
+  const first = runs && (runs.completed > 0 || running) ? F.runNext : F.runFirst;
+  let n = 0;
+  while (n < 3 && finish + 0.25 + first + n * F.runNext + margin <= est + noise) n++;
   return n;
 }

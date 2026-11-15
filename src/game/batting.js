@@ -20,10 +20,14 @@ import { ThirdUmpireFlow } from './thirdUmpire.js';
 import { Reviews } from './reviews.js';
 import { BackFoot, creaseShort } from './crease.js';
 import { HINTS } from '../ui/controllerHint.js';
+import { ShotEvidence, pointVelocity } from './shotOffered.js';
+import { sweepShot } from './sweepShot.js';
+import { BatGeometry } from '../physics/bat.js';
 
-const _fw = new Vec3(), _toe = new Vec3();
+const _fw = new Vec3(), _toe = new Vec3(), _lever = new Vec3(), _bv = new Vec3(), _mid = new Vec3();
+let _sweetY = null;               // the middle of the (visible) bat, along its +Y from your hand
 const PLAYER_PAD = { halfX: 0.15, front: 0.1, back: 0.26, top: 0.7 };
-import { Innings } from './scoring.js';
+import { Innings, runsText } from './scoring.js';
 
 const KMH = (v) => Math.round(msToKmh(v));
 const _hand = new THREE.Vector3();
@@ -32,6 +36,33 @@ const ANNOUNCE = 1.8;            // s a new bowler's card / a free hit is up bef
 // Between balls the bowler waits for everyone to be in place: after
 // WAIT_HURRY s whoever is not runs; after the cap the ball is bowled anyway.
 const WAIT_HURRY = 2.5, WAIT_CAP = 7, WAIT_CAP_WICKET = 13;
+// Down low yourself = a sweep (readLowSweep): eyes below `on` x your standing eye height (out above `off`),
+// the middle of the bat below `bat` x it and across the line or swinging round (> `swing` m/s), `hold` s;
+// out too when the middle of the bat stays above `high` x standing for `highFor` s; never to a ball
+// coming at you above `short` x standing.
+const LOW = { on: 0.68, off: 0.76, bat: 0.3, swing: 3, hold: 0.12, high: 0.55, highFor: 0.15, short: 0.55 };
+const SWEEP_IN = 4.5, SWEEP_OUT = 3.5;   // 1/s: the sweep button's hold on your figure comes in over 0.22 s, goes over 0.29 s
+
+// The shot read-out. launch: degrees above the horizontal of the ball as it
+// left the bat (whichever way it went); where: which way it went, as a
+// fielding position (a right-hander's: off side +x, the bowler -z), so a top
+// edge that climbs over your shoulder reads "41° · fine leg", not a low drive.
+export function launchAngle(v) { return Math.atan2(v.y, Math.hypot(v.x, v.z)) * 180 / Math.PI; }
+export function shotWhere(v) {
+  if (Math.hypot(v.x, v.z) < 0.15 * Math.hypot(v.x, v.y, v.z) + 1e-6) return v.y > 0 ? 'straight up' : 'into the ground';
+  const a = Math.atan2(v.x, -v.z) * 180 / Math.PI, d = Math.abs(a), off = a > 0;   // 0: back past the bowler, 90: square, 180: behind
+  if (d < 12) return 'straight';
+  if (d > 168) return 'over the keeper';
+  const names = off ? [[27, 'mid-off'], [50, 'extra cover'], [72, 'cover'], [104, 'point'], [135, 'gully'], [168, 'third man']]
+    : [[27, 'mid-on'], [62, 'midwicket'], [104, 'square leg'], [135, 'backward square'], [168, 'fine leg']];
+  for (const [lim, n] of names) if (d < lim) return n;
+  return off ? 'third man' : 'fine leg';
+}
+// (h.load, 0..1, when the swing reports it: how full the backlift was.)
+export function shotReadout(h) {
+  const load = h.load != null ? ` · backlift ${Math.round(h.load * 100)}%` : '';
+  return `Exit ${KMH(h.exit)} km/h · ${Math.round(h.launch)}° · ${shotWhere(h.dir)} · bat ${h.batSpeed.toFixed(1)} m/s${load} · sweet ${Math.round(h.quality * 100)}%${h.advanced ? ' · stepped out' : ''}\nCarry ${Math.round(h.carry)} m`;
+}
 
 export class BattingSession {
   constructor(game, { kind = 'nets', title = 'Nets · Batting', innings = null, bowler = 'machine', fielders = null, aiBowler = null, onDone = null } = {}) {
@@ -59,6 +90,7 @@ export class BattingSession {
     this.reviewFlow = null; this.pendingRes = null;
     this.noBall = false; this.freeHit = false;
     this.path = [];
+    this.offer = new ShotEvidence();     // did you play at this ball (shotOffered.js)
     this.partnership = 0;
     this.dots = 0;
   }
@@ -160,13 +192,16 @@ export class BattingSession {
     const f = this.advance / B.advanceDistance;
     g.playerBat.mods = { faceLed: B.faceLed, power: 1 + B.advancePower * f, sigmaScale: 1 - B.advanceSweetShrink * f, loftPower: 0.2 * f };
 
-    // Sweep: down on one knee for as long as the grip is held (and a moment after the shot).
-    const sweeping = R.buttons.squeeze.pressed && (preBall || this.state === 'idle' || this.state === 'settle' || (this.hit && g.simTime - this.hit.t < 0.5));
-    this.sweepK = clamp((this.sweepK || 0) + (sweeping ? 6 : -3.5) * dt, 0, 1);
+    // Sweep: your figure goes down on the back knee whenever the grip is held - before the ball, through
+    // the shot, after it - however you are standing yourself, and gets up when you let go. Down low
+    // yourself, with the bat across the line low or swinging at the ball, is a sweep too (readLowSweep).
+    this.lowSweep = this.readLowSweep(dt);
+    const sweeping = R.buttons.squeeze.pressed || this.lowSweep;
+    this.sweepK = clamp((this.sweepK || 0) + (sweeping ? SWEEP_IN : -SWEEP_OUT) * dt, 0, 1);
     this.sweepSlog = sweeping ? R.buttons.trigger.pressed || this.advance > 0.4 : this.sweepSlog;
-    // a reverse sweep: the bat swung toward the off side while sweeping (as applySweep reads it)
-    if (sweeping && R.linVel.length() > 2) this.sweepReverse = R.linVel.x > 0.6;
-    else if (!sweeping && this.sweepK <= 0) this.sweepReverse = false;
+    // a reverse sweep: the middle of the bat swung toward the off side of your stance while sweeping
+    if (sweeping) { const s = this.sweepSide(); if (s.speed > 2.5) this.sweepReverse = s.off > 0.35; }
+    else if (this.sweepK <= 0) this.sweepReverse = false;
 
     if (this.lbw.active) return;
     const run = this.field && this.state === 'live' && (this.hit || this.byes) && !this.field.result();
@@ -184,9 +219,21 @@ export class BattingSession {
     } else if (L.buttons.a.down || (input.xr && !L.connected && R.buttons.a.down)) this.requestNext();
   }
 
+  // X / Space between balls: the next ball now. During the result ('settle')
+  // it only cuts the wait short: the ball's replay still plays first, with
+  // the whole of the play on its tape (it starts once TAIL s of aftermath are
+  // recorded), and the end of the innings is still checked on the way out of
+  // 'settle' (so a finished innings never gets another ball).
   requestNext() {
-    if (this.state === 'idle' || this.state === 'settle') { this.state = 'idle'; this.timer = 0; }
+    if (this.state === 'idle') { this.timer = 0; return; }
+    if (this.state !== 'settle') return;
+    this.nextAsked = true;
+    const R = this.game.replay, p = R && R.pending;
+    this.timer = Math.min(this.timer, p ? Math.max(0, (R.dueAt ? R.dueAt() : p.at) - this.game.simTime) : 0);
   }
+
+  // The replay has put you back: straight on, if the next ball was asked for.
+  afterReplay() { if (this.state === 'settle' && this.nextAsked) this.timer = 0; }
 
   autoNext() { return this.kind !== 'nets' || this.game.settings.autoFeed; }
 
@@ -199,13 +246,15 @@ export class BattingSession {
     this.creasePin = clamp(this.creasePin + (this.stumpAt && (this.state === 'live' || this.state === 'review') ? 6 : -3) * (g.realDt || dt), 0, 1);
     g.timeScaleTarget = this.state === 'live' && !this.hit && !this.byes && !g.world.ball.padded && g.world.ball.active ? g.diff.timeScale : 1;
     if (this.state === 'idle') {
+      if (this.innings && this.innings.complete) { this.complete(); return; }   // (never a ball after the last one)
       if (this.autoNext() || this.timer <= 0) this.timer -= dt;
       // The next ball is decided now, so that everyone can walk to where it
       // needs him (the bowler to his mark, the umpire and the non-striker to
       // the right side of the stumps) before the bowler runs in.
       if (!this.planned) this.planNext();
       this.waitField = (this.waitField || 0) + dt;
-      if (this.timer <= 0 && !this.announced && this.announce()) { /* (the card is up: the field walks back meanwhile) */ }
+      if (this.timer <= 0 && g.replay && g.replay.pending) { /* (the last ball's replay first: Replay.dueAt) */ }
+      else if (this.timer <= 0 && !this.announced && this.announce()) { /* (the card is up: the field walks back meanwhile) */ }
       else if (this.timer <= 0 && this.peopleReady()) { this.waitField = 0; this.prepare(t); }
     } else if (this.state === 'cue') {
       const el = t - this.cueStart, cd = CONFIG.machine.countdownSec;
@@ -230,8 +279,8 @@ export class BattingSession {
       if (this.timer <= 0) {
         g.machine.setCue(0);
         if (this.innings && this.innings.complete) { this.complete(); return; }
-        this.state = 'idle';
-        this.timer = this.autoNext() ? 0.3 : 1e9;
+        this.timer = this.nextAsked ? 0 : this.autoNext() ? 0.3 : 1e9;
+        this.state = 'idle'; this.nextAsked = false;
       }
     }
     if (this.field) this.field.update(dt, t);
@@ -303,7 +352,10 @@ export class BattingSession {
     g.ballView.setVisible(false);
     g.ballView.clearTrail();
     g.world.removeBall();
-    if (this.newBatter) { g.ui.setHud({ detail: `New batter in: ${this.newBatter}` }); this.newBatter = null; }
+    // A new ball: the last one's result, delivery and shot lines go (an appeal
+    // or a review of this one writes its own; the result writes the verdict).
+    g.ui.setHud({ big: '', last: '', detail: this.newBatter ? `New batter in: ${this.newBatter}` : '' });
+    this.newBatter = null;
     if (!this.planned) this.planNext();
     const settings = this.planned.settings;
     this.delivery = this.planned.delivery;
@@ -311,7 +363,7 @@ export class BattingSession {
     this.announced = false;
     this.settingsUsed = settings;
     this.hit = null; this.byes = null; this.firstBounce = null; this.wide = false; this.crossedCrease = false;
-    this.maxBatSpeedNear = 0; this.stumpAt = 0; this.stumpBroke = false; this.path.length = 0; this.shotName = '';
+    this.offer.reset(); this.stumpAt = 0; this.stumpBroke = false; this.path.length = 0; this.shotName = '';
     this.pendingRes = null; this.reviewFlow = null;
     this.backFoot.reset();           // taking guard
     // Extras: the AI bowler oversteps now and then; the ball after a no-ball is a free hit.
@@ -360,16 +412,15 @@ export class BattingSession {
   checkLive(t) {
     const g = this.game, b = g.world.ball;
     if (b.active && !b.batted) this.path.push({ x: b.pos.x, y: b.pos.y, z: b.pos.z });
-    // Track bat speed while the ball is near the batter (play-and-miss vs leave).
-    if (!b.batted && b.pos.z > -3.5 && b.pos.z < 0.5) {
-      this.maxBatSpeedNear = Math.max(this.maxBatSpeedNear, g.input.right.linVel.length());
-    }
+    // Did you play at it? The middle of your bat while the ball comes to you (shotOffered.js):
+    // played and missed vs left alone, and the LBW "shot offered".
+    if (!b.batted && b.pos.z > -7 && b.pos.z < 0.5) this.trackOffer();
     if (!this.crossedCrease && b.pos.z > battingPoppingZ) {
       this.crossedCrease = true;
       if (!b.batted && (Math.abs(b.pos.x) > PITCH.wideLineX || b.pos.y > CONFIG.match.wideHeight)) this.wide = true;   // too wide, or over your head
     }
     // Struck on the pad: LBW appeal (match modes, not on easy).
-    if (this.field && g.diff.lbwAgainstPlayer && !this.hit) {
+    if (this.field && g.diff.lbwAgainstPlayer && !this.hit && !b.thrown) {      // (not a throw going past you)
       // Your head stands in for your legs, so the box is kept tight and sits
       // under / behind it, and the bat always gets the first go at the ball.
       const body = this.body();
@@ -378,13 +429,13 @@ export class BattingSession {
         deflectOffPad(b, g.rng);
         if (this.noBall || this.freeHit) { this.finish({ kind: 'beaten', padded: true }); return; }
         this.state = 'review';
-        this.lbw.start({ impactState: impact, path: this.path.slice(), shotOffered: this.maxBatSpeedNear > 2, playerIsBatter: true });
+        this.lbw.start({ impactState: impact, path: this.path.slice(), shotOffered: this.offer.offered, playerIsBatter: true });
         return;
       }
     }
     // An edge onto the pad (lbwFlow.js batPad): an LBW shout (the review finds the bat first), or still in play.
     if (this.field && g.diff.lbwAgainstPlayer && this.hit && this.hit.edge && !this.noBall && !this.freeHit && !b.padded) {
-      const bp = this.lbw.batPad(b, this.body(), PLAYER_PAD, { path: this.path.slice(), playerIsBatter: true, since: t - this.hit.t, field: this.field, t });
+      const bp = this.lbw.batPad(b, this.body(), PLAYER_PAD, { path: this.path.slice(), shotOffered: this.offer.offered, playerIsBatter: true, since: t - this.hit.t, field: this.field, t });
       if (bp === 'appeal') { this.state = 'review'; this.reviewFlow = null; return; }
     }
     if (this.field && (b.batted || this.byes)) {
@@ -401,7 +452,7 @@ export class BattingSession {
         // He has it. Only now can you be stumped (or thrown out from where he stands back).
         if (!this.stumpAt) {
           if (this.shortOfGround() <= 0.02) {
-            const notOut = { kind: this.maxBatSpeedNear > 3.5 ? 'beaten' : 'left' };
+            const notOut = { kind: this.offer.offered ? 'beaten' : 'left' };
             // Close to the bat (or a noise as it passed): an appeal for caught behind (lbwFlow.js behind).
             if (!this.noBall && !this.freeHit && this.lbw.behind({ notOut, path: this.path.slice(), playerIsBatter: true })) { this.state = 'review'; this.reviewFlow = null; return; }
             this.finish(notOut); return;
@@ -412,7 +463,8 @@ export class BattingSession {
         }
         if (t < this.stumpAt) return;
         const atk = this.field.attack, margin = this.shortOfGround(), lim = CONFIG.match.thirdUmpire;   // m short of your ground
-        if (atk.kind === 'shy' && !atk.hit) { this.finish({ kind: 'beaten', shyMissed: true }); return; }
+        // (his shy misses: the ball runs on past the stumps -- byes, if you can run them)
+        if (atk.kind === 'shy' && !atk.hit) { if (b.active) this.startByes(t, true); return; }
         if (atk.kind === 'break' && !this.stumpBroke) { this.stumpBroke = true; this.field.breakStumps('batting', t, 0); }
         const res = margin <= 0 ? { kind: 'beaten', backInTime: true }
           : atk.kind === 'break' ? { kind: 'stumped' } : { kind: 'runout', runs: 0, margin, end: 'batting', who: 'striker' };
@@ -425,7 +477,7 @@ export class BattingSession {
       // It beat the keeper as well: byes. Run if you like; it can go for four.
       if (this.field.keeperMissed && b.active) { this.startByes(t); return; }
     } else if (!b.batted && b.pos.z > 2.4) {                           // nets: past the stumps
-      this.finish({ kind: this.maxBatSpeedNear > 3.5 ? 'beaten' : 'left' });
+      this.finish({ kind: this.offer.offered ? 'beaten' : 'left' });
       return;
     }
     if (b.batted && !this.field) {
@@ -439,13 +491,82 @@ export class BattingSession {
   }
 
   // The ball has gone past the bat and the keeper: it is in play, like a hit.
-  startByes(t) {
+  startByes(t, shy = false) {
     const g = this.game, b = g.world.ball;
     this.byes = { t };
     g.timeScaleTarget = 1;
     this.field.onHit(b, t, predict(b, { maxTime: 9, h: 1 / 240 }), { byes: true });
-    g.ui.prompt(this.wide ? 'WIDE — and past the keeper! Run?' : 'Past the keeper — BYES! Run?', 2.2, '#ffd34d');
+    g.ui.prompt(shy ? 'He misses the stumps — run!' : this.wide ? 'WIDE — and past the keeper! Run?' : 'Past the keeper — BYES! Run?', 2.2, '#ffd34d');
     g.crowdReact('close');
+  }
+
+  // A sweep is on: the grip held, or you are down low in a sweep (readLowSweep).
+  sweepHeld() { return this.game.input.right.buttons.squeeze.pressed || !!this.lowSweep; }
+
+  // The button's own hold on the view (Game.updateRigDrop: it lowers your eyes to a kneeling
+  // sweeper's): 1 while the grip is held and nothing else has the view, else 0.
+  sweepDrop() {
+    const g = this.game, r = g.runs;
+    if (this.isBowling || !g.input.right.buttons.squeeze.pressed) return 0;
+    if (r && (r.running || r.diving)) return 0;
+    return this.state === 'review' ? 0 : 1;
+  }
+
+  // Down low yourself (headset): your real eyes below LOW.on x your standing
+  // eye height, held LOW.hold s, with the middle of the bat low (below LOW.bat
+  // x standing) and either lying across the line or swinging round at the
+  // ball (its HORIZONTAL speed over LOW.swing m/s) - that is a sweep, as if the
+  // grip were held. Over when you come back up past LOW.off, or the middle of
+  // the bat stays up above LOW.high x standing for LOW.highFor s. Never to a
+  // short ball (its height at you over LOW.short x standing: that is a duck).
+  // Not a sweep either: a batting crouch or a lunge (the head nowhere near that
+  // low), a duck (the bat up or out of the way, or the hands dropping - that is
+  // speed downward, not round), crouching to ground the bat (upright, still).
+  readLowSweep(dt) {
+    const g = this.game, S = this.lowS || (this.lowS = { on: false, t: 0, hi: 0 });
+    if (!g.input.xr || !g.input.right.connected || !g.standEye) { S.on = false; S.t = 0; S.hi = 0; return false; }
+    const stand = g.standEye, y = g.input.headRef.p.y, pose = g.playerBatProvider.curr.pose;
+    if (_sweetY == null) _sweetY = new BatGeometry(CONFIG.bat).sweetY;
+    pose.dirToWorld(_lever.set(0, 1, 0), _lever);
+    const across = Math.abs(_lever.y) < 0.6;
+    const midY = pose.p.y + _lever.y * _sweetY - (g.rig ? g.rig.position.y : 0);     // (its real height: the view drop moves the bat too)
+    pose.dirToWorld(_lever.set(0, _sweetY, 0), _lever);
+    pointVelocity(_bv, g.input.right.linVel, g.input.right.angVel, _lever);
+    const round = Math.hypot(_bv.x, _bv.z);
+    if (S.on) {
+      S.hi = midY > stand * LOW.high ? S.hi + dt : 0;
+      if (y > stand * LOW.off || S.hi >= LOW.highFor) { S.on = false; S.t = 0; S.hi = 0; }
+      return S.on;
+    }
+    const bi = this.ballInfo, short = this.state === 'live' && !this.hit && bi && bi.y != null && bi.y > stand * LOW.short;
+    const sweepy = !short && y < stand * LOW.on && midY < stand * LOW.bat && (across || round > LOW.swing);
+    S.t = sweepy ? S.t + dt : 0;
+    if (S.t >= LOW.hold) { S.on = true; S.hi = 0; }
+    return S.on;
+  }
+
+  // Which way the middle of your bat is going across your stance (the stick turns it): its speed, and
+  // the share of that toward the off side (+1) or the leg side (-1).
+  sweepSide() {
+    const g = this.game, R = g.input.right, pose = g.playerBatProvider.curr.pose;
+    if (_sweetY == null) _sweetY = new BatGeometry(CONFIG.bat).sweetY;
+    pose.dirToWorld(_lever.set(0, _sweetY, 0), _lever);
+    pointVelocity(_bv, R.linVel, R.angVel, _lever);
+    const th = g.input.xr ? g.lookYaw || 0 : 0, sp = _bv.length();
+    return { speed: sp, off: sp > 1e-6 ? (_bv.x * Math.cos(th) - _bv.z * Math.sin(th)) / sp : 0 };
+  }
+
+  // The middle of your bat this frame (real velocity: the controller's plus its turning x the lever
+  // down the blade) into the evidence of a shot played at the ball.
+  trackOffer() {
+    const g = this.game, R = g.input.right, pose = g.playerBatProvider.curr.pose;
+    if (!R.connected) return;
+    if (_sweetY == null) _sweetY = new BatGeometry(CONFIG.bat).sweetY;
+    pose.dirToWorld(_lever.set(0, _sweetY, 0), _lever);
+    _mid.copy(pose.p).add(_lever);
+    pointVelocity(_bv, R.linVel, R.angVel, _lever);
+    const head = g.input.xr ? g.input.headPose.p : this.body();
+    this.offer.add(_bv, _mid, head, g.realDt || 1 / 72);
   }
 
   netsHitResult(b) {
@@ -454,22 +575,15 @@ export class BattingSession {
     return { kind: 'hit', runs: 0 };
   }
 
-  // Sweep / reverse sweep / slog sweep: the shot is steered square (or
-  // behind square) on the side you swing to.
+  // Sweep / reverse sweep / slog sweep (the grip held at contact): the shot
+  // your bat played - its power from the contact, its side from where it went
+  // or the way you swept - helped gently into a sweeper's arc (sweepShot.js).
   applySweep(e) {
-    const g = this.game, b = g.world.ball, R = g.input.right, B = CONFIG.bat;
-    if (e.isEdge || e.face !== 'front') return false;
-    const reverse = R.linVel.x > 0.6;                 // swinging toward the off side
-    const slog = R.buttons.trigger.pressed || this.advance > 0.4;
-    const q = e.quality;
-    const speed = Math.min(44, (e.batSpeed * B.sweepSpeedGain + 0.3 * e.speedIn) * (0.5 + 0.5 * q) * (slog ? 1.3 : 1));
-    const behind = slog ? -(0.25 + g.rng() * 0.45) : (0.1 + g.rng() * 0.5);   // radians behind square (+) / in front (-)
-    const elev = slog ? 0.42 + g.rng() * 0.18 : 0.03 + g.rng() * 0.08 + (1 - q) * 0.25;
-    const side = reverse ? 1 : -1;
-    const ch = Math.cos(elev);
-    b.vel.set(side * Math.cos(behind) * ch * speed, Math.sin(elev) * speed, Math.sin(behind) * ch * speed);
-    e.vel.copy(b.vel); e.speedOut = speed;
-    this.shotName = reverse ? 'reverse sweep' : slog ? 'slog sweep' : 'sweep';
+    const g = this.game, b = g.world.ball, R = g.input.right;
+    const name = sweepShot(b.vel, e, { slog: R.buttons.trigger.pressed || this.advance > 0.4, reverse: this.sweepSide().off > 0.35 });
+    if (!name) return false;
+    e.vel.copy(b.vel); e.speedOut = b.vel.length();
+    this.shotName = name;
     return true;
   }
 
@@ -479,14 +593,14 @@ export class BattingSession {
     if (e.type === 'bounce' && !e.batted && !this.firstBounce) this.firstBounce = e.pos.clone();
     if (e.type === 'bat' && e.batId === 'player' && !this.hit) {
       const b = g.world.ball;
-      if (g.input.right.buttons.squeeze.pressed) this.applySweep(e);
+      if (this.sweepHeld()) this.applySweep(e);
       const pred = predict(b, { maxTime: 9, h: 1 / 240 });
       const land = pred.bounces[0];
       const carry = land ? Math.hypot(land.pos.x - b.pos.x, land.pos.z - b.pos.z) : 0;
       const v = b.vel;
-      const launch = Math.atan2(v.y, Math.hypot(v.x, v.z)) / (Math.PI / 180);
+      const launch = launchAngle(v);
       this.hit = {
-        t: e.t, quality: e.quality, edge: e.isEdge, exit: v.length(), batSpeed: e.batSpeed, launch, carry, dir: { x: v.x, y: v.y, z: v.z },
+        t: e.t, quality: e.quality, edge: e.isEdge, exit: v.length(), batSpeed: e.bladeSpeed ?? e.batSpeed, load: e.load, launch, carry, dir: { x: v.x, y: v.y, z: v.z },
         sixOnFull: !!(pred.boundary && pred.boundary.onFull), pred, advanced: this.advance > 0.5,
       };
       if (e.isEdge) this.stats.edges++; else if (e.quality > 0.75) this.stats.middled++;
@@ -497,8 +611,15 @@ export class BattingSession {
       if (!e.isEdge && e.quality > 0.8 && v.length() > 30) g.cheer(0.3);
       if (e.isEdge) g.crowdReact('edge');
       else if (launch > 22 && v.length() > 22) g.crowdReact('skied');
+    } else if (e.type === 'bat' && e.batId === 'player' && this.hit && e.t - this.hit.t < 1) {
+      // Struck again (the bat came round into it): the read-out is of the ball
+      // as it finally left the bat, not of the first touch.
+      const b = g.world.ball, v = b.vel, land = predict(b, { maxTime: 9, h: 1 / 240 }).bounces[0];
+      Object.assign(this.hit, { exit: v.length(), launch: launchAngle(v), dir: { x: v.x, y: v.y, z: v.z }, carry: land ? Math.hypot(land.pos.x - b.pos.x, land.pos.z - b.pos.z) : 0, again: true });
     }
-    if (e.type === 'wicket' && e.end === 'batting' && this.state === 'live') {
+    // (a fielder's throw into the stumps is a run-out chance, never "bowled")
+    if (e.type === 'wicket' && e.thrown) { if (this.field && this.state === 'live') this.field.onThrownWicket(e); }
+    else if (e.type === 'wicket' && e.end === 'batting' && this.state === 'live') {
       if (!this.field || (!this.field.fielded && !this.hit)) this.finish({ kind: 'bowled', wicket: 'bowled' });
       else if (this.hit && !this.field.fielded && e.t - this.hit.t < 0.6) this.finish({ kind: 'bowled', wicket: 'bowled' });   // played on
     }
@@ -512,7 +633,7 @@ export class BattingSession {
   shotDetail() {
     const h = this.hit;
     if (!h) return '';
-    return `Exit ${KMH(h.exit)} km/h · ${Math.round(h.launch)}° · bat ${h.batSpeed.toFixed(1)} m/s · sweet ${Math.round(h.quality * 100)}%${h.advanced ? ' · stepped out' : ''}\nCarry ${Math.round(h.carry)} m`;
+    return shotReadout(h);
   }
 
   // Non-striker backs up while the ball is being bowled.
@@ -524,7 +645,7 @@ export class BattingSession {
   bodyState() {
     const b = this.game.world.ball, bi = this.ballInfo;
     return {
-      sweep: this.sweepK > 0.01 ? { k: this.sweepK * this.sweepK * (3 - 2 * this.sweepK), slog: !!this.sweepSlog, reverse: !!this.sweepReverse } : null,
+      sweep: this.sweepK > 0.01 ? { k: this.sweepK * this.sweepK * (3 - 2 * this.sweepK), slog: !!this.sweepSlog, reverse: !!this.sweepReverse, low: !!this.lowSweep } : null,
       ball: bi ? { id: bi.id, live: this.state === 'live' && b.active && !b.batted && !this.hit, arrive: bi.arrive, y: bi.y, length: bi.length } : null,
       hit: this.hit ? { t: this.hit.t, launch: this.hit.launch, name: this.shotName, dir: this.hit.dir } : null,
       // your real back foot (world z, headset only) and how far the figure's is held on it
@@ -588,12 +709,17 @@ export class BattingSession {
       case 'stumped': big = 'STUMPED!'; color = '#ff5a5a'; outcome.wicket = 'stumped'; break;
       case 'runout': big = `RUN OUT! (${res.margin.toFixed(1)} m short)`; color = '#ff5a5a'; outcome.wicket = 'run out'; outcome.runs = res.runs; break;
       case 'boundary':
+        if (res.overthrows) {           // overthrows to the rope: runs to you, not a four (Law 19.8)
+          big = runsText(res) + '!'; color = '#4dd2ff'; outcome.runs = res.runs; outcome.overthrows = res.overthrows; g.umpires.signal('four', now);
+          break;
+        }
         big = res.runs === 6 ? 'SIX!' : 'FOUR!'; color = res.runs === 6 ? '#ff6bd6' : '#4dd2ff';
         outcome.runs = res.runs; outcome.boundary = res.runs;
         if (res.runs === 6) this.stats.sixes++; else this.stats.fours++;
         break;
       case 'runs':
-        big = res.runs === 0 ? 'Dot ball' : `${res.runs} run${res.runs > 1 ? 's' : ''}`;
+        big = res.runs === 0 ? 'Dot ball' : runsText(res);
+        if (res.overthrows) outcome.overthrows = res.overthrows;
         if (res.closeCall != null && res.closeCall < 0.9 && res.runs > 0) big += ' — just home!';
         outcome.runs = res.runs;
         break;
@@ -612,7 +738,7 @@ export class BattingSession {
     // Byes: runs off a ball that was not hit go down as extras, not to you.
     if (this.byes && !outcome.wicket) {
       outcome.byes = true; outcome.boundary = 0;
-      big = res.kind === 'boundary' ? 'FOUR BYES!' : outcome.runs ? `${outcome.runs} bye${outcome.runs > 1 ? 's' : ''}` : 'No run';
+      big = res.kind === 'boundary' && !res.overthrows ? 'FOUR BYES!' : outcome.runs ? runsText({ ...res, runs: outcome.runs, byes: true }) : 'No run';
       color = '#ffd34d';
       if (outcome.runs) g.umpires.signal('bye', now);
     }
@@ -634,7 +760,7 @@ export class BattingSession {
     } else if (outcome.runs > 0) {
       g.sample('applause_polite', { gain: 0.7 });
       if (res.closeCall != null && res.closeCall < 0.9) g.crowdReact('close');
-    } else if (res.kind === 'beaten' && !res.padded && !res.backInTime) g.crowdReact(this.maxBatSpeedNear > 9 ? 'miss' : 'beaten');
+    } else if (res.kind === 'beaten' && !res.padded && !res.backInTime) g.crowdReact(this.offer.wild ? 'miss' : 'beaten');
     else if (res.backInTime || (res.kind === 'beaten' && res.padded)) g.crowdReact('close');
     else if (outcome.wide || outcome.noBall) { /* nothing */ } else g.crowdReact('dot');
 
@@ -668,7 +794,7 @@ export class BattingSession {
     if (this.innings) {
       const inn = this.innings;
       score = `${inn.scoreText}  (${inn.overs})`;
-      sub = inn.target != null ? `Need ${inn.runsNeeded} off ${inn.ballsLeft} · ${inn.wicketsLimit - inn.wickets} wkts left` : `${inn.ballsLeft} balls left · ${inn.wicketsLimit - inn.wickets} wkts in hand`;
+      sub = inn.target != null ? `Need ${inn.runsNeeded} off ${inn.ballsLeft} · ${inn.wicketsLeft} wkts left` : `${inn.ballsLeft} balls left · ${inn.wicketsLeft} wkts in hand`;
       const card = inn.card;
       g.ui.setBoard([this.title.toUpperCase(), score, card ? card.pairText() : sub, card && card.bowler ? `${card.bowlerText()}   ·   ${inn.thisOver.join(' ') || '-'}` : `This over: ${inn.thisOver.join(' ') || '-'}`]);
       g.ui.setHud({ title: this.title, score, sub, footer: this.footer(), players: card ? `${card.pairText()}${inn.freeHit ? '   ·   FREE HIT' : ''}` : '' });

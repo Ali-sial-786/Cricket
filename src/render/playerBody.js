@@ -39,13 +39,17 @@ import { CONFIG } from '../config.js';
 const EYES = 0.11;                 // m: the eyes above the figure's head joint
 const SOFT = 0.03;                 // m: the knees are never quite locked (the head joint this far under standing height)
 const KNEEL_BAND = [0.11, 0.01];   // m: the head joint this far below an upright kneel's -> right down on the back knee; above (+) -> up
+const KNEEL_RATE = 11;             // 1/s: how quickly the kneel follows your head (critically damped)
 // Blade from its shoulder to its toe, along the bat's +Y from the grip point (m); leg axis to the blade's centre line at least.
 const BLADE_TOP = CONFIG.bat.gripFromHandleTop - CONFIG.bat.handleLength, BLADE_TOE = BLADE_TOP - CONFIG.bat.bladeLength, LEG_CLEAR = 0.19;
 const HIP_DOWN = 2.5;              // the pelvis moving down costs this many times moving along the ground (reachBoth)
 const HAND_TOP = 0.105;            // m up the handle from the bottom hand to the top hand (actors.js HAND_GAP)
+const CAP_IN = 0.12;               // s: the stroke's captures blend in over this once named
+const HAND_ROOM = 0.26, ROOM_LEAN = 0.12;   // m: a hand nearer its shoulder than this and the trunk leans away (by at most ROOM_LEAN)
 const KNEE_LOW = 0.3;              // m: a knee joint lower than this has its pad checked against the turf (kneesUp)
 const KNEE_MIN = 0.12;             // knee joint above the turf at least (the pad's knee roll rests on it)
 const SNAP_EVERY = 12;             // frames between saved solver states in the log
+const LOG_SECONDS = 24, LOG_MAX = 3200;   // the log covers what the replay tape does (24 s of game time; 120 Hz frames)
 const LOOK_RATE = 7;               // rad/s: the head turns (and nods) at most this fast
 const UPRIGHT = ['forward_defence', 'straight_drive', 'cover_drive', 'lofted_drive'];
 const HALF_PI = Math.PI / 2, TAU = Math.PI * 2;
@@ -61,6 +65,7 @@ const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3
 const _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _q3 = new THREE.Quaternion(), _up = new THREE.Vector3(0, 1, 0);
 const _P = new THREE.Vector3(), _yp = new THREE.Vector3(), _hf = new THREE.Vector3(), _kp = new THREE.Vector3();
 const _sg = new THREE.Vector3(), _so = new THREE.Vector3(), _hd = new THREE.Vector3(), _qt = new THREE.Quaternion();
+const _dh = new THREE.Vector3(), _dg = new THREE.Vector3(), _do = new THREE.Vector3();
 const angDiff = (a, b) => { let d = b - a; while (d > Math.PI) d -= TAU; while (d < -Math.PI) d += TAU; return d; };
 const yawOf = (q) => { _e.set(0, 0, 1).applyQuaternion(q); return Math.atan2(_e.x, _e.z); };
 const v3 = () => new THREE.Vector3(), q4 = () => new THREE.Quaternion();
@@ -94,8 +99,8 @@ export class PlayerBodyView {
   // Everything the solver remembers (plain data).
   reset() {
     this.sense.reset(); this.feet.reset();
-    this.st = { u: {}, kneel: 0, kneelK: 0, kneelV: 0, toeR: 0, kd: { L: null, R: null }, trunk: null, turn: 0, rel: 0, relOk: false, look: 0, lookP: 0, lookN: 0, desk: null, n: 0, out: null, yield: { L: [0, 0], R: [0, 0] } };
-    this.actor._tw = null; this.actor._eb = null;
+    this.st = { u: {}, kneel: 0, kneelK: 0, kneelD: 0, kneelV: 0, toeR: 0, kd: { L: null, R: null }, trunk: null, turn: 0, rel: 0, relOk: false, look: 0, lookP: 0, lookN: 0, desk: null, n: 0, out: null, yield: { L: [0, 0], R: [0, 0] } };
+    this.actor._tw = null; this.actor._eb = null; this.actor._roll = null;
     this.log.length = 0;
     this.gen = (this.gen || 0) + 1;     // (a replay re-solve begun before this has nothing left to make)
   }
@@ -103,15 +108,17 @@ export class PlayerBodyView {
     const A = this.actor, eb = A._eb;
     return {
       sense: this.sense.save(), feet: this.feet.save(), st: structuredClone(this.st),
-      tw: A._tw ? { L: A._tw.L, R: A._tw.R } : null,
-      eb: eb ? { L: eb.L.toArray(), R: eb.R.toArray(), okL: eb.okL, okR: eb.okR } : null,
+      tw: A._tw ? { ...A._tw } : null, roll: A._roll ? { ...A._roll } : null,
+      eb: eb ? { L: eb.L.toArray(), R: eb.R.toArray(), okL: eb.okL, okR: eb.okR, pbL: eb.pbL ? eb.pbL.toArray() : null, pbR: eb.pbR ? eb.pbR.toArray() : null, pokL: eb.pokL, pokR: eb.pokR, pf: eb.pf ?? null } : null,
     };
   }
   loadState(s) {
     const A = this.actor;
     this.sense.load(s.sense); this.feet.load(s.feet); this.st = structuredClone(s.st);
-    A._tw = s.tw ? { L: s.tw.L, R: s.tw.R } : null;
-    A._eb = s.eb ? { L: new THREE.Vector3().fromArray(s.eb.L), R: new THREE.Vector3().fromArray(s.eb.R), okL: s.eb.okL, okR: s.eb.okR } : null;
+    A._tw = s.tw ? { ...s.tw } : null;
+    A._roll = s.roll ? { ...s.roll } : null;
+    const v = (a) => (a ? new THREE.Vector3().fromArray(a) : undefined);
+    A._eb = s.eb ? { L: v(s.eb.L), R: v(s.eb.R), okL: s.eb.okL, okR: s.eb.okR, pbL: v(s.eb.pbL), pbR: v(s.eb.pbR), pokL: s.eb.pokL, pokR: s.eb.pokR, pf: s.eb.pf ?? null } : null;
   }
 
   // What the body is doing, for the harness and the debug overlay: "state/shot engage".
@@ -122,16 +129,31 @@ export class PlayerBodyView {
 
   show(v) { this.visible = v; this.actor.visible = v; this.actor.bat.visible = false; }
 
-  // head: your headset pose {p, q} (VR), or null on a monitor. extra: the
-  // batting session's bodyState() ({ sweep, hit, crease, ball }). off: your other
-  // controller's position, or null. turn: how far the stick has turned you
-  // (rad about +Y, the game's lookYaw): your stance turns with it, about your
-  // head, and your feet step round (looking round with your head does not).
-  update(dt, t, batPos, batQuat, ball, head = null, extra = null, off = null, turn = 0) {
+  // Where the eyes are when the figure kneels in a sweep, at its size now (the game lowers your view
+  // to this while the sweep button is held): its kneeling sweeper's head + the eyes above it.
+  kneelEyeY(slog = false) {
+    const A = this.actor;
+    return (A.kneelHipY + A.spineLen * (slog ? 0.9 : 0.8)) * A.h.root.scale.x + EYES;
+  }
+
+  // dt, t: the game clock (slowed while the ball is live: the log, the replay
+  // and the hit are on it). head: your headset pose {p, q} (VR), or null on a
+  // monitor. extra: the batting session's bodyState() ({ sweep, hit, crease,
+  // ball }). off: your other controller's position, or null. turn: how far the
+  // stick has turned you (rad about +Y, the game's lookYaw): your stance turns
+  // with it, about your head, and your feet step round (looking round with
+  // your head does not). motion: { t, dt, drop } the real clock your
+  // movements are made on (the frame time, unscaled); the body reads your
+  // speeds and moves at its rates on it; drop: how far the sweep button has
+  // lowered your view (m; the body is solved to the lowered head, the stroke is
+  // read without it). Logged per frame, so a replay solves the same. Null: the
+  // game clock, no drop.
+  update(dt, t, batPos, batQuat, ball, head = null, extra = null, off = null, turn = 0, motion = null) {
     const L = this.log, h = this.actor.h;
     if (L.length && t < L[L.length - 1].t) this.reset();
     const e = {
-      t, dt, bp: { x: batPos.x, y: batPos.y, z: batPos.z }, bq: { x: batQuat.x, y: batQuat.y, z: batQuat.z, w: batQuat.w },
+      t, dt, mt: motion ? motion.t : t, mdt: motion ? motion.dt : dt, drop: motion && motion.drop ? motion.drop : 0,
+      bp: { x: batPos.x, y: batPos.y, z: batPos.z }, bq: { x: batQuat.x, y: batQuat.y, z: batQuat.z, w: batQuat.w },
       head: head ? { p: { x: head.p.x, y: head.p.y, z: head.p.z }, q: { x: head.q.x, y: head.q.y, z: head.q.z, w: head.q.w } } : null,
       off: off ? { x: off.x, y: off.y, z: off.z } : null,
       ball: ball ? { x: ball.x, y: ball.y, z: ball.z } : null,
@@ -142,7 +164,7 @@ export class PlayerBodyView {
     this.solve(e);
     e.arm = this.armsNow();
     L.push(e);
-    while (L.length > 1400 || (L.length && t - L[0].t > 16)) L.shift();
+    while (L.length > LOG_MAX || (L.length && t - L[0].t > LOG_SECONDS)) L.shift();
     this.actor.bat.visible = false;
   }
 
@@ -229,15 +251,18 @@ export class PlayerBodyView {
       A._stretched = true;
     }
   }
-  // In a replay at game time t: the arms as long as they were in the pose
-  // shown then (the replay sets the joints; this, the arms' length), so the
-  // gloves are on the bat in the replay as they were live.
+  // The arms as long as they were at game time t, from the log (between the
+  // two entries either side of t; an entry at exactly t is that one). The
+  // replay keeps its own copy per recorded frame (Replay.apply); this is for
+  // anything else that poses the figure from the log.
   replayArms(t) {
     const L = this.log;
     let lo = 0, hi = L.length - 1;
-    if (hi < 0 || L[0].t >= t) { this.setArms(null); return; }
-    while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (L[mid].t < t) lo = mid; else hi = mid - 1; }
-    this.setArms(L[lo].arm || null);
+    if (hi < 0 || t < L[0].t) { this.setArms(null); return; }
+    while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (L[mid].t <= t) lo = mid; else hi = mid - 1; }
+    const a = L[lo], b = L[Math.min(L.length - 1, lo + 1)], k = b.t > a.t ? clamp((t - a.t) / (b.t - a.t), 0, 1) : 0;
+    const ka = a.arm || [1, 1], kb = b.arm || [1, 1];
+    this.setArms([mix(ka[0], kb[0], k), mix(ka[1], kb[1], k)]);
   }
 
   // Each capture's footwork: where its feet are at contact against its own
@@ -264,7 +289,8 @@ export class PlayerBodyView {
 
   // The solver: one frame's inputs -> the pose. Live and replay both come through here.
   solve(e) {
-    const A = this.actor, h = A.h, sc = h.root.scale.x, st = this.st, dt = e.dt;
+    // (rates and speeds on the real motion clock; entries logged without one are on the game clock)
+    const A = this.actor, h = A.h, sc = h.root.scale.x, st = this.st, dt = e.mdt ?? e.dt, mt = e.mt ?? e.t;
     const bp = _bp.set(e.bp.x, e.bp.y, e.bp.z), bq = _bq.set(e.bq.x, e.bq.y, e.bq.z, e.bq.w);
     const standJ = A.headRestY * sc;
     // the way your stance faces: side-on, turned by the stick
@@ -289,18 +315,31 @@ export class PlayerBodyView {
       sg = _sg.set(bp.x - hp.x, bp.y - hp.y, bp.z - hp.z).applyQuaternion(_qt).add(_hd.set(hp.x, hp.y, hp.z));
       if (so) so = _so.set(so.x - hp.x, so.y - hp.y, so.z - hp.z).applyQuaternion(_qt).add(_hd);
     }
-    const o = dt > 5e-4 || !st.out ? this.sense.update(e.t, dt, hp, sg, _ax, so, { sweep: ex ? ex.sweep : null, hitT: ex && ex.hit ? ex.hit.t : null, live: ex ? ex.live ?? null : null, face: _fc }) : st.out;
+    // (the stroke is read from what you do: the sweep's view drop moved your head and bat down, you did not)
+    const dr = e.drop || 0;
+    let shp = hp, ssg = sg, sso = so;
+    if (dr) {
+      shp = _dh.set(hp.x, hp.y + dr, hp.z); ssg = _dg.set(sg.x, sg.y + dr, sg.z);
+      if (so) sso = _do.set(so.x, so.y + dr, so.z);
+    }
+    const o = dt > 5e-4 || !st.out ? this.sense.update(mt, dt, shp, ssg, _ax, sso, { sweep: ex ? ex.sweep : null, hitT: ex && ex.hit ? ex.hit.t : null, simT: e.t, live: ex ? ex.live ?? null : null, face: _fc }) : st.out;
     st.out = { state: o.state, phase: o.phase, engage: o.engage, leader: o.leader, weights: o.weights, quiet: o.quiet, offOn: o.offOn };
     const E = shotsReady() ? o.engage : 0;
     const Hj = _Hj.set(hp.x, Math.min(hp.y - EYES, standJ - SOFT), hp.z);
+    // ---- right down: onto the back knee as far as your head is below what an upright kneel reaches
+    // (getting up begins as soon as a kneeling body could no longer have its head where yours is),
+    // and whenever the sweep button is held, however you are standing yourself
+    const btn = ex && ex.sweep ? ex.sweep.k : 0;
+    const kneelTop = (A.kneelHipY + A.spineLen) * sc + KNEEL_BAND[1];
+    st.kneel = Math.max(sstep(kneelTop, kneelTop - KNEEL_BAND[0], Hj.y), btn);
+    // (critically damped; the button's own hold - already a smooth ramp - is followed at once going down)
+    { const om = KNEEL_RATE, acc = om * om * (st.kneel - st.kneelD) - 2 * om * st.kneelV; st.kneelV += acc * dt; st.kneelD = clamp(st.kneelD + st.kneelV * dt, 0, 1); }
+    st.kneelK = Math.max(st.kneelD, btn);
+    // (held the button: the head the body is solved to comes down with the kneel to a sweeper's - the
+    // figure's head goes below yours, the gloves stay on your bat; let go and it comes back up to yours)
+    const bk = Math.min(btn, st.kneelK);
+    if (bk > 0) { const hy = (A.kneelHipY + A.spineLen * (ex.sweep.slog ? 0.9 : 0.8)) * sc; if (hy < Hj.y) Hj.y += (hy - Hj.y) * bk; }
     const crouch = Math.max(0, standJ - Hj.y);
-    // ---- right down: onto the back knee (held the sweep button: sooner)
-    const sweepK = ex && ex.sweep ? ex.sweep.k : 0;
-    // (as far as the head is below what an upright kneel reaches: getting up begins as soon as
-    // a kneeling body could no longer have its head where yours is; held the sweep button: sooner)
-    const kneelTop = (A.kneelHipY + A.spineLen) * sc + KNEEL_BAND[1] + 0.1 * sweepK;
-    st.kneel = sstep(kneelTop, kneelTop - KNEEL_BAND[0], Hj.y);
-    { const om = 11, acc = om * om * (st.kneel - st.kneelK) - 2 * om * st.kneelV; st.kneelV += acc * dt; st.kneelK = clamp(st.kneelK + st.kneelV * dt, 0, 1); }
     // ---- the captures in play: each at the time in it that matches the bat's phase
     const list = this._list || (this._list = []);
     list.length = 0;
@@ -334,13 +373,16 @@ export class PlayerBodyView {
         pat.yawL = clamp(pat.yawL * 0.6, -0.3, 0.7); pat.yawR = clamp(pat.yawR * 0.5, -0.3, 0.7);
       } else list.length = 0;
     } else { for (const k of Object.keys(st.u)) delete st.u[k]; st.toeR = 0; st.trunk = null; st.turn = 0; st.relOk = false; }
+    // (the captures come in from nothing once a shot is first named: the engagement may be under way by then)
+    st.capIn = list.length ? Math.min(1, (st.capIn || 0) + dt / CAP_IN) : 0;
+    const Eb = E * sstep(0, 1, st.capIn);
     // ---- the feet
     const cr = ex && ex.crease;
     // (how far apart the legs can put them with the head this high: the hips under an all but upright trunk)
     const legLen = (h.bones.kneeL.position.length() + h.bones.ankleL.position.length()) * sc;
     const hipUp = Hj.y - A.trunkUp * sc * 0.95 - h.ankleHeight * sc;
     const maxStride = 2 * Math.sqrt(Math.max(0, legLen * legLen - hipUp * hipUp));
-    const F = this.feet.update(dt, { hx: Hj.x, hz: Hj.z, crouch, quiet: o.quiet, engage: E, pat, turn: list.length ? st.turn * E : 0, heading: th, kneel: st.kneelK, maxStride, pin: cr && cr.z != null && cr.pin > 0 ? { z: cr.z, k: cr.pin } : null, stumpsZ: PITCH.battingStumpsZ });
+    const F = this.feet.update(dt, { hx: Hj.x, hz: Hj.z, crouch, quiet: o.quiet, engage: Eb, pat, turn: list.length ? st.turn * Eb : 0, heading: th, kneel: st.kneelK, maxStride, pin: cr && cr.z != null && cr.pin > 0 ? { z: cr.z, k: cr.pin } : null, stumpsZ: PITCH.battingStumpsZ });
     // ---- no stroke: the stance, from the feet, your head and your hands
     A.mode = 'bat'; A.poseKey = 'bat';
     A.bat.position.copy(bp); A.bat.quaternion.copy(bq);
@@ -351,7 +393,7 @@ export class PlayerBodyView {
     _yp.copy(bp);
     if (e.off && o.offOn < 0.5) _yp.lerp(_a.set(e.off.x, e.off.y, e.off.z), 0.3 * (1 - 2 * o.offOn));
     const yawL = HALF_PI + F.L.yaw, yawR = HALF_PI + F.R.yaw;
-    A.solveBody({ heading, weight, head: Hj, batPos: bp, batQuat: bq, elbowUp: 0, heel: 0, sweep: st.kneelK > 0.01 ? { k: st.kneelK, planted: true } : null, swing: null, t: e.t, yawL, yawR, noGrip: true, noLegClear: true, yawPoint: _yp });
+    A.solveBody({ heading, weight, head: Hj, batPos: bp, batQuat: bq, elbowUp: 0, heel: 0, sweep: st.kneelK > 0.01 ? { k: st.kneelK, planted: true } : null, swing: null, t: mt, yawL, yawR, noGrip: true, noLegClear: true, yawPoint: _yp });
     // (a leg that cannot reach its foot, e.g. you stood up out of a lunge before the foot has come back: sit until it does)
     if (st.kneelK < 0.01) {
       h.update();
@@ -380,18 +422,18 @@ export class PlayerBodyView {
       h.update();
       h.worldPos('ankleL', M.aL); h.worldPos('ankleR', M.aR);
       h.bones.ankleL.getWorldQuaternion(M.qL); h.bones.ankleR.getWorldQuaternion(M.qR);
-      if (E < 0.999) {
-        h.blendFrom(snapN, E);
+      if (Eb < 0.999) {
+        h.blendFrom(snapN, Eb);
         // (the blend of two bodies on the same feet: the legs put back on them, knees bending between the two ways)
         h.update();
         for (const sd of ['L', 'R']) {
-          const tgt = _a.lerpVectors(N['a' + sd], M['a' + sd], E);
+          const tgt = _a.lerpVectors(N['a' + sd], M['a' + sd], Eb);
           const mid = h.worldPos('hip' + sd, _c).add(tgt).multiplyScalar(0.5);
           // (turned from one to the other, so two ways that differ a lot never cancel out)
           _q.setFromUnitVectors(N['p' + sd], M['p' + sd]);
-          _d.copy(N['p' + sd]).applyQuaternion(_q2.identity().slerp(_q, E));
+          _d.copy(N['p' + sd]).applyQuaternion(_q2.identity().slerp(_q, Eb));
           h.ikLeg(sd, tgt, M['o' + sd].copy(mid.addScaledVector(_d, 0.6)));
-          h.setWorldQuat('ankle' + sd, _q.copy(N['q' + sd]).slerp(M['q' + sd], E));
+          h.setWorldQuat('ankle' + sd, _q.copy(N['q' + sd]).slerp(M['q' + sd], Eb));
         }
         h.update(); h.clearFoot('L', M.oL); h.clearFoot('R', M.oR);
         // (the blend of two trunks does not keep the head on yours: aimed at it again)
@@ -399,11 +441,13 @@ export class PlayerBodyView {
       }
       poleL = M.oL; poleR = M.oR;
       // front elbow up and leading through an upright-bat front-foot stroke
-      elbowUp = E * upright * sstep(1, 1.8, o.phase) * (1 - 0.6 * sstep(2, 2.8, o.phase));
+      elbowUp = Eb * upright * sstep(1, 1.8, o.phase) * (1 - 0.6 * sstep(2, 2.8, o.phase));
     }
     this.yieldLegs(bp, bq, poleL, poleR, yawL, yawR, dt);
+    A._gframe = st.n; A._gdt = dt;          // (gripBat's hand roll / forearm twist limits are per second, from last frame's)
     if (this.debug) { h.update(); this.debug.pre = h.worldPos('head', _a).distanceTo(Hj); }
     // ---- the gloves on the handle; the head looking where you look
+    if (st.kneelK > 0.01) this.handRoom(bp, bq, st.kneelK);
     A.gripBat(bp, bq, elbowUp);
     this.kneesUp(dt);
     this.look(hq, e.ball, dt);
@@ -511,6 +555,33 @@ export class PlayerBodyView {
     h.setWorldQuat('ankleR', _q.setFromAxisAngle(_up, yawR));
     if (toe > 0) h.addRot('ankleR', toe, 0, 0);
     h.update(); h.clearFoot('L', M.oL); h.clearFoot('R', M.oR);
+  }
+
+  // Kneeling (k: how far), a hand on the handle right at its own shoulder
+  // (the bat held up at your chest while the figure kneels lower than you)
+  // folds the arm to a point, and the elbow swings round it frame to frame:
+  // the trunk leans away from the hands by what is missing of HAND_ROOM (at
+  // most ROOM_LEAN) x k, smoothly - nothing at all while they have the room.
+  handRoom(bp, bq, k) {
+    const h = this.actor.h, sc = h.root.scale.x, room = HAND_ROOM * sc;
+    h.update();
+    const ch = h.worldPos('chest', _d);
+    let need = 0;
+    _e.set(0, 0, 0);
+    for (const [sd, up] of [['R', 0], ['L', HAND_TOP]]) {
+      const at = _a.set(0, up, 0).applyQuaternion(bq).add(bp), l = h.worldPos('shoulder' + sd, _b).distanceTo(at);
+      if (l >= room) continue;
+      const w = room - l;
+      _c.subVectors(ch, at); _c.y = 0;
+      const cl = _c.length();
+      if (cl < 1e-4) continue;
+      _e.addScaledVector(_c, w / cl);
+      need = Math.max(need, w);
+    }
+    const el = _e.length();
+    if (need < 1e-4 || el < 1e-6) return;
+    _e.multiplyScalar(Math.min(need, ROOM_LEAN * sc) * k / el);
+    this.leanTo(_P.copy(h.worldPos('head', _a)).add(_e), 0.5);
   }
 
   // The trunk (from the spine joint) turned toward your head, by at most maxAng.

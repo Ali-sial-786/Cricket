@@ -172,7 +172,8 @@ export class FielderActor extends Actor {
     this.speed = s.speed;
     this.turnToward(s.face, dt, 12);                 // (the logic turns him at a body's pace: Fielding f.yaw)
     this.gait(dt);
-    const wantReady = (s.state === 'set' || s.state === 'walkin' || s.state === 'ready') && ctx.delivering ? 1 : 0;
+    // (set as the ball is bowled; over the stumps waiting for a throw, part way: gloves up, knees a little bent)
+    const wantReady = (s.state === 'set' || s.state === 'walkin' || s.state === 'ready') && ctx.delivering ? 1 : s.await && this.speed < 1.2 ? (this.keeper ? 0.32 : 0.45) : 0;
     this.ready += clamp(wantReady - this.ready, -dt * 3, dt * 4);
     // A dive carries the body off its spot (offX / offZ). When the dive is over
     // the body is not put back: what is left of the offset is walked off.
@@ -911,6 +912,8 @@ const ELBOW_FWD = 0.2;               // elbows out in front of the shoulders, ov
 const STANCE_LEAN = 0.52, STANCE_KNEES = 0.05, STANCE_DROP = 0.18, FRONT_OPEN = 0.3;
 const FOOT_FRONT = 0.2, FOOT_BACK = 0.26;      // your feet: front foot ahead of your head, back foot behind it             // bottom hand to top hand, up the handle
 const GRIP_ROLL = 0.8;              // how far a hand may roll round the handle from the textbook grip (rad)
+const POLE_RATE = 10;              // rad/s: your figure's elbow bend direction turns at most this fast (steadyPole)
+const TWIST_RATE = 24, ROLL_RATE = 8;   // rad/s: the forearm's share of the hand's turn, and the hand's roll round the handle, change at most this fast
 const MAX_STRIDE = 1.0;             // feet apart at most in a lunge (m)
 const KNEEL_PAD = 0.12;             // knee joint above the turf when kneeling: the pad's knee roll rests on it
 
@@ -1674,6 +1677,9 @@ export class BatterActor extends Actor {
         h.update();
         _f.subVectors(_wr, h.worldPos('elbow' + side, _el)).normalize();
         roll = clamp(Math.atan2(-_f.dot(_bz), _f.dot(_bx)), -GRIP_ROLL, GRIP_ROLL);
+        // (kept continuous: with the forearm along the handle's back the preferred roll swaps sides, the hand would flip)
+        const rs = this._roll || (this._roll = { L: null, R: null, bL: null, bR: null, f: null });
+        roll = this.limitStep(rs, side, roll, ROLL_RATE);
       }
       h.setWorldQuat('hand' + side, _q.setFromRotationMatrix(_m.makeBasis(_gx, _gy, _gz)));
       err = Math.max(err, h.worldPos('hand' + side, _el).distanceTo(_wr));
@@ -1687,16 +1693,30 @@ export class BatterActor extends Actor {
         _x.normalize();
         let tw = Math.atan2(_y.crossVectors(_v1, _x).dot(_v2), _v1.dot(_x));
         // (continuous from the last frame: across +-180 deg half of it would flip the forearm over)
-        const tws = this._tw || (this._tw = { L: 0, R: 0 }), prev = tws[side];
+        const tws = this._tw || (this._tw = { L: 0, R: 0, bL: null, bR: null, f: null }), prev = tws[side];
         if (tw - prev > Math.PI) tw -= TAU; else if (tw - prev < -Math.PI) tw += TAU;
         if (Math.abs(tw) > 1.4 * Math.PI) tw -= Math.sign(tw) * TAU;
-        tws[side] = tw;
+        // (and never in one frame: wound past that the forearm turns back over a few frames, the hand stays on the handle)
+        tw = this.limitStep(tws, side, tw, TWIST_RATE);
         fore.quaternion.multiply(_qt.setFromAxisAngle(_up, tw * 0.5));
         fore.updateMatrixWorld(true);
         h.setWorldQuat('hand' + side, _q);
       }
     }
     this.gripErr = err;
+  }
+
+  // A value that may change at most `rate` per second from what it was last
+  // frame (S[side]; S['b' + side] keeps last frame's while gripBat runs more
+  // than once in a frame). The frame and its length come from _gframe / _gdt
+  // when the caller sets them (your figure), else each call is a 72 Hz frame.
+  limitStep(S, side, v, rate) {
+    const fr = this._gframe ?? null, dt = this._gdt ?? 1 / 72, bk = 'b' + side;
+    if (fr == null || S.f !== fr) { S.bL = S.L; S.bR = S.R; S.f = fr; }
+    const base = fr == null ? S[side] : S[bk];
+    if (base != null) { const m = rate * Math.min(dt, 0.05); v = base + clamp(v - base, -m, m); }
+    S[side] = v;
+    return v;
   }
 
   // The elbow's pole, kept continuous: when the hand passes through the line
@@ -1709,19 +1729,23 @@ export class BatterActor extends Actor {
     const D = _v1.subVectors(at, sh); if (D.lengthSq() < 1e-8) return; D.normalize();
     const n = _v2.subVectors(pole, sh), len = n.length();
     n.addScaledVector(D, -n.dot(D));
-    const prev = S[side];
-    let have = S['ok' + side];
+    // (your figure: from last frame's bend direction, at most POLE_RATE a second, however often gripBat runs;
+    // the AI: from the last call's, 0.3 rad a call)
+    const fr = this._gframe ?? null;
+    if (fr != null && S.pf !== fr) { (S.pbL ||= new THREE.Vector3()).copy(S.L); (S.pbR ||= new THREE.Vector3()).copy(S.R); S.pokL = S.okL; S.pokR = S.okR; S.pf = fr; }
+    const prev = fr != null ? _v3.copy(S['pb' + side]) : S[side], step = fr != null ? POLE_RATE * Math.min(this._gdt ?? 1 / 72, 0.05) : 0.3;
+    let have = fr != null ? S['pok' + side] : S['ok' + side];
     if (have) { prev.addScaledVector(D, -prev.dot(D)); have = prev.lengthSq() > 1e-6; if (have) prev.normalize(); }
     if (n.lengthSq() < 1e-6 * len * len) { if (!have) return; n.copy(prev); } else n.normalize();
     if (have) {
       const a = Math.acos(clamp(prev.dot(n), -1, 1));
-      if (a > 0.3) {
-        // turn prev toward n by 0.3 rad about D (n and prev are both across D)
+      if (a > step) {
+        // turn prev toward n by `step` rad about D (n and prev are both across D)
         _x.crossVectors(prev, n); if (_x.lengthSq() < 1e-8) _x.copy(D); else _x.normalize();
-        n.copy(prev).applyAxisAngle(_x, 0.3);
+        n.copy(prev).applyAxisAngle(_x, step);
       }
     }
-    prev.copy(n); S['ok' + side] = true;
+    S[side].copy(n); S['ok' + side] = true;
     pole.copy(sh).addScaledVector(D, 0.3).addScaledVector(n, Math.max(0.3, len));
   }
 
@@ -2091,6 +2115,7 @@ const _e = new THREE.Vector3(), _up = new THREE.Vector3(0, 1, 0), _hold = new TH
 const _kpL = new THREE.Vector3(), _kpR = new THREE.Vector3();
 const _H = new THREE.Vector3(), _iL = new THREE.Vector3(), _iR = new THREE.Vector3(), _v1 = new THREE.Vector3(), _v2 = new THREE.Vector3(), _top = new THREE.Vector3();
 const _ql = new THREE.Quaternion(), _ft = new THREE.Vector3(), _sR = new THREE.Vector3(), _sL = new THREE.Vector3(), _ch = new THREE.Vector3(), _pole = new THREE.Vector3();
+const _v3 = new THREE.Vector3();
 const _hp = new THREE.Vector3(), _el = new THREE.Vector3(), _f = new THREE.Vector3(), _x = new THREE.Vector3(), _y = new THREE.Vector3(), _z = new THREE.Vector3(), _m = new THREE.Matrix4();
 const _wr = new THREE.Vector3(), _bx = new THREE.Vector3(), _by = new THREE.Vector3(), _bz = new THREE.Vector3(), _xr = new THREE.Vector3(), _gx = new THREE.Vector3(), _gy = new THREE.Vector3(), _gz = new THREE.Vector3(), _qt = new THREE.Quaternion();
 // Blade from the shoulder to the toe, along the bat's +Y from the grip point (m).

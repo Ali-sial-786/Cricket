@@ -71,6 +71,7 @@ window.addEventListener('resize', () => {
 });
 
 renderer.setAnimationLoop((time, frame) => {
+  const t0 = performance.now();
   try {
     game.frame(time, frame);
   } catch (e) {
@@ -78,4 +79,5 @@ renderer.setAnimationLoop((time, frame) => {
     setStatus('Error: ' + (e.message || e));
   }
   renderer.render(scene, camera);
+  game.sampleFrame(time, performance.now() - t0);     // long frames -> window.__longFrames
 });

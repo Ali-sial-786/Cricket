@@ -445,7 +445,9 @@ export class UI {
       { const r = L(1, 6), hw = (r.w - 12) / 2;
         btn('sound', { x: r.x, y: r.y, w: hw, h: r.h }, !s.sound ? 'Sound OFF' : s.commentary ? 'Sound + comms' : 'Sound, no comms', () => g.actions.soundCycle(), { active: s.sound, size: 24 });
         btn('turn', { x: r.x + hw + 12, y: r.y, w: hw, h: r.h }, `R-stick turn: ${s.turn}`, () => g.actions.cycle('turn', TURNS, 1), { size: 24 }); }
-      btn('runup', L(0, 7), `Run-up: ${s.runUp ? 'on' : 'off (bowl from the crease)'}`, () => g.actions.toggle('runUp'), { active: s.runUp, size: 26 });
+      { const r = L(0, 7), hw = (r.w - 12) / 2;
+        btn('runup', { x: r.x, y: r.y, w: hw, h: r.h }, `Run-up: ${s.runUp ? 'on' : 'off'}`, () => g.actions.toggle('runUp'), { active: s.runUp, size: 24 });
+        btn('sweepDrop', { x: r.x + hw + 12, y: r.y, w: hw, h: r.h }, `Sweep view drop: ${s.sweepDrop !== false ? 'ON' : 'OFF'}`, () => g.actions.toggle('sweepDrop'), { active: s.sweepDrop !== false, size: 22 }); }
       btn('feel', L(1, 7), `Deliveries: ${s.bowlByFeel ? 'by wrist action' : 'pick with A/B'}`, () => g.actions.toggle('bowlByFeel'), { size: 26 });
       label(P.W * 0.5, P.H * 0.968, 'Y / Esc: back to the game', { align: 'center', size: 18, color: '#7f8fa0' });
       btn('back', { x: P.W - 150, y: 14, w: 130, h: 56 }, 'Back', () => this.go('main'));

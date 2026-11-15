@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import { CONFIG } from '../config.js';
 import { Vec3, Quat, Pose, DEG, clamp, makeRng } from '../physics/math.js';
 import { PhysicsWorld, InterpolatedBatProvider } from '../physics/world.js';
+import { SwingLoad } from '../physics/swingLoad.js';
 import { PITCH } from '../physics/pitch.js';
 import { buildEnvironment } from '../render/env.js';
 import { buildBatMesh, BallView, StumpsView, MachineView, PitchMark, buildRingMarker } from '../render/objects.js';
@@ -18,7 +19,7 @@ import { LENGTH_PRESETS, LINE_PRESETS } from '../physics/bowlingMachine.js';
 import { createSession, startMatch } from './modes.js';
 import { buildHelmetGrille, PlayerBowlerActor, NearCull } from '../render/viewModes.js';
 import { PLAYER_BOWLER_ORDER } from './bowlerTypes.js';
-import { Replay, TAIL } from './replay.js';
+import { Replay, tailFor } from './replay.js';
 import { BallFinder } from '../render/ballFinder.js';
 import { CrowdAudio } from '../audio/crowd.js';
 import { MRPlacer } from '../xr/mr.js';
@@ -32,9 +33,10 @@ import { Commentary } from '../audio/commentary.js';
 import { DRSView } from '../render/drsView.js';
 import { ContactLog } from './edgeTrack.js';
 import { UmpireView } from '../render/umpires.js';
-import { BatGeometry } from '../physics/bat.js';
+import { BatGeometry, aiBatConfig } from '../physics/bat.js';
 import { Runs } from './running.js';
 import { ShadowPool, Humanoid } from '../render/humanoid.js';
+import { FrameLog } from './frameLog.js';
 
 export const BAT_HEAD = { z: -1.05, legOffset: -0.35 };      // head relative to guard (hand) x
 export const BOWL_HEAD = { x: 0.75, z: -19.6 };
@@ -63,8 +65,9 @@ export class Game {
     this.world = new PhysicsWorld(CONFIG, (Date.now() & 0xffff) + 7);
     this.playerBatProvider = new InterpolatedBatProvider();
     this.playerBat = this.world.addBat('player', this.playerBatProvider);
+    this.playerBat.swing = new SwingLoad(new BatGeometry(CONFIG.bat).sweetY);     // how loaded your swing is (the shot's power)
     this.aiBatter = new AIBatter(CONFIG);
-    this.aiBat = this.world.addBat('ai', this.aiBatter, undefined, 1);
+    this.aiBat = this.world.addBat('ai', this.aiBatter, new BatGeometry(aiBatConfig()), 1);     // (his bat's original restitution: bat.js aiBatConfig)
     this.aiBat.enabled = false;
 
     // Views.
@@ -130,6 +133,7 @@ export class Game {
     // lookYaw about your head; lookOff keeps the head where it was.
     this.lookYaw = 0;
     this.lookOff = { x: 0, z: 0 };
+    this.rigDrop = 0;                     // m the sweep button has lowered your view (updateRigDrop)
     this.turnArmed = true;
     this.turnRate = 0;                    // smooth turn: current rad/s (eased toward the stick)
     this.runMarks = buildRunMarks();
@@ -170,6 +174,87 @@ export class Game {
     this.ui.setHud({ title: 'Crease VR', sub: 'Choose a mode from the menu', footer: this.footerText() });
     this.ui.setBoard(['CREASE VR', 'Welcome', 'Nets · Run Chase · Bowl an Over · Match']);
     this.ui.openMenu('main');
+    this.prewarm();
+    // Long frames (src/game/frameLog.js), sampled by the animation loop (main.js): window.__longFrames.
+    this.frameLog = new FrameLog();
+    if (typeof window !== 'undefined') { window.__longFrames = this.frameLog.entries; window.__frameLog = this.frameLog; }
+  }
+
+  // The animation loop's measure of one frame (main.js): ms spent in frame() + render().
+  sampleFrame(now, work) {
+    const i = this.renderer && this.renderer.info;
+    if (!i) return;
+    this.frameLog.sample(now, work, { programs: i.programs ? i.programs.length : 0, textures: i.memory.textures, geometries: i.memory.geometries }, () => this.frameContext());
+    // (debug setting: the count on the HUD footer, between balls)
+    if (this.settings.debugFrames && this.frameLog.count !== this._longShown && this.ui) {
+      this._longShown = this.frameLog.count;
+      this.ui.setHud({ footer: `${this.session ? this.session.footer() : this.footerText()} · long frames ${this.frameLog.count}` });
+    }
+  }
+
+  // What was going on (for a long frame): game / session state, the replay's time and phase.
+  frameContext() {
+    const s = this.session, R = this.replay, c = R && R.active ? R.clip : null;
+    const mem = typeof performance !== 'undefined' && performance.memory ? +(performance.memory.usedJSHeapSize / 1e6).toFixed(1) : null;
+    return {
+      clock: +this.clock.toFixed(2), state: this.state, xr: !!this.input.xr, menu: !!(this.ui && this.ui.menuOpen),
+      session: s ? `${s.kind}:${s.state}` : null,
+      replay: c ? { t: +(R.rt - c.start).toFixed(2), phase: R.rt < c.release ? 'run-up' : R.rt < c.key ? 'delivery' : c.dead != null && R.rt >= c.dead ? 'tail' : 'play', job: !!R.job }
+        : R && R.pending ? 'due' : null,
+      heapMB: mem,
+    };
+  }
+
+  // Everything that is drawn only now and then (the DRS review and its board,
+  // the replay's vignette, fade and label, the menus, cards and message strips,
+  // the catch and hand markers, the ball finder, fireworks) has its shader
+  // programs compiled and its textures uploaded now, at load, instead of the
+  // first time it shows: the first LBW appeal compiled 2 programs, the first
+  // review 6, the first replay uploaded 9 textures. On Quest a frame that
+  // stalls on that is reprojected by the compositor, which smears / darkens
+  // the side of the view you are turning toward (the recording: the first LBW
+  // appeal, a replay).
+  prewarm() {
+    const r = this.renderer;
+    if (!r || !r.compile) return;
+    const t0 = performance.now();
+    try {
+      this.drs._build();
+      r.compile(this.scene, this.camera);
+      // the figures' other looks: see-through (your own body when you bat) and fading (coming / going)
+      const me = this.playerBody.actor.h, any = Humanoid.all.find((h) => h !== me);
+      if (me && !me.ghost) { me.setGhost(true); r.compile(me.root, this.camera, this.scene); me.setGhost(false); }
+      if (any && (any.fade ?? 1) === 1) { any.setFade(0.5); r.compile(any.root, this.camera, this.scene); any.setFade(1); }
+      r.compile(this.drs.group, this.camera, this.scene);    // (the review is out of the scene until it starts)
+      const seen = new Set();
+      const up = (o) => {
+        const mats = Array.isArray(o.material) ? o.material : o.material ? [o.material] : [];
+        for (const m of mats) for (const k of ['map', 'alphaMap', 'emissiveMap', 'normalMap', 'aoMap', 'lightMap', 'bumpMap', 'roughnessMap', 'metalnessMap', 'specularMap']) {
+          const t = m[k];
+          if (t && t.isTexture && !seen.has(t)) { seen.add(t); r.initTexture(t); }
+        }
+      };
+      this.scene.traverse(up);
+      this.drs.group.traverse(up);
+      // One draw of everything, hidden things too, both levels of detail of
+      // every figure, into a single pixel of the canvas (the next frame draws
+      // over it): the geometry buffers and skeleton textures are made now, not
+      // the first time a figure comes near or a replay shows one up close.
+      const restore = [], layers = this.camera.layers.mask;
+      this.scene.add(this.drs.group);
+      this.scene.traverse((o) => { restore.push([o, o.visible, o.frustumCulled]); o.visible = true; o.frustumCulled = false; });
+      this.camera.layers.enableAll();
+      const vp = r.getViewport(new THREE.Vector4()), sc = r.getScissor(new THREE.Vector4()), sct = r.getScissorTest();
+      r.setViewport(0, 0, 1, 1); r.setScissor(0, 0, 1, 1); r.setScissorTest(true);
+      const lods = Humanoid.all.map((h) => h.lod);
+      for (const lod of [1, 0]) { for (const h of Humanoid.all) h.setLod(lod); r.render(this.scene, this.camera); }
+      Humanoid.all.forEach((h, i) => h.setLod(lods[i]));
+      r.setViewport(vp); r.setScissor(sc); r.setScissorTest(sct);
+      this.camera.layers.mask = layers;
+      for (const [o, v, f] of restore) { o.visible = v; o.frustumCulled = f; }
+      this.scene.remove(this.drs.group);
+    } catch (e) { console.warn('prewarm', e); }
+    this.prewarmMs = performance.now() - t0;
   }
 
   // ------------------------------------------------------------- settings
@@ -379,7 +464,7 @@ export class Game {
     if (this.end === 'bowling' && !(this.mr)) this.ui.setHudPose('bowling', z);
     if (this.viewOverride) return;
     if (this.input.xr) {
-      this.rig.position.set(this.rigState.x + x + this.lookOff.x, 0, this.rigState.z + z + this.lookOff.z);
+      this.rig.position.set(this.rigState.x + x + this.lookOff.x, -this.rigDrop, this.rigState.z + z + this.lookOff.z);
       this.rig.updateMatrixWorld(true);
       this.input.refreshHeadWorld();
     } else if ((this.desktopView % 5) === 1 && this.end === 'batting') {
@@ -390,7 +475,7 @@ export class Game {
   setRig(r) {
     this.rigState = r;
     const ov = !!this.viewOverride;
-    this.rig.position.set(r.x + (ov ? 0 : this.rigOffset.x + this.lookOff.x), 0, r.z + (ov ? 0 : this.rigOffset.z + this.lookOff.z));
+    this.rig.position.set(r.x + (ov ? 0 : this.rigOffset.x + this.lookOff.x), ov ? 0 : -this.rigDrop, r.z + (ov ? 0 : this.rigOffset.z + this.lookOff.z));
     this.rig.rotation.set(0, r.yaw + (ov ? 0 : this.lookYaw), 0);
     this.rig.updateMatrixWorld(true);
     this.input.right.resetMotion();
@@ -441,6 +526,47 @@ export class Game {
     m.userData.commit.position.set(BOWL_HEAD.x, 0.006, BOWL_HEAD.z + 0.25 - spec.commit);
   }
 
+  // Holding the sweep button lowers your view to a kneeling sweeper's eyes
+  // (the figure's kneeling head for your height), vertically only. The drop
+  // is set when you press (how far your real eyes are above that height
+  // then) and never grows while held, so your own head still moves the view
+  // 1:1; crouching further only shrinks it, as far as needed to keep your
+  // eyes no lower than DROP_FLOOR under the kneeling height (never a double
+  // drop). It moves in a fixed-time smootherstep blend (DROP_IN down, DROP_OUT
+  // back up; a new target is blended from where it is), so a long frame never
+  // overshoots. Settings -> Sweep view drop; not in replays, menus, a catch,
+  // MR, while running or diving, or when not batting.
+  updateRigDrop(dt) {
+    const ses = this.session, D = this.drop || (this.drop = { held: false, latched: 0, from: 0, to: 0, t: 0, dur: DROP_IN });
+    const allow = this.input.xr && !this.mr && this.settings.sweepDrop !== false && ses && !ses.isBowling && ses.sweepDrop && this.end === 'batting'
+      && this.state === 'play' && !this.ui.menuOpen && !this.viewOverride && !(this.replay && this.replay.active);
+    const held = !!(allow && ses.sweepDrop()), real = this.input.headRef.p.y;
+    const kneel = this.playerBody.kneelEyeY(!!(ses && ses.sweepSlog));
+    let floor = Infinity;
+    if (held) {
+      if (!D.held) D.latched = Math.max(0, real - kneel);                     // (set on the press)
+      floor = Math.max(0, real - (kneel - DROP_FLOOR));                       // (eyes no lower than the floor)
+      D.latched = Math.min(D.latched, floor);                                 // (only ever shrinks while held)
+    }
+    D.held = held;
+    const to = held ? D.latched : 0;
+    if (Math.abs(to - D.to) > 1e-6) {                                         // a new target: blended from where it is now
+      D.from = this.rigDrop; D.to = to; D.t = 0;
+      D.dur = to > D.from ? DROP_IN : DROP_OUT;
+    }
+    D.t = Math.min(D.dur, D.t + dt);
+    const u = D.t / D.dur, e = u * u * u * (u * (u * 6 - 15) + 10);
+    let v = D.from + (D.to - D.from) * e;
+    if (v > floor) { v = floor; D.from = floor; D.t = 0; D.dur = DROP_OUT; }   // (held to the floor: the blend goes on from there)
+    this.rigDrop = Math.max(0, v);
+    if (!this.input.xr || this.viewOverride || (this.replay && this.replay.active)) return;    // (they place the rig themselves)
+    if (Math.abs(this.rig.position.y + this.rigDrop) > 1e-7) {
+      this.rig.position.y = -this.rigDrop;
+      this.rig.updateMatrixWorld(true);
+      this.input.refreshHeadWorld();
+    }
+  }
+
   // ------------------------------------------------------------- look around
   // Turn your view by `delta` rad about where your head is now.
   // smooth: a continuous turn (the stick turning you like turning your body):
@@ -454,7 +580,7 @@ export class Game {
     this.lookOff.z += wz(y0) - wz(y1);
     this.lookYaw += delta;
     const r = this.rigState;
-    this.rig.position.set(r.x + this.rigOffset.x + this.lookOff.x, 0, r.z + this.rigOffset.z + this.lookOff.z);
+    this.rig.position.set(r.x + this.rigOffset.x + this.lookOff.x, -this.rigDrop, r.z + this.rigOffset.z + this.lookOff.z);
     this.rig.rotation.set(0, r.yaw + this.lookYaw, 0);
     this.rig.updateMatrixWorld(true);
     this.input.refreshHeadWorld();
@@ -580,6 +706,7 @@ export class Game {
     this.ballOverride = null;
     this.session = session;
     this.state = 'play';
+    this.ui.setHud({ big: '', last: '', detail: '', players: '' });   // a new game: nothing left over from the last one
     this.ui.closeMenu();
     this.session.enter();
     if (!this.ui.menuOpen) this.input.desktop.mode = this.session.isBowling ? 'bowl' : 'bat';   // (enter() may open a page: the bowler)
@@ -621,13 +748,19 @@ export class Game {
     const sdt = dt * (this.session ? this.timeScale : 1);
     this.realDt = realDt;
     if (!paused && !(this.replay && this.replay.active)) this.simTime += sdt;
-    this.input.update(this.simTime, xrFrame);
+    // Your controllers and head are sampled on the real clock (the raw frame
+    // time): a velocity from pose differences is physical m/s whatever the
+    // slow motion, as the runtime's own XR velocities are. The ball, the
+    // physics, collisions and the replay tape run on simTime.
+    this.realNow = now;
+    this.input.update(now, xrFrame);
 
     if (this.pendingRecenter != null && this.input.xr) {
       if (--this.pendingRecenter <= 0) { this.pendingRecenter = null; this.recenter(); this.afterXRSettled(); }
     }
 
     this.handleGlobalInput(dt);
+    this.updateRigDrop(realDt);
     this.replay.update(realDt);
     // Face forward again: during replays (they move the rig), and when the next
     // ball is about to come (batting: leaving 'idle'; bowling: back to 'ready').
@@ -641,8 +774,7 @@ export class Game {
       // Replay: play is frozen; the recording poses everything.
       this.applyView();
       this.updateEye();
-      this.playerBody.actor.h.setGhost(false); this.playerBowler.h.setGhost(false);
-      this.playerBody.replayArms(this.replay.rt);     // (the replay poses joints only: the arms as long as they were then)
+      this.playerBody.actor.h.setGhost(false); this.playerBowler.h.setGhost(false);   // (Replay.apply poses the joints and your figure's arm lengths)
       if (this.playerBowler.showHand) this.playerBowler.showHand(null);
       if (this.session && this.session.field) this.crew.duringReplay(realDt);   // (a batter walking off / in keeps going)
       this.replay.placeOverlays(this.eye, realDt);
@@ -732,7 +864,7 @@ export class Game {
     }
     // A review (the appeal, DRS, the third umpire) can outlast the tape: only
     // its first moments are recorded, so the ball is still there afterwards.
-    if (!(st === 'review' && m.dead != null && t > m.dead + TAIL + 0.2)) R.record(t);
+    if (!(st === 'review' && m.dead != null && t > m.dead + tailFor(m) + 0.2)) R.record(t);
     // Every ball that was bowled gets its replay, after the result (and any review's verdict) is up.
     if (st === 'settle' && this._prevSessState !== 'settle' && this.settings.replay !== 'off') R.schedule(t);
     this._prevSessState = st;
@@ -793,8 +925,16 @@ export class Game {
     if (!R.connected || !R.tracked) { this.snapBat = true; return; }
     this.poseBatMesh();
     if (paused) return;
-    if (this.snapBat) { this.playerBatProvider.snap(this.simTime, _batPose, R.gripPose.p); this.snapBat = false; }
-    else this.playerBatProvider.push(this.simTime, _batPose, R.gripPose.p, R.linVel, R.angVel);
+    // (the provider on the game clock, as the ball; the controller's velocities are real m/s, so slow
+    // motion gives you more time, not more power. The swing's load is measured on the real clock.)
+    // (the grip the bat turns about is the bat's own: lifted onto the turf with it, and a bat riding the
+    // turf is not going down into it - its downward speed is not bat speed)
+    let lin = R.linVel;
+    if (this.batLift > 0 && R.linVel.y < 0) lin = _lin.set(R.linVel.x, 0, R.linVel.z);
+    if (this.snapBat) { this.playerBatProvider.snap(this.simTime, _batPose, _batPose.p); this.playerBat.swing.reset(); this.snapBat = false; }
+    else this.playerBatProvider.push(this.simTime, _batPose, _batPose.p, lin, R.angVel);
+    if (this.input.xr) { const hp = this.input.headPose.p; _swRef.x = hp.x; _swRef.z = hp.z; _swRef.y = this.rig.position.y; }
+    this.playerBat.swing.push(this.simTime, this.realNow ?? this.clock, _batPose, this.input.xr ? _swRef : null);
   }
 
   // The bat where your controller is now (_batPose too). Posed again just
@@ -804,6 +944,17 @@ export class Game {
     if (!R.connected || !R.tracked) return;
     _batPose.p.copy(R.gripPose.p);
     _batPose.q.multiplyQuats(R.gripPose.q, this.batOffset()).normalize();
+    // (the sweep's view drop takes your hands down too: a bat that would go into the turf rides on it
+    // instead - lifted by no more than the drop, so a real bat is never moved)
+    if (this.rigDrop > 0) {
+      const B = CONFIG.bat, toeY = B.gripFromHandleTop - B.handleLength - B.bladeLength, q = _batPose.q;
+      _bd.set(0, 1, 0).applyQuat(q); const ay = _bd.y;
+      _bd.set(1, 0, 0).applyQuat(q); const xy = Math.abs(_bd.y);
+      _bd.set(0, 0, 1).applyQuat(q); const zy = Math.abs(_bd.y);
+      const low = _batPose.p.y + ay * toeY - xy * B.bladeWidth / 2 - zy * B.bladeThickness / 2;
+      this.batLift = clamp(BAT_ABOVE_TURF - low, 0, this.rigDrop);
+      _batPose.p.y += this.batLift;
+    } else this.batLift = 0;
     toV3(this.batMesh.position, _batPose.p);
     toQ(this.batMesh.quaternion, _batPose.q);
   }
@@ -891,7 +1042,7 @@ export class Game {
     if (!replaying) {
       // Your figure is your height: sized from the tallest you have stood in the headset.
       if (this.input.xr) {
-        this.standEye = Math.min(1.95, Math.max((this.standEye ?? 1.55) - (pdt || 0) * 0.002, this.input.headPose.p.y));
+        this.standEye = Math.min(1.95, Math.max((this.standEye ?? 1.55) - (pdt || 0) * 0.002, this.input.headRef.p.y));   // (your real eyes: not the sweep's view drop)
         for (const h of [this.playerBody.actor.h, this.playerBowler.h]) {
           const k = clamp(this.standEye / (this.playerBody.actor.headRestY * h.baseScale + 0.11), 0.84, 1.12);
           if (Math.abs(h.root.scale.x - h.baseScale * k) > 0.002) h.root.scale.setScalar(h.baseScale * k);
@@ -900,12 +1051,13 @@ export class Game {
       if (batting || deskThird) {
         if (this.input.xr) this.poseBatMesh();
         this.playerBody.update(pdt || 1e-4, this.simTime, this.batMesh.position, this.batMesh.quaternion, lookBall, this.input.xr ? this.input.headPose : null,
-          this.session && this.session.bodyState ? this.session.bodyState() : null, this.offHandPos(), this.input.xr ? this.lookYaw || 0 : 0);
+          this.session && this.session.bodyState ? this.session.bodyState() : null, this.offHandPos(), this.input.xr ? this.lookYaw || 0 : 0,
+          { t: this.realNow ?? this.clock, dt: paused ? 1e-4 : this.realDt || pdt || 1e-4, drop: this.input.xr ? this.rigDrop : 0 });
       }
       // Through your own eyes you see a faint body below you (no head), so you
       // know where your feet are in the crease.
       const ghost = batting && this.input.xr && !behind && !this.viewOverride && !this.mr && this.settings.ownBody !== false;
-      this.playerBody.actor.h.setGhost(ghost);
+      this.playerBody.actor.h.setGhost(ghost, GHOST_LEGS);    // (pads and boots clear enough to read when you look down; one layer: the depth pre-pass)
       // (through your own eyes the faint body stays under you: it is where you stand)
       if (!ghost) this.playerBody.actor.h.setFade(1 - cover);
       this.playerBody.show((deskThird || ((behind || ghost) && batting)) && (ghost || cover < 0.98));
@@ -1025,6 +1177,10 @@ export class Game {
 const _identity = new Quat();
 const _off = new Quat(), _tilt = new Quat(), _xAxis = new Vec3(1, 0, 0);
 const _batPose = new Pose();
+const _swRef = { x: 0, y: 0, z: 0 }, _lin = new Vec3();
+const BAT_ABOVE_TURF = 0.01;       // m: the lowest corner of your bat's toe is kept this far up while the view is dropped
+const DROP_IN = 0.22, DROP_OUT = 0.3, DROP_FLOOR = 0.12;   // s the sweep's view drop takes down / back up; m your eyes may go under the kneeling height
+const GHOST_LEGS = 0.72;          // opacity of your see-through pads when you look down (boots +0.3, thighs x0.7; Humanoid.setGhost)
 const _bd = new Vec3();
 const _eq = new THREE.Quaternion();
 const _render = new Vec3();

@@ -99,7 +99,7 @@ function matchResult(game, home, away, homeBattedFirst) {
   const first = homeBattedFirst ? home : away, second = homeBattedFirst ? away : home;
   const r = second.chaseResult;                       // 'won' | 'lost' | 'tied' for the side batting second
   const homeWon = homeBattedFirst ? r === 'lost' : r === 'won';
-  const margin = r === 'won' ? `by ${second.wicketsLimit - second.wickets} wicket${second.wicketsLimit - second.wickets === 1 ? '' : 's'}` : `by ${first.runs - second.runs} run${first.runs - second.runs === 1 ? '' : 's'}`;
+  const margin = r === 'won' ? `by ${second.wicketsLeft} wicket${second.wicketsLeft === 1 ? '' : 's'}` : `by ${first.runs - second.runs} run${first.runs - second.runs === 1 ? '' : 's'}`;
   game.say('result', { winner: homeWon ? 0 : 1, tie: r === 'tied', by: r === 'won' ? 'wickets' : 'runs' });
   game.showResult({
     title: r === 'tied' ? 'Match tied!' : homeWon ? `You win ${margin}!` : `${AWAY.name} win ${margin}`,
