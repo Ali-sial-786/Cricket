@@ -37,11 +37,12 @@ import { CONFIG } from '../config.js';
 
 const EYES = 0.11;                 // m: the eyes above the figure's head joint
 const SOFT = 0.03;                 // m: the knees are never quite locked (the head joint this far under standing height)
-const KNEEL_ON = 0.36, KNEEL_OFF = 0.27;   // x the figure's scale: head this far down -> on the back knee (and back up)
+const KNEEL_BAND = [0.11, 0.01];   // m: the head joint this far below an upright kneel's -> right down on the back knee; above (+) -> up
 // Blade from its shoulder to its toe, along the bat's +Y from the grip point (m); leg axis to the blade's centre line at least.
 const BLADE_TOP = CONFIG.bat.gripFromHandleTop - CONFIG.bat.handleLength, BLADE_TOE = BLADE_TOP - CONFIG.bat.bladeLength, LEG_CLEAR = 0.19;
 const HIP_DOWN = 2.5;              // the pelvis moving down costs this many times moving along the ground (reachBoth)
 const HAND_TOP = 0.105;            // m up the handle from the bottom hand to the top hand (actors.js HAND_GAP)
+const KNEE_LOW = 0.3;              // m: a knee joint lower than this has its pad checked against the turf (kneesUp)
 const KNEE_MIN = 0.12;             // knee joint above the turf at least (the pad's knee roll rests on it)
 const SNAP_EVERY = 12;             // frames between saved solver states in the log
 const LOOK_RATE = 7;               // rad/s: the head turns (and nods) at most this fast
@@ -281,7 +282,10 @@ export class PlayerBodyView {
     const crouch = Math.max(0, standJ - Hj.y);
     // ---- right down: onto the back knee (held the sweep button: sooner)
     const sweepK = ex && ex.sweep ? ex.sweep.k : 0;
-    if (st.kneel) { if (crouch < (KNEEL_OFF - 0.1 * sweepK) * sc) st.kneel = 0; } else if (crouch > (KNEEL_ON - 0.14 * sweepK) * sc) st.kneel = 1;
+    // (as far as the head is below what an upright kneel reaches: getting up begins as soon as
+    // a kneeling body could no longer have its head where yours is; held the sweep button: sooner)
+    const kneelTop = (A.kneelHipY + A.spineLen) * sc + KNEEL_BAND[1] + 0.1 * sweepK;
+    st.kneel = sstep(kneelTop, kneelTop - KNEEL_BAND[0], Hj.y);
     { const om = 11, acc = om * om * (st.kneel - st.kneelK) - 2 * om * st.kneelV; st.kneelV += acc * dt; st.kneelK = clamp(st.kneelK + st.kneelV * dt, 0, 1); }
     // ---- the captures in play: each at the time in it that matches the bat's phase
     const list = this._list || (this._list = []);
@@ -621,11 +625,15 @@ export class PlayerBodyView {
       }
       const pole = d.lengthSq() > 0.5 ? _kp.copy(mid).addScaledVector(d, 0.6) : _kp.copy(h.worldPos('knee' + sd, _d)).sub(mid).multiplyScalar(4).add(mid);
       if (liftPole(h, sd, ank, pole, KNEE_MIN * sc)) moved = true;
-      if (moved) {
-        h.bones['ankle' + sd].getWorldQuaternion(_q);
-        h.ikLeg(sd, ank, pole);
-        h.setWorldQuat('ankle' + sd, _q);
-        h.update();
+      h.bones['ankle' + sd].getWorldQuaternion(_q);
+      if (moved) { h.ikLeg(sd, ank, pole); h.setWorldQuat('ankle' + sd, _q); h.update(); }
+      // (the pad below the knee joint, on a shin that slopes up to a raised foot: up onto it, not into the turf)
+      const kb = this.shinIx || (this.shinIx = { L: [h.boneList.indexOf(h.bones.kneeL)], R: [h.boneList.indexOf(h.bones.kneeR)] });
+      const low = h.worldPos('knee' + sd, _hf).y < KNEE_LOW * sc ? h.lowest(kb[sd]) : 0;
+      if (low < 0) {
+        h.worldPos('knee' + sd, _d).sub(mid); _d.addScaledVector(ax, -_d.dot(ax)).normalize();
+        pole.copy(mid).addScaledVector(_d, 0.6);
+        if (liftPole(h, sd, ank, pole, h.worldPos('knee' + sd, _hf).y - low + 0.002)) { h.ikLeg(sd, ank, pole); h.setWorldQuat('ankle' + sd, _q); h.update(); }
       }
       // (what it ended as, for the next frame)
       h.worldPos('knee' + sd, _d).sub(mid);
