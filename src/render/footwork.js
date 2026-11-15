@@ -17,6 +17,7 @@
 // right-hander faces +X, so the front (left) foot is the one nearer -Z.
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const mix = (a, b, k) => a + (b - a) * k;
+const angDiff = (a, b) => { let d = b - a; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI; return d; };
 
 export const FEET = {
   back: 0.26, front: 0.2,        // m: back foot behind the head, front foot ahead of it, in the stance (crease.js CREASE.footBack)
@@ -34,6 +35,8 @@ export const FEET = {
   teleport: 1.6,                 // m: further than this in one go is not a step (the rig was moved): the feet are just put there
   stumpX: 0.3, stumpZ: 0.27,     // the feet stay out of this box round the stumps (m, from the middle stump)
   kneelBack: 0.46, kneelSide: 0.2, kneelFront: 0.2,
+  turnStep: 0.45,                // rad: turned this far (the stick) past the way a planted foot points, it steps round
+  turnJump: 0.5,                 // rad in one frame: not a turn but the rig put back: the feet go with it
   yawMaxL: 1.0, yawMaxR: 1.45,   // rad: the feet turned toward the bowler at most (front, back)
 };
 
@@ -53,17 +56,33 @@ export class Footwork {
   //      crouch    how far it is below standing (m)         quiet   s you and the bat have been still
   //      engage    0..1 a stroke is being played            pat     its feet: { Lx, Lz, Rx, Rz, yawL, yawR } against the stance, or null
   //      turn      rad the stroke has opened the hips (the feet pivot after them)
+//      heading   rad the stick has turned you from side-on (your stance turns with it; your feet step round)
 //      kneel     0..1 right down                          pin     { z, k }: your real back foot while a stumping is judged, or null
   //      stumpsZ   the wicket's z (your feet stay out of it), or null
   //      maxStride m between the feet at most (legs only reach so far with the head where it is) }
-  // Returns { L, R }: { x, y (m off the turf), z, yaw (rad, + = toes turned toward the bowler), moving }.
+  // The planner works in the frame of your stance (side-on, turned by `heading` about your head);
+  // the feet themselves stay where they are planted in the world, so turning makes them step.
+  // Returns { L, R }: { x, y (m off the turf), z, yaw (rad from side-on, world: + = toes turned toward the bowler), moving }.
   update(dt, i) {
     const S = this.s, F = FEET, hx = i.hx, hz = i.hz;
     const ax = clamp(0.1 + 0.8 * (i.crouch || 0), 0.1, 0.3);
-    if (!S.init) {
-      S.L.x = hx - ax + 0.03; S.L.z = hz - F.front; S.R.x = hx - ax; S.R.z = hz + F.back;
-      S.L.yaw = 0.3; S.R.yaw = -0.04; S.hx = hx; S.hz = hz; S.vx = S.vz = 0; S.init = true;
+    // your stance's frame: side-on, turned by the stick about your head (toS: world -> stance, toW: back)
+    const th = i.heading || 0, cs = Math.cos(th), sn = Math.sin(th);
+    const toS = (x, z, o = {}) => { const dx = x - hx, dz = z - hz; o.x = hx + dx * cs - dz * sn; o.z = hz + dx * sn + dz * cs; return o; };
+    const toW = (o) => { const dx = o.x - hx, dz = o.z - hz; o.x = hx + dx * cs + dz * sn; o.z = hz - dx * sn + dz * cs; return o; };
+    const place = () => {          // (a stance under you, as it is turned)
+      const a = toW({ x: hx - ax + 0.03, z: hz - F.front }), b = toW({ x: hx - ax, z: hz + F.back });
+      S.L.x = a.x; S.L.z = a.z; S.R.x = b.x; S.R.z = b.z; S.L.yaw = 0.3 + th; S.R.yaw = -0.04 + th; S.L.th0 = S.R.th0 = th;
+    };
+    if (!S.init) { place(); S.hx = hx; S.hz = hz; S.vx = S.vz = 0; S.init = true; S.th = th; }
+    // (a jump in the turn is the rig being put back, not a turn: the feet go round with it)
+    const jump = angDiff(S.th ?? th, th);
+    if (Math.abs(jump) > F.turnJump) {
+      const c2 = Math.cos(jump), s2 = Math.sin(jump);
+      const rot = (o, kx, kz) => { const dx = o[kx] - hx, dz = o[kz] - hz; o[kx] = hx + dx * c2 + dz * s2; o[kz] = hz - dx * s2 + dz * c2; };
+      for (const f of [S.L, S.R]) { rot(f, 'x', 'z'); f.yaw += jump; f.th0 = (f.th0 ?? 0) + jump; if (f.m) { rot(f.m, 'fx', 'fz'); rot(f.m, 'tx', 'tz'); f.m.yaw0 += jump; } }
     }
+    S.th = th;
     // how fast you are going (smoothed), to lead a foot to where you will be when it lands
     if (dt > 0) {
       const k = Math.min(1, dt / 0.08);
@@ -74,12 +93,15 @@ export class Footwork {
     const sp = Math.hypot(S.vx, S.vz), hurry = sp > 0.9 && (i.crouch || 0) < 0.16;
     const L = S.L, R = S.R;
     const E = i.engage || 0, kneel = i.kneel || 0, maxStride = kneel > 0.5 ? F.maxStride : clamp(i.maxStride ?? F.maxStride, 0.4, F.maxStride);
+    // where the feet are (or are landing), in the stance's frame; how fast your head goes in it
+    const pL = toS(L.m ? L.m.tx : L.x, L.m ? L.m.tz : L.z), pR = toS(R.m ? R.m.tx : R.x, R.m ? R.m.tz : R.z);
+    const vx = S.vx * cs - S.vz * sn, vz = S.vx * sn + S.vz * cs;
     // the stroke's footwork is measured from where the feet were when it began
-    if (E > 0.12 && i.pat) { if (!S.anchor) S.anchor = { Lx: L.m ? L.m.tx : L.x, Lz: L.m ? L.m.tz : L.z, Rx: R.m ? R.m.tx : R.x, Rz: R.m ? R.m.tz : R.z, pL: null, pR: null }; }
+    if (E > 0.12 && i.pat) { if (!S.anchor) S.anchor = { Lx: pL.x, Lz: pL.z, Rx: pR.x, Rz: pR.z, pL: null, pR: null }; }
     else if (E < 0.06) S.anchor = null;
 
     // ---- where each foot ought to be (its own place if that is still fine)
-    const Rz0 = R.m ? R.m.tz : R.z, Lz0 = L.m ? L.m.tz : L.z, Rx0 = R.m ? R.m.tx : R.x, Lx0 = L.m ? L.m.tx : L.x;
+    const Rz0 = pR.z, Lz0 = pL.z, Rx0 = pR.x, Lx0 = pL.x;
     const lead = 0.12;
     const lungeOf = (rz) => clamp(rz - F.back - hz, 0, 0.7);
     let tL = { x: Lx0, z: Lz0 }, tR = { x: Rx0, z: Rz0 }, thrL = 0.05, thrR = 0.05;
@@ -96,11 +118,11 @@ export class Footwork {
       const b = Rz0 - hz, bLo = settle ? 0.19 : F.backMin, bHi = Math.max(F.back + 0.1, Math.min(settle ? 0.42 : hurry ? 0.62 : F.reach, maxStride - 0.08));
       const offR = hx - Rx0, offL = hx - Lx0;
       const xLo = settle ? ax - 0.1 : F.xLo, xHi = settle ? ax + 0.1 : F.xHi;
-      if (b < bLo || b > bHi || offR < xLo || offR > xHi) tR = { x: hx - ax + S.vx * lead, z: hz + F.back + S.vz * lead };
+      if (b < bLo || b > bHi || offR < xLo || offR > xHi) tR = { x: hx - ax + vx * lead, z: hz + F.back + vz * lead };
       // front foot: ahead of the head, further the more the head leads the back foot
       const want = F.front + F.lunge * lungeOf(tR.z), a = hz - Lz0;
       const aLo = settle ? 0.12 : F.frontMin, aHi = settle ? want + 0.1 : want + F.frontSlack;
-      if (a < aLo || a > aHi || offL < xLo - 0.03 || offL > xHi + 0.03) tL = { x: hx - ax + 0.03 + S.vx * lead, z: hz - want + S.vz * lead };
+      if (a < aLo || a > aHi || offL < xLo - 0.03 || offL > xHi + 0.03) tL = { x: hx - ax + 0.03 + vx * lead, z: hz - want + vz * lead };
       // a stroke: the feet the shot has, from where they were, as far as the head allows.
       // Each foot goes there once (again only if the shot turned out to be another one):
       // after that it stays planted until your head moves it.
@@ -118,12 +140,14 @@ export class Footwork {
         }
       }
     }
-    // while a stumping is judged the back foot is where yours really is
-    if (i.pin && i.pin.k > 0 && i.pin.z != null) { tR.z = mix(tR.z, i.pin.z, Math.min(1, i.pin.k)); thrR = 0.03; }
     // never crossed, never on top of each other, never further apart than a stride
     if (tL.z > tR.z - 0.15) { if (tL.z !== Lz0) tL.z = tR.z - 0.3; else tR.z = tL.z + 0.3; }
     const st = Math.hypot(tL.x - tR.x, tL.z - tR.z);
     if (st > maxStride) { tL.x = tR.x + (tL.x - tR.x) * maxStride / st; tL.z = tR.z + (tL.z - tR.z) * maxStride / st; }
+    // (back in the world)
+    toW(tL); toW(tR);
+    // while a stumping is judged the back foot is where yours really is
+    if (i.pin && i.pin.k > 0 && i.pin.z != null) { tR.z = mix(tR.z, i.pin.z, Math.min(1, i.pin.k)); thrR = 0.03; }
     // the wicket: a foot is never in it, and never behind it unless you have walked round there yourself
     if (i.stumpsZ != null) for (const t of [tL, tR]) {
       if (Math.abs(t.x) >= F.stumpX) continue;
@@ -134,7 +158,7 @@ export class Footwork {
     const eL = Math.hypot(tL.x - L.x, tL.z - L.z), eR = Math.hypot(tR.x - R.x, tR.z - R.z);
     // the rig was moved: no step covers that
     if (Math.max(eL, eR) > F.teleport) {
-      L.x = hx - ax + 0.03; L.z = hz - F.front; R.x = hx - ax; R.z = hz + F.back; L.y = R.y = 0; L.m = R.m = null; S.anchor = null; S.cool = 0;
+      place(); L.y = R.y = 0; L.m = R.m = null; S.anchor = null; S.cool = 0;
       return this.out();
     }
     // ---- start a step: one foot at a time (the other may go once this one is most of the way, when you are moving)
@@ -143,23 +167,30 @@ export class Footwork {
     const start = (f, t, e) => {
       const dur = clamp(0.13 + 0.25 * e, F.stepMin, F.stepMax) * (hurry ? 0.85 : 1);
       f.m = { fx: f.x, fz: f.z, tx: t.x, tz: t.z, k: 0, dur, lift: F.lift + F.liftMore * Math.min(1, e / 0.5), yaw0: f.yaw };
-      S.steps++;
+      S.steps++; S.last = f === L ? 'L' : 'R';
     };
     if (!busy(L) && !busy(R) && S.cool <= 0) {
-      const nL = !L.m && eL > thrL ? eL / thrL : 0, nR = !R.m && eR > thrR ? eR / thrR : 0;
+      // (turned well past the way a planted foot points: it steps round, it does not spin on the spot)
+      const tw = (f) => (!f.m && E < 0.12 && Math.abs(angDiff(f.th0 ?? th, th)) > F.turnStep ? 1.01 + Math.abs(angDiff(f.th0 ?? th, th)) : 0);
+      const nL = !L.m && eL > thrL ? eL / thrL : tw(L), nR = !R.m && eR > thrR ? eR / thrR : tw(R);
       if (nL > 0 || nR > 0) {
-        // (both: going forward the front foot leads, going back the back foot, else the one further out)
-        const along = (tL.z - L.z) + (tR.z - R.z);
-        const front = nR <= 0 || (nL > 0 && (along < -0.05 || (along <= 0.05 && nL >= nR)));
+        // (both: going forward the front foot leads, going back the back foot, else the one further out;
+        // turning round, one and then the other)
+        const along = (toS(tL.x, tL.z).z - pL.z) + (toS(tR.x, tR.z).z - pR.z);
+        const turning = Math.abs(angDiff(L.th0 ?? th, th)) > 0.2 || Math.abs(angDiff(R.th0 ?? th, th)) > 0.2;
+        const front = nR <= 0 || (nL > 0 && (turning ? S.last !== 'L' : along < -0.05 || (along <= 0.05 && nL >= nR)));
         if (front) start(L, tL, eL); else start(R, tR, eR);
       }
     }
     // ---- move the stepping feet; planted feet do not move
     // (and as the stroke opens the hips, the back foot pivots round on its toe and the front foot opens)
     const open = Math.max(0, i.turn || 0);
-    const yawL = Math.min(F.yawMaxL, 0.3 + 0.55 * Math.max(0, R.z - L.z - 0.45) + (S.anchor && i.pat ? i.pat.yawL * E : 0) + Math.min(0.7, open * 0.45));
+    const yawL = Math.min(F.yawMaxL, 0.3 + 0.55 * Math.max(0, pR.z - pL.z - 0.45) + (S.anchor && i.pat ? i.pat.yawL * E : 0) + Math.min(0.7, open * 0.45));
     const yawR = Math.min(F.yawMaxR, -0.04 + (S.anchor && i.pat ? i.pat.yawR * E : 0) + Math.min(1.4, open * 0.85));
-    for (const [f, t, yawT, rate] of [[L, tL, yawL, 1.5], [R, tR, yawR, 5]]) {
+    // (yaws from side-on in the stance; in the world, a stepping foot turns to the way you are turned, a planted
+    // one keeps the way it landed: it only pivots for the stroke)
+    for (const [f, t, yawS, rate] of [[L, tL, yawL, 1.5], [R, tR, yawR, 5]]) {
+      const yawT = yawS + (f.m ? th : f.th0 ?? th);
       const m = f.m;
       if (m) {
         // the landing spot follows where the foot ought to be (you are still moving), while the foot
@@ -170,7 +201,7 @@ export class Footwork {
         const e = ease(m.k);
         f.x = mix(m.fx, m.tx, e); f.z = mix(m.fz, m.tz, e); f.y = m.lift * hop(m.k);
         f.yaw = mix(m.yaw0, yawT, e);
-        if (m.k >= 1) { f.m = null; f.y = 0; S.cool = hurry ? 0 : 0.05; }
+        if (m.k >= 1) { f.m = null; f.y = 0; f.th0 = th; S.cool = hurry ? 0 : 0.05; }      // (it points the way you are turned as it lands)
       } else f.yaw += clamp(yawT - f.yaw, -rate * dt, rate * dt);
     }
     return this.out();

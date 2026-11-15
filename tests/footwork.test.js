@@ -103,6 +103,35 @@ test('the hips opening in a stroke turn the back foot round (pivot), in place', 
   assert.ok(Math.hypot(R1.x - R0.x, R1.z - R0.z) < 1e-9, 'on the spot');
 });
 
+test('turned round on the spot with the stick: the feet step round one after the other, never slide or spin', () => {
+  const turn = (t) => smooth(0, Math.PI, (t - 0.3) / 1.6);
+  const out = drive((t) => ({ hx: -0.25, hz: -1.05, heading: turn(t) }), 2.6);
+  assertNoSlide(out, 'turn');
+  let spin = 0, last = null, alt = 0;
+  for (let i = 1; i < out.length; i++) for (const sd of ['L', 'R']) {
+    const a = out[i - 1][sd], b = out[i][sd];
+    if (!a.moving && !b.moving) spin = Math.max(spin, Math.abs(b.yaw - a.yaw));
+    if (b.moving && !a.moving) { if (last && last !== sd) alt++; last = sd; }
+  }
+  assert.ok(spin < 0.035, `a planted foot spins ${(spin * 57.3).toFixed(1)} deg in a frame`);
+  assert.ok(alt >= 3, 'the feet take turns');
+  // turned round: the stance faces the other way (back foot toward the bowler now), the feet pointing round with it
+  const { L, R } = out[out.length - 1];
+  assert.ok(R.z < L.z, 'back foot now on the bowler\'s side');
+  assert.ok(Math.abs(Math.cos(L.yaw - Math.PI)) > 0.8 && Math.abs(Math.cos(R.yaw - Math.PI)) > 0.8, 'feet turned round');
+});
+
+test('the rig put back (a jump in the turn): the feet go round with it at once', () => {
+  const fw = new Footwork();
+  drive(() => ({ hx: -0.25, hz: -1.05, heading: 0 }), 0.6, {}, fw);
+  const o = fw.update(DT, { hx: -0.25, hz: -1.05, heading: Math.PI / 2, quiet: 0, engage: 0, kneel: 0, stumpsZ: 0 });
+  assert.ok(!o.L.moving && !o.R.moving, 'no steps');
+  // (the back foot was F.back behind the head and a little to the leg side: a quarter turn puts it on the off side of the head)
+  const dx = o.R.x - -0.25, dz = o.R.z - -1.05;
+  assert.ok(Math.abs(dx - FEET.back) < 0.03 && Math.abs(dz) < 0.15, `carried round about the head (${dx.toFixed(2)}, ${dz.toFixed(2)})`);
+  assert.ok(Math.abs(o.R.yaw - (Math.PI / 2 - 0.04)) < 0.05, 'and turned with it');
+});
+
 test('moved far in one go (the rig was moved): the feet are put there, not walked', () => {
   const fw = new Footwork();
   drive(() => ({ hx: -0.25, hz: -1.05 }), 0.5, {}, fw);

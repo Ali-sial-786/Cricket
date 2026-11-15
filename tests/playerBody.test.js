@@ -66,7 +66,7 @@ function play(m, name) {
   for (let i = 0; i < trk.length; i++) {
     const e = trk[i];
     bp.set(e.bp.x, e.bp.y, e.bp.z); bq.set(e.bq.x, e.bq.y, e.bq.z, e.bq.w);
-    body.update(e.dt, e.t, bp, bq, null, e.head, e.extra, e.off);
+    body.update(e.dt, e.t, bp, bq, null, e.head, e.extra, e.off, e.turn || 0);
     h.update();
     const f = { t: e.t, q: h.boneList.map((b) => b.quaternion.clone()), hp: h.bones.hips.position.clone(), rp: h.root.position.clone(),
       ankL: h.worldPos('ankleL', V()), ankR: h.worldPos('ankleR', V()), trunk: h.worldPos('neck', V()).sub(h.worldPos('hips', V())).normalize() };
@@ -144,7 +144,7 @@ test('the head is on your head: within 4 cm on average, 15 cm at worst', { skip 
 
 test('replay: the sliced re-solve gives exactly the body you had, and the gloves stay on in the replay', { skip }, async () => {
   const m = await load(), { body, A, h } = m;
-  for (const n of ['cover_drive', 'sweep', 'hook', 'advance_drive']) {
+  for (const n of ['cover_drive', 'sweep', 'hook', 'advance_drive', 'turn_round']) {
     const { trk, R } = play(m, n);
     const live = new Map(R.frames.map((f) => [f.t, f]));
     const before = h.boneList.map((b) => b.quaternion.clone()), rp = h.root.position.clone();
@@ -186,6 +186,29 @@ test('replay: the sliced re-solve gives exactly the body you had, and the gloves
     assert.ok(rg < 0.005, `${n}: gloves ${(rg * 100).toFixed(2)} cm off the handle in the replay`);
     A.restArms();
   }
+});
+
+test('turned round with the stick: the body faces the way you are turned, the feet step round (no spinning on the spot)', { skip }, async () => {
+  const m = await load(), { body, h } = m;
+  const { trk } = play(m, 'turn_round');      // (re-run to read the feet at each frame)
+  body.reset();
+  const bp = V(), bq = new THREE.Quaternion();
+  let prev = null, spin = 0, worst = 0;
+  for (const e of trk) {
+    bp.set(e.bp.x, e.bp.y, e.bp.z); bq.set(e.bq.x, e.bq.y, e.bq.z, e.bq.w);
+    body.update(e.dt, e.t, bp, bq, null, e.head, e.extra, e.off, e.turn);
+    h.update();
+    const f = V().set(0, 0, 1).applyQuaternion(h.bones.hips.getWorldQuaternion(new THREE.Quaternion()));
+    let d = Math.atan2(f.x, f.z) - Math.PI / 2 - e.turn;
+    d = Math.atan2(Math.sin(d), Math.cos(d));
+    if (e.t - trk[0].t > 2.3 && e.t - trk[0].t < 2.7) worst = Math.max(worst, Math.abs(d));          // (turned round and held)
+    const F = body.feet.s;
+    if (prev) for (const sd of ['L', 'R']) if (!F[sd].m && !prev[sd].m) spin = Math.max(spin, Math.abs(F[sd].yaw - prev[sd].yaw));
+    prev = { L: { yaw: F.L.yaw, m: !!F.L.m }, R: { yaw: F.R.yaw, m: !!F.R.m } };
+  }
+  assert.ok(worst < 0.25, `hips face ${(worst * 57.3).toFixed(0)} deg off the way you are turned`);
+  assert.ok(spin * 57.3 < 2, `a planted foot spins ${(spin * 57.3).toFixed(1)} deg in a frame`);
+  assert.ok(body.feet.s.steps >= 8, `${body.feet.s.steps} steps to turn round and back`);
 });
 
 test('the same tracks give the same body, every time (deterministic)', { skip }, async () => {

@@ -60,6 +60,7 @@ const _ax = new THREE.Vector3(), _fc = new THREE.Vector3(), _Hj = new THREE.Vect
 const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3(), _d = new THREE.Vector3(), _e = new THREE.Vector3();
 const _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _q3 = new THREE.Quaternion(), _up = new THREE.Vector3(0, 1, 0);
 const _P = new THREE.Vector3(), _yp = new THREE.Vector3(), _hf = new THREE.Vector3(), _kp = new THREE.Vector3();
+const _sg = new THREE.Vector3(), _so = new THREE.Vector3(), _hd = new THREE.Vector3(), _qt = new THREE.Quaternion();
 const angDiff = (a, b) => { let d = b - a; while (d > Math.PI) d -= TAU; while (d < -Math.PI) d += TAU; return d; };
 const yawOf = (q) => { _e.set(0, 0, 1).applyQuaternion(q); return Math.atan2(_e.x, _e.z); };
 const v3 = () => new THREE.Vector3(), q4 = () => new THREE.Quaternion();
@@ -122,9 +123,11 @@ export class PlayerBodyView {
   show(v) { this.visible = v; this.actor.visible = v; this.actor.bat.visible = false; }
 
   // head: your headset pose {p, q} (VR), or null on a monitor. extra: the
-  // batting session's bodyState() ({ sweep, hit, crease }). off: your other
-  // controller's position, or null.
-  update(dt, t, batPos, batQuat, ball, head = null, extra = null, off = null) {
+  // batting session's bodyState() ({ sweep, hit, crease, ball }). off: your other
+  // controller's position, or null. turn: how far the stick has turned you
+  // (rad about +Y, the game's lookYaw): your stance turns with it, about your
+  // head, and your feet step round (looking round with your head does not).
+  update(dt, t, batPos, batQuat, ball, head = null, extra = null, off = null, turn = 0) {
     const L = this.log, h = this.actor.h;
     if (L.length && t < L[L.length - 1].t) this.reset();
     const e = {
@@ -133,7 +136,7 @@ export class PlayerBodyView {
       off: off ? { x: off.x, y: off.y, z: off.z } : null,
       ball: ball ? { x: ball.x, y: ball.y, z: ball.z } : null,
       extra: extra ? { sweep: extra.sweep || null, hit: extra.hit ? { t: extra.hit.t } : null, crease: extra.crease || null, live: extra.ball ? !!extra.ball.live : extra.live ?? null } : null,
-      sc: h.root.scale.x,
+      sc: h.root.scale.x, turn: turn || 0,
     };
     if (this.st.n % SNAP_EVERY === 0 || !L.length) e.state = this.saveState();
     this.solve(e);
@@ -264,6 +267,8 @@ export class PlayerBodyView {
     const A = this.actor, h = A.h, sc = h.root.scale.x, st = this.st, dt = e.dt;
     const bp = _bp.set(e.bp.x, e.bp.y, e.bp.z), bq = _bq.set(e.bq.x, e.bq.y, e.bq.z, e.bq.w);
     const standJ = A.headRestY * sc;
+    // the way your stance faces: side-on, turned by the stick
+    const th = e.turn || 0, heading = HALF_PI + th;
     st.n++;
     // ---- your head (on a monitor there is none: one that stands in the stance and goes a little with the bat)
     let hp, hq = null;
@@ -275,9 +280,16 @@ export class PlayerBodyView {
     }
     _ax.set(0, 1, 0).applyQuaternion(bq);
     _fc.set(0, 0, 1).applyQuaternion(bq);
-    // ---- what the bat is doing
+    // ---- what the bat is doing (read in your stance's frame: turned back by the stick, about your head)
     const ex = e.extra;
-    const o = dt > 5e-4 || !st.out ? this.sense.update(e.t, dt, hp, bp, _ax, e.off, { sweep: ex ? ex.sweep : null, hitT: ex && ex.hit ? ex.hit.t : null, live: ex ? ex.live ?? null : null, face: _fc }) : st.out;
+    let sg = bp, so = e.off;
+    if (th) {
+      _qt.setFromAxisAngle(_up, -th);
+      _ax.applyQuaternion(_qt); _fc.applyQuaternion(_qt);
+      sg = _sg.set(bp.x - hp.x, bp.y - hp.y, bp.z - hp.z).applyQuaternion(_qt).add(_hd.set(hp.x, hp.y, hp.z));
+      if (so) so = _so.set(so.x - hp.x, so.y - hp.y, so.z - hp.z).applyQuaternion(_qt).add(_hd);
+    }
+    const o = dt > 5e-4 || !st.out ? this.sense.update(e.t, dt, hp, sg, _ax, so, { sweep: ex ? ex.sweep : null, hitT: ex && ex.hit ? ex.hit.t : null, live: ex ? ex.live ?? null : null, face: _fc }) : st.out;
     st.out = { state: o.state, phase: o.phase, engage: o.engage, leader: o.leader, weights: o.weights, quiet: o.quiet, offOn: o.offOn };
     const E = shotsReady() ? o.engage : 0;
     const Hj = _Hj.set(hp.x, Math.min(hp.y - EYES, standJ - SOFT), hp.z);
@@ -328,7 +340,7 @@ export class PlayerBodyView {
     const legLen = (h.bones.kneeL.position.length() + h.bones.ankleL.position.length()) * sc;
     const hipUp = Hj.y - A.trunkUp * sc * 0.95 - h.ankleHeight * sc;
     const maxStride = 2 * Math.sqrt(Math.max(0, legLen * legLen - hipUp * hipUp));
-    const F = this.feet.update(dt, { hx: Hj.x, hz: Hj.z, crouch, quiet: o.quiet, engage: E, pat, turn: list.length ? st.turn * E : 0, kneel: st.kneelK, maxStride, pin: cr && cr.z != null && cr.pin > 0 ? { z: cr.z, k: cr.pin } : null, stumpsZ: PITCH.battingStumpsZ });
+    const F = this.feet.update(dt, { hx: Hj.x, hz: Hj.z, crouch, quiet: o.quiet, engage: E, pat, turn: list.length ? st.turn * E : 0, heading: th, kneel: st.kneelK, maxStride, pin: cr && cr.z != null && cr.pin > 0 ? { z: cr.z, k: cr.pin } : null, stumpsZ: PITCH.battingStumpsZ });
     // ---- no stroke: the stance, from the feet, your head and your hands
     A.mode = 'bat'; A.poseKey = 'bat';
     A.bat.position.copy(bp); A.bat.quaternion.copy(bq);
@@ -339,7 +351,7 @@ export class PlayerBodyView {
     _yp.copy(bp);
     if (e.off && o.offOn < 0.5) _yp.lerp(_a.set(e.off.x, e.off.y, e.off.z), 0.3 * (1 - 2 * o.offOn));
     const yawL = HALF_PI + F.L.yaw, yawR = HALF_PI + F.R.yaw;
-    A.solveBody({ heading: HALF_PI, weight, head: Hj, batPos: bp, batQuat: bq, elbowUp: 0, heel: 0, sweep: st.kneelK > 0.01 ? { k: st.kneelK, planted: true } : null, swing: null, t: e.t, yawL, yawR, noGrip: true, noLegClear: true, yawPoint: _yp });
+    A.solveBody({ heading, weight, head: Hj, batPos: bp, batQuat: bq, elbowUp: 0, heel: 0, sweep: st.kneelK > 0.01 ? { k: st.kneelK, planted: true } : null, swing: null, t: e.t, yawL, yawR, noGrip: true, noLegClear: true, yawPoint: _yp });
     // (a leg that cannot reach its foot, e.g. you stood up out of a lunge before the foot has come back: sit until it does)
     if (st.kneelK < 0.01) {
       h.update();
@@ -543,7 +555,7 @@ export class PlayerBodyView {
     h.bones.hips.getWorldQuaternion(_q2);
     const hy = yawOf(_q2), mean = yawL + angDiff(yawL, yawR) / 2;
     // (kept continuous from frame to frame: a capture can spin the hips right round)
-    const turn = angDiff(HALF_PI, hy), rel0 = angDiff(mean, hy), go = st.relOk;
+    const turn = angDiff(this.actor.heading, hy), rel0 = angDiff(mean, hy), go = st.relOk;
     st.turn = go ? st.turn + angDiff(st.turn, turn) : turn;
     const rel = st.rel = go ? st.rel + angDiff(st.rel, rel0) : rel0;
     st.relOk = true;

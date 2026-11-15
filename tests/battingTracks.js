@@ -32,6 +32,9 @@ export function batQuat(toe, face) {
   z = norm(z);
   return quatOfBasis(cross(y, z), y, z);
 }
+function qmul(a, b) {
+  return { x: a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y, y: a.w * b.y - a.x * b.z + a.y * b.w + a.z * b.x, z: a.w * b.z + a.x * b.y - a.y * b.x + a.z * b.w, w: a.w * b.w - a.x * b.x - a.y * b.y - a.z * b.z };
+}
 // The headset's orientation: yaw (rad, + = turned to the leg side... about +Y) and pitch (+ = up); 0, 0 looks down the pitch at the bowler (-Z).
 export function headQuat(yaw, pitch) {
   const cy = Math.cos(yaw / 2), sy = Math.sin(yaw / 2), cp = Math.cos(pitch / 2), sp = Math.sin(pitch / 2);
@@ -67,7 +70,9 @@ function jitter(seed) {
 // keys: [{ t, head: [x, y, z], look: [yaw, pitch], hand: [x, y, z] (the bottom hand = the controller),
 //          toe: [..] (hands -> toe), face: [..], off: 'on' | [x, y, z] (the other controller) }]
 // Missing fields carry over from the key before. Returns log entries at `hz`.
-export function buildTrack(keys, { hz = 72, t0 = 100, noise = 1, extra = null, seed = 7 } = {}) {
+// turn(t): the stick turn (rad about +Y, the game's lookYaw) at t: the rig turns about your head, so
+// your bat, other hand and headset turn with it (entry.turn carries it, as the game logs it).
+export function buildTrack(keys, { hz = 72, t0 = 100, noise = 1, extra = null, seed = 7, turn = null } = {}) {
   const K = [];
   let prev = { head: [-0.25, 1.56, -1.05], look: [0, -0.05], hand: [0.02, 0.8, -0.98], toe: [0.1, -0.95, 0.28], face: [0, 0, -1], off: 'on', offP: [0, 0, 0] };
   for (const k of keys) {
@@ -88,7 +93,15 @@ export function buildTrack(keys, { hz = 72, t0 = 100, noise = 1, extra = null, s
     const on = clamp(spline(K, 'onK', t)[0], 0, 1), offP = spline(K, 'offP', t);
     const ax = norm([-toe[0], -toe[1], -toe[2]]);
     const off = { x: (hand[0] + ax[0] * 0.105) * on + offP[0] * (1 - on) + rnd() * 0.0015 * noise, y: (hand[1] + ax[1] * 0.105) * on + offP[1] * (1 - on), z: (hand[2] + ax[2] * 0.105) * on + offP[2] * (1 - on) };
-    out.push({ t: t0 + t, dt, bp: { x: hand[0], y: hand[1], z: hand[2] }, bq, head: { p: { x: head[0], y: head[1], z: head[2] }, q: headQuat(look[0], look[1]) }, off, ball: null, extra: typeof extra === 'function' ? extra(t) : extra });
+    const e = { t: t0 + t, dt, bp: { x: hand[0], y: hand[1], z: hand[2] }, bq, head: { p: { x: head[0], y: head[1], z: head[2] }, q: headQuat(look[0], look[1]) }, off, ball: null, extra: typeof extra === 'function' ? extra(t) : extra };
+    if (turn) {
+      const a = turn(t), c = Math.cos(a), s = Math.sin(a), r = { x: 0, y: Math.sin(a / 2), z: 0, w: Math.cos(a / 2) };
+      const about = (p) => { const dx = p.x - head[0], dz = p.z - head[2]; p.x = head[0] + dx * c + dz * s; p.z = head[2] - dx * s + dz * c; };
+      about(e.bp); about(e.off);
+      e.bq = qmul(r, e.bq); e.head.q = qmul(r, e.head.q);
+      e.turn = a;
+    }
+    out.push(e);
   }
   return out;
 }
@@ -256,6 +269,11 @@ export const SHOTS = {
       { t: 5.9, head: [-0.25, 1.56, -1.05], hand: [0.03, 0.9, -0.95], toe: [0.15, -0.8, 0.58] },
       stance(6.2), stance(6.8)],
   },
+  // Between balls, the stick held to turn you round 180 deg over 1.6 s, held, and back (the rig turns about your head).
+  turn_round: {
+    want: [], idle: true, marks: [0.3, 0.9, 1.3, 1.8, 2.6, 3.4, 3.9, 4.6], turn: [[0.5, 0], [2.1, Math.PI], [2.7, Math.PI], [4.3, 0]],
+    keys: [stance(0), stance(1.2, { look: [0.1, -0.1] }), stance(2.4, { look: [-0.2, 0] }), stance(3.6), stance(5.0)],
+  },
   // Deep in the crease: standing almost on the stumps and going back to defend (the pads must stay out of them).
   deep_back: {
     want: ['back_defence', 'back_foot_punch'], stumps: true, marks: [0.3, 1.0, 1.25, 1.6, 2.6],
@@ -271,5 +289,6 @@ export const SHOTS = {
 export function shotTrack(name, opts = {}) {
   const s = SHOTS[name];
   if (!s) throw new Error('no scripted shot ' + name);
-  return buildTrack(s.keys, { extra: { sweep: null, hit: null, crease: null, live: !s.idle }, ...opts });
+  const turn = s.turn ? (t) => { const K = s.turn; if (t <= K[0][0]) return K[0][1]; for (let i = 1; i < K.length; i++) if (t <= K[i][0]) { const u = (t - K[i - 1][0]) / (K[i][0] - K[i - 1][0]); return K[i - 1][1] + (K[i][1] - K[i - 1][1]) * u * u * (3 - 2 * u); } return K[K.length - 1][1]; } : null;
+  return buildTrack(s.keys, { extra: { sweep: null, hit: null, crease: null, live: !s.idle }, turn, ...opts });
 }
