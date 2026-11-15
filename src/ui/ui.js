@@ -14,7 +14,7 @@ const VIEWS = ['eyes', 'helmet', 'behind'];
 const VIEW_NAMES = { eyes: 'your eyes', helmet: 'eyes + helmet grille', behind: 'behind the player' };
 const REPLAYS = ['off', 'bowler'];
 const REPLAY_NAMES = { off: 'off', bowler: "after every ball" };
-const TURNS = ['snap', 'smooth', 'off'];
+const TURNS = ['smooth', 'snap', 'off'];
 const DEG = Math.PI / 180;
 // Running controls: only while the ball is live.
 const RUN_HINTS = new Set(['RUN', 'ANOTHER', 'GO BACK', 'DIVE']);

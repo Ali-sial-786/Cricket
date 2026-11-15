@@ -112,8 +112,9 @@ bigger sweet spot. *Hard* is real time and real size.
 
 ### Looking around
 
-The **right stick** turns your view (left / right) without you turning your body: 30° per flick, or smoothly
-(Settings → **Right stick turn**: snap / smooth / off). **Click the right stick** to face down the pitch again; the
+The **right stick** turns you (left / right) in one continuous motion, the same as turning your body: push it
+further to turn faster; your figure turns with you. (Settings → **Right stick turn**: smooth / snap 30° per
+flick / off.) **Click the right stick** to face down the pitch again; the
 view also faces forward by itself before each ball, on recenter, catches and replays.
 
 ### Fielding

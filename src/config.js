@@ -167,7 +167,9 @@ export const CONFIG = {
     behindBowling: [0.55, 0.4, -2.4],    // behind the bowler, over the left shoulder
     // Right stick: look around without turning your body (Settings -> Turning).
     snapTurnDeg: 30,         // per flick
-    smoothTurnDegPerSec: 100,
+    smoothTurnDegPerSec: 110, // full stick
+    smoothTurnDeadzone: 0.15,
+    smoothTurnEase: 0.08,    // s: how quickly the turn rate follows the stick
   },
 
   render: {

@@ -123,6 +123,7 @@ export class Game {
     this.lookYaw = 0;
     this.lookOff = { x: 0, z: 0 };
     this.turnArmed = true;
+    this.turnRate = 0;                    // smooth turn: current rad/s (eased toward the stick)
     this.runMarks = buildRunMarks();
     scene.add(this.runMarks);
     this.viewOverride = null;        // temporary rig (catching)
@@ -434,7 +435,9 @@ export class Game {
 
   // ------------------------------------------------------------- look around
   // Turn your view by `delta` rad about where your head is now.
-  turnLook(delta) {
+  // smooth: a continuous turn (the stick turning you like turning your body):
+  // the bat keeps its swept motion. A snap turn teleports the bat.
+  turnLook(delta, smooth = false) {
     if (!this.input.xr || this.viewOverride) return;
     const h = this.input.headRef.p, y0 = this.rigState.yaw + this.lookYaw, y1 = y0 + delta;
     // Head offset from the rig origin, in world xz, at a rig yaw y.
@@ -447,7 +450,7 @@ export class Game {
     this.rig.rotation.set(0, r.yaw + this.lookYaw, 0);
     this.rig.updateMatrixWorld(true);
     this.input.refreshHeadWorld();
-    this.snapBat = true;
+    if (!smooth) this.snapBat = true;
   }
   // Face forward again (back to the anchored view).
   resetLook() {
@@ -455,13 +458,21 @@ export class Game {
     this.lookYaw = 0; this.lookOff.x = this.lookOff.z = 0;
     if (this.input.xr && !this.viewOverride && !(this.replay && this.replay.active)) this.setRig(this.rigState);
   }
-  // Right stick left / right (VR): snap or smooth turn. Click: face forward.
+  // Right stick left / right (VR): smooth (default) or snap turn. Click: face forward.
+  // Smooth turning is continuous, like turning your body: the rate follows
+  // how far the stick is pushed, eased in and out so it never jerks.
   handleTurn(dt) {
     const R = this.input.right, L = this.input.left, mode = this.settings.turn;
-    if (!this.input.xr || this.mr || this.ui.menuOpen || this.viewOverride || (this.replay && this.replay.active) || this.state === 'mrplace') return;
-    if (R.buttons.stick.down && L.connected) { this.resetLook(); return; }     // (no left controller: the click is the menu)
+    if (!this.input.xr || this.mr || this.ui.menuOpen || this.viewOverride || (this.replay && this.replay.active) || this.state === 'mrplace') { this.turnRate = 0; return; }
+    if (R.buttons.stick.down && L.connected) { this.turnRate = 0; this.resetLook(); return; }     // (no left controller: the click is the menu)
     const x = R.stick.x, V = CONFIG.view;
-    if (mode === 'smooth') { if (Math.abs(x) > 0.2) this.turnLook(-Math.sign(x) * (Math.abs(x) - 0.2) / 0.8 * V.smoothTurnDegPerSec * DEG * dt); }
+    if (mode === 'smooth') {
+      const dz = V.smoothTurnDeadzone, a = Math.abs(x);
+      const want = a > dz ? -Math.sign(x) * Math.pow((a - dz) / (1 - dz), 1.4) * V.smoothTurnDegPerSec * DEG : 0;
+      this.turnRate += (want - this.turnRate) * (1 - Math.exp(-dt / V.smoothTurnEase));
+      if (Math.abs(this.turnRate) < 1e-3 && !want) this.turnRate = 0;
+      if (this.turnRate) this.turnLook(this.turnRate * dt, true);
+    }
     else if (mode === 'snap') {
       if (Math.abs(x) < 0.3) this.turnArmed = true;
       else if (this.turnArmed && Math.abs(x) > 0.7) {

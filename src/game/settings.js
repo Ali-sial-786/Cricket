@@ -31,7 +31,8 @@ export function defaultSettings() {
     aimV: 3,
     bowlByFeel: false,             // false: pick the delivery with A / B; true: the wrist action decides it
     runUp: true,                   // run in to bowl (hold right grip / left trigger); false: bowl from the crease
-    turn: 'snap',                  // right stick looks around: snap | smooth | off
+    turn: 'smooth',                // right stick turns you: smooth (continuous) | snap | off
+    turnV: 2,
     trail: true,
     ballBoost: true,               // draw the ball at a minimum angular size far away
     sound: true,
@@ -64,6 +65,8 @@ export function loadSettings() {
   if (s.replay !== 'off') s.replay = 'bowler';         // (the batter's-view replay is gone: one camera, from the bowler's end)
   // v3 of the aiming: the floor marker is the target again (once, for everyone).
   if (!saved || saved.aimV !== 3) { s.aimAssist = true; s.aimMarker = true; s.aimV = 3; }
+  // v2 of turning: the stick turns you smoothly, like turning your body (once, for everyone).
+  if (!saved || saved.turnV !== 2) { s.turn = 'smooth'; s.turnV = 2; }
   return s;
 }
 export function saveSettings(s) { return saveJSON(KEY_SETTINGS, s); }
