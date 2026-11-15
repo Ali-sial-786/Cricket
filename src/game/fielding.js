@@ -133,6 +133,7 @@ export function steerAmong(px, pz, gx, gz, obs, out = { x: 0, z: 0 }) {
 }
 const _obs = [];
 const ARRIVE = 0.05;         // m: there
+const RELEASE_SET = 4;       // m: a fielder this close to his mark at the release stops and gets set
 const BRAKE = 13;            // m/s^2 pulling up
 function angDiff(a, b) { let d = b - a; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI; return d; }
 
@@ -285,7 +286,12 @@ export class Fielding {
   }
   onRelease() {
     this.started = true; this.dead = false;
-    for (const f of this.fielders) if (f.state === 'walkin') f.state = 'set';
+    for (const f of this.fielders) {
+      if (f.state === 'walkin') f.state = 'set';
+      // Still on his way back as the ball is bowled: he pulls up where he is
+      // and gets set (only a man a long way from his mark keeps coming).
+      else if (f.state === 'return' && !f.playerControlled && Math.hypot(f.pos.x - f.home.x, f.pos.z - f.home.z) < RELEASE_SET) { f.state = 'set'; f.target = null; }
+    }
   }
 
   // Time for a fielder to cover `dist` metres from standing (with accel).

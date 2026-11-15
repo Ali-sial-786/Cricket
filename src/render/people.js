@@ -41,6 +41,8 @@ export class BatterView {
     // Walking somewhere between balls (crew.js): to take guard, or into you.
     if (a.task) {
       const k = a.task;
+      // (from his stance into the walk: cross-faded from the pose he was in, bat and all)
+      if (this.wasBat) { a.handover(); this.wasBat = false; a.rebase(a.h.root.position.x, a.h.root.position.z); }
       if (k.kind === 'merge' && this.avoid) k.to = this.avoid;
       const there = stepWalk(a, dt, this.obstacles(a));
       let fade = 1;
@@ -58,9 +60,11 @@ export class BatterView {
     }
     if (this.running) {
       // (from the shot into the run: cross-faded from the pose he was in, bat and all)
-      if (this.wasBat) { a.handover(); this.wasBat = false; }
+      let rx = null, rz = null;
+      if (this.wasBat) { a.handover(); this.wasBat = false; rx = a.h.root.position.x; rz = a.h.root.position.z; }
       this.blend = null;
       a.pos.set(this.running.x, 0, this.running.z);
+      if (rx != null) a.rebase(rx, rz);          // (the run starts under his pelvis: the body stays where the shot left it)
       // Your own runner is not drawn round your head: he fades as he leaves / rejoins you.
       let fade = this.runnerOnly && this.avoid ? fadeNearHead(Math.hypot(a.pos.x - this.avoid.x, a.pos.z - this.avoid.z)) : 1;
       const was = a.h.fade ?? 1;

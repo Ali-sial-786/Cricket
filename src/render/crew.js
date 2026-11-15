@@ -98,15 +98,15 @@ export class BatterCrew {
     // Two more batters than are at the crease: one on his way off, one on his way in.
     this.spares = [new BatterActor(scene, { team: 'home', seed: 31 }), new BatterActor(scene, { team: 'home', seed: 47 })];
     for (const a of this.spares) { a.visible = false; a.h.replayVisible = false; }
+    // All four figures, for good: the two views hand theirs round as batters
+    // come and go, so "whoever the views hold now + the spares" would lose one.
+    this.all = [game.batterView.actor, game.nonStrikerView.actor, ...this.spares];
     this.leaving = [];           // batters walking off (nobody else poses them)
     this.pending = null;         // the ball is dead; sorted out once the runners have stopped
     this.team = 'home';
     this.obs = [];
   }
-  get pool() {
-    const g = this.g, list = [g.batterView.actor, g.nonStrikerView.actor, ...this.spares];
-    return list.filter((a, i) => list.indexOf(a) === i);
-  }
+  get pool() { return this.all; }
   setTeam(team) { this.team = team; for (const a of this.pool) a.h.setTeam(team); }
 
   // A session starts or ends: nobody is walking anywhere.
@@ -123,10 +123,12 @@ export class BatterCrew {
   free() {
     const g = this.g;
     for (const a of this.pool) if (a !== g.batterView.actor && a !== g.nonStrikerView.actor && !this.leaving.includes(a)) return a;
-    // Everyone is busy (two wickets in a few seconds): the one furthest on his way off is done.
-    const a = this.leaving.shift();
-    if (a) { a.task = null; a.visible = false; }
-    return a || null;
+    // Everyone is busy (three wickets in a few seconds): the one furthest on
+    // his way off (nearest the gate, most faded) is done.
+    let a = null;
+    for (const b of this.leaving) if (!a || (b.h.fade ?? 1) < (a.h.fade ?? 1)) a = b;
+    if (a) { this.leaving.splice(this.leaving.indexOf(a), 1); a.task = null; a.visible = false; }
+    return a;
   }
 
   // The ball is dead. info: { wicket: how (or null), who: 'striker' |
@@ -201,8 +203,7 @@ export class BatterCrew {
     // ---- the non-striker's end
     if (N) {
       if (!nsA) nsA = this.comeIn();
-      ns.actor = nsA;
-      if (nsA) { nsA.visible = true; ns.walkHome(nsA.task && nsA.task.kind === 'in' ? nsA.task : null); }
+      if (nsA) { ns.actor = nsA; nsA.visible = true; ns.walkHome(nsA.task && nsA.task.kind === 'in' ? nsA.task : null); }
     }
     // ---- the striker's end
     if (you) {

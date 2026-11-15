@@ -110,7 +110,7 @@ export class UmpireView {
   // they WALK to a new place (the bowler changing sides of the wicket).
   place(playerBowling, side = 1) {
     this.side = side;
-    const mx = (playerBowling ? -1.0 : -0.95) * side, mz = PITCH.bowlingStumpsZ - (playerBowling ? 2.2 : 1.9);
+    const mx = (playerBowling ? -1.2 : -0.95) * side, mz = PITCH.bowlingStumpsZ - (playerBowling ? 2.0 : 1.9);
     const set = (u, x, z, face) => {
       if (!u.mark) { u.mark = new THREE.Vector3(); u.off = new THREE.Vector3(); u.goal = { x, z }; }
       u.mark.set(x, 0, z); u.rest = face;

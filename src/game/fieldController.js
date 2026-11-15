@@ -24,6 +24,7 @@ const BOWLER_CLEAR = 0.8;
 const PLAYER_PATH = 2.1;       // anyone running or walking past you gives you this much room
 const LANE_CLEAR = 1.5;        // half-width of your run-up lane kept empty between balls
 const BOWL_CREASE_Z = PITCH.bowlingStumpsZ + PITCH.poppingOffset;
+const KEEPER_BREAK_REACH = 1.6;  // m from the stumps: the keeper can lunge in and take the bails off
 
 export class FieldController {
   constructor(game, { spinner = false, bowlerFields = true, playerBatting = true } = {}) {
@@ -250,7 +251,9 @@ export class FieldController {
     const a = holder && holder.action;
     if (a && a.type === 'take') a.breakAt = t + delay;
     else if (a && a.type === 'break') { if (a.at < t) a.at = t + delay; }
-    else if (holder && end === 'batting' && holder.keeper) L.keeperBreak(t, t + delay);
+    // (the keeper sweeps the bails off only if he is at the stumps: off chasing
+    // the ball, a throw that runs a batter out has hit them on its own)
+    else if (holder && end === 'batting' && holder.keeper && Math.hypot(holder.pos.x, holder.pos.z - PITCH.battingStumpsZ) < KEEPER_BREAK_REACH) L.keeperBreak(t, t + delay);
     this.pendingBreak = { end, t: t + delay };
   }
 
@@ -294,10 +297,10 @@ export class FieldController {
     // The AI bowler walking back (not running in: his line is his own) is in everyone's way too.
     const bw = g.figures && g.figures.bowler.actor;
     if (bw && bw.visible && bw.state !== 'runup') obs.push({ x: bw.pos.x, z: bw.pos.z, r: BOWLER_CLEAR });
-    // Your run-up is yours: between balls nobody walks or stands in the lane
-    // from your mark to the crease.
+    // Your run-up is yours: between balls and while you run in nobody walks
+    // or stands in the lane from your mark to the crease.
     const ses = g.session;
-    if (this.playerFielding && ses && ses.run && hp && L.dead) {
+    if (this.playerFielding && ses && ses.run && hp && (L.dead || ses.state === 'ready')) {
       const z1 = BOWL_CREASE_Z, z0 = Math.min(hp.z, z1 - (ses.run.spec ? ses.run.spec.length : 0));
       for (let z = z0 - 1; z <= z1 + 1.01; z += 1.5) obs.push({ x: hp.x, z, r: LANE_CLEAR, soft: true });     // (steered round; nobody is shoved out of it)
     }
@@ -450,7 +453,9 @@ export class FieldController {
     others.length = 0;
     if (g.umpires.visible) for (const u of g.umpires.spots()) others.push(u);
     for (const a of [g.batterView.shown && g.batterView.actor, g.nonStrikerView.visible && g.nonStrikerView.actor, g.figures.bowler.actor]) if (a && a.visible) others.push(a.h.root.position);
-    g.fieldView.update(dt, states, { t, ball: ballPos, delivering: this.delivering, cam: g.input.headPose.p, others });
+    // (ready and crouched while the ball is on its way: not once the keeper has taken it or it has beaten him)
+    const ready = this.delivering && !L.keeperHold && !L.keeperMissed;
+    g.fieldView.update(dt, states, { t, ball: ballPos, delivering: ready, cam: g.input.headPose.p, others });
 
     // Stumps broken by a glove: they fly when the hand gets there.
     if (this.pendingBreak && t >= this.pendingBreak.t) {
