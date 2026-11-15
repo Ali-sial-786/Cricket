@@ -26,7 +26,7 @@ import { BatGeometry } from '../physics/bat.js';
 const _fw = new Vec3(), _toe = new Vec3(), _lever = new Vec3(), _bv = new Vec3(), _mid = new Vec3();
 let _sweetY = null;               // the middle of the (visible) bat, along its +Y from your hand
 const PLAYER_PAD = { halfX: 0.15, front: 0.1, back: 0.26, top: 0.7 };
-import { Innings } from './scoring.js';
+import { Innings, runsText } from './scoring.js';
 
 const KMH = (v) => Math.round(msToKmh(v));
 const _hand = new THREE.Vector3();
@@ -41,6 +41,27 @@ const WAIT_HURRY = 2.5, WAIT_CAP = 7, WAIT_CAP_WICKET = 13;
 // coming at you above `short` x standing.
 const LOW = { on: 0.68, off: 0.76, bat: 0.3, swing: 3, hold: 0.12, high: 0.55, highFor: 0.15, short: 0.55 };
 const SWEEP_IN = 4.5, SWEEP_OUT = 3.5;   // 1/s: the sweep button's hold on your figure comes in over 0.22 s, goes over 0.29 s
+
+// The shot read-out. launch: degrees above the horizontal of the ball as it
+// left the bat (whichever way it went); where: which way it went, as a
+// fielding position (a right-hander's: off side +x, the bowler -z), so a top
+// edge that climbs over your shoulder reads "41° · fine leg", not a low drive.
+export function launchAngle(v) { return Math.atan2(v.y, Math.hypot(v.x, v.z)) * 180 / Math.PI; }
+export function shotWhere(v) {
+  if (Math.hypot(v.x, v.z) < 0.15 * Math.hypot(v.x, v.y, v.z) + 1e-6) return v.y > 0 ? 'straight up' : 'into the ground';
+  const a = Math.atan2(v.x, -v.z) * 180 / Math.PI, d = Math.abs(a), off = a > 0;   // 0: back past the bowler, 90: square, 180: behind
+  if (d < 12) return 'straight';
+  if (d > 168) return 'over the keeper';
+  const names = off ? [[27, 'mid-off'], [50, 'extra cover'], [72, 'cover'], [104, 'point'], [135, 'gully'], [168, 'third man']]
+    : [[27, 'mid-on'], [62, 'midwicket'], [104, 'square leg'], [135, 'backward square'], [168, 'fine leg']];
+  for (const [lim, n] of names) if (d < lim) return n;
+  return off ? 'third man' : 'fine leg';
+}
+// (h.load, 0..1, when the swing reports it: how full the backlift was.)
+export function shotReadout(h) {
+  const load = h.load != null ? ` · backlift ${Math.round(h.load * 100)}%` : '';
+  return `Exit ${KMH(h.exit)} km/h · ${Math.round(h.launch)}° · ${shotWhere(h.dir)} · bat ${h.batSpeed.toFixed(1)} m/s${load} · sweet ${Math.round(h.quality * 100)}%${h.advanced ? ' · stepped out' : ''}\nCarry ${Math.round(h.carry)} m`;
+}
 
 export class BattingSession {
   constructor(game, { kind = 'nets', title = 'Nets · Batting', innings = null, bowler = 'machine', fielders = null, aiBowler = null, onDone = null } = {}) {
@@ -197,9 +218,21 @@ export class BattingSession {
     } else if (L.buttons.a.down || (input.xr && !L.connected && R.buttons.a.down)) this.requestNext();
   }
 
+  // X / Space between balls: the next ball now. During the result ('settle')
+  // it only cuts the wait short: the ball's replay still plays first, with
+  // the whole of the play on its tape (it starts once TAIL s of aftermath are
+  // recorded), and the end of the innings is still checked on the way out of
+  // 'settle' (so a finished innings never gets another ball).
   requestNext() {
-    if (this.state === 'idle' || this.state === 'settle') { this.state = 'idle'; this.timer = 0; }
+    if (this.state === 'idle') { this.timer = 0; return; }
+    if (this.state !== 'settle') return;
+    this.nextAsked = true;
+    const R = this.game.replay, p = R && R.pending;
+    this.timer = Math.min(this.timer, p ? Math.max(0, (R.dueAt ? R.dueAt() : p.at) - this.game.simTime) : 0);
   }
+
+  // The replay has put you back: straight on, if the next ball was asked for.
+  afterReplay() { if (this.state === 'settle' && this.nextAsked) this.timer = 0; }
 
   autoNext() { return this.kind !== 'nets' || this.game.settings.autoFeed; }
 
@@ -212,13 +245,15 @@ export class BattingSession {
     this.creasePin = clamp(this.creasePin + (this.stumpAt && (this.state === 'live' || this.state === 'review') ? 6 : -3) * (g.realDt || dt), 0, 1);
     g.timeScaleTarget = this.state === 'live' && !this.hit && !this.byes && !g.world.ball.padded && g.world.ball.active ? g.diff.timeScale : 1;
     if (this.state === 'idle') {
+      if (this.innings && this.innings.complete) { this.complete(); return; }   // (never a ball after the last one)
       if (this.autoNext() || this.timer <= 0) this.timer -= dt;
       // The next ball is decided now, so that everyone can walk to where it
       // needs him (the bowler to his mark, the umpire and the non-striker to
       // the right side of the stumps) before the bowler runs in.
       if (!this.planned) this.planNext();
       this.waitField = (this.waitField || 0) + dt;
-      if (this.timer <= 0 && !this.announced && this.announce()) { /* (the card is up: the field walks back meanwhile) */ }
+      if (this.timer <= 0 && g.replay && g.replay.pending) { /* (the last ball's replay first: Replay.dueAt) */ }
+      else if (this.timer <= 0 && !this.announced && this.announce()) { /* (the card is up: the field walks back meanwhile) */ }
       else if (this.timer <= 0 && this.peopleReady()) { this.waitField = 0; this.prepare(t); }
     } else if (this.state === 'cue') {
       const el = t - this.cueStart, cd = CONFIG.machine.countdownSec;
@@ -243,8 +278,8 @@ export class BattingSession {
       if (this.timer <= 0) {
         g.machine.setCue(0);
         if (this.innings && this.innings.complete) { this.complete(); return; }
-        this.state = 'idle';
-        this.timer = this.autoNext() ? 0.3 : 1e9;
+        this.timer = this.nextAsked ? 0 : this.autoNext() ? 0.3 : 1e9;
+        this.state = 'idle'; this.nextAsked = false;
       }
     }
     if (this.field) this.field.update(dt, t);
@@ -316,7 +351,10 @@ export class BattingSession {
     g.ballView.setVisible(false);
     g.ballView.clearTrail();
     g.world.removeBall();
-    if (this.newBatter) { g.ui.setHud({ detail: `New batter in: ${this.newBatter}` }); this.newBatter = null; }
+    // A new ball: the last one's result, delivery and shot lines go (an appeal
+    // or a review of this one writes its own; the result writes the verdict).
+    g.ui.setHud({ big: '', last: '', detail: this.newBatter ? `New batter in: ${this.newBatter}` : '' });
+    this.newBatter = null;
     if (!this.planned) this.planNext();
     const settings = this.planned.settings;
     this.delivery = this.planned.delivery;
@@ -381,7 +419,7 @@ export class BattingSession {
       if (!b.batted && (Math.abs(b.pos.x) > PITCH.wideLineX || b.pos.y > CONFIG.match.wideHeight)) this.wide = true;   // too wide, or over your head
     }
     // Struck on the pad: LBW appeal (match modes, not on easy).
-    if (this.field && g.diff.lbwAgainstPlayer && !this.hit) {
+    if (this.field && g.diff.lbwAgainstPlayer && !this.hit && !b.thrown) {      // (not a throw going past you)
       // Your head stands in for your legs, so the box is kept tight and sits
       // under / behind it, and the bat always gets the first go at the ball.
       const body = this.body();
@@ -412,7 +450,8 @@ export class BattingSession {
         }
         if (t < this.stumpAt) return;
         const atk = this.field.attack, margin = this.shortOfGround(), lim = CONFIG.match.thirdUmpire;   // m short of your ground
-        if (atk.kind === 'shy' && !atk.hit) { this.finish({ kind: 'beaten', shyMissed: true }); return; }
+        // (his shy misses: the ball runs on past the stumps -- byes, if you can run them)
+        if (atk.kind === 'shy' && !atk.hit) { if (b.active) this.startByes(t, true); return; }
         if (atk.kind === 'break' && !this.stumpBroke) { this.stumpBroke = true; this.field.breakStumps('batting', t, 0); }
         const res = margin <= 0 ? { kind: 'beaten', backInTime: true }
           : atk.kind === 'break' ? { kind: 'stumped' } : { kind: 'runout', runs: 0, margin, end: 'batting', who: 'striker' };
@@ -439,12 +478,12 @@ export class BattingSession {
   }
 
   // The ball has gone past the bat and the keeper: it is in play, like a hit.
-  startByes(t) {
+  startByes(t, shy = false) {
     const g = this.game, b = g.world.ball;
     this.byes = { t };
     g.timeScaleTarget = 1;
     this.field.onHit(b, t, predict(b, { maxTime: 9, h: 1 / 240 }), { byes: true });
-    g.ui.prompt(this.wide ? 'WIDE — and past the keeper! Run?' : 'Past the keeper — BYES! Run?', 2.2, '#ffd34d');
+    g.ui.prompt(shy ? 'He misses the stumps — run!' : this.wide ? 'WIDE — and past the keeper! Run?' : 'Past the keeper — BYES! Run?', 2.2, '#ffd34d');
     g.crowdReact('close');
   }
 
@@ -546,7 +585,7 @@ export class BattingSession {
       const land = pred.bounces[0];
       const carry = land ? Math.hypot(land.pos.x - b.pos.x, land.pos.z - b.pos.z) : 0;
       const v = b.vel;
-      const launch = Math.atan2(v.y, Math.hypot(v.x, v.z)) / (Math.PI / 180);
+      const launch = launchAngle(v);
       this.hit = {
         t: e.t, quality: e.quality, edge: e.isEdge, exit: v.length(), batSpeed: e.bladeSpeed ?? e.batSpeed, load: e.load, launch, carry, dir: { x: v.x, y: v.y, z: v.z },
         sixOnFull: !!(pred.boundary && pred.boundary.onFull), pred, advanced: this.advance > 0.5,
@@ -559,8 +598,15 @@ export class BattingSession {
       if (!e.isEdge && e.quality > 0.8 && v.length() > 30) g.cheer(0.3);
       if (e.isEdge) g.crowdReact('edge');
       else if (launch > 22 && v.length() > 22) g.crowdReact('skied');
+    } else if (e.type === 'bat' && e.batId === 'player' && this.hit && e.t - this.hit.t < 1) {
+      // Struck again (the bat came round into it): the read-out is of the ball
+      // as it finally left the bat, not of the first touch.
+      const b = g.world.ball, v = b.vel, land = predict(b, { maxTime: 9, h: 1 / 240 }).bounces[0];
+      Object.assign(this.hit, { exit: v.length(), launch: launchAngle(v), dir: { x: v.x, y: v.y, z: v.z }, carry: land ? Math.hypot(land.pos.x - b.pos.x, land.pos.z - b.pos.z) : 0, again: true });
     }
-    if (e.type === 'wicket' && e.end === 'batting' && this.state === 'live') {
+    // (a fielder's throw into the stumps is a run-out chance, never "bowled")
+    if (e.type === 'wicket' && e.thrown) { if (this.field && this.state === 'live') this.field.onThrownWicket(e); }
+    else if (e.type === 'wicket' && e.end === 'batting' && this.state === 'live') {
       if (!this.field || (!this.field.fielded && !this.hit)) this.finish({ kind: 'bowled', wicket: 'bowled' });
       else if (this.hit && !this.field.fielded && e.t - this.hit.t < 0.6) this.finish({ kind: 'bowled', wicket: 'bowled' });   // played on
     }
@@ -574,8 +620,7 @@ export class BattingSession {
   shotDetail() {
     const h = this.hit;
     if (!h) return '';
-    // (bat: the middle of your bat's real speed at contact; backlift: how loaded the swing was)
-    return `Exit ${KMH(h.exit)} km/h · ${Math.round(h.launch)}° · bat ${h.batSpeed.toFixed(1)} m/s${h.load != null ? ` · backlift ${Math.round(h.load * 100)}%` : ''} · sweet ${Math.round(h.quality * 100)}%${h.advanced ? ' · stepped out' : ''}\nCarry ${Math.round(h.carry)} m`;
+    return shotReadout(h);
   }
 
   // Non-striker backs up while the ball is being bowled.
@@ -651,12 +696,17 @@ export class BattingSession {
       case 'stumped': big = 'STUMPED!'; color = '#ff5a5a'; outcome.wicket = 'stumped'; break;
       case 'runout': big = `RUN OUT! (${res.margin.toFixed(1)} m short)`; color = '#ff5a5a'; outcome.wicket = 'run out'; outcome.runs = res.runs; break;
       case 'boundary':
+        if (res.overthrows) {           // overthrows to the rope: runs to you, not a four (Law 19.8)
+          big = runsText(res) + '!'; color = '#4dd2ff'; outcome.runs = res.runs; outcome.overthrows = res.overthrows; g.umpires.signal('four', now);
+          break;
+        }
         big = res.runs === 6 ? 'SIX!' : 'FOUR!'; color = res.runs === 6 ? '#ff6bd6' : '#4dd2ff';
         outcome.runs = res.runs; outcome.boundary = res.runs;
         if (res.runs === 6) this.stats.sixes++; else this.stats.fours++;
         break;
       case 'runs':
-        big = res.runs === 0 ? 'Dot ball' : `${res.runs} run${res.runs > 1 ? 's' : ''}`;
+        big = res.runs === 0 ? 'Dot ball' : runsText(res);
+        if (res.overthrows) outcome.overthrows = res.overthrows;
         if (res.closeCall != null && res.closeCall < 0.9 && res.runs > 0) big += ' — just home!';
         outcome.runs = res.runs;
         break;
@@ -675,7 +725,7 @@ export class BattingSession {
     // Byes: runs off a ball that was not hit go down as extras, not to you.
     if (this.byes && !outcome.wicket) {
       outcome.byes = true; outcome.boundary = 0;
-      big = res.kind === 'boundary' ? 'FOUR BYES!' : outcome.runs ? `${outcome.runs} bye${outcome.runs > 1 ? 's' : ''}` : 'No run';
+      big = res.kind === 'boundary' && !res.overthrows ? 'FOUR BYES!' : outcome.runs ? runsText({ ...res, runs: outcome.runs, byes: true }) : 'No run';
       color = '#ffd34d';
       if (outcome.runs) g.umpires.signal('bye', now);
     }
@@ -731,7 +781,7 @@ export class BattingSession {
     if (this.innings) {
       const inn = this.innings;
       score = `${inn.scoreText}  (${inn.overs})`;
-      sub = inn.target != null ? `Need ${inn.runsNeeded} off ${inn.ballsLeft} · ${inn.wicketsLimit - inn.wickets} wkts left` : `${inn.ballsLeft} balls left · ${inn.wicketsLimit - inn.wickets} wkts in hand`;
+      sub = inn.target != null ? `Need ${inn.runsNeeded} off ${inn.ballsLeft} · ${inn.wicketsLeft} wkts left` : `${inn.ballsLeft} balls left · ${inn.wicketsLeft} wkts in hand`;
       const card = inn.card;
       g.ui.setBoard([this.title.toUpperCase(), score, card ? card.pairText() : sub, card && card.bowler ? `${card.bowlerText()}   ·   ${inn.thisOver.join(' ') || '-'}` : `This over: ${inn.thisOver.join(' ') || '-'}`]);
       g.ui.setHud({ title: this.title, score, sub, footer: this.footer(), players: card ? `${card.pairText()}${inn.freeHit ? '   ·   FREE HIT' : ''}` : '' });

@@ -215,7 +215,7 @@ export const CONFIG = {
     diveSpeed: 7.6,          // m/s through the air…
     diveSlide: 7.0,          // …then slowing by this much a second along the ground (never below 2.5 m/s)
     diveReach: 2.1,          // m the bat reaches ahead of a batter at full stretch (1.0 running)
-    getUp: 0.9,              // s on the ground after a dive before another run can be called
+    getUp: 1.45,             // s on the ground after a dive (lying a moment, then ~1.1 s getting up) before another run can be called
   },
 
   keeper: {

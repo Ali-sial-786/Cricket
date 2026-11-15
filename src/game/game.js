@@ -19,7 +19,7 @@ import { LENGTH_PRESETS, LINE_PRESETS } from '../physics/bowlingMachine.js';
 import { createSession, startMatch } from './modes.js';
 import { buildHelmetGrille, PlayerBowlerActor, NearCull } from '../render/viewModes.js';
 import { PLAYER_BOWLER_ORDER } from './bowlerTypes.js';
-import { Replay, TAIL } from './replay.js';
+import { Replay, tailFor } from './replay.js';
 import { BallFinder } from '../render/ballFinder.js';
 import { CrowdAudio } from '../audio/crowd.js';
 import { MRPlacer } from '../xr/mr.js';
@@ -35,6 +35,7 @@ import { UmpireView } from '../render/umpires.js';
 import { BatGeometry, aiBatConfig } from '../physics/bat.js';
 import { Runs } from './running.js';
 import { ShadowPool, Humanoid } from '../render/humanoid.js';
+import { FrameLog } from './frameLog.js';
 
 export const BAT_HEAD = { z: -1.05, legOffset: -0.35 };      // head relative to guard (hand) x
 export const BOWL_HEAD = { x: 0.75, z: -19.6 };
@@ -171,6 +172,87 @@ export class Game {
     this.ui.setHud({ title: 'Crease VR', sub: 'Choose a mode from the menu', footer: this.footerText() });
     this.ui.setBoard(['CREASE VR', 'Welcome', 'Nets · Run Chase · Bowl an Over · Match']);
     this.ui.openMenu('main');
+    this.prewarm();
+    // Long frames (src/game/frameLog.js), sampled by the animation loop (main.js): window.__longFrames.
+    this.frameLog = new FrameLog();
+    if (typeof window !== 'undefined') { window.__longFrames = this.frameLog.entries; window.__frameLog = this.frameLog; }
+  }
+
+  // The animation loop's measure of one frame (main.js): ms spent in frame() + render().
+  sampleFrame(now, work) {
+    const i = this.renderer && this.renderer.info;
+    if (!i) return;
+    this.frameLog.sample(now, work, { programs: i.programs ? i.programs.length : 0, textures: i.memory.textures, geometries: i.memory.geometries }, () => this.frameContext());
+    // (debug setting: the count on the HUD footer, between balls)
+    if (this.settings.debugFrames && this.frameLog.count !== this._longShown && this.ui) {
+      this._longShown = this.frameLog.count;
+      this.ui.setHud({ footer: `${this.session ? this.session.footer() : this.footerText()} · long frames ${this.frameLog.count}` });
+    }
+  }
+
+  // What was going on (for a long frame): game / session state, the replay's time and phase.
+  frameContext() {
+    const s = this.session, R = this.replay, c = R && R.active ? R.clip : null;
+    const mem = typeof performance !== 'undefined' && performance.memory ? +(performance.memory.usedJSHeapSize / 1e6).toFixed(1) : null;
+    return {
+      clock: +this.clock.toFixed(2), state: this.state, xr: !!this.input.xr, menu: !!(this.ui && this.ui.menuOpen),
+      session: s ? `${s.kind}:${s.state}` : null,
+      replay: c ? { t: +(R.rt - c.start).toFixed(2), phase: R.rt < c.release ? 'run-up' : R.rt < c.key ? 'delivery' : c.dead != null && R.rt >= c.dead ? 'tail' : 'play', job: !!R.job }
+        : R && R.pending ? 'due' : null,
+      heapMB: mem,
+    };
+  }
+
+  // Everything that is drawn only now and then (the DRS review and its board,
+  // the replay's vignette, fade and label, the menus, cards and message strips,
+  // the catch and hand markers, the ball finder, fireworks) has its shader
+  // programs compiled and its textures uploaded now, at load, instead of the
+  // first time it shows: the first LBW appeal compiled 2 programs, the first
+  // review 6, the first replay uploaded 9 textures. On Quest a frame that
+  // stalls on that is reprojected by the compositor, which smears / darkens
+  // the side of the view you are turning toward (the recording: the first LBW
+  // appeal, a replay).
+  prewarm() {
+    const r = this.renderer;
+    if (!r || !r.compile) return;
+    const t0 = performance.now();
+    try {
+      this.drs._build();
+      r.compile(this.scene, this.camera);
+      // the figures' other looks: see-through (your own body when you bat) and fading (coming / going)
+      const me = this.playerBody.actor.h, any = Humanoid.all.find((h) => h !== me);
+      if (me && !me.ghost) { me.setGhost(true); r.compile(me.root, this.camera, this.scene); me.setGhost(false); }
+      if (any && (any.fade ?? 1) === 1) { any.setFade(0.5); r.compile(any.root, this.camera, this.scene); any.setFade(1); }
+      r.compile(this.drs.group, this.camera, this.scene);    // (the review is out of the scene until it starts)
+      const seen = new Set();
+      const up = (o) => {
+        const mats = Array.isArray(o.material) ? o.material : o.material ? [o.material] : [];
+        for (const m of mats) for (const k of ['map', 'alphaMap', 'emissiveMap', 'normalMap', 'aoMap', 'lightMap', 'bumpMap', 'roughnessMap', 'metalnessMap', 'specularMap']) {
+          const t = m[k];
+          if (t && t.isTexture && !seen.has(t)) { seen.add(t); r.initTexture(t); }
+        }
+      };
+      this.scene.traverse(up);
+      this.drs.group.traverse(up);
+      // One draw of everything, hidden things too, both levels of detail of
+      // every figure, into a single pixel of the canvas (the next frame draws
+      // over it): the geometry buffers and skeleton textures are made now, not
+      // the first time a figure comes near or a replay shows one up close.
+      const restore = [], layers = this.camera.layers.mask;
+      this.scene.add(this.drs.group);
+      this.scene.traverse((o) => { restore.push([o, o.visible, o.frustumCulled]); o.visible = true; o.frustumCulled = false; });
+      this.camera.layers.enableAll();
+      const vp = r.getViewport(new THREE.Vector4()), sc = r.getScissor(new THREE.Vector4()), sct = r.getScissorTest();
+      r.setViewport(0, 0, 1, 1); r.setScissor(0, 0, 1, 1); r.setScissorTest(true);
+      const lods = Humanoid.all.map((h) => h.lod);
+      for (const lod of [1, 0]) { for (const h of Humanoid.all) h.setLod(lod); r.render(this.scene, this.camera); }
+      Humanoid.all.forEach((h, i) => h.setLod(lods[i]));
+      r.setViewport(vp); r.setScissor(sc); r.setScissorTest(sct);
+      this.camera.layers.mask = layers;
+      for (const [o, v, f] of restore) { o.visible = v; o.frustumCulled = f; }
+      this.scene.remove(this.drs.group);
+    } catch (e) { console.warn('prewarm', e); }
+    this.prewarmMs = performance.now() - t0;
   }
 
   // ------------------------------------------------------------- settings
@@ -622,6 +704,7 @@ export class Game {
     this.ballOverride = null;
     this.session = session;
     this.state = 'play';
+    this.ui.setHud({ big: '', last: '', detail: '', players: '' });   // a new game: nothing left over from the last one
     this.ui.closeMenu();
     this.session.enter();
     if (!this.ui.menuOpen) this.input.desktop.mode = this.session.isBowling ? 'bowl' : 'bat';   // (enter() may open a page: the bowler)
@@ -779,7 +862,7 @@ export class Game {
     }
     // A review (the appeal, DRS, the third umpire) can outlast the tape: only
     // its first moments are recorded, so the ball is still there afterwards.
-    if (!(st === 'review' && m.dead != null && t > m.dead + TAIL + 0.2)) R.record(t);
+    if (!(st === 'review' && m.dead != null && t > m.dead + tailFor(m) + 0.2)) R.record(t);
     // Every ball that was bowled gets its replay, after the result (and any review's verdict) is up.
     if (st === 'settle' && this._prevSessState !== 'settle' && this.settings.replay !== 'off') R.schedule(t);
     this._prevSessState = st;

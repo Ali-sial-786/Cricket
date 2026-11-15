@@ -123,8 +123,20 @@ view also faces forward by itself before each ball, on recenter, catches and rep
 
 * **Catches:** when a catch comes your way, time slows and you become the fielder. Reach out and get a hand to
   the ball. No button.
-* **Throws:** when a fielder picks up, **A** throws to the keeper's end and **B** to the bowler's end. Beat the
-  batter home for a run out.
+* **Throws:** the fielders throw like fielders. As soon as the ball is hit the keeper runs to his stumps (from
+  wherever he is) and the AI bowler to his (or whoever is free, when one of them has the ball), and a fielder backs
+  up behind the end the ball is coming to. When you bowl, nobody comes to stand by your stumps: a throw to your end
+  is at the stumps, with a man backing up behind them. With a run-out on, the man with the ball shies at the
+  stumps (from close in, and he can miss) or throws into the gloves of whoever is over them; with nothing on, a
+  safe return (on one bounce from the deep), or he waits a moment for someone to get there. When your side is
+  fielding, **A** sends the throw to the keeper's end and **B** to the bowler's end.
+* **Overthrows:** a throw nobody takes runs on (backing-up fielders dive to stop it) and the batters can run
+  again: you with the usual buttons, the AI batters when the ball is well away. To the rope it is four overthrows
+  plus the runs completed and the one in progress if they had crossed when the throw was made (Law 19.8), all to
+  the batter (byes if the ball was not hit); shown as "2 + 2 overthrows", "1 + 4 overthrows". A keeper's shy at
+  the stumps that misses is a live ball too. Once the ball is dead it is tossed back to the bowler and a broken
+  wicket is put back up. A thrown ball never meets a bat, and a throw into the stumps can run a batter out
+  (never "bowled").
 * **Finding the ball:** after a hit, a yellow arrow at the edge of your view points to the ball when it's out of
   sight, a halo marks it when it's far away, and a ring shows where it will land (Settings → Ball finder).
 * **The keeper is physical:** he moves across with the line of the ball, takes it on his feet if he can, leaps for
@@ -147,12 +159,21 @@ view also faces forward by itself before each ball, on recenter, catches and rep
   your bat, head and hands; menus and catches always switch back to your own eyes).
 * **Settings → Replays** (*after every ball* / *off*): every ball that is bowled — a leave, a dot ball, a hit, a
   boundary, a wicket, a run-out, a reviewed ball, the balls you bowl — gets its replay, once, at real speed: one
-  camera high behind the bowler's arm watches the last strides, the release and the ball's flight, then turns and
-  glides after the ball until it is dead. One continuous move: no cuts, no second angle. After an appeal, a DRS
-  review or the third umpire, the replay comes after the verdict. In the headset you are moved through it (level,
-  gently, the edges of the view dimmed while it moves). Your **off-hand trigger** (the hand without the bat or the
-  ball: the left one) skips it at any moment, and that press does nothing else; no other button stops it, and the
-  menu only pauses it.
+  camera high behind the bowler's arm watches the last strides, the release and the ball's flight, then turns to
+  the ball and closes in on it (to about 15 m: the keeper taking it, the fielder picking it up and his throw, the
+  catch) until a second after it is dead. One continuous move: no cuts, no second angle. After an appeal, a DRS
+  review or the third umpire, the replay comes after the verdict; asking for the next ball (X) during a result only
+  cuts the wait short, the replay still shows the whole of the play. In the headset you are moved through it (level,
+  gently, the edges of the view dimmed while it moves), and the play is where you face when you bat, wherever you
+  happened to be looking when it started. A small *REPLAY* label shows for the first 1.5 s. Your **off-hand
+  trigger** (the hand without the bat or the ball: the left one) skips it at any moment, and that press does nothing
+  else; no other button stops it, and the menu only pauses it. A catch, a stumping or a run-out is shown for 2 s after
+  the ball is dead (other balls 1 s).
+* **The HUD panel** (beside the pitch, between balls only) shows the last ball's result, the delivery and your shot
+  (exit speed, launch angle above the horizontal and where the ball went, e.g. "41° · fine leg", bat speed, how
+  full the backlift was when the swing reports it, sweet spot, carry). It is cleared when the next ball starts and in a new game; during an appeal it reads *Appeal…*, then
+  the umpire's call, *Third umpire…* for a run-out upstairs, then the verdict. The innings ends at the last wicket
+  (5 in a 5-over chase): no ball is bowled after it, however quickly X is pressed.
 * **Text while the ball is coming:** from the moment the bowler sets off (the machine's countdown; your own run-up
   when you bowl) until the ball reaches the batter, nothing floats in your view. A new bowler's name and a free hit
   are shown just before the run-up, the last ball's result between balls.
@@ -216,7 +237,8 @@ src/config.js         ALL tuning constants (physics, bat, haptics, bowling, fiel
 src/physics/          pure JS, node-tested: math, ball (aero + bounce), bat (SDF sweep + response),
                       wicket, world (fixed step, bat providers), trajectory (prediction), bowlingMachine (solver)
 src/game/             game.js (orchestrator + frame loop), batting.js / bowling.js sessions, modes.js,
-                      aiBatter.js, aiBowler.js (bowler types), fielding.js (+fieldController), running.js,
+                      aiBatter.js, aiBowler.js (bowler types), fielding.js (+fieldController), throwing.js
+                      (where a fielder throws, accuracy, overthrows and their scoring), running.js,
                       lbw.js + lbwFlow.js (appeal, decision, review), thirdUmpire.js, scoring.js, scorecard.js,
                       squad.js, bowlerTypes.js + bowlingInput.js (your bowlers and their deliveries),
                       replay.js (recording and replays)

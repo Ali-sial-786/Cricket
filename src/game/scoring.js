@@ -51,6 +51,7 @@ export class Innings {
 
   get overs() { return `${Math.floor(this.legal / 6)}.${this.legal % 6}`; }
   get ballsLeft() { return Math.max(0, this.ballsLimit - this.legal); }
+  get wicketsLeft() { return Math.max(0, this.wicketsLimit - this.wickets); }
   get runsNeeded() { return this.target == null ? null : Math.max(0, this.target - this.runs); }
   get scoreText() { return `${this.runs}/${this.wickets}`; }
 
@@ -82,4 +83,17 @@ export function wicketsForOvers(overs) { return Math.max(2, Math.min(5, overs + 
 export function chaseTarget(difficulty, overs) {
   const perBall = { easy: 1.35, medium: 1.6, hard: 1.9 }[difficulty] || 1.6;
   return Math.round(perBall * overs * 6);
+}
+
+// The result line for runs off a ball, overthrows included: "2 runs",
+// "2 + 2 overthrows", "4 overthrows", "1 + 4 overthrows" (runs: all the runs
+// off the ball; overthrows: those of them that came from the throw getting
+// away), "2 byes + 2 overthrows". Null for no runs.
+export function runsText({ runs = 0, overthrows = 0, byes = false } = {}) {
+  const pl = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
+  if (!runs) return null;
+  if (!overthrows) return pl(runs, byes ? 'bye' : 'run');
+  const base = runs - overthrows, ot = pl(overthrows, 'overthrow');
+  if (base <= 0) return byes ? `${ot} (byes)` : ot;
+  return byes ? `${pl(base, 'bye')} + ${ot}` : `${base} + ${ot}`;
 }

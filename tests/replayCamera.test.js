@@ -4,7 +4,7 @@
 // replayed once.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { planCamera, cameraAt, cameraBase, pathStats, clipFor, replayAt, CAM, PRE, TAIL } from '../src/game/replayFraming.js';
+import { planCamera, cameraAt, cameraBase, pathStats, clipFor, replayAt, tailFor, CAM, PRE, TAIL, TAIL_OUT } from '../src/game/replayFraming.js';
 
 const DT = 1 / 90, Z0 = -20.12, FACE = { x: 0, z: -1.2 }, D2R = Math.PI / 180;
 const wrap = (a) => { while (a > Math.PI) a -= 2 * Math.PI; while (a < -Math.PI) a += 2 * Math.PI; return a; };
@@ -83,13 +83,34 @@ test('replay camera: follows the ball after the shot, inside the comfortable for
   assert.ok(Math.hypot(six.path.x[n], six.path.z[n] + 10.06) < CAM.rim, 'past the rim');
 });
 
-test('replay camera: a ball that goes behind the batter (edge, fine leg, a leave) is watched from the bowler\'s end, not flown after down the pitch', () => {
+test('replay camera: a ball that goes behind the batter (edge, fine leg, a leave) is followed down the pitch, never nearer than CAM.short to his crease', () => {
   for (const name of ['fine', 'edge', 'leave']) {
-    const { path, base, s } = fly(AWAY[name]);
+    const { path, base, s, pts } = fly(AWAY[name]);
     let maxZ = -Infinity;
     for (let i = 0; i < path.n; i++) maxZ = Math.max(maxZ, path.z[i]);
-    assert.ok(maxZ - base.z < 1, `${name}: came ${(maxZ - base.z).toFixed(1)} m down the pitch`);
+    assert.ok(maxZ <= FACE.z - CAM.short + 0.05, `${name}: ${(maxZ - FACE.z).toFixed(1)} m from the batter's crease`);
+    assert.ok(maxZ - base.z > 5, `${name}: did not close in (${(maxZ - base.z).toFixed(1)} m)`);
     assert.equal(s.inCone, 1, name);
+    const n = path.n - 1, before = Math.hypot(pts[n].x - base.x, pts[n].z - base.z), after = Math.hypot(pts[n].x - path.x[n], pts[n].z - path.z[n]);
+    assert.ok(after < before - 5, `${name}: ${after.toFixed(1)} m from the ball at the end (${before.toFixed(1)} from where it started)`);
+  }
+});
+
+test('replay camera: after the shot it closes in on a ball in the infield (the pick-up, the throw) and keeps it in view', () => {
+  const INFIELD = { push: [6, 0.5, -8], block: AWAY.block, dab: [3, 0.3, 2.5], cover: AWAY.cover };
+  for (const [name, v] of Object.entries(INFIELD)) {
+    const { path, base, s, pts } = fly(v);
+    assert.equal(s.inCone, 1, name);
+    const n = path.n - 1, d = Math.hypot(pts[n].x - path.x[n], pts[n].z - path.z[n]), d0 = Math.hypot(pts[n].x - base.x, pts[n].z - base.z);
+    assert.ok(d < Math.max(CAM.near + 3, d0 - 8), `${name}: ended ${d.toFixed(1)} m from the ball (started ${d0.toFixed(1)})`);
+  }
+});
+
+test('replay camera: it does not close in under a skied ball (it would go out of the top of the view)', () => {
+  const { path, base, pts, key } = fly([2, 22, -4]);
+  for (let i = key; i < path.n; i++) {
+    const h = Math.hypot(pts[i].x - path.x[i], pts[i].z - path.z[i]);
+    if (h < CAM.near) assert.ok(Math.hypot(path.x[i] - base.x, path.z[i] - base.z) < 1, `moved in under it at ${i}`);
   }
 });
 
@@ -142,7 +163,8 @@ test('clipFor: every kind of ball gets a replay, from PRE before the release to 
     const c = clipFor(m, 0, m.dead + 5, arrive);
     assert.ok(c, `${name}: no replay`);
     assert.equal(c.start, m.release - PRE, name);
-    assert.equal(c.end, m.dead + TAIL, name);
+    assert.equal(c.end, m.dead + tailFor(m), name);
+    assert.equal(tailFor(m), m.caught != null || m.break != null ? TAIL_OUT : TAIL, name);
     assert.equal(c.key, Math.min(...[m.hit, m.pad, arrive].filter((t) => t != null)), name);
     assert.ok(c.key > c.release && c.key <= c.end, name);
   }
@@ -166,4 +188,70 @@ test('replayAt: shortly after the result; after a review, a moment after the ver
   assert.equal(replayAt({ dead: 13.4 }, 13.4), 13.4 + TAIL + 0.05);
   assert.equal(replayAt({ dead: 10.9 }, 24.0), 25.0);              // DRS: result 13 s after the ball was dead
   assert.equal(replayAt({}, 7), 7 + TAIL + 0.05);
+});
+
+test('clipFor: the whole passage of play: a keeper catch, a catch in the deep and a run-out run on TAIL_OUT s past the moment the ball was dead', () => {
+  const plays = {
+    keeperCatch: { release: 10, hit: 10.6, caught: 10.95, held: 10.95, dead: 10.96 },
+    deepCatch:   { release: 10, hit: 10.6, caught: 13.1, held: 13.1, dead: 13.12 },
+    runOut:      { release: 10, hit: 10.6, held: 12.1, break: 13.7, dead: 13.6 },
+  };
+  for (const [name, m] of Object.entries(plays)) {
+    const due = replayAt(m, m.dead);                       // the replay waits for this much tape…
+    const c = clipFor(m, 0, due, 10.6);                    // …so when it starts, it is all there
+    assert.equal(c.end, m.dead + TAIL_OUT, name);
+    assert.equal(c.dead, m.dead, name);
+    for (const k of ['caught', 'held', 'break']) if (m[k] != null) assert.ok(m[k] >= c.start && m[k] <= c.end, `${name}: ${k} outside the clip`);
+    // started straight after the result (the old "next ball" press), the clip lost the end of the play
+    assert.ok(clipFor(m, 0, m.dead + 0.2, 10.6).end < m.dead + TAIL_OUT, name);
+  }
+  // a dot ball, a four: TAIL
+  assert.equal(clipFor({ release: 10, hit: 10.6, dead: 13.4 }, 0, 20, 10.6).end, 14.4);
+});
+
+// An edge carried to the keeper (taken 14 m behind the stumps), then, once the ball is dead, lobbed back
+// to the bowler's end over the camera's head (what the fielders do with a dead ball).
+function keeperTakeThenLob({ lobAt = 0.8, lobTo = { x: 0.5, y: 3.4, z: -27.0 } } = {}) {
+  const { pts, key } = shot([1.0, 2.6, 21], { after: 4 });
+  const taken = pts.findIndex((p, i) => i > key && p.z >= 14);
+  const dead = taken, lob = taken + Math.round(lobAt / DT);
+  const at = { ...pts[taken] };
+  for (let i = taken; i < pts.length; i++) {
+    if (i < lob) { pts[i] = { x: at.x, y: 1.0, z: 14, vis: true }; continue; }
+    const k = Math.min(1, (i - lob) * DT / 1.6);
+    pts[i] = { x: at.x + (lobTo.x - at.x) * k, y: 1.0 + (lobTo.y - 1.0) * k + 6 * Math.sin(Math.PI * k), z: 14 + (lobTo.z - 14) * k, vis: true };
+  }
+  return { pts, key, dead, lob };
+}
+function flyPts({ pts, key, dead }, strikerX = -0.4) {
+  const base = cameraBase(Z0, 1);
+  const path = planCamera({ n: pts.length, dt: DT, ball: (i, o) => { o.x = pts[i].x; o.y = pts[i].y; o.z = pts[i].z; return pts[i].vis; }, key, dead, strikerX, base, face: FACE });
+  return { path, base };
+}
+
+test('replay camera: once the ball is dead the framing holds (a ball lobbed back is not chased)', () => {
+  const play = keeperTakeThenLob();
+  const { path } = flyPts(play);
+  const yawAtLob = path.yaw[play.lob];
+  for (let i = play.lob; i < path.n; i++) {
+    assert.ok(Math.abs(path.yaw[i] - yawAtLob) < 8 * D2R, `turned ${((path.yaw[i] - yawAtLob) / D2R).toFixed(0)}° after the lob at ${i}`);
+  }
+  // …but it still gets out of the way of a lob coming at it
+  let min = Infinity;
+  for (let i = play.lob; i < path.n; i++) min = Math.min(min, Math.hypot(play.pts[i].x - path.x[i], play.pts[i].y - path.y[i], play.pts[i].z - path.z[i]));
+  assert.ok(min >= 2, `the lob came ${min.toFixed(1)} m from the camera`);
+});
+
+test('replay camera: a ball behind the striker is watched from the other side of the stumps, so he does not hide the keeper', () => {
+  for (const strikerX of [-0.4, 0.4]) {
+    const play = keeperTakeThenLob({ lobAt: 10 });           // (no lob in the clip)
+    const { path } = flyPts(play, strikerX);
+    const i = play.dead + Math.round(1.5 / DT), x = path.x[Math.min(path.n - 1, i)];
+    assert.ok(x * -Math.sign(strikerX) > 1.5, `striker at x ${strikerX}: camera at x ${x.toFixed(2)}`);
+    // a second after the take the line of sight to the keeper passes beside the striker (> 0.5 m)
+    const j = Math.min(path.n - 1, play.dead + Math.round(1 / DT));
+    const c = { x: path.x[j], z: path.z[j] }, k = play.pts[j];
+    const u = (FACE.z - c.z) / (k.z - c.z), xs = c.x + (k.x - c.x) * u;
+    assert.ok(Math.abs(xs - strikerX) > 0.5, `sight line ${xs.toFixed(2)} m across at the striker (x ${strikerX})`);
+  }
 });
