@@ -329,7 +329,7 @@ export class BowlingSession {
     // Line: the way the hand was travelling across the ground over the last 0.12 s.
     // Running in moves the rig: take your own run out of the hand's world motion
     // (XR velocities are already relative to the rig; poses are not).
-    const runV = this.run.enabled ? this.run.speed : 0, vz = R.hasXRVel ? 0 : runV;
+    const runV = this.run.enabled ? this.run.speed : 0, vz = R.hasXRVel || g.input.xr ? 0 : runV;    // (headset velocities are the rig's own, either way)
     const last = R.history[R.history.length - 1];
     let pk = null, pkS = -1;
     for (let i = R.history.length - 1; i >= 0; i--) {

@@ -363,3 +363,25 @@ test('the sweep button with a stroke: standing tall or down low, the stroke is r
     assert.ok(body.log.some((e) => e.extra && e.extra.sweep && e.extra.sweep.k > 0.9), `${what}: the button is logged`);
   }
 });
+
+test('the sweep\'s view drop is not read as a stroke: the same swing with the view lowered under it reads the same', { skip }, async () => {
+  const m = await load(), { body } = m;
+  const read = (trk) => {
+    body.reset();
+    const bp = V(), bq = new THREE.Quaternion(), out = [];
+    for (const e of trk) {
+      bp.set(e.bp.x, e.bp.y, e.bp.z); bq.set(e.bq.x, e.bq.y, e.bq.z, e.bq.w);
+      body.update(e.dt, e.t, bp, bq, null, e.head, e.extra, e.off, 0, { t: e.t, dt: e.dt, drop: e.drop || 0 });
+      out.push({ E: body.st.out.engage, lead: body.st.out.leader });
+    }
+    return out;
+  };
+  const base = shotTrack('cover_drive');
+  // the view dropped by up to 0.5 m from 0.6 s (over 0.22 s), so your head, bat and other hand all come down with it
+  const dropped = base.map((e) => {
+    const k = Math.min(1, Math.max(0, (e.t - base[0].t - 0.6) / 0.22)), d = 0.5 * k * k * k * (k * (k * 6 - 15) + 10);
+    return { ...e, drop: d, bp: { ...e.bp, y: e.bp.y - d }, head: { ...e.head, p: { ...e.head.p, y: e.head.p.y - d } }, off: e.off ? { ...e.off, y: e.off.y - d } : null };
+  });
+  const a = read(base), b = read(dropped);
+  for (let i = 0; i < a.length; i++) assert.ok(Math.abs(a[i].E - b[i].E) < 1e-9 && a[i].lead === b[i].lead, `frame ${i}: engage ${a[i].E} / ${b[i].E}, ${a[i].lead} / ${b[i].lead}`);
+});

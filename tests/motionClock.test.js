@@ -150,3 +150,26 @@ test('bowling after a long slowed batting spell: the release reads the hand of t
   const peak = R.history.slice(-18).reduce((m, h) => Math.max(m, h.v.length()), 0);
   assert.ok(Math.abs(got.paceSpeed - peak) < 1e-9 && got.paceSpeed < 7, `pace from the last 0.25 s: ${got.paceSpeed.toFixed(2)} vs ${peak.toFixed(2)} m/s (not the waggle before)`);
 });
+
+test('headset velocity from poses is the rig\'s own: the rig moving you (stride, turn, the sweep\'s view drop) is not hand speed', { skip: input ? false : 'three.js is not installed (npm install)' }, () => {
+  const { Controller } = input;
+  const c = new Controller('right'), rig = new Quat().setFromAxisAngle(new Vec3(0, 1, 0), Math.PI / 2);
+  for (let i = 0; i <= 72; i++) {
+    const t = 50 + i / 72;
+    c.gripRef.p.set(0, 1, -(t - 50));                       // your hand: 1 m/s along the rig's -Z
+    c.gripPose.p.set(-(t - 50), 1 - 0.5 * (t - 50), 3 * (t - 50));   // the world pose also has the rig dropping and gliding
+    c._record(t, false, rig);
+  }
+  assert.ok(Math.abs(c.linVel.x + 1) < 1e-6 && Math.abs(c.linVel.y) < 1e-6 && Math.abs(c.linVel.z) < 1e-6, `(${c.linVel.x.toFixed(3)}, ${c.linVel.y.toFixed(3)}, ${c.linVel.z.toFixed(3)})`);
+});
+
+let BatterActor = null;
+if (input) { try { ({ BatterActor } = await import('../src/render/actors.js')); } catch { BatterActor = null; } }
+test('the hand\'s roll / forearm twist limits are per second, from last frame\'s value, however often gripBat runs in a frame', { skip: BatterActor ? false : 'three.js is not installed (npm install)' }, () => {
+  for (const hz of [72, 120]) {
+    const A = { _gdt: 1 / hz }, S = { L: 0, R: 0, bL: null, bR: null, f: null };
+    let v = 0;
+    for (let f = 1; f <= hz / 4; f++) { A._gframe = f; for (let k = 0; k < 2; k++) v = BatterActor.prototype.limitStep.call(A, S, 'L', 10, 8); }
+    assert.ok(Math.abs(v - 2) < 1e-9, `${hz} Hz, two calls a frame: ${v.toFixed(3)} rad in 0.25 s at 8 rad/s`);
+  }
+});

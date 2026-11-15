@@ -967,7 +967,7 @@ export class Game {
         if (this.input.xr) this.poseBatMesh();
         this.playerBody.update(pdt || 1e-4, this.simTime, this.batMesh.position, this.batMesh.quaternion, lookBall, this.input.xr ? this.input.headPose : null,
           this.session && this.session.bodyState ? this.session.bodyState() : null, this.offHandPos(), this.input.xr ? this.lookYaw || 0 : 0,
-          { t: this.realNow ?? this.clock, dt: paused ? 1e-4 : this.realDt || pdt || 1e-4 });
+          { t: this.realNow ?? this.clock, dt: paused ? 1e-4 : this.realDt || pdt || 1e-4, drop: this.input.xr ? this.rigDrop : 0 });
       }
       // Through your own eyes you see a faint body below you (no head), so you
       // know where your feet are in the crease.

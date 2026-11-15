@@ -65,6 +65,7 @@ const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3
 const _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _q3 = new THREE.Quaternion(), _up = new THREE.Vector3(0, 1, 0);
 const _P = new THREE.Vector3(), _yp = new THREE.Vector3(), _hf = new THREE.Vector3(), _kp = new THREE.Vector3();
 const _sg = new THREE.Vector3(), _so = new THREE.Vector3(), _hd = new THREE.Vector3(), _qt = new THREE.Quaternion();
+const _dh = new THREE.Vector3(), _dg = new THREE.Vector3(), _do = new THREE.Vector3();
 const angDiff = (a, b) => { let d = b - a; while (d > Math.PI) d -= TAU; while (d < -Math.PI) d += TAU; return d; };
 const yawOf = (q) => { _e.set(0, 0, 1).applyQuaternion(q); return Math.atan2(_e.x, _e.z); };
 const v3 = () => new THREE.Vector3(), q4 = () => new THREE.Quaternion();
@@ -107,15 +108,15 @@ export class PlayerBodyView {
     const A = this.actor, eb = A._eb;
     return {
       sense: this.sense.save(), feet: this.feet.save(), st: structuredClone(this.st),
-      tw: A._tw ? { L: A._tw.L, R: A._tw.R } : null, roll: A._roll ? { L: A._roll.L, R: A._roll.R } : null,
+      tw: A._tw ? { ...A._tw } : null, roll: A._roll ? { ...A._roll } : null,
       eb: eb ? { L: eb.L.toArray(), R: eb.R.toArray(), okL: eb.okL, okR: eb.okR } : null,
     };
   }
   loadState(s) {
     const A = this.actor;
     this.sense.load(s.sense); this.feet.load(s.feet); this.st = structuredClone(s.st);
-    A._tw = s.tw ? { L: s.tw.L, R: s.tw.R } : null;
-    A._roll = s.roll ? { L: s.roll.L, R: s.roll.R } : null;
+    A._tw = s.tw ? { ...s.tw } : null;
+    A._roll = s.roll ? { ...s.roll } : null;
     A._eb = s.eb ? { L: new THREE.Vector3().fromArray(s.eb.L), R: new THREE.Vector3().fromArray(s.eb.R), okL: s.eb.okL, okR: s.eb.okR } : null;
   }
 
@@ -140,15 +141,17 @@ export class PlayerBodyView {
   // ball }). off: your other controller's position, or null. turn: how far the
   // stick has turned you (rad about +Y, the game's lookYaw): your stance turns
   // with it, about your head, and your feet step round (looking round with
-  // your head does not). motion: { t, dt } the real clock your movements are
-  // made on (the frame time, unscaled); the body reads your speeds and moves
-  // at its rates on it (logged per frame, so a replay solves the same). Null:
-  // the game clock (no slow motion).
+  // your head does not). motion: { t, dt, drop } the real clock your
+  // movements are made on (the frame time, unscaled); the body reads your
+  // speeds and moves at its rates on it; drop: how far the sweep button has
+  // lowered your view (m; the body is solved to the lowered head, the stroke is
+  // read without it). Logged per frame, so a replay solves the same. Null: the
+  // game clock, no drop.
   update(dt, t, batPos, batQuat, ball, head = null, extra = null, off = null, turn = 0, motion = null) {
     const L = this.log, h = this.actor.h;
     if (L.length && t < L[L.length - 1].t) this.reset();
     const e = {
-      t, dt, mt: motion ? motion.t : t, mdt: motion ? motion.dt : dt,
+      t, dt, mt: motion ? motion.t : t, mdt: motion ? motion.dt : dt, drop: motion && motion.drop ? motion.drop : 0,
       bp: { x: batPos.x, y: batPos.y, z: batPos.z }, bq: { x: batQuat.x, y: batQuat.y, z: batQuat.z, w: batQuat.w },
       head: head ? { p: { x: head.p.x, y: head.p.y, z: head.p.z }, q: { x: head.q.x, y: head.q.y, z: head.q.z, w: head.q.w } } : null,
       off: off ? { x: off.x, y: off.y, z: off.z } : null,
@@ -311,7 +314,14 @@ export class PlayerBodyView {
       sg = _sg.set(bp.x - hp.x, bp.y - hp.y, bp.z - hp.z).applyQuaternion(_qt).add(_hd.set(hp.x, hp.y, hp.z));
       if (so) so = _so.set(so.x - hp.x, so.y - hp.y, so.z - hp.z).applyQuaternion(_qt).add(_hd);
     }
-    const o = dt > 5e-4 || !st.out ? this.sense.update(mt, dt, hp, sg, _ax, so, { sweep: ex ? ex.sweep : null, hitT: ex && ex.hit ? ex.hit.t : null, simT: e.t, live: ex ? ex.live ?? null : null, face: _fc }) : st.out;
+    // (the stroke is read from what you do: the sweep's view drop moved your head and bat down, you did not)
+    const dr = e.drop || 0;
+    let shp = hp, ssg = sg, sso = so;
+    if (dr) {
+      shp = _dh.set(hp.x, hp.y + dr, hp.z); ssg = _dg.set(sg.x, sg.y + dr, sg.z);
+      if (so) sso = _do.set(so.x, so.y + dr, so.z);
+    }
+    const o = dt > 5e-4 || !st.out ? this.sense.update(mt, dt, shp, ssg, _ax, sso, { sweep: ex ? ex.sweep : null, hitT: ex && ex.hit ? ex.hit.t : null, simT: e.t, live: ex ? ex.live ?? null : null, face: _fc }) : st.out;
     st.out = { state: o.state, phase: o.phase, engage: o.engage, leader: o.leader, weights: o.weights, quiet: o.quiet, offOn: o.offOn };
     const E = shotsReady() ? o.engage : 0;
     const Hj = _Hj.set(hp.x, Math.min(hp.y - EYES, standJ - SOFT), hp.z);
@@ -433,6 +443,7 @@ export class PlayerBodyView {
       elbowUp = Eb * upright * sstep(1, 1.8, o.phase) * (1 - 0.6 * sstep(2, 2.8, o.phase));
     }
     this.yieldLegs(bp, bq, poleL, poleR, yawL, yawR, dt);
+    A._gframe = st.n; A._gdt = dt;          // (gripBat's hand roll / forearm twist limits are per second, from last frame's)
     if (this.debug) { h.update(); this.debug.pre = h.worldPos('head', _a).distanceTo(Hj); }
     // ---- the gloves on the handle; the head looking where you look
     if (st.kneelK > 0.01) this.handRoom(bp, bq, st.kneelK);

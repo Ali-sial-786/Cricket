@@ -38,6 +38,7 @@ export class Controller {
     this.stick = { x: 0, y: 0 };
     this.history = [];             // {t, p, v}
     this._prev = new Pose();
+    this._prevRef = new Pose();
     this._prevT = -1;
     this.hapticsScale = 1;
   }
@@ -59,16 +60,22 @@ export class Controller {
 
   // Record pose; derive velocities by finite difference when XR does not
   // provide them (or when forced to by config).
-  // t: the real (frame) clock in seconds, never the slowed game clock.
-  _record(t, useXRVel) {
+  // t: the real (frame) clock in seconds, never the slowed game clock. rigQ:
+  // the rig's world rotation (headset): the velocity from pose differences is
+  // then taken in the rig's own space (gripRef) and turned into the world, as
+  // the runtime's XR velocities are - the rig moving you (striding out, the
+  // stick turn, the sweep's view drop, the run-up) is not hand speed.
+  _record(t, useXRVel, rigQ = null) {
     // (a long gap - a hitch, a pause, tracking back after a loss - or time going backwards: no velocity
     // is read across it and the history starts again, so it can never read as a swing)
     if (this._prevT >= 0 && (t < this._prevT || t - this._prevT > MOTION_GAP)) { this._prevT = -1; this.history.length = 0; }
     if (this._prevT >= 0 && t > this._prevT) {
       const dt = t - this._prevT;
       if (!useXRVel) {
-        const lv = _tmpV.copy(this.gripPose.p).sub(this._prev.p).scale(1 / dt);
-        const av = angularVelocityFromQuats(_tmpW, this._prev.q, this.gripPose.q, dt);
+        const cur = rigQ ? this.gripRef : this.gripPose, prev = rigQ ? this._prevRef : this._prev;
+        const lv = _tmpV.copy(cur.p).sub(prev.p).scale(1 / dt);
+        const av = angularVelocityFromQuats(_tmpW, prev.q, cur.q, dt);
+        if (rigQ) { lv.applyQuat(rigQ); av.applyQuat(rigQ); }
         // Light smoothing to tame tracking jitter.
         this.linVel.lerp(lv, 0.75);
         this.angVel.lerp(av, 0.75);
@@ -77,6 +84,7 @@ export class Controller {
       this.linVel.set(0, 0, 0); this.angVel.set(0, 0, 0);
     }
     this._prev.copy(this.gripPose);
+    this._prevRef.copy(this.gripRef);
     this._prevT = t;
     const h = this.history.length >= HISTORY ? this.history.shift() : { t: 0, p: new Vec3(), v: new Vec3(), w: new Vec3() };
     h.t = t; h.p.copy(this.gripPose.p); h.v.copy(this.linVel); h.w.copy(this.angVel);
@@ -101,7 +109,7 @@ const _tmpV = new Vec3(), _tmpW = new Vec3();
 export const MOTION_GAP = 0.25;    // s between samples: more than this and the motion history starts again
 
 const _m = new THREE.Matrix4(), _p = new THREE.Vector3(), _q = new THREE.Quaternion(), _s = new THREE.Vector3();
-const _rq = new THREE.Quaternion(), _v = new THREE.Vector3();
+const _rq = new THREE.Quaternion(), _v = new THREE.Vector3(), _rqv = new Quat();
 
 export class InputManager {
   constructor(renderer, rig, camera, dom) {
@@ -226,7 +234,8 @@ export class InputManager {
         _v.copy(g.angularVelocity).applyQuaternion(_rq);
         c.angVel.set(_v.x, _v.y, _v.z);
       }
-      c._record(t, xrVel);
+      _rqv.set(_rq.x, _rq.y, _rq.z, _rq.w);
+      c._record(t, xrVel, _rqv);
       // xr-standard gamepad mapping.
       const gp = slot.source.gamepad;
       if (gp) {

@@ -911,7 +911,7 @@ const ELBOW_FWD = 0.2;               // elbows out in front of the shoulders, ov
 const STANCE_LEAN = 0.52, STANCE_KNEES = 0.05, STANCE_DROP = 0.18, FRONT_OPEN = 0.3;
 const FOOT_FRONT = 0.2, FOOT_BACK = 0.26;      // your feet: front foot ahead of your head, back foot behind it             // bottom hand to top hand, up the handle
 const GRIP_ROLL = 0.8;              // how far a hand may roll round the handle from the textbook grip (rad)
-const TWIST_STEP = 0.35, ROLL_STEP = 0.12;   // rad a call: the forearm's share of the hand's turn, and the hand's roll round the handle, change at most this much
+const TWIST_RATE = 24, ROLL_RATE = 8;   // rad/s: the forearm's share of the hand's turn, and the hand's roll round the handle, change at most this fast
 const MAX_STRIDE = 1.0;             // feet apart at most in a lunge (m)
 const KNEEL_PAD = 0.12;             // knee joint above the turf when kneeling: the pad's knee roll rests on it
 
@@ -1676,9 +1676,8 @@ export class BatterActor extends Actor {
         _f.subVectors(_wr, h.worldPos('elbow' + side, _el)).normalize();
         roll = clamp(Math.atan2(-_f.dot(_bz), _f.dot(_bx)), -GRIP_ROLL, GRIP_ROLL);
         // (kept continuous: with the forearm along the handle's back the preferred roll swaps sides, the hand would flip)
-        const rs = this._roll || (this._roll = { L: null, R: null });
-        if (rs[side] != null) roll = rs[side] + clamp(roll - rs[side], -ROLL_STEP, ROLL_STEP);
-        rs[side] = roll;
+        const rs = this._roll || (this._roll = { L: null, R: null, bL: null, bR: null, f: null });
+        roll = this.limitStep(rs, side, roll, ROLL_RATE);
       }
       h.setWorldQuat('hand' + side, _q.setFromRotationMatrix(_m.makeBasis(_gx, _gy, _gz)));
       err = Math.max(err, h.worldPos('hand' + side, _el).distanceTo(_wr));
@@ -1692,18 +1691,30 @@ export class BatterActor extends Actor {
         _x.normalize();
         let tw = Math.atan2(_y.crossVectors(_v1, _x).dot(_v2), _v1.dot(_x));
         // (continuous from the last frame: across +-180 deg half of it would flip the forearm over)
-        const tws = this._tw || (this._tw = { L: 0, R: 0 }), prev = tws[side];
+        const tws = this._tw || (this._tw = { L: 0, R: 0, bL: null, bR: null, f: null }), prev = tws[side];
         if (tw - prev > Math.PI) tw -= TAU; else if (tw - prev < -Math.PI) tw += TAU;
         if (Math.abs(tw) > 1.4 * Math.PI) tw -= Math.sign(tw) * TAU;
         // (and never in one frame: wound past that the forearm turns back over a few frames, the hand stays on the handle)
-        if (Math.abs(tw - prev) > TWIST_STEP) tw = prev + Math.sign(tw - prev) * TWIST_STEP;
-        tws[side] = tw;
+        tw = this.limitStep(tws, side, tw, TWIST_RATE);
         fore.quaternion.multiply(_qt.setFromAxisAngle(_up, tw * 0.5));
         fore.updateMatrixWorld(true);
         h.setWorldQuat('hand' + side, _q);
       }
     }
     this.gripErr = err;
+  }
+
+  // A value that may change at most `rate` per second from what it was last
+  // frame (S[side]; S['b' + side] keeps last frame's while gripBat runs more
+  // than once in a frame). The frame and its length come from _gframe / _gdt
+  // when the caller sets them (your figure), else each call is a 72 Hz frame.
+  limitStep(S, side, v, rate) {
+    const fr = this._gframe ?? null, dt = this._gdt ?? 1 / 72, bk = 'b' + side;
+    if (fr == null || S.f !== fr) { S.bL = S.L; S.bR = S.R; S.f = fr; }
+    const base = fr == null ? S[side] : S[bk];
+    if (base != null) { const m = rate * Math.min(dt, 0.05); v = base + clamp(v - base, -m, m); }
+    S[side] = v;
+    return v;
   }
 
   // The elbow's pole, kept continuous: when the hand passes through the line
