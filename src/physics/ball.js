@@ -50,6 +50,7 @@ export class BallState {
     this.crossedBoundary = o.crossedBoundary; this.hitWicket = o.hitWicket;
     this.maxHeightSinceBat = o.maxHeightSinceBat;
     this.seamRandomScale = o.seamRandomScale;
+    this.padded = !!o.padded; this.thrown = !!o.thrown;
     return this;
   }
   clone() { return new BallState().copyFrom(this); }

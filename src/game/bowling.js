@@ -662,7 +662,8 @@ export class BowlingSession {
       g.say('hit', { shot: plan0(g), edge: e.isEdge, top_edge: e.isEdge && v.y > 6, speed: v.length(), vel: { x: v.x, y: v.y, z: v.z } });
       if (this.field) this.field.onHit(g.world.ball, e.t, pred);
     }
-    if (e.type === 'wicket' && e.end === 'batting' && this.state === 'live' && (!this.field || !this.field.fielded) && (!this.hit || e.t - this.hit.t < 0.6)) this.finish({ kind: 'bowled', wicket: 'bowled' });
+    if (e.type === 'wicket' && e.thrown) { if (this.field && this.state === 'live') this.field.onThrownWicket(e); }      // (a throw into the stumps: a run-out chance, never "bowled")
+    else if (e.type === 'wicket' && e.end === 'batting' && this.state === 'live' && (!this.field || !this.field.fielded) && (!this.hit || e.t - this.hit.t < 0.6)) this.finish({ kind: 'bowled', wicket: 'bowled' });
     if (e.type === 'boundary' && (e.batted || this.byes)) {
       g.cheer(e.onFull && e.batted ? 1 : 0.7);
       if (this.hit) this.hit.sixOnFull = e.onFull;

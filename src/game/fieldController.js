@@ -307,6 +307,15 @@ export class FieldController {
     g.replay.marks.breakEnd = end;
   }
 
+  // A thrown ball carrying on (an overthrow, a fumble) has hit a set of stumps
+  // itself (the ball physics): that wicket is broken by the fielding side's
+  // throw -- a run-out if the batter heading there is short.
+  onThrownWicket(e) {
+    const L = this.logic;
+    if (this.outcome || L.dead || L.throwArrived) return;
+    L.throwArrived = { end: e.end, t: e.t, direct: true, rolled: true };
+  }
+
   // A throw has hit the stumps, got past everyone (overthrows) or been put down.
   onThrowEvent(e, t) {
     const g = this.game, L = this.logic, r = this.runs;
@@ -504,8 +513,9 @@ export class FieldController {
           r.close({ stop: !r.diving, short });
         } else if (ta.direct && !(r.rate !== 0 && short > -0.45)) {
           // A direct hit with the batters home: the ball comes off the stumps
-          // and is still in play (they may run again on it).
+          // and is still in play (they may run again on it): overthrows.
           L.throwArrived = null;
+          L.directRunsOn(t);
         } else {
           // Made their ground: the run counts, and they finish it as they were going
           // (running through, or sliding in on the chest) instead of being put on the line.

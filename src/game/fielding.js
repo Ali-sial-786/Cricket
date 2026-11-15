@@ -238,7 +238,7 @@ export class Fielding {
     this.boundary = null; this.throw = null; this.ballOverride = null; this.message = ''; this.dropped = false;
     this.keeperHold = false; this.keeperMissed = null; this.keeperTookAt = null; this.shy = null; this.byes = false;
     this.throwArrived = null;
-    this.cover = { batting: null, bowling: null }; this.backer = null; this.overthrow = null; this.events = []; this.planT0 = null; this.lob = null;
+    this.cover = { batting: null, bowling: null }; this.backer = null; this.overthrow = null; this.events = []; this.planT0 = null; this.lob = null; this.hitPending = null;
     this.dead = true;
     for (const f of this.fielders) {
       f.playerControlled = false;
@@ -471,9 +471,15 @@ export class Fielding {
     const pick = (end, pref, taken) => {
       // (a throw on its way to him: he stays the man at those stumps until it gets there)
       if (th && th.released && !th.done && th.end === end && th.receiverF && th.receiverF !== taken) return th.receiverF;
-      if (pref && !busy(pref) && pref !== taken) return pref;
       const cur = this.cover[end];
-      if (cur && cur !== taken && cur !== pref && !busy(cur)) return cur;     // (keeps whoever is on his way)
+      const curOk = cur && cur !== taken && !busy(cur);
+      if (pref && !busy(pref) && pref !== taken) {
+        // (the man over the stumps keeps them until the keeper / bowler would be there sooner)
+        if (!curOk || cur === pref) return pref;
+        const spot = receiverSpot(end, cur.coverSide || 1);
+        return this.etaTo(pref, spot) < this.etaTo(cur, spot) ? pref : cur;
+      }
+      if (curOk) return cur;                                    // (keeps whoever is on his way)
       const spot = receiverSpot(end, 1);
       let n = null, nd = Infinity;
       for (const f of F) {
@@ -484,7 +490,9 @@ export class Fielding {
       return n;
     };
     const bat = pick('batting', k, null);
-    const bowl = pick('bowling', bw, bat);
+    // (when you bowl, those stumps are yours: nobody comes to stand by you -- DECISIONS V4;
+    // a throw there is at the stumps, with a man backing up behind them)
+    const bowl = this.bowlerFields ? pick('bowling', bw, bat) : null;
     const sideOf = (end) => {
       let s = side != null ? side : (this.cover[end] && this.cover[end].coverSide) || 1;
       // (never into the player's space: he may be standing at those stumps)
@@ -676,6 +684,12 @@ export class Fielding {
     if (!f) return null;
     const sz = end === 'batting' ? PITCH.battingStumpsZ + 0.6 : PITCH.bowlingStumpsZ - 0.6;
     return Math.hypot(f.pos.x, f.pos.z - sz) < 2.5 ? f : null;
+  }
+
+  // Seconds for `f` to get to `spot` from where he is.
+  etaTo(f, spot) {
+    const d = Math.hypot(f.pos.x - spot.x, f.pos.z - spot.z);
+    return d < 0.7 ? 0 : this.runTime(d - 0.5, f.speed > 2 ? 0 : 0.25);
   }
 
   // Seconds until the man covering `end` is over the stumps (0: there; Infinity: nobody).
@@ -946,7 +960,7 @@ export class Fielding {
     const th = this.throw, f = th.f, F = this.cfg.field;
     const ends = {};
     for (const E of ENDS) {
-      const self = Math.hypot(f.pos.x, f.pos.z - STUMPS_Z[E]) < SELF_RUN;
+      const self = Math.hypot(f.pos.x, f.pos.z - STUMPS_Z[E]) < SELF_RUN && (E === 'batting' || this.bowlerFields);
       const b = this.backer;
       const backed = !!(b && b.backEnd === E && b.target && Math.hypot(b.pos.x - b.target.x, b.pos.z - b.target.z) < 4);
       ends[E] = { readyIn: this.cover[E] && this.cover[E] !== f ? this.coverEta(E) : Infinity, backed, self };
@@ -1092,6 +1106,12 @@ export class Fielding {
       }
       return;
     }
+    if (this.dead) {
+      // (the ball is dead already: no more play -- it drops where it got to)
+      this.ballOverride = { pos: new Vec3(th.to.x, this.cfg.ball.radius, th.to.z) };
+      this.throw = null;
+      return;
+    }
     const v = continuation(th);
     if (th.result === 'hit') {
       // A direct hit: the wicket is broken (the controller judges the run-out)
@@ -1140,20 +1160,32 @@ export class Fielding {
     b.thrown = true;
     for (const f of this.fielders) { f.stopTried = false; f.prevStop = Infinity; }
     this.lastThrower = th ? th.f : null;
-    if (kind !== 'fumble') {
-      const r = this.runs;
-      if (!this.overthrow) this.overthrow = { t, base: r && r.active ? r.completed + (r.running && !r.goingBack ? 1 : 0) : 0, count: 0, atThrow: null };
-      this.overthrow.count++;
-      this.overthrow.atThrow = th ? th.atThrow : this.overthrow.atThrow;
-      this.tally.overthrows++;
-      this.message = 'Overthrow!';
-    }
-    this.events.push({ type: kind === 'fumble' ? 'fumble' : 'overthrow', end: th ? th.end : null, t, kind });
+    const r = this.runs, base = r && r.active ? r.completed + (r.running && !r.goingBack ? 1 : 0) : 0;
+    if (kind === 'miss') this.overthrowNow(t, base, th ? th.atThrow : null, th ? th.end : null);
+    // (off the stumps: an overthrow only if the controller finds nobody out and the ball runs on -- directRunsOn)
+    else if (kind === 'hit') this.hitPending = { t, base, atThrow: th ? th.atThrow : null, end: th ? th.end : null };
+    else this.events.push({ type: 'fumble', end: th ? th.end : null, t });
     if (th) th.f.noGatherUntil = Math.max(th.f.noGatherUntil || 0, t + 0.4);
     const pred = predict(b, { maxTime: 8, h: 1 / 240 });
     this.boundaryT = pred.boundary ? t + pred.boundary.t - (this.hitT ?? t) : null;
     const best = this.planChase(pred, t, { ground: true, react: -0.1 });
     if (best) this.assignBacker(this.nearerEnd(best.x, best.z), best.x, best.z, t);
+  }
+
+  // A throw has got away: the overthrow is on the books, and the controller told.
+  overthrowNow(t, base, atThrow, end) {
+    if (!this.overthrow) this.overthrow = { t, base, count: 0, atThrow: null };
+    this.overthrow.count++;
+    if (atThrow) this.overthrow.atThrow = atThrow;
+    this.tally.overthrows++;
+    this.message = 'Overthrow!';
+    this.events.push({ type: 'overthrow', end, t });
+  }
+  // A direct hit with the batters home: the ball off the stumps is still in play (overthrows).
+  directRunsOn(t) {
+    const h = this.hitPending;
+    this.hitPending = null;
+    if (h) this.overthrowNow(t, h.base, h.atThrow, h.end);
   }
 
   // Re-aim a throw that has not left the hand yet (the player chose the end).

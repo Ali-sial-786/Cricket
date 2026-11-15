@@ -486,7 +486,9 @@ export class BattingSession {
       if (e.isEdge) g.crowdReact('edge');
       else if (launch > 22 && v.length() > 22) g.crowdReact('skied');
     }
-    if (e.type === 'wicket' && e.end === 'batting' && this.state === 'live') {
+    // (a fielder's throw into the stumps is a run-out chance, never "bowled")
+    if (e.type === 'wicket' && e.thrown) { if (this.field && this.state === 'live') this.field.onThrownWicket(e); }
+    else if (e.type === 'wicket' && e.end === 'batting' && this.state === 'live') {
       if (!this.field || (!this.field.fielded && !this.hit)) this.finish({ kind: 'bowled', wicket: 'bowled' });
       else if (this.hit && !this.field.fielded && e.t - this.hit.t < 0.6) this.finish({ kind: 'bowled', wicket: 'bowled' });   // played on
     }

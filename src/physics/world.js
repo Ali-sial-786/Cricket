@@ -157,6 +157,7 @@ export class PhysicsWorld {
 
     // Bat contact (swept).
     for (const bat of this.bats) {
+      if (b.thrown) break;                 // (a fielder's throw carrying on: no bat plays at it)
       if (!bat.enabled || t0 < bat.cooldownUntil) continue;
       bat.provider.poseAt(t0, _pose0);
       bat.provider.poseAt(t1, _pose1);
@@ -202,7 +203,7 @@ export class PhysicsWorld {
       b.pos.z = w.z - towardZ * (w.half.z + R + 0.003);
       w.broken = true;
       b.hitWicket = true;
-      this.emit({ type: 'wicket', t: t0 + s * h, end: w.end, speed, pos: b.pos.clone(), batted: b.batted, stump: w.stumpIndexAt(b.pos.x) });
+      this.emit({ type: 'wicket', t: t0 + s * h, end: w.end, speed, pos: b.pos.clone(), batted: b.batted, stump: w.stumpIndexAt(b.pos.x), thrown: !!b.thrown });
     }
 
     // The advertising boards: a ball along the ground (or below their top)

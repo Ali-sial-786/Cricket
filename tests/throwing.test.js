@@ -4,7 +4,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Vec3, makeRng } from '../src/physics/math.js';
-import { PhysicsWorld } from '../src/physics/world.js';
+import { PhysicsWorld, InterpolatedBatProvider } from '../src/physics/world.js';
+import { Pose } from '../src/physics/math.js';
 import { predict } from '../src/physics/trajectory.js';
 import { PITCH } from '../src/physics/pitch.js';
 import { CONFIG } from '../src/config.js';
@@ -201,22 +202,44 @@ test('the keeper covers his stumps from standing back, even though he was moving
   assert.ok(f.backer && f.backer.state === 'backstop', 'someone backs up');
 });
 
-test('the keeper chasing the ball himself: the nearest free man covers his stumps; you bowling: a fielder covers yours, out of your space', () => {
-  const world = new PhysicsWorld(), f = field({ bowlerFields: false, head: { x: 0.5, z: -18.4 } });
+test('the keeper chasing the ball himself: the nearest free man covers his stumps; you bowling: nobody comes to stand by yours', () => {
+  const head = { x: 0.5, z: -18.4 };
+  const world = new PhysicsWorld(), f = field({ bowlerFields: false, head });
   hitBall(world, { x: 1.5, z: 6 }, 5, -0.2);                       // dribbled behind: the keeper's
   f.onHit(world.ball, 0, predict(world.ball, { maxTime: 10, h: 1 / 240 }));
   const k = f.fielders[0];
   assert.equal(k.state, 'chase');
   assert.ok(f.cover.batting && f.cover.batting !== k && !f.cover.batting.bowler, 'someone else at the keeper\'s end');
-  assert.ok(f.cover.bowling && !f.cover.bowling.bowler, 'a fielder covers the bowler\'s end when you bowl');
-  let minHead = Infinity;
-  for (let t = 1 / 60; t < 5; t += 1 / 60) {
+  let minHead = Infinity, coveredYours = false;
+  for (let t = 1 / 60; t < 6; t += 1 / 60) {
     world.advanceTo(t);
     f.update(1 / 60, t, world.ball.active ? world.ball : null, world);
-    const c = f.cover.bowling;
-    if (c) minHead = Math.min(minHead, Math.hypot(c.pos.x - 0.5, c.pos.z + 18.4));
+    if (f.cover.bowling) coveredYours = true;
+    for (const fl of f.fielders) if (!fl.bowler) minHead = Math.min(minHead, Math.hypot(fl.pos.x - head.x, fl.pos.z - head.z));
   }
-  assert.ok(minHead >= PLAYER_CLEAR - 1e-6, `cover came ${minHead.toFixed(2)} m from you`);
+  assert.equal(coveredYours, false, 'your stumps are yours (a throw there is at the stumps)');
+  assert.ok(minHead >= PLAYER_CLEAR - 1e-6, `a fielder came ${minHead.toFixed(2)} m from you`);
+  // ... and a throw to your end goes at the stumps
+  const d = decideThrow({ from: { x: 12, z: -24 }, runner: null, ends: { batting: ready, bowling: nobody }, forced: 'bowling' });
+  assert.equal(d.kind, 'direct');
+});
+
+test('the man over the stumps keeps them until the keeper would get there sooner', () => {
+  const world = new PhysicsWorld(), f = field();
+  hitBall(world, { x: 1.5, z: 6 }, 5, -0.2);
+  f.onHit(world.ball, 0, predict(world.ball, { maxTime: 10, h: 1 / 240 }));
+  const k = f.fielders[0], slip = f.cover.batting;
+  assert.ok(slip && slip !== k);
+  // the slip is over the stumps; the keeper, free again, is 12 m away
+  slip.pos.copy(receiverSpot('batting', slip.coverSide || 1)); slip.speed = 0; slip.vel.set(0, 0, 0);
+  k.state = 'set'; k.action = null; k.pos.set(3, 0, 12);
+  f.throw = null; f.ballOverride = null;
+  f.assignCovers(2);
+  assert.equal(f.cover.batting, slip, 'he stays');
+  k.pos.set(0.4, 0, 0.65);
+  slip.pos.set(2.5, 0, 2.5);
+  f.assignCovers(2.1);
+  assert.equal(f.cover.batting, k, 'the keeper, right there, takes them back');
 });
 
 test('a throw nobody takes runs on with the ball physics (never stops dead); fielders go after it', () => {
@@ -312,4 +335,55 @@ test('a diver takes a natural moment to get up', () => {
   }
   assert.ok(up - landed > 1.0, `prone to up in ${(up - landed).toFixed(2)} s`);
   assert.ok(CONFIG.field.getUp < 2);
+});
+
+test('a thrown ball carrying on never meets a bat (no catch, no "shot"); one into the stumps is marked as a throw', () => {
+  const through = (thrown) => {
+    const world = new PhysicsWorld();
+    const prov = new InterpolatedBatProvider();
+    const pose = new Pose(new Vec3(-0.3, 1.0, -1.2));          // a bat held upright at the striker's crease, face down the pitch
+    prov.snap(0, pose, pose.p.clone());
+    world.addBat('ai', prov, undefined, 1);
+    world.launch({ pos: new Vec3(-0.3, 0.55, 2.0), vel: new Vec3(0, 0, -15) });   // a throw going down the pitch past him
+    world.ball.batted = true; world.ball.bouncesSinceBat = 1;
+    world.ball.thrown = thrown;
+    world.advanceTo(0.5);
+    return { events: world.drainEvents().map((e) => e.type), ball: world.ball };
+  };
+  const hit = through(false);
+  assert.ok(hit.events.includes('bat'), 'the same ball as a delivery is hit (the bat is in its way)');
+  const thrown = through(true);
+  assert.ok(!thrown.events.includes('bat'), 'a throw goes past');
+  assert.ok(thrown.ball.bouncesSinceBat >= 1, 'and can never be caught');
+  // into the stumps
+  const world = new PhysicsWorld();
+  world.launch({ pos: new Vec3(0, 0.3, -3), vel: new Vec3(0, 0, 12) });
+  world.ball.thrown = true;
+  world.advanceTo(0.5);
+  const w = world.drainEvents().find((e) => e.type === 'wicket');
+  assert.ok(w && w.thrown === true && w.end === 'batting');
+  // a clone keeps what it is
+  assert.equal(world.ball.clone().thrown, true);
+});
+
+test('a direct hit with the batters home is an overthrow only once it is judged so; none once the ball is dead', () => {
+  const world = new PhysicsWorld(), f = field();
+  f.hitT = 0; f.started = true; f.dead = false;
+  f.throw = { f: f.fielders[4], end: 'batting', result: 'hit', from: new Vec3(8, 1.2, -8), to: new Vec3(0.05, 0.4, 0), tStart: 0, tArrive: 0.5, arc: 0.3, atThrow: { completed: 0, crossed: false } };
+  f.ballOverride = { pos: new Vec3() };
+  f.arrive(0.5, world);
+  assert.ok(f.throwArrived && f.throwArrived.direct);
+  assert.equal(f.events.filter((e) => e.type === 'overthrow').length, 0, 'no overthrow call before the run-out is judged');
+  assert.equal(f.events.filter((e) => e.type === 'stumps').length, 1);
+  f.directRunsOn(0.6);
+  assert.equal(f.events.filter((e) => e.type === 'overthrow').length, 1);
+  assert.ok(f.overthrow && f.overthrow.count === 1);
+  // a throw that arrives once the ball is dead: no more play
+  const g = field(); const w2 = new PhysicsWorld();
+  g.hitT = 0; g.started = true; g.dead = true;
+  g.throw = { f: g.fielders[4], end: 'batting', result: 'miss', from: new Vec3(8, 1.2, -8), to: new Vec3(1.5, 1.0, 0.4), tStart: 0, tArrive: 0.5, arc: 0.3 };
+  g.ballOverride = { pos: new Vec3() };
+  g.arrive(0.5, w2);
+  assert.equal(w2.ball.active, false);
+  assert.equal(g.overthrow, null);
 });
