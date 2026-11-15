@@ -40,7 +40,7 @@ export const CONFIG = {
     outfield: {
       restitution: 0.40,
       friction: 0.40,
-      rollingDecel: 1.3,     // m/s^2 rolling resistance on grass
+      rollingDecel: 3.5,     // m/s^2 rolling resistance on grass (+ drag): a 90 km/h ground shot stops ~55 m out, 115+ km/h races to the rope
     },
     rollVerticalSpeed: 0.7,  // m/s: below this vertical rebound, the ball rolls
     spinTurnScale: 1.6,      // >1 exaggerates spin turn (energy neutral) — game feel
