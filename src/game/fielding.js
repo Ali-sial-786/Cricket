@@ -139,6 +139,9 @@ export function steerAmong(px, pz, gx, gz, obs, out = { x: 0, z: 0 }) {
 }
 const _obs = [];
 const ARRIVE = 0.05;         // m: there
+const BACKPEDAL = 3.0;       // m: closer to his mark than this, a fielder steps back to it still facing in
+const FETCH_REACH = 0.85;     // m: a dead ball the keeper walks up to is picked up from this close
+const FETCH_GIVEUP = 3.0;     // s: ...or this long after he set off for it (round the batter, the stumps)
 const SELF_RUN = 3.2;
 const LOB_AFTER = 1.3;       // s after the ball is dead before it is tossed back (after the replay's tape ends: TAIL 1 s)        // m: a man with the ball this close to a set of stumps runs in and breaks them himself
 const RELEASE_SET = 4;       // m: a fielder this close to his mark at the release stops and gets set
@@ -204,7 +207,7 @@ export class Fielding {
     this.ballOverride = null;
     this.message = '';
     this.dropped = false;
-    this.keeperHold = false; this.keeperMissed = null; this.keeperTookAt = null; this.shy = null; this.byes = false;
+    this.keeperHold = false; this.keeperMissed = null; this.keeperTookAt = null; this.shy = null; this.byes = false; this.fetchT0 = null;
     this.throwArrived = null;
     this.bowlEndReceiver = null;
     this.cover = { batting: null, bowling: null };   // who is covering each set of stumps
@@ -237,7 +240,7 @@ export class Fielding {
   newBall() {
     this.hitT = null; this.boundaryT = null; this.plan = null; this.outcome = null; this.fielded = false; this.caught = false;
     this.boundary = null; this.throw = null; this.ballOverride = null; this.message = ''; this.dropped = false;
-    this.keeperHold = false; this.keeperMissed = null; this.keeperTookAt = null; this.shy = null; this.byes = false;
+    this.keeperHold = false; this.keeperMissed = null; this.keeperTookAt = null; this.shy = null; this.byes = false; this.fetchT0 = null;
     this.throwArrived = null;
     this.cover = { batting: null, bowling: null }; this.backer = null; this.overthrow = null; this.events = []; this.planT0 = null; this.lob = null; this.hitPending = null;
     this.dead = true;
@@ -267,7 +270,12 @@ export class Fielding {
   goHome(dt, t) {
     this.deadFor = (this.deadFor || 0) + dt;
     for (const f of this.fielders) {
-      if (f.playerControlled || f.state === 'return' || (f.state === 'set' && !f.action)) continue;
+      if (f.playerControlled || f.state === 'return') continue;
+      // (standing still, nothing in hand: back to his mark if he is off it -- a ring fielder's walk-in, a man who pulled up where he was)
+      if (f.state === 'set' && !f.action) {
+        if (!(f.bowler && (!this.bowlerFields || !f.out)) && Math.hypot(f.pos.x - f.home.x, f.pos.z - f.home.z) > 0.4) { f.state = 'return'; f.target = null; }
+        continue;
+      }
       if (f.bowler && (!this.bowlerFields || !f.out)) continue;
       const a = f.action, th = this.throw;
       const busy = a && (
@@ -318,7 +326,7 @@ export class Fielding {
   // …and standing still, facing the right way: ready for the bowler to run in.
   settled(tol = 0.6) {
     return this.fielders.every((f) => (f.bowler && (!this.bowlerFields || !f.out))
-      || (Math.hypot(f.pos.x - f.home.x, f.pos.z - f.home.z) < tol && f.speed < 0.3 && !f.action && f.state === 'set'));
+      || (Math.hypot(f.pos.x - f.home.x, f.pos.z - f.home.z) < tol && f.speed < 0.3 && !f.action && f.state === 'set' && Math.abs(angDiff(f.yaw, this.restFace(f))) < 0.1));
   }
 
   // Ring fielders walk in a few paces as the bowler runs up.
@@ -632,6 +640,35 @@ export class Fielding {
     return 'miss';
   }
 
+  // An unhit delivery that has died short of him (or beside him, out of the
+  // way of his gloves): he walks up and picks it up, so the ball is dead in his
+  // hands (and a batter out of his ground can still be stumped). Returns
+  // 'take' once he has it, else null (on his way).
+  keeperFetch(ball, t) {
+    const k = this.fielders[0];
+    if (this.keeperHold || this.keeperMissed) return null;
+    const dx = ball.pos.x - k.pos.x, dz = ball.pos.z - k.pos.z;
+    if (Math.hypot(dx, dz) <= FETCH_REACH || (this.fetchT0 != null && t - this.fetchT0 > FETCH_GIVEUP)) {
+      const target = new Vec3(ball.pos.x, Math.max(ball.pos.y, 0.05), ball.pos.z);
+      this.keeperHold = true;
+      this.keeperTookAt = t;
+      this.keeperHow = 'take';
+      this.fetchT0 = null;
+      k.leap = null;
+      k.action = { type: 'keep', t0: t, target, hold: true, how: 'take', side: dx >= 0 ? 1 : -1 };
+      k.state = 'set';
+      k.vel.set(0, 0, 0); k.speed = 0;
+      this.ballOverride = { pos: target.clone(), holder: 0 };
+      return 'take';
+    }
+    if (this.fetchT0 == null) this.fetchT0 = t;
+    // (stand just behind it, on the stumps' side)
+    const back = ball.pos.z > PITCH.battingStumpsZ ? 0.35 : -0.35;
+    k.state = 'gather'; k.leap = null;
+    k.target = new Vec3(ball.pos.x, 0, ball.pos.z + (Math.abs(ball.pos.x) < 0.5 && Math.abs(ball.pos.z - PITCH.battingStumpsZ) < 0.6 ? back : 0.35));
+    return null;
+  }
+
   // Legacy entry points (the keeper used to be handed the ball).
   keeperTakes(ball) { this.keeperTrack(ball, 0); }
   keeperCollect(ball, t) { return this.keeperTry(ball, t); }
@@ -747,6 +784,7 @@ export class Fielding {
       else if (f.state === 'throwing' && f.runIn) goal = f.runIn;           // (running the ball in)
       if (f.state === 'backup') maxV *= 0.7;
       if (f.state === 'walkin') maxV = 1.6;
+      if (f.keeper && f.state === 'gather' && this.fetchT0 != null) maxV = 3.5;       // (walking up to a dead ball: brisk, no sprint)
       if (f.state === 'throwing') maxV = 5.0;
       const urgent = f.state === 'chase' || f.state === 'gather' || f.state === 'backup' || f.state === 'stumps' || f.state === 'backstop';
       let want = 0, ux = 0, uz = 0, d = 0;
@@ -777,7 +815,7 @@ export class Fielding {
           want = urgent && f.state !== 'stumps' && f.state !== 'backstop' ? maxV : Math.min(maxV, Math.sqrt(2 * BRAKE * Math.max(0, d - ARRIVE)) + 0.25);
           // Turn before he goes: facing well away from where he is heading
           // he only shuffles round, then sets off (no running backwards).
-          const sidestep = f.keeper && f.state === 'gather';
+          const sidestep = (f.keeper && f.state === 'gather') || (f.state === 'return' && d < BACKPEDAL);
           if (!sidestep) {
             const err = Math.abs(angDiff(f.yaw, Math.atan2(ux, uz)));
             if (f.speed < 2.5) want *= clamp(1.15 - err / 1.6, urgent ? 0.3 : 0.12, 1);
@@ -800,7 +838,9 @@ export class Fielding {
       const taking = f.action && f.action.type === 'take';
       const aiming = this.throw && this.throw.f === f && !this.throw.released;
       if (aiming) f.face = Math.atan2(this.throw.to.x - f.pos.x, this.throw.to.z - f.pos.z);      // (picking up, turning to throw)
-      else if (f.speed > 0.7 && !(f.keeper && f.state === 'gather') && !taking && f.state !== 'throwing') f.face = Math.atan2(f.vel.x, f.vel.z);
+      else if (f.speed > 0.7 && !(f.keeper && f.state === 'gather') && !(f.state === 'return' && d < BACKPEDAL) && !taking && f.state !== 'throwing') f.face = Math.atan2(f.vel.x, f.vel.z);
+      // setting off for somewhere well away: he turns to face where he is going first (else, slow, he would stay facing in and only shuffle)
+      else if (want > 0 && f.speed <= 0.7 && !f.action && (f.state === 'return' || f.state === 'walkin') && d >= BACKPEDAL) f.face = Math.atan2(ux, uz);
       else if (!f.action && f.state !== 'celebrate' && f.state !== 'throwing' && f.speed <= 0.7) {
         // standing: eyes on the ball while it is in play, else on the batter (the keeper: the bowler)
         const live = !this.dead && this.hitT != null && watch && Math.hypot(watch.x - f.pos.x, watch.z - f.pos.z) > 1.2;

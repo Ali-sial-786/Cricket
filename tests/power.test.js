@@ -60,7 +60,7 @@ function drive({ arc, w, pace = 130, ts = 1, hz = 72, load = true, hold = 0.3 })
 }
 const KMH = (e) => e.vel.length() * 3.6;
 
-test('power factors: the load counts from 0.45 to all of the bat speed; a gentle bat is held softly', () => {
+test('power factors: the load counts from 0.6 to all of the bat speed; a gentle bat is held softly', () => {
   const pw = CONFIG.bat.power;
   assert.equal(powerOf(0, 20).P, pw.loadFloor);
   assert.equal(powerOf(1, 20).P, 1);
@@ -70,7 +70,7 @@ test('power factors: the load counts from 0.45 to all of the bat speed; a gentle
   for (let i = 0; i < 10; i++) assert.ok(powerOf((i + 1) / 10, 5).P > powerOf(i / 10, 5).P);
   assert.equal(loadOf(0, 0), 0);
   assert.equal(loadOf(LOAD.lift[1], LOAD.travel[1]), 1);
-  assert.ok(Math.abs(loadOf(Math.PI / 2, 1.35) - 0.64) < 0.03, `half a backlift: ${loadOf(Math.PI / 2, 1.35).toFixed(2)}`);
+  assert.ok(Math.abs(loadOf(Math.PI / 2, 1.35) - 0.77) < 0.03, `half a backlift: ${loadOf(Math.PI / 2, 1.35).toFixed(2)}`);
 });
 
 test('the load is read from the bat: a block ~0, half a backlift ~0.6, a full one 1; the top is where the downswing began', () => {

@@ -9,9 +9,9 @@
 //            backlift to the ball (m), against your head (walking or
 //            charging down the pitch moves both)
 //   load     = (liftScore + travelScore) / 2, each 0..1:
-//              liftScore   = (lift - 0.45) / (2.0 - 0.45)  ~26 deg .. ~115 deg
-//              travelScore = (travel - 0.3) / (2.2 - 0.3)    30 cm .. 2.2 m
-//            a block or a push ~0, half a backlift ~0.6, a full one 1.
+//              liftScore   = (lift - 0.45) / (1.8 - 0.45)  ~26 deg .. ~103 deg
+//              travelScore = (travel - 0.3) / (1.8 - 0.3)    30 cm .. 1.8 m
+//            a block or a push ~0, half a backlift ~0.75, a full one 1.
 //
 // The top of the backlift is where the downswing that met the ball began:
 // walking back from contact, the first moment the middle of the bat was
@@ -22,8 +22,8 @@
 // Pure JS (no three.js). Tested in tests/power.test.js.
 export const LOAD = {
   sweet: -0.62,                 // the middle of the bat along its +Y from your hand (m)
-  lift: [0.45, 2.0],            // rad: the blade's angle from hanging down at the top: no load .. full
-  travel: [0.3, 2.2],           // m the middle of the bat travelled to the ball: no load .. full
+  lift: [0.45, 1.8],            // rad: the blade's angle from hanging down at the top: no load .. full
+  travel: [0.3, 1.8],           // m the middle of the bat travelled to the ball: no load .. full
   window: 0.8,                  // real s before contact the top is looked for, at most
   still: 0.6,                   // m/s: slower than this the bat is at the top (turning round)
   keep: 1.0,                    // real s of track kept

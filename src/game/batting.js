@@ -27,6 +27,8 @@ import { BatGeometry } from '../physics/bat.js';
 
 const _fw = new Vec3(), _toe = new Vec3(), _lever = new Vec3(), _bv = new Vec3(), _mid = new Vec3();
 let _sweetY = null;               // the middle of the (visible) bat, along its +Y from your hand
+const UNHIT_DEAD = 6;           // s of game time after the release: a ball nobody hit and nobody is doing anything with is dead
+const ATTACK_DEAD = 2.5;         // s after the keeper's attack was due: dead ball, whatever became of it
 const PLAYER_PAD = { halfX: 0.15, front: 0.1, back: 0.26, top: 0.7 };
 import { Innings, runsText } from './scoring.js';
 
@@ -263,7 +265,7 @@ export class BattingSession {
     // Your real back foot follows your head every frame (it is planted unless your head moves it).
     this.ground();
     this.creasePin = clamp(this.creasePin + (this.stumpAt && (this.state === 'live' || this.state === 'review') ? 6 : -3) * (g.realDt || dt), 0, 1);
-    g.timeScaleTarget = this.state === 'live' && !this.hit && !this.byes && !g.world.ball.padded && g.world.ball.active ? g.diff.timeScale : 1;
+    g.timeScaleTarget = this.state === 'live' && !this.hit && !this.byes && !g.world.ball.padded && g.world.ball.active && g.world.ball.pos.z < 0.5 ? g.diff.timeScale : 1;   // (the slow-down is for the ball coming at you: past you, it is over)
     if (this.state === 'idle') {
       if (this.innings && this.innings.complete) { this.complete(); return; }   // (never a ball after the last one)
       if (this.autoNext() || this.timer <= 0) this.timer -= dt;
@@ -511,6 +513,8 @@ export class BattingSession {
           return;
         }
         if (t < this.stumpAt) return;
+        // (whatever happened to his attack, the ball is dead a moment later: nothing waits on it for ever)
+        if (t > this.stumpAt + ATTACK_DEAD && !this.byes) { this.finish({ kind: 'beaten', shyMissed: true }); return; }
         const atk = this.field.attack, margin = this.shortOfGround(), lim = CONFIG.match.thirdUmpire;   // m short of your ground
         // (his shy misses: the ball runs on past the stumps -- byes, if you can run them)
         if (atk.kind === 'shy' && !atk.hit) { if (b.active) this.startByes(t, true); return; }
@@ -536,7 +540,7 @@ export class BattingSession {
         return;
       }
     }
-    if (t - this.launchT > 12) this.finish({ kind: b.batted ? 'hit' : 'left' });
+    if (t - this.launchT > (b.batted ? 12 : UNHIT_DEAD)) this.finish({ kind: b.batted ? 'hit' : this.offer.offered ? 'beaten' : 'left' });
   }
 
   // The ball has gone past the bat and the keeper: it is in play, like a hit.

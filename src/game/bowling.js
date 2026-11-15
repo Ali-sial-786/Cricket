@@ -5,6 +5,8 @@ import { CONFIG } from '../config.js';
 import { Vec3, clamp, DEG } from '../physics/math.js';
 
 // After the result is shown, wait this long (s) at most for the batters and fielders to be in place.
+const UNHIT_DEAD = 6;           // s of game time after the release: a ball nobody hit and nobody is doing anything with is dead
+const ATTACK_DEAD = 2.5;         // s after the keeper's attack was due: dead ball, whatever became of it
 const WAIT_HURRY = 1.0, WAIT_CAP = 4, WAIT_CAP_WICKET = 10;
 const _hold = new Vec3();
 import { PITCH, lengthName, lineName, groundDistance, battingPoppingZ, bowlingPoppingZ } from '../physics/pitch.js';
@@ -639,6 +641,8 @@ export class BowlingSession {
           return;
         }
         if (t < this.stumpAt) return;
+        // (whatever happened to his attack, the ball is dead a moment later: nothing waits on it for ever)
+        if (t > this.stumpAt + ATTACK_DEAD && !this.byes) { this.finish({ kind: 'dot' }); return; }
         const atk = this.field.attack, margin = g.aiBatter.advanceAt(t) - 0.5, lim = CONFIG.match.thirdUmpire;   // m short of his ground
         // (his shy misses: the ball runs on past the stumps -- byes, if they run them)
         if (atk.kind === 'shy' && !atk.hit) { if (b.active) this.startByes(t, true); return; }
@@ -663,7 +667,7 @@ export class BowlingSession {
         return;
       }
     }
-    if (t - this.launchT > 10) this.finish({ kind: b.batted ? 'runs' : 'dot', runs: 0 });
+    if (t - this.launchT > (b.batted ? 10 : UNHIT_DEAD)) this.finish({ kind: b.batted ? 'runs' : 'dot', runs: 0 });
   }
 
   // The ball has gone past the bat and the keeper: it is in play, like a hit.

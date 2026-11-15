@@ -26,6 +26,8 @@ const PLAYER_PATH = 2.1;       // anyone running or walking past you gives you t
 const LANE_CLEAR = 1.5;        // half-width of your run-up lane kept empty between balls
 const BOWL_CREASE_Z = PITCH.bowlingStumpsZ + PITCH.poppingOffset;
 const KEEPER_BREAK_REACH = 1.6;  // m from the stumps: the keeper can lunge in and take the bails off
+const DEAD_BALL_REACH = 4.0;    // m in front of the stumps: an unhit ball that dies this close is the keeper's to pick up
+const DEAD_BALL_SPEED = 0.8;    // m/s: ...once it is barely rolling
 
 export class FieldController {
   constructor(game, { spinner = false, bowlerFields = true, playerBatting = true } = {}) {
@@ -459,6 +461,12 @@ export class FieldController {
       const got = L.keeperTry(b, t);
       if (got === 'take') { w.removeBall(); g.sample('gloves') || g.sfx.catchThud(); g.replay.mark('held', t); }
       else if (got === 'miss') g.crowdReact('close');
+      // It has died short of him (a ball that stopped on the pitch, or one that
+      // came to rest beside him out of the way of his gloves): he walks up and
+      // picks it up -- the ball is dead (or, the batter out of his ground, a stumping).
+      else if (!got && L.started && b.bounces > 0 && b.pos.z > PITCH.battingStumpsZ - DEAD_BALL_REACH && Math.hypot(b.vel.x, b.vel.z) < DEAD_BALL_SPEED && b.pos.y < 0.3) {
+        if (L.keeperFetch(b, t) === 'take') { w.removeBall(); g.replay.mark('held', t); }
+      }
     }
     // His throw at the stumps arrives: it breaks them, or it misses and runs on (byes).
     if (L.shy && !L.shy.done && t >= L.shy.at) {

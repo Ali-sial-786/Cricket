@@ -89,7 +89,7 @@ export const CONFIG = {
     // how far back and high you took the bat and how far it travelled to the ball; H = soft +
     // (1 - soft) x smoothstep(hands, bat's real speed): a bat pushed gently is held softly and
     // takes the pace off the ball (a dead bat), a swung one is firm.
-    power: { loadFloor: 0.45, soft: 0.5, hands: [1.5, 14] },
+    power: { loadFloor: 0.6, soft: 0.5, hands: [1.5, 10] },
     sweepLift: [0.42, 0.62], // rad: a slog sweep goes up between these (a sweep is kept down: sweepShot.js)
     creaseMoveSpeed: 1.3,    // m/s with the left thumbstick
     creaseBox: [0.9, 0.55],  // how far (x, z) the stick can move you in the crease
