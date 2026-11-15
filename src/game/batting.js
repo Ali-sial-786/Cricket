@@ -34,6 +34,7 @@ const ANNOUNCE = 1.8;            // s a new bowler's card / a free hit is up bef
 // Between balls the bowler waits for everyone to be in place: after
 // WAIT_HURRY s whoever is not runs; after the cap the ball is bowled anyway.
 const WAIT_HURRY = 2.5, WAIT_CAP = 7, WAIT_CAP_WICKET = 13;
+const SWEEP_IN = 4.5, SWEEP_OUT = 3.5;   // 1/s: the sweep button's hold on your figure comes in over 0.22 s, goes over 0.29 s
 
 export class BattingSession {
   constructor(game, { kind = 'nets', title = 'Nets · Batting', innings = null, bowler = 'machine', fielders = null, aiBowler = null, onDone = null } = {}) {
@@ -163,13 +164,14 @@ export class BattingSession {
     const f = this.advance / B.advanceDistance;
     g.playerBat.mods = { faceLed: B.faceLed, power: 1 + B.advancePower * f, sigmaScale: 1 - B.advanceSweetShrink * f, loftPower: 0.2 * f };
 
-    // Sweep: down on one knee for as long as the grip is held (and a moment after the shot).
-    const sweeping = R.buttons.squeeze.pressed && (preBall || this.state === 'idle' || this.state === 'settle' || (this.hit && g.simTime - this.hit.t < 0.5));
-    this.sweepK = clamp((this.sweepK || 0) + (sweeping ? 6 : -3.5) * dt, 0, 1);
+    // Sweep: your figure goes down on the back knee whenever the grip is held - before the ball, through
+    // the shot, after it - however you are standing yourself, and gets up when you let go.
+    const sweeping = R.buttons.squeeze.pressed;
+    this.sweepK = clamp((this.sweepK || 0) + (sweeping ? SWEEP_IN : -SWEEP_OUT) * dt, 0, 1);
     this.sweepSlog = sweeping ? R.buttons.trigger.pressed || this.advance > 0.4 : this.sweepSlog;
-    // a reverse sweep: the bat swung toward the off side while sweeping (as applySweep reads it)
-    if (sweeping && R.linVel.length() > 2) this.sweepReverse = R.linVel.x > 0.6;
-    else if (!sweeping && this.sweepK <= 0) this.sweepReverse = false;
+    // a reverse sweep: the middle of the bat swung toward the off side of your stance while sweeping
+    if (sweeping) { const s = this.sweepSide(); if (s.speed > 2.5) this.sweepReverse = s.off > 0.35; }
+    else if (this.sweepK <= 0) this.sweepReverse = false;
 
     if (this.lbw.active) return;
     const run = this.field && this.state === 'live' && (this.hit || this.byes) && !this.field.result();
@@ -436,6 +438,17 @@ export class BattingSession {
     this.field.onHit(b, t, predict(b, { maxTime: 9, h: 1 / 240 }), { byes: true });
     g.ui.prompt(this.wide ? 'WIDE — and past the keeper! Run?' : 'Past the keeper — BYES! Run?', 2.2, '#ffd34d');
     g.crowdReact('close');
+  }
+
+  // Which way the middle of your bat is going across your stance (the stick turns it): its speed, and
+  // the share of that toward the off side (+1) or the leg side (-1).
+  sweepSide() {
+    const g = this.game, R = g.input.right, pose = g.playerBatProvider.curr.pose;
+    if (_sweetY == null) _sweetY = new BatGeometry(CONFIG.bat).sweetY;
+    pose.dirToWorld(_lever.set(0, _sweetY, 0), _lever);
+    pointVelocity(_bv, R.linVel, R.angVel, _lever);
+    const th = g.input.xr ? g.lookYaw || 0 : 0, sp = _bv.length();
+    return { speed: sp, off: sp > 1e-6 ? (_bv.x * Math.cos(th) - _bv.z * Math.sin(th)) / sp : 0 };
   }
 
   // The middle of your bat this frame (real velocity: the controller's plus its turning x the lever

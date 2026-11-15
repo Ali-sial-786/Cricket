@@ -911,6 +911,7 @@ const ELBOW_FWD = 0.2;               // elbows out in front of the shoulders, ov
 const STANCE_LEAN = 0.52, STANCE_KNEES = 0.05, STANCE_DROP = 0.18, FRONT_OPEN = 0.3;
 const FOOT_FRONT = 0.2, FOOT_BACK = 0.26;      // your feet: front foot ahead of your head, back foot behind it             // bottom hand to top hand, up the handle
 const GRIP_ROLL = 0.8;              // how far a hand may roll round the handle from the textbook grip (rad)
+const TWIST_STEP = 0.35, ROLL_STEP = 0.12;   // rad a call: the forearm's share of the hand's turn, and the hand's roll round the handle, change at most this much
 const MAX_STRIDE = 1.0;             // feet apart at most in a lunge (m)
 const KNEEL_PAD = 0.12;             // knee joint above the turf when kneeling: the pad's knee roll rests on it
 
@@ -1674,6 +1675,10 @@ export class BatterActor extends Actor {
         h.update();
         _f.subVectors(_wr, h.worldPos('elbow' + side, _el)).normalize();
         roll = clamp(Math.atan2(-_f.dot(_bz), _f.dot(_bx)), -GRIP_ROLL, GRIP_ROLL);
+        // (kept continuous: with the forearm along the handle's back the preferred roll swaps sides, the hand would flip)
+        const rs = this._roll || (this._roll = { L: null, R: null });
+        if (rs[side] != null) roll = rs[side] + clamp(roll - rs[side], -ROLL_STEP, ROLL_STEP);
+        rs[side] = roll;
       }
       h.setWorldQuat('hand' + side, _q.setFromRotationMatrix(_m.makeBasis(_gx, _gy, _gz)));
       err = Math.max(err, h.worldPos('hand' + side, _el).distanceTo(_wr));
@@ -1690,6 +1695,8 @@ export class BatterActor extends Actor {
         const tws = this._tw || (this._tw = { L: 0, R: 0 }), prev = tws[side];
         if (tw - prev > Math.PI) tw -= TAU; else if (tw - prev < -Math.PI) tw += TAU;
         if (Math.abs(tw) > 1.4 * Math.PI) tw -= Math.sign(tw) * TAU;
+        // (and never in one frame: wound past that the forearm turns back over a few frames, the hand stays on the handle)
+        if (Math.abs(tw - prev) > TWIST_STEP) tw = prev + Math.sign(tw - prev) * TWIST_STEP;
         tws[side] = tw;
         fore.quaternion.multiply(_qt.setFromAxisAngle(_up, tw * 0.5));
         fore.updateMatrixWorld(true);

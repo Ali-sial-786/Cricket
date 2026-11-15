@@ -58,7 +58,7 @@ export const SENSE = {
 //   handY   the hands below (-) / above (+) the head (m)
 //   low     0 standing .. 1 right down (kneeling)        lowBat 0 .. 1 the bat down by the turf
 //   sense   +1 the usual way round (off to leg) .. -1 the other way (a reverse)
-//   sweep   { k, slog, reverse } the sweep button, if held
+//   sweep   { k, slog, reverse } the sweep button, if held: then the stroke is a sweep (slog / reverse as held)
 export function scoreShots(f, out = new Array(NF)) {
   const V = 1 - f.cross, C = f.cross;
   const pw = f.power, fr = sstep(-0.3, 0.3, f.front);
@@ -66,8 +66,9 @@ export function scoreShots(f, out = new Array(NF)) {
   const up = sstep(0.25, 0.6, f.up);
   const lowS = Math.max(f.low, f.lowBat * sstep(0.08, 0.25, f.low + f.lowBat * 0.2));
   const offSide = sstep(0.14, 0.38, f.handX), hi = sstep(-0.3, -0.12, f.handY);
-  const sw = f.sweep ? f.sweep.k : 0, rev = Math.max(sstep(0.3, 0.7, -f.sense), sw && f.sweep.reverse ? 1 : 0);
-  const stand = 1 - lowS;
+  const sw = f.sweep ? sstep(0.05, 0.4, f.sweep.k) : 0, rev = Math.max(sstep(0.3, 0.7, -f.sense), sw && f.sweep.reverse ? 1 : 0);
+  // (the sweep button held: the stroke is a sweep, whether you are down yourself or not - your figure goes down)
+  const stand = (1 - lowS) * (1 - sw);
   out[IX.forward_defence] = V * (1 - pw) * fr * stand;
   out[IX.back_defence] = V * (1 - pw) * (1 - fr) * stand;
   out[IX.straight_drive] = V * pw * fr * mid * (1 - up) * stand;
@@ -82,9 +83,9 @@ export function scoreShots(f, out = new Array(NF)) {
   out[IX.hook] = C * (1 - offSide) * stand * hi * (1 - rev);
   const sg = lowS * (1 + 2 * sw);
   const slog = Math.max(pw * up, sw && f.sweep.slog ? 1 : 0);
-  out[IX.sweep] = Math.min(1, C * sg * (1 - slog) * (1 - rev) + sw * (1 - slog) * (1 - rev) * f.low);
-  out[IX.slog_sweep] = Math.min(1, C * sg * slog * (1 - rev) + sw * slog * (1 - rev) * f.low);
-  out[IX.reverse_sweep] = Math.min(1, C * sg * rev + sw * rev * f.low);
+  out[IX.sweep] = Math.min(1, C * sg * (1 - slog) * (1 - rev) + sw * (1 - slog) * (1 - rev));
+  out[IX.slog_sweep] = Math.min(1, C * sg * slog * (1 - rev) + sw * slog * (1 - rev));
+  out[IX.reverse_sweep] = Math.min(1, C * sg * rev + sw * rev);
   return out;
 }
 

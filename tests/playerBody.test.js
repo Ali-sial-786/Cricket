@@ -6,7 +6,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { SHOTS, shotTrack } from './battingTracks.js';
+import { SHOTS, shotTrack, buildTrack } from './battingTracks.js';
 
 let THREE = null;
 try { THREE = await import('three'); } catch { THREE = null; }
@@ -290,4 +290,76 @@ test('replay tape: record -> re-solve -> overwrite -> apply keeps your gloves on
   const late = gloves(clip[0] + 0.3, clip[1], false);
   assert.ok(late.worst < 0.005, `after a long review: gloves ${(late.worst * 100).toFixed(2)} cm off`);
   A.restArms(); h.replayVisible = undefined;
+});
+
+// The batting session's sweep button as bodyState() gives it: held in [on, off) (ramps in 0.22 s, out 0.29 s, smoothed).
+function sweepButton(on, off, slog = false, reverse = false) {
+  let k = 0, last = null;
+  return (t) => {
+    const dt = last == null ? 0 : t - last; last = t;
+    k = Math.min(1, Math.max(0, k + (t >= on && t < off ? 4.5 : -3.5) * dt));
+    return { sweep: k > 0.01 ? { k: k * k * (3 - 2 * k), slog, reverse } : null, hit: null, crease: null, live: true };
+  };
+}
+function playKeys(m, keys, extra) {
+  const { body, h } = m, trk = buildTrack(keys, { extra });
+  body.reset();
+  const bp = V(), bq = new THREE.Quaternion(), out = [], ix = BODY.map((n) => h.boneList.indexOf(h.bones[n]));
+  let prev = null, jump = 0, armJump = 0, glove = 0;
+  for (let i = 0; i < trk.length; i++) {
+    const e = trk[i];
+    bp.set(e.bp.x, e.bp.y, e.bp.z); bq.set(e.bq.x, e.bq.y, e.bq.z, e.bq.w);
+    body.update(e.dt, e.t, bp, bq, null, e.head, e.extra, e.off, 0);
+    h.update();
+    const q = h.boneList.map((b) => b.quaternion.clone());
+    if (prev && i > 3) q.forEach((x, k) => { const a = x.angleTo(prev[k]) * 180 / Math.PI; if (ix.includes(k)) jump = Math.max(jump, a); else armJump = Math.max(armJump, a); });
+    prev = q;
+    const top = V().set(0, 0.105, 0).applyQuaternion(bq).add(bp);
+    glove = Math.max(glove, Math.abs(h.worldPos('handR', V()).distanceTo(bp) - 0.075), Math.abs(h.worldPos('handL', V()).distanceTo(top) - 0.075));
+    out.push({ t: e.t - trk[0].t, hips: h.worldPos('hips', V()).y, knee: Math.min(h.worldPos('kneeL', V()).y, h.worldPos('kneeR', V()).y), low: h.lowest(), lead: body.sense.leader });
+  }
+  return { trk, out, jump, armJump, glove };
+}
+const STANCE_KEY = { head: [-0.25, 1.56, -1.05], look: [0, -0.05], hand: [0.02, 0.8, -0.98], toe: [0.1, -0.95, 0.28], face: [0, 0, -1] };
+
+test('the sweep button: standing tall, your figure is down on the back knee within 0.25 s, stays down while held, gets up when you let go', { skip }, async () => {
+  const m = await load();
+  for (const [what, slog, reverse] of [['sweep', false, false], ['slog sweep', true, false], ['reverse sweep', false, true]]) {
+    const { out, jump, armJump, glove } = playKeys(m, [{ t: 0, ...STANCE_KEY }, { t: 4, ...STANCE_KEY }], sweepButton(0.5, 2.5, slog, reverse));
+    const hip0 = out.find((o) => o.t >= 0.45).hips, hipDown = out.find((o) => o.t >= 2.4).hips;
+    assert.ok(hip0 - hipDown > 0.3, `${what}: the pelvis comes down ${((hip0 - hipDown) * 100).toFixed(0)} cm (a kneel)`);
+    const down = out.find((o) => o.t > 0.5 && o.hips <= hip0 - 0.9 * (hip0 - hipDown));
+    assert.ok(down && down.t - 0.5 <= 0.25, `${what}: 90% down ${down ? (down.t - 0.5).toFixed(2) : 'never'} s after the press`);
+    const held = out.filter((o) => o.t > 0.9 && o.t < 2.5);
+    assert.ok(held.every((o) => Math.abs(o.hips - hipDown) < 0.03 && o.knee < 0.25), `${what}: stays down on the knee while held`);
+    assert.ok(Math.min(...out.map((o) => o.low)) > -0.005, `${what}: nothing in the turf`);
+    const up = out.find((o) => o.t > 2.5 && o.hips >= hip0 - 0.03);
+    assert.ok(up && up.t - 2.5 < 0.7, `${what}: back up ${up ? (up.t - 2.5).toFixed(2) : 'never'} s after letting go`);
+    assert.ok(jump < 35 && armJump < 35, `${what}: a joint turns ${jump.toFixed(1)} deg (arms ${armJump.toFixed(1)}) in a frame`);
+    assert.ok(glove < 0.005, `${what}: gloves ${(glove * 100).toFixed(2)} cm off the handle`);
+  }
+});
+
+test('the sweep button with a stroke: standing tall or down low, the stroke is read as the sweep held, on the knee, and replays the same', { skip }, async () => {
+  const m = await load(), { body } = m;
+  const tall = SHOTS.sweep.keys.map((k) => ({ ...k, head: k.head ? [k.head[0], Math.max(k.head[1], 1.5), k.head[2]] : k.head }));
+  for (const [what, keys, slog, reverse, want] of [
+    ['tall sweep', tall, false, false, 'sweep'], ['tall slog sweep', tall, true, false, 'slog_sweep'], ['tall reverse', tall, false, true, 'reverse_sweep'],
+    ['low sweep', SHOTS.sweep.keys, false, false, 'sweep']]) {
+    const { trk, out, jump, armJump, glove } = playKeys(m, keys, sweepButton(0.4, 2.6, slog, reverse));
+    const leads = [...new Set(out.filter((o) => o.lead).map((o) => o.lead))];
+    assert.deepEqual(leads, [want], `${what}: read as ${leads.join(' -> ')}`);
+    // (down through the stroke: the pelvis low, a knee by the turf - the reverse sweep's capture half-kneels at its finish)
+    const mid = out.filter((o) => o.t > 1.0 && o.t < 2.4);
+    assert.ok(Math.max(...mid.map((o) => o.hips)) < 0.62 && Math.max(...mid.map((o) => o.knee)) < 0.35, `${what}: down through the stroke (pelvis up to ${Math.max(...mid.map((o) => o.hips)).toFixed(2)} m, knee ${Math.max(...mid.map((o) => o.knee)).toFixed(2)} m)`);
+    // (the arms coming back from the sweep's high finish turn quickly, but never flip: < 60 deg a frame, was 170)
+    assert.ok(jump < 35 && armJump < 60 && glove < 0.005, `${what}: jump ${jump.toFixed(1)} deg (arms ${armJump.toFixed(1)}), gloves ${(glove * 100).toFixed(2)} cm`);
+    // the replay re-solve (the button is in the log) gives the same body
+    const t0 = trk[10].t, t1 = trk[trk.length - 1].t, live = new Map();
+    for (const e of body.log) live.set(e.t, e);
+    const job = body.resolveBegin(t0, t1);
+    assert.ok(job && job.saved, `${what}: re-solve`);
+    body.resolveEnd(job);
+    assert.ok(body.log.some((e) => e.extra && e.extra.sweep && e.extra.sweep.k > 0.9), `${what}: the button is logged`);
+  }
 });

@@ -49,9 +49,14 @@ test('scores: the sweep button makes a low stroke a sweep (slog / reverse as hel
   assert.equal(leaderOf(scoreShots(F({ ...low, sweep: { k: 1, slog: false, reverse: false } }))), 'sweep');
   assert.equal(leaderOf(scoreShots(F({ ...low, sweep: { k: 1, slog: true, reverse: false } }))), 'slog_sweep');
   assert.equal(leaderOf(scoreShots(F({ ...low, sweep: { k: 1, slog: false, reverse: true } }))), 'reverse_sweep');
-  // standing up, the button alone is no sweep
-  const up = scoreShots(F({ power: 1, front: 0.8, sweep: { k: 1, slog: false, reverse: false } }));
-  assert.equal(up[FAMILIES.indexOf('sweep')], 0);
+  // standing up, the button alone makes it a sweep too (your figure goes down: "he should bend down always")
+  for (const [v, want] of [[{ slog: false, reverse: false }, 'sweep'], [{ slog: true, reverse: false }, 'slog_sweep'], [{ slog: false, reverse: true }, 'reverse_sweep']]) {
+    const up = scoreShots(F({ power: 1, front: 0.8, sweep: { k: 1, ...v } }));
+    assert.equal(leaderOf(up), want);
+    for (const n of FAMILIES) if (!/sweep/.test(n)) assert.equal(up[FAMILIES.indexOf(n)], 0, `${n} with the button held`);
+  }
+  // half-way into the button the sweep already leads a standing drive
+  assert.equal(leaderOf(scoreShots(F({ power: 1, front: 0.8, sweep: { k: 0.5, slog: false, reverse: false } }))), 'sweep');
 });
 
 test('scores are 0..1 and change smoothly with the features (no step anywhere)', () => {
