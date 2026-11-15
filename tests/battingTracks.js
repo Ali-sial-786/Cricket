@@ -267,8 +267,9 @@ export const SHOTS = {
   },
 };
 
+// A shot is played to a delivery on its way (extra.live); the waggle is between balls (no delivery).
 export function shotTrack(name, opts = {}) {
   const s = SHOTS[name];
   if (!s) throw new Error('no scripted shot ' + name);
-  return buildTrack(s.keys, opts);
+  return buildTrack(s.keys, { extra: { sweep: null, hit: null, crease: null, live: !s.idle }, ...opts });
 }

@@ -55,7 +55,7 @@ const HIP_TWIST = [-0.6, 0.9];     // rad: the hips' turn from the way the feet 
 const KNEE_RATE = 7;               // rad/s: a knee's bend direction turns at most this fast (kneesUp)
 const SPINE_TWIST = 0.6;           // rad: of what the hips may not turn, the spine takes at most this much
 
-const _ax = new THREE.Vector3(), _Hj = new THREE.Vector3(), _bp = new THREE.Vector3(), _bq = new THREE.Quaternion();
+const _ax = new THREE.Vector3(), _fc = new THREE.Vector3(), _Hj = new THREE.Vector3(), _bp = new THREE.Vector3(), _bq = new THREE.Quaternion();
 const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3(), _d = new THREE.Vector3(), _e = new THREE.Vector3();
 const _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _q3 = new THREE.Quaternion(), _up = new THREE.Vector3(0, 1, 0);
 const _P = new THREE.Vector3(), _yp = new THREE.Vector3(), _hf = new THREE.Vector3(), _kp = new THREE.Vector3();
@@ -131,7 +131,7 @@ export class PlayerBodyView {
       head: head ? { p: { x: head.p.x, y: head.p.y, z: head.p.z }, q: { x: head.q.x, y: head.q.y, z: head.q.z, w: head.q.w } } : null,
       off: off ? { x: off.x, y: off.y, z: off.z } : null,
       ball: ball ? { x: ball.x, y: ball.y, z: ball.z } : null,
-      extra: extra ? { sweep: extra.sweep || null, hit: extra.hit ? { t: extra.hit.t } : null, crease: extra.crease || null } : null,
+      extra: extra ? { sweep: extra.sweep || null, hit: extra.hit ? { t: extra.hit.t } : null, crease: extra.crease || null, live: extra.ball ? !!extra.ball.live : extra.live ?? null } : null,
       sc: h.root.scale.x,
     };
     if (this.st.n % SNAP_EVERY === 0 || !L.length) e.state = this.saveState();
@@ -273,9 +273,10 @@ export class PlayerBodyView {
       hp = { x: D.x, y: standJ + EYES - 0.12, z: D.z };
     }
     _ax.set(0, 1, 0).applyQuaternion(bq);
+    _fc.set(0, 0, 1).applyQuaternion(bq);
     // ---- what the bat is doing
     const ex = e.extra;
-    const o = dt > 5e-4 || !st.out ? this.sense.update(e.t, dt, hp, bp, _ax, e.off, ex ? { sweep: ex.sweep, hitT: ex.hit ? ex.hit.t : null } : null) : st.out;
+    const o = dt > 5e-4 || !st.out ? this.sense.update(e.t, dt, hp, bp, _ax, e.off, { sweep: ex ? ex.sweep : null, hitT: ex && ex.hit ? ex.hit.t : null, live: ex ? ex.live ?? null : null, face: _fc }) : st.out;
     st.out = { state: o.state, phase: o.phase, engage: o.engage, leader: o.leader, weights: o.weights, quiet: o.quiet, offOn: o.offOn };
     const E = shotsReady() ? o.engage : 0;
     const Hj = _Hj.set(hp.x, Math.min(hp.y - EYES, standJ - SOFT), hp.z);

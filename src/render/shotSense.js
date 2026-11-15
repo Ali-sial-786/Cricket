@@ -36,6 +36,7 @@ export const SENSE = {
   liftFull: 2.0,       // rad: the blade this far round from hanging down is a full backlift
   vOn: 2.6,            // m/s at the middle of the bat: faster than this (and into the ball) is a stroke
   vFull: [4, 7.5],     // m/s: a swing this fast takes the body with it (slower: only a block does)
+  vIdle: [6.5, 9.5],   // m/s: the same between balls (no delivery on its way): only a real shadow stroke, not a twirl
   vQuiet: 1.0,         // m/s: slower than this the bat is still
   followFull: 1.9,     // rad the blade turns past contact in a full follow-through
   rise: 16, fall: 6.5, // 1/s: how fast the body is taken into a stroke and let out of it (critically damped)
@@ -44,6 +45,7 @@ export const SENSE = {
   uRate: 2.2,          // the body moves through a capture at most this many times its real speed
   homeAfter: 1.0, homeTau: 0.5,   // s: where you took guard follows your head once you have been still this long
   offOn: 0.24,         // m: the other controller this near the top of the handle is "on the handle"
+  faceDir: 1.1,        // how much the bat's face (opened to the off side / closed to the leg side) says about the way it goes
 };
 
 // Scores (0..1) for every shot from the features of the swing. Pure.
@@ -130,7 +132,9 @@ export class ShotSense {
 
   // t (s), dt; head {x, y, z} (the eyes); grip {x, y, z} (the bottom hand on
   // the handle); axis: the bat's +Y (up the handle), unit; off: the other
-  // controller {x, y, z} or null; ctx: { sweep: {k, slog, reverse} | null, hitT: time the ball was hit | null }.
+  // controller {x, y, z} or null; ctx: { sweep: {k, slog, reverse} | null, hitT: time the ball was hit | null,
+  // face: the bat's face direction (its +Z) {x, y, z} | null, live: a delivery is on its way (true / false, or
+  // null when not known: between balls a slow block is only waggling, not a stroke) }.
   update(t, dt, head, grip, axis, off = null, ctx = null) {
     const S = this.s;
     if (S.t != null && (t < S.t || t - S.t > 1.5)) { this.reset(); return this.update(t, dt, head, grip, axis, off, ctx); }
@@ -178,6 +182,9 @@ export class ShotSense {
     S.lift += (lift - S.lift) * Math.min(1, dt / 0.05);
 
     const sweepBtn = ctx && ctx.sweep && ctx.sweep.k > 0.05 ? ctx.sweep : null;
+    const blockOK = !(ctx && ctx.live === false);
+    // which way the face looks, along the ground (+ off side): a cover drive opens it, an on drive closes it
+    const fc = ctx && ctx.face, fh = fc ? Math.hypot(fc.x, fc.z) : 0, faceX = fh > 0.3 ? fc.x / fh : 0;
     const hitNow = ctx && ctx.hitT != null && ctx.hitT > t - 0.1 && ctx.hitT <= t + 1e-6;
     // into the ball: toward the bowler, downward, or across (not the pick-up: upward and back)
     // (and the blade coming down, or sweeping round: lifting the bat is not a stroke however fast)
@@ -200,7 +207,7 @@ export class ShotSense {
       const wgt = speed * speed * dt;
       sw.vx = sw.vx * a + vx * wgt; sw.vy = sw.vy * a + vy * wgt; sw.vz = sw.vz * a + vz * wgt; sw.vw = sw.vw * a + speed * wgt;
       sw.sy = sw.sy * a + sy * wgt; sw.hx = sw.hx * a + (grip.x - head.x + 0.08 * clamp(gvx, -3, 3)) * wgt; sw.hy = sw.hy * a + (grip.y - head.y) * wgt;
-      sw.ay = sw.ay * a + Math.abs(dy) * wgt; sw.ww = sw.ww * a + wgt;
+      sw.ay = sw.ay * a + Math.abs(dy) * wgt; sw.ww = sw.ww * a + wgt; sw.fx = sw.fx * a + faceX * wgt;
       const feat = this.features(head, sweepBtn);
       // contact: the blade pointing down (upright bat) or square out to the off side (bat across the line)
       const cx = mix(0, 0.97, feat.cross), cy = mix(-0.99, -0.05, feat.cross), cz = mix(-0.12, -0.24, feat.cross), cl = Math.hypot(cx, cy, cz);
@@ -208,7 +215,8 @@ export class ShotSense {
       sw.remMin = Math.min(sw.remMin, rem);
       const prog = sw.th / (sw.th + rem + 1e-6);
       S.phase = Math.max(S.phase, 1 + clamp(prog, 0, 1));
-      S.target = clamp(Math.max(sstep(SENSE.vFull[0], SENSE.vFull[1], sw.peak), this.blockEvidence(head, grip.z, dy)), 0, 1) * sstep(0.02, 0.15, Math.max(...feat.scores));
+      const vf = blockOK ? SENSE.vFull : SENSE.vIdle;
+      S.target = clamp(Math.max(sstep(vf[0], vf[1], sw.peak), blockOK ? this.blockEvidence(head, grip.z, dy) : 0), 0, 1) * sstep(0.02, 0.15, Math.max(...feat.scores));
       // (no shot is named until the blade has turned enough to tell)
       if (sw.th > 0.6) this.weigh(feat, dt, false);
       const past = rem > sw.remMin + 0.12 && sw.th > 0.5;
@@ -225,10 +233,12 @@ export class ShotSense {
           const a = Math.exp(-dt / 0.12), wgt = speed * speed * dt;
           sw.peak = Math.max(sw.peak, S.speed);
           sw.vx = sw.vx * a + vx * wgt; sw.vy = sw.vy * a + vy * wgt; sw.vz = sw.vz * a + vz * wgt; sw.vw = sw.vw * a + speed * wgt;
+          sw.fx = sw.fx * a + faceX * wgt; sw.ww = sw.ww * a + wgt;
           this.weigh(this.features(head, sweepBtn), dt, false);
         } else { S.locked = true; this.weigh(null, dt, true); }
       } else this.weigh(null, dt, true);
-      S.target = Math.max(S.target, sstep(SENSE.vFull[0], SENSE.vFull[1], sw.peak)) * (S.leader >= 0 ? 1 : 0);
+      const vf = blockOK ? SENSE.vFull : SENSE.vIdle;
+      S.target = Math.max(S.target, sstep(vf[0], vf[1], sw.peak)) * (S.leader >= 0 ? 1 : 0);
       // over: the bat has been still a while, or has come back down to the stance
       const down = S.lift < 0.3 && dy < -0.75 && sw.past > 0.6;
       if (S.tState > 0.4 && (S.quiet > 0.45 || (down && S.quiet > 0.1))) { S.state = 'recover'; S.tState = 0; }
@@ -255,7 +265,7 @@ export class ShotSense {
     const S = this.s;
     S.state = 'down'; S.tState = 0; S.phase = 1; S.locked = false;
     if (S.E < 0.05) { S.phaseS = 1; S.leader = -1; S.w.fill(0); S.g.fill(0); }
-    S.sw = { t0: t, tC: t, th: 0, nx: 0, ny: 0, nz: 0, peak: 0, vx: 0, vy: 0, vz: 0, vw: 0, sy: 0, hx: 0, hy: 0, ay: 0, ww: 0, remMin: 9, past: 0, lift0: S.lift };
+    S.sw = { t0: t, tC: t, th: 0, nx: 0, ny: 0, nz: 0, peak: 0, vx: 0, vy: 0, vz: 0, vw: 0, sy: 0, hx: 0, hy: 0, ay: 0, ww: 0, fx: 0, remMin: 9, past: 0, lift0: S.lift };
   }
 
   // A slow, upright bat brought down in front of you (a block): a stroke too, though it is not swung.
@@ -279,7 +289,8 @@ export class ShotSense {
       cross, power: sstep(5, 11, sw.peak), peak: sw.peak,
       // front or back foot: the head forward of / behind where you took guard; hardly moved: a low bat is forward, a high one back
       front: clamp(fwd / 0.22, -1, 1) + sstep(0.75 * k, 0.4 * k, sy) * 0.35 - sstep(0.7 * k, 1.0 * k, sy) * 0.35,
-      dirX: clamp(sw.vx / hl * sstep(0.15, 0.4, hl / vl) + (sw.hx / ww - 0.27) * 1.2, -1, 1), up: sw.vy / vl, fine: sw.vz / vl,
+      dirX: clamp(sw.vx / hl * sstep(0.15, 0.4, hl / vl) + (sw.hx / ww - 0.27) * 1.2 + SENSE.faceDir * sw.fx / ww, -1, 1), up: sw.vy / vl, fine: sw.vz / vl,
+      faceX: sw.fx / ww,
       handX: sw.hx / ww, handY: sw.hy / ww,
       low: sstep(0.25 * k, 0.42 * k, down), lowBat: sstep(0.5 * k, 0.28 * k, sy),
       sense: sw.ny / nl, sweep: sweepBtn,
