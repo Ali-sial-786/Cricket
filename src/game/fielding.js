@@ -139,6 +139,7 @@ export function steerAmong(px, pz, gx, gz, obs, out = { x: 0, z: 0 }) {
 }
 const _obs = [];
 const ARRIVE = 0.05;         // m: there
+const SELF_RUN = 3.2;        // m: a man with the ball this close to a set of stumps runs in and breaks them himself
 const RELEASE_SET = 4;       // m: a fielder this close to his mark at the release stops and gets set
 const BRAKE = 13;            // m/s^2 pulling up
 function angDiff(a, b) { let d = b - a; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI; return d; }
@@ -156,7 +157,7 @@ export class Fielding {
     // to throw; null: they are taken as standing in their ground.
     this.runs = null;
     // Every throw (for measurement): counts by kind and what became of them.
-    this.tally = { throws: 0, direct: 0, gloves: 0, return: 0, oneBounce: 0, held: 0, runIn: 0, hits: 0, missed: 0, takes: 0, fumbles: 0, overthrows: 0, coverThere: 0, coverAway: 0 };
+    this.tally = { throws: 0, direct: 0, gloves: 0, return: 0, self: 0, oneBounce: 0, held: 0, runIn: 0, hits: 0, missed: 0, takes: 0, fumbles: 0, overthrows: 0, coverThere: 0, coverAway: 0 };
     this.throwLog = [];
     this.fielders = FIELD.map((f) => ({
       ...f,
@@ -912,7 +913,7 @@ export class Fielding {
     const th = this.throw, f = th.f, F = this.cfg.field;
     const ends = {};
     for (const E of ENDS) {
-      const self = Math.hypot(f.pos.x, f.pos.z - STUMPS_Z[E]) < 2.2;
+      const self = Math.hypot(f.pos.x, f.pos.z - STUMPS_Z[E]) < SELF_RUN;
       const b = this.backer;
       const backed = !!(b && b.backEnd === E && b.target && Math.hypot(b.pos.x - b.target.x, b.pos.z - b.target.z) < 4);
       ends[E] = { readyIn: this.cover[E] && this.cover[E] !== f ? this.coverEta(E) : Infinity, backed, self };
@@ -982,6 +983,14 @@ export class Fielding {
         th.held = Math.max(0, t - (th.tPick - THROW.windup));
         if (!this.dead || th.wait > 0) this.decide(t);
         if (this.dead) th.wait = 0;
+        // Right by the stumps he is going for: no throw -- he runs in with the
+        // ball (once he has picked it up) and takes the bails off himself.
+        if (th.self && t >= th.tPick - THROW.windup) {
+          const spot = receiverSpot(th.end, f.pos.x < 0 ? -1 : 1);
+          if (Math.hypot(f.pos.x - spot.x, f.pos.z - spot.z) > 0.6 && th.held < 2) { f.runIn = spot; th.tStart = t + dt; this.ballOverride.pos.set(f.pos.x, 0.9, f.pos.z); return; }
+          f.runIn = null; th.tStart = t; th.selfRun = true; th.kind = 'self';
+          this.release(t);
+        }
         // Waiting for a teammate to get to the stumps: he holds it (a long way
         // out, he runs it in meanwhile); then the throw.
         if (t >= th.tStart - THROW.windup) {
