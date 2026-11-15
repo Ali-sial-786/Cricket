@@ -211,7 +211,7 @@ export class LbwFlow {
 
   _offer() {
     this.phase = 'window'; this.t = 0;
-    this.offered = true;
+    this.offered = true; this.windowTold = false;     // (told afresh each time: a window is a new ball)
   }
 
   _appeal(by) {

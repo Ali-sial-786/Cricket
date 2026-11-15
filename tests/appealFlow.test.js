@@ -110,6 +110,20 @@ test('appeal button: no press, no appeal (and the ball is not out)', () => {
   assert.ok(!g.log.some((l) => l[0] === 'signal'), 'the umpire was never asked');
 });
 
+test('appeal button: every quiet shout tells you (the second ball too, same flow)', () => {
+  const g = stubGame();
+  const flow = new LbwFlow(g, new Reviews(2));
+  for (let ball = 0; ball < 2; ball++) {
+    g.log.length = 0;
+    flow.start({ impactState: impactState(), path: null, shotOffered: true, playerIsBatter: false, by: 'offer' });
+    run(flow, g, 0.5);
+    assert.ok(g.log.some((l) => l[0] === 'prompt' && /to appeal/.test(l[1])), `ball ${ball + 1}: the prompt`);
+    assert.ok(g.log.some((l) => l[0] === 'hud' && l[1] === 'Appeal?'), `ball ${ball + 1}: the HUD line`);
+    run(flow, g, 4);
+    assert.equal(flow.done, true);
+  }
+});
+
 test('reviews: a failed review is lost; with none left there is no review', () => {
   // You bat: given out (plumb, right), you review: stays out, review lost.
   const g = stubGame({ rng: () => 0.99 });
