@@ -164,10 +164,14 @@ export function trackLbw({ impactState, pitchPos = null, cfg = CONFIG } = {}) {
 
 // The verdict rows the board shows: { label, text, colour }. green = the
 // condition for OUT is met, red = it is not, amber = umpire's call.
-export function verdictRows(track, { shotOffered = true, batFirst = false, noBall = false } = {}) {
+// edgeRows: the Snicko / Hot Spot rows from the edge truth (edgeTrack.js
+// edgeRows(truth, { review: 'lbw' })), shown before ball tracking; with them
+// the BAT row says which part of the bat it was.
+export function verdictRows(track, { shotOffered = true, batFirst = false, noBall = false, edgeRows = null, batText = null } = {}) {
   const rows = [];
   if (noBall) rows.push({ label: 'NO BALL', text: 'OVERSTEPPED', colour: 'red' });
-  if (batFirst) rows.push({ label: 'BAT', text: 'BAT FIRST', colour: 'red' });
+  if (edgeRows) rows.push(...edgeRows);
+  if (batFirst) rows.push({ label: 'BAT', text: batText || 'BAT FIRST', colour: 'red' });
 
   if (track.fullToss) rows.push({ label: 'PITCHING', text: 'FULL TOSS', colour: 'green' });
   else {
@@ -217,6 +221,8 @@ export function lawOut(track, opts = {}) {
 const REASONS = {
   'NO BALL': 'no-ball',
   BAT: 'bat first',
+  SNICKO: 'edge on Snicko',
+  'HOT SPOT': 'edge on Hot Spot',
   PITCHING: 'pitched outside leg',
   WICKETS: 'missing the stumps',
 };
@@ -226,8 +232,8 @@ const REASONS = {
 // first, no-ball) is NOT OUT; otherwise any umpire's-call verdict leaves the
 // on-field decision standing and the review is kept; otherwise OUT. The
 // review is also kept when it overturned the decision, and lost otherwise.
-export function reviewOutcome(track, { onFieldOut, shotOffered = true, batFirst = false, noBall = false } = {}) {
-  const rows = verdictRows(track, { shotOffered, batFirst, noBall });
+export function reviewOutcome(track, { onFieldOut, shotOffered = true, batFirst = false, noBall = false, edgeRows = null, batText = null } = {}) {
+  const rows = verdictRows(track, { shotOffered, batFirst, noBall, edgeRows, batText });
   const red = rows.filter((r) => r.colour === 'red');
   const amber = rows.filter((r) => r.colour === 'amber');
   let out, umpiresCall = false, reason;

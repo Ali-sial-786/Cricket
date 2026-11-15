@@ -8,7 +8,7 @@
 //   left stick / arrows     move in the crease
 //   X / Space               RUN (and "next ball" in the nets)
 //   left trigger / G        turn back mid-run        Y / V   dive for the line
-//   A / Z                   review an LBW decision
+//   A / Z                   review a decision against you (LBW, caught off an edge)
 import * as THREE from 'three';
 import { CONFIG } from '../config.js';
 import { Vec3, msToKmh, clamp } from '../physics/math.js';
@@ -17,6 +17,7 @@ import { machineDelivery } from '../physics/bowlingMachine.js';
 import { predict, crossingAtZ } from '../physics/trajectory.js';
 import { LbwFlow, padHit, deflectOffPad } from './lbwFlow.js';
 import { ThirdUmpireFlow } from './thirdUmpire.js';
+import { Reviews } from './reviews.js';
 import { BackFoot, creaseShort } from './crease.js';
 import { HINTS } from '../ui/controllerHint.js';
 
@@ -52,7 +53,7 @@ export class BattingSession {
     this.advance = 0;
     this.backFoot = new BackFoot();  // where your real back foot is (headset), src/game/crease.js
     this.creasePin = 0;              // 0..1: your figure's back foot held on it (a stumping being judged)
-    this.reviews = { player: CONFIG.match.reviews, ai: CONFIG.match.reviews };
+    this.reviews = new Reviews(CONFIG.match.reviews);   // 2 per side this innings
     this.lbw = new LbwFlow(game, this.reviews);
     this.third = new ThirdUmpireFlow(game);
     this.reviewFlow = null; this.pendingRes = null;
@@ -220,7 +221,7 @@ export class BattingSession {
       const flow = this.reviewFlow || this.lbw;
       flow.update(g.realDt || dt);
       if (flow.done) {
-        const res = flow === this.lbw ? (this.lbw.out ? { kind: 'lbw' } : { kind: 'beaten', padded: true }) : this.pendingRes;
+        const res = flow === this.lbw ? this.lbw.result({ kind: 'beaten', padded: true }) : this.pendingRes;
         this.reviewFlow = null;
         this.finish(res);
       }
@@ -381,8 +382,15 @@ export class BattingSession {
         return;
       }
     }
+    // An edge onto the pad (lbwFlow.js batPad): an LBW shout (the review finds the bat first), or still in play.
+    if (this.field && g.diff.lbwAgainstPlayer && this.hit && this.hit.edge && !this.noBall && !this.freeHit && !b.padded) {
+      const bp = this.lbw.batPad(b, this.body(), PLAYER_PAD, { path: this.path.slice(), playerIsBatter: true, since: t - this.hit.t, field: this.field, t });
+      if (bp === 'appeal') { this.state = 'review'; this.reviewFlow = null; return; }
+    }
     if (this.field && (b.batted || this.byes)) {
       const res = this.field.result();
+      // A catch off an edge: the umpire's decision, and maybe a review (lbwFlow.js caught).
+      if (res && res.kind === 'caught' && !this.noBall && !this.freeHit && this.lbw.caught(res, { notOut: { kind: 'runs', runs: 0 }, path: this.path.slice(), playerIsBatter: true })) { this.state = 'review'; this.reviewFlow = null; return; }
       if (res) { if (!this.upstairs(res)) this.finish(res); return; }
       if (t - this.launchT > 20) this.finish({ kind: 'runs', runs: g.runs.completed });
       return;
@@ -392,7 +400,12 @@ export class BattingSession {
       if (this.field.keeperHold) {
         // He has it. Only now can you be stumped (or thrown out from where he stands back).
         if (!this.stumpAt) {
-          if (this.shortOfGround() <= 0.02) { this.finish({ kind: this.maxBatSpeedNear > 3.5 ? 'beaten' : 'left' }); return; }
+          if (this.shortOfGround() <= 0.02) {
+            const notOut = { kind: this.maxBatSpeedNear > 3.5 ? 'beaten' : 'left' };
+            // Close to the bat (or a noise as it passed): an appeal for caught behind (lbwFlow.js behind).
+            if (!this.noBall && !this.freeHit && this.lbw.behind({ notOut, path: this.path.slice(), playerIsBatter: true })) { this.state = 'review'; this.reviewFlow = null; return; }
+            this.finish(notOut); return;
+          }
           this.stumpAt = this.field.keeperAttack(t);
           g.ui.prompt('GET BACK!', 1, '#ff5a5a');
           return;
@@ -659,13 +672,14 @@ export class BattingSession {
       const card = inn.card;
       g.ui.setBoard([this.title.toUpperCase(), score, card ? card.pairText() : sub, card && card.bowler ? `${card.bowlerText()}   ·   ${inn.thisOver.join(' ') || '-'}` : `This over: ${inn.thisOver.join(' ') || '-'}`]);
       g.ui.setHud({ title: this.title, score, sub, footer: this.footer(), players: card ? `${card.pairText()}${inn.freeHit ? '   ·   FREE HIT' : ''}` : '' });
+      g.ui.setHud({ drs: this.reviews.text() });       // reviews left (lbwFlow.js / reviews.js)
     } else {
       const s = this.stats;
       score = `${s.balls} balls`;
       const m = g.settings.machine;
       sub = `Machine: ${Math.round(m.paceKmh)} km/h · ${lengthName(m.length)} · ${lineName(m.line)}${m.swing ? (m.swing > 0 ? ' · out-swing' : ' · in-swing') : ''}${m.seam ? ' · seam' : ''}${m.spinType !== 'none' ? ` · ${m.spinType}-spin` : ''}`;
       g.ui.setBoard(['NETS', `${s.balls} balls · ${s.fours}×4 · ${s.sixes}×6`, `Middled ${s.middled} · edges ${s.edges} · bowled ${s.bowled}`, `Best carry ${Math.round(s.bestCarry)} m`]);
-      g.ui.setHud({ title: this.title, score, sub, footer: this.footer() });
+      g.ui.setHud({ title: this.title, score, sub, footer: this.footer(), drs: '' });
     }
   }
 

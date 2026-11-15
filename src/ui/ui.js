@@ -49,7 +49,7 @@ export class UI {
     // HUD (world-locked, beside the pitch).
     this.hud = new CanvasPanel({ width: 1.3, height: 0.8, ppm: 600, name: 'hud', bg: 'rgba(10,16,26,0.78)', interactive: false });
     this.scene.add(this.hud.mesh);
-    this.hudData = { title: 'Crease VR', score: '', sub: '', players: '', last: '', big: '', bigColor: '#ffd34d', detail: '', footer: '' };
+    this.hudData = { title: 'Crease VR', score: '', sub: '', players: '', drs: '', last: '', big: '', bigColor: '#ffd34d', detail: '', footer: '' };
 
     // Big stadium scoreboard.
     this.board = new CanvasPanel({ width: 24, height: 9, ppm: 42, name: 'scoreboard', bg: 'rgba(6,10,18,1)', interactive: false });
@@ -554,8 +554,10 @@ export class UI {
     if (d.score) { const r = fitText(P.ctx, d.score, { maxW: tw * 0.5, size: 44, weight: 700 }); scoreW = r.width; W.push({ type: 'label', x: P.W - M, y: 46, text: d.score, size: r.size, bold: true, align: 'right' }); }
     W.push({ type: 'label', x: M, y: 46, text: d.title, size: 40, bold: true, color: '#ffd34d', maxW: tw - scoreW - (scoreW ? 24 : 0) });
     if (d.sub) W.push({ type: 'label', x: M, y: 104, text: d.sub, size: 30, color: '#c9d6e3', maxW: tw });
-    if (d.players) W.push({ type: 'label', x: M, y: 140, text: d.players, size: 25, color: '#ffe9a8', maxW: tw });
-    if (d.big) W.push({ type: 'label', x: P.W / 2, y: d.players ? 204 : 188, text: d.big, size: d.players ? 68 : 76, min: 30, bold: true, align: 'center', color: d.bigColor, maxW: tw });
+    // (the DRS reviews left go on the players' line: drs, set by the sessions)
+    const players = [d.players, d.drs].filter(Boolean).join('   ·   ');
+    if (players) W.push({ type: 'label', x: M, y: 140, text: players, size: 25, color: '#ffe9a8', maxW: tw });
+    if (d.big) W.push({ type: 'label', x: P.W / 2, y: players ? 204 : 188, text: d.big, size: players ? 68 : 76, min: 30, bold: true, align: 'center', color: d.bigColor, maxW: tw });
     // Lower lines flow down (each may wrap onto a second line); the footer
     // keeps to the bottom.
     let y = 252;

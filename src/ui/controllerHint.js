@@ -147,6 +147,7 @@ export const HINTS = {
   move:     { hand: 'L', button: 'stick', label: 'MOVE', sub: 'left stick', key: 'Arrows' },
   menu:     { hand: 'L', button: 'click', label: 'MENU', sub: 'click left stick', key: 'Esc' },
   review:   { hand: 'R', button: 'a', label: 'REVIEW', sub: 'press A', key: 'Z' },
+  appeal:   { hand: 'R', button: 'b', label: 'APPEAL', sub: 'press B', key: 'X' },
   toKeeper: { hand: 'R', button: 'a', label: 'TO KEEPER', sub: 'press A', key: 'Z' },
   toBowler: { hand: 'R', button: 'b', label: "BOWLER'S END", sub: 'press B', key: 'X' },
   bowl:     { hand: 'R', button: 'trigger', label: 'BOWL', sub: 'hold, swing, let go', key: 'Mouse' },

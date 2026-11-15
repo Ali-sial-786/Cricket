@@ -14,6 +14,7 @@ import { LbwFlow, padHit, deflectOffPad } from './lbwFlow.js';
 import { trackLbw } from './lbw.js';
 import { isWide, shouldAppeal, heldBallAlpha } from './bowlingRules.js';
 import { ThirdUmpireFlow } from './thirdUmpire.js';
+import { Reviews } from './reviews.js';
 import { Innings } from './scoring.js';
 import { batProfile } from './squad.js';
 import { playerBowler, seamFromWrist, stepDelivery, deliveryInfo, PLAYER_BOWLER_ORDER } from './bowlerTypes.js';
@@ -45,7 +46,7 @@ export class BowlingSession {
     const s = game.settings;
     this.aim = { x: 0.08, z: -6.5 };
     this.assist = s.aimAssist;
-    this.reviews = { player: CONFIG.match.reviews, ai: CONFIG.match.reviews };
+    this.reviews = new Reviews(CONFIG.match.reviews);   // 2 per side this innings
     this.lbw = new LbwFlow(game, this.reviews);
     this.third = new ThirdUmpireFlow(game);
     this.reviewFlow = null; this.pendingRes = null;
@@ -506,7 +507,7 @@ export class BowlingSession {
       const flow = this.reviewFlow || this.lbw;
       flow.update(g.realDt || dt);
       if (flow.done) {
-        const res = flow === this.lbw ? (this.lbw.out ? { kind: 'lbw' } : { kind: 'dot', padded: true }) : this.pendingRes;
+        const res = flow === this.lbw ? this.lbw.result({ kind: 'dot', padded: true }) : this.pendingRes;
         this.reviewFlow = null;
         this.finish(res);
       }
@@ -572,14 +573,24 @@ export class BowlingSession {
         // leg, hit him outside the line playing a shot, or was clearly missing.
         let track = null;
         try { track = trackLbw({ impactState: impact, cfg: CONFIG }); } catch { track = null; }
-        if (!shouldAppeal(track, { shotOffered })) { this.finish({ kind: 'dot', padded: true, noAppeal: true }); return; }
+        // The fielders keep quiet (not out on its face, or unsighted): you can
+        // still appeal (B) once the ball is dead, before its replay (lbwFlow.js).
+        const quiet = !shouldAppeal(track, { shotOffered }) || this.lbw.fieldersQuiet();
         this.state = 'review';
-        this.lbw.start({ impactState: impact, path: this.path.slice(), shotOffered, playerIsBatter: false });
+        this.lbw.start({ impactState: impact, path: this.path.slice(), shotOffered, playerIsBatter: false, by: quiet ? 'offer' : 'fielders' });
         return;
       }
     }
+    // An edge onto the pad (lbwFlow.js batPad): an LBW shout (the review finds the bat first), or still in play.
+    if (this.hit && this.hit.edge && plan && plan.C && !this.noBall && !this.freeHit && !b.padded) {
+      const body = g.aiBatter.bodyAt(t);
+      const bp = this.lbw.batPad(b, { x: plan.C.x - 0.14, z: body.z - 0.2 }, undefined, { path: this.path.slice(), playerIsBatter: false, since: t - this.hit.t, field: this.field, t });
+      if (bp === 'appeal') { this.state = 'review'; this.reviewFlow = null; return; }
+    }
     if (this.field && (b.batted || this.byes)) {
       const res = this.field.result();
+      // A catch off an edge: the umpire's decision (your appeal if the fielders keep quiet), maybe a review (lbwFlow.js caught).
+      if (res && res.kind === 'caught' && !this.noBall && !this.freeHit && this.lbw.caught(res, { notOut: { kind: 'runs', runs: 0 }, path: this.path.slice(), playerIsBatter: false })) { this.state = 'review'; this.reviewFlow = null; return; }
       if (res) { if (!this.upstairs(res)) this.finish(res); return; }
       if (t - this.launchT > 20) this.finish({ kind: 'runs', runs: g.runs.completed });
       return;
@@ -589,7 +600,11 @@ export class BowlingSession {
       if (this.field.keeperHold) {
         // He has it: out of his ground, the batter can be stumped (or thrown out from where the keeper stands back).
         if (!this.stumpAt) {
-          if (g.aiBatter.advanceAt(t) <= 0.2) { this.finish({ kind: 'dot' }); return; }
+          if (g.aiBatter.advanceAt(t) <= 0.2) {
+            // Close to the bat (or a noise as it passed): caught behind? The fielders' appeal, or yours (lbwFlow.js behind).
+            if (!this.noBall && !this.freeHit && this.lbw.behind({ notOut: { kind: 'dot' }, path: this.path.slice(), playerIsBatter: false })) { this.state = 'review'; this.reviewFlow = null; return; }
+            this.finish({ kind: 'dot' }); return;
+          }
           this.stumpAt = this.field.keeperAttack(t);
           return;
         }
@@ -780,8 +795,9 @@ export class BowlingSession {
       const card = this.innings.card;
       g.ui.setBoard([this.title.toUpperCase(), score, card ? card.pairText() : sub.split(' · ').slice(0, 1).join(''), card ? `${card.bowlerText()}   ·   ${this.innings.thisOver.join(' ') || '-'}` : `This over: ${this.innings.thisOver.join(' ') || '-'}`]);
       g.ui.setHud({ players: card ? `${card.pairText()}${this.innings.freeHit ? '   ·   FREE HIT' : ''}` : '' });
+      g.ui.setHud({ drs: this.reviews.text() });       // reviews left (lbwFlow.js / reviews.js)
     } else {
-      g.ui.setHud({ players: '' });
+      g.ui.setHud({ players: '', drs: '' });
       score = `${s.runs}/${s.wickets} (${Math.floor(s.balls / 6)}.${s.balls % 6})`;
       sub = `${sw} · difficulty ${g.settings.difficulty}${g.bowlCalibPending ? ` · calibrating release ${this.calibSamples.length}/${g.bowlCalibPending}` : ''}`;
       g.ui.setBoard(['BOWLING NETS', score, `Dots ${s.dots} · beaten ${s.beaten} · edges ${s.edges}`, `Fastest ${Math.round(s.fastest)} km/h`]);

@@ -30,6 +30,7 @@ import { Particles } from '../render/particles.js';
 import { Samples } from '../audio/samples.js';
 import { Commentary } from '../audio/commentary.js';
 import { DRSView } from '../render/drsView.js';
+import { ContactLog } from './edgeTrack.js';
 import { UmpireView } from '../render/umpires.js';
 import { BatGeometry } from '../physics/bat.js';
 import { Runs } from './running.js';
@@ -92,6 +93,7 @@ export class Game {
     this.runs = new Runs(CONFIG);
     this.umpires = new UmpireView(scene);
     this.drs = new DRSView(scene);
+    this.contacts = new ContactLog(CONFIG).attach(this.world);   // what the ball touched each delivery (edgeTrack.js: Snicko, Hot Spot)
     this.playerBody = new PlayerBodyView(scene);
     this.playerBowler = new PlayerBowlerActor(scene);   // your body when you bowl (third person / replays)
     this.particles = new Particles(scene);

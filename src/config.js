@@ -273,7 +273,7 @@ export const CONFIG = {
   },
 
   match: {
-    overs: 5, wickets: 5, reviews: 1,
+    overs: 5, wickets: 5, reviews: 2,   // DRS reviews per side per innings (kept when overturned or umpire's call)
     noBallChance: { easy: 0.045, medium: 0.03, hard: 0.02 },   // AI bowler oversteps (per ball) -> free hit
     overstep: 0.3,           // m your head may be past the popping crease at release before it is a no-ball
     beamerHeight: 1.15,      // m: a full toss above this at the batter is a no-ball

@@ -1,11 +1,17 @@
 // The Decision Review System presentation: TV-style ball tracking for an LBW
-// review and the third umpire's line call for run-outs / stumpings. World
-// space, VR friendly: a handful of unlit meshes and one canvas board; no
-// post-processing, no per-frame allocation.
+// review, Snicko and Hot Spot for an edge (caught, or bat first in an LBW),
+// and the third umpire's line call for run-outs / stumpings. World space, VR
+// friendly: a handful of unlit meshes, one canvas board and, for the edge
+// checks, a second canvas (the "screen") beside it on the side toward the
+// middle of the pitch; no post-processing, no per-frame allocation (the
+// screen is redrawn only when the third umpire steps a frame).
 //
 //   const drs = new DRSView(scene);
-//   drs.startLbw({ track, deliveryPath, onFieldOut, outcome, viewerPos });
+//   drs.startLbw({ track, deliveryPath, onFieldOut, outcome, viewerPos, edge });
+//   // or drs.startCaught({ edge, deliveryPath, onFieldOut, outcome, viewerPos });
 //   // or drs.startThird({ kind: 'run_out', end: 'batting', margin, viewerPos });
+//   (edge: edgeTrack.js edgeEvidence(log): the contact log, its Snicko trace,
+//   Hot Spot marks and the edge rows.)
 //   each frame: drs.update(dt); for (const cue of drs.takeCues()) …
 //   when drs.done: read drs.result, then drs.hide().
 //
@@ -17,7 +23,10 @@ import { CanvasPanel, roundRect } from '../ui/panel.js';
 import { PITCH, battingPoppingZ, bowlingPoppingZ } from '../physics/pitch.js';
 import { CONFIG } from '../config.js';
 import { verdictRows } from '../game/lbw.js';
+import { frameAt } from '../game/edgeTrack.js';
 import { radialTexture } from './util.js';
+import { drawSnicko, batDims } from './snicko.js';
+import { drawHotspot } from './hotspot.js';
 
 const HEX = { green: 0x39e07a, red: 0xff4d5e, amber: 0xffb547, white: 0xffffff, blue: 0x3d8bff };
 const CSS = { green: '#39e07a', red: '#ff4d5e', amber: '#ffb547', white: '#f2f5f9' };
@@ -40,6 +49,20 @@ const LBW_T = {
   showDecision: 2.2,
 };
 const THIRD_T = { check: 1.0, freeze: 2.8, decide: 3.8, end: 6.0 };
+// The edge checks (Snicko, then Hot Spot), from EDGE_T.start.
+const EDGE_T = {
+  start: 1.2,         // the screen comes up (after the ON-FIELD CALL row)
+  far: 0.075,         // s on each camera frame away from the bat…
+  near: 0.3,          // …on the two either side of the ball at the bat…
+  at: 1.0,            // …and on the frame of the ball at the bat
+  snickoRow: 0.25,    // the SNICKO row this long after the last frame
+  toHot: 0.55,        // the Hot Spot pictures this long after the SNICKO row
+  mark: 0.5,          // the marks bloom in
+  hotRow: 1.3,        // the HOT SPOT row
+  hold: 2.2,          // the Hot Spot stage lasts this long
+  batRow: 0.35,       // LBW: the BAT row after the HOT SPOT row
+};
+const BOARD_W = 2.2, SCREEN_W = 2.4, SCREEN_H = 1.35, SCREEN_GAP = 0.08;
 const PAST_STUMPS = 1.0;      // m a missing projection is drawn on past the stumps
 
 const SIDES = 8;
@@ -48,6 +71,8 @@ const MAX_PROJECTION = 40;
 const EMPTY = Object.freeze([]);
 
 const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
+const _sv = new THREE.Vector3(), _sr = new THREE.Vector3();
+const TRACKING_ROWS = new Set(['PITCHING', 'IMPACT', 'WICKETS']);
 
 // CanvasPanel plus a filled 'bar' widget (the coloured verdict pills).
 class Board extends CanvasPanel {
@@ -209,6 +234,16 @@ export class DRSView {
     this._dirty = false;
     this._tipAtStumps = false;
     this._tipHidden = false;
+    this._tTrack = LBW_T.track;      // LBW: when ball tracking starts (later after the edge checks)
+    this._edge = null;               // edgeEvidence() while the edge checks are on
+    this._stage = null;              // 'snicko' | 'hotspot' | null: what the screen shows
+    this._frameK = -1;               // Snicko: the camera frame shown
+    this._markOn = false;            // Hot Spot: the marks are in
+    this._screenDirty = false;
+    this._contactT = null;           // caught: the bat contact time (the ring at the bat)
+    this._cS = null;                 // caught: arc length of the delivery tube at each camera frame
+    this._cPreS = 0;
+    this._dims = batDims();
   }
 
   get active() { return this._active; }
@@ -233,6 +268,13 @@ export class DRSView {
     this._panel.mesh.material.fog = false;
     this._panel.mesh.material.side = THREE.DoubleSide;
     g.add(this._panel.mesh);
+    // The screen for Snicko and Hot Spot, hung beside the board (it follows it).
+    this._screen = new Board({ width: SCREEN_W, height: SCREEN_H, ppm: 400, name: 'drs-screen', bg: 'rgba(3,5,9,0.97)', interactive: false });
+    this._screen.mesh.material.fog = false;
+    this._screen.mesh.material.side = THREE.DoubleSide;
+    this._screen.mesh.visible = false;
+    this._screen.set([{ type: 'custom', draw: (ctx) => this._drawScreen(ctx) }], '');
+    this._panel.mesh.add(this._screen.mesh);
 
     // Stump-to-stump corridor.
     this._corridor = add(new THREE.Mesh(flat(new THREE.PlaneGeometry(half * 2, PITCH.length)), basic(HEX.blue, 0.32, ground)), 1, 'drs-corridor');
@@ -292,6 +334,7 @@ export class DRSView {
     m.position.set(sx * offsetX, height, v.z + along * distance);
     m.scale.setScalar(scale);
     m.lookAt(v.x, eyeY, v.z);
+    this._placeScreen(_sv.set(v.x, eyeY, v.z));
     return m;
   }
 
@@ -302,7 +345,33 @@ export class DRSView {
     m.position.copy(position);
     m.scale.setScalar(scale);
     if (faceToward) m.lookAt(faceToward.x, faceToward.y, faceToward.z);
+    this._placeScreen(faceToward || this._viewer);
     return m;
+  }
+
+  // The screen goes beside the board on the side toward the middle of the
+  // pitch (over the pitch, above the eye line: nothing on the pitch is behind
+  // it), turned in to face the viewer.
+  _placeScreen(viewer) {
+    const m = this._panel.mesh, sc = this._screen.mesh;
+    const right = _sr.set(1, 0, 0).applyQuaternion(m.quaternion);
+    const toward = Math.abs(m.position.x + right.x * 0.5) <= Math.abs(m.position.x) ? 1 : -1;
+    const L = BOARD_W / 2 + SCREEN_GAP + SCREEN_W / 2;
+    const D = Math.max(1, Math.hypot(m.position.x - viewer.x, m.position.z - viewer.z) / Math.max(1e-3, m.scale.x));
+    sc.position.set(toward * L, 0.04, 0.02);
+    sc.rotation.set(0, Math.atan2(-toward * L, D), 0);
+    this.screenSide = toward;
+  }
+
+  // The screen's mesh (Snicko / Hot Spot).
+  get screen() { this._build(); return this._screen.mesh; }
+
+  _drawScreen(g) {
+    const P = this._screen, ed = this._edge;
+    if (!ed || !this._stage) return;
+    const rect = { x: 16, y: 16, w: P.W - 32, h: P.H - 32 };
+    if (this._stage === 'snicko') drawSnicko(g, rect, { trace: ed.trace, log: ed.log, k: Math.max(0, this._frameK), dims: this._dims });
+    else drawHotspot(g, rect, { marks: ed.marks, reveal: this._markOn ? 1 : 0, seed: 11, dims: this._dims });
   }
 
   _drawBoard() {
@@ -352,6 +421,14 @@ export class DRSView {
     this._decided = false;
     this._note = '';
     this._dots = -1;
+    this._edge = null;
+    this._stage = null;
+    this._frameK = -1;
+    this._markOn = false;
+    this._contactT = null;
+    this._cS = null;
+    this._tTrack = LBW_T.track;
+    this._screen.mesh.visible = false;
     this.placeBoard(viewerPos);
     this._cues.push('stinger');
     this.scene.add(this.group);
@@ -361,11 +438,15 @@ export class DRSView {
   _at(t, type, arg) { this._events.push({ t, type, arg }); }
 
   // track: trackLbw()'s result. deliveryPath: the real flight, release ->
-  // impact, [{x,y,z}]. outcome: reviewOutcome()'s result.
-  startLbw({ track, deliveryPath = null, onFieldOut = false, outcome = null, viewerPos = null } = {}) {
+  // impact, [{x,y,z}]. outcome: reviewOutcome()'s result. edge: edgeEvidence()
+  // (review 'lbw'): Snicko and Hot Spot come first ("bat first?"); with the
+  // bat first the review ends there, NOT OUT, without ball tracking.
+  startLbw({ track, deliveryPath = null, onFieldOut = false, outcome = null, viewerPos = null, edge = null } = {}) {
     this._begin('lbw', viewerPos);
     const R = CONFIG.ball.radius;
-    const verdicts = (outcome && outcome.rows) || verdictRows(track);
+    let verdicts = (outcome && outcome.rows) || verdictRows(track, edge ? { edgeRows: edge.rows, batFirst: edge.truth.batFirst } : {});
+    const batFirst = !!(edge && edge.truth.batFirst);
+    if (batFirst) verdicts = verdicts.filter((r) => !TRACKING_ROWS.has(r.label));
     const out = outcome ? !!outcome.out : false;
     const umpiresCall = outcome ? !!outcome.umpiresCall : false;
     const reviewKept = outcome ? !!outcome.reviewKept : true;
@@ -374,9 +455,10 @@ export class DRSView {
       kind: 'lbw', out, umpiresCall, reviewKept,
       sub: `${umpiresCall ? "UMPIRE'S CALL" : stands ? 'DECISION STANDS' : 'DECISION OVERTURNED'}  ·  ${reviewKept ? 'REVIEW RETAINED' : 'REVIEW LOST'}`,
     };
-    this._title = 'DECISION REVIEW';
+    this._title = edge ? 'DECISION REVIEW · LBW' : 'DECISION REVIEW';
     this._rows = [{ label: 'ON-FIELD CALL', text: onFieldOut ? 'OUT' : 'NOT OUT', colour: 'white' },
       ...verdicts.map((r) => ({ ...r, colour: BOARD_COLOUR[r.colour] ?? r.colour }))];
+    this._setEdge(edge);
 
     // --- geometry
     const impact = track.impactPos;
@@ -451,22 +533,31 @@ export class DRSView {
 
     // --- timeline
     const T = LBW_T;
-    const tPitching = T.track + T.toImpact;
+    const E = edge ? this._edgeStage(EDGE_T.start) : null;
+    const tTrack = E ? E.end + 0.2 : T.track;
+    this._tTrack = tTrack;
+    const tPitching = tTrack + T.toImpact;
     const tImpact = tPitching + T.hold;
     const tWickets = tImpact + T.hold;
     const tWicketsRow = tWickets + T.project + T.wicketsRow;
-    const tDecision = tWicketsRow + T.decideAfter;
+    let tDecision = tWicketsRow + T.decideAfter;
     this._tProject = tWickets;
-    this._at(T.track, 'phase', 'tracking');
-    this._at(tPitching, 'phase', 'pitching');
-    this._at(tImpact, 'phase', 'impact');
-    this._at(tWickets, 'phase', 'wickets');
+    if (batFirst) tDecision = E.hotRow + EDGE_T.batRow + 0.9;
+    else {
+      this._at(tTrack, 'phase', 'tracking');
+      this._at(tPitching, 'phase', 'pitching');
+      this._at(tImpact, 'phase', 'impact');
+      this._at(tWickets, 'phase', 'wickets');
+    }
     for (let i = 0; i < this._rows.length; i++) {
       const label = this._rows[i].label;
       const t = i === 0 ? T.onField
         : label === 'PITCHING' ? tPitching + T.rowAfter
         : label === 'IMPACT' ? tImpact + T.rowAfter
         : label === 'WICKETS' ? tWicketsRow
+        : label === 'SNICKO' && E ? E.snickoRow
+        : label === 'HOT SPOT' && E ? E.hotRow
+        : label === 'BAT' && E ? E.hotRow + EDGE_T.batRow
         : T.extras;
       this._at(t, 'row', i);
     }
@@ -474,6 +565,99 @@ export class DRSView {
     this._at(tDecision + T.showDecision, 'done', null);
     this._events.sort((a, b) => a.t - b.t);
     this._drawBoard();
+  }
+
+  // A catch where the edge is the question. edge: edgeEvidence() (review
+  // 'caught'); deliveryPath: the flight up to the bat. The ball is drawn on to
+  // the bat and past it in step with the Snicko frames (the ball-tracking
+  // replay of the ball past the bat), a ring marks the contact, then Hot Spot,
+  // then OUT / NOT OUT.
+  startCaught({ edge, deliveryPath = null, onFieldOut = true, outcome = null, viewerPos = null, title = 'CAUGHT' } = {}) {
+    this._begin('caught', viewerPos);
+    const R = CONFIG.ball.radius;
+    const out = outcome ? !!outcome.out : !!edge.truth.touched;
+    const reviewKept = outcome ? !!outcome.reviewKept : out !== !!onFieldOut;
+    this._outcome = {
+      kind: 'caught', out, umpiresCall: false, reviewKept,
+      sub: `${out === !!onFieldOut ? 'DECISION STANDS' : 'DECISION OVERTURNED'}  ·  ${reviewKept ? 'REVIEW RETAINED' : 'REVIEW LOST'}`,
+    };
+    this._title = `DECISION REVIEW · ${title}`;
+    const rows = (outcome && outcome.rows) || edge.rows;
+    this._rows = [{ label: 'ON-FIELD CALL', text: onFieldOut ? 'OUT' : 'NOT OUT', colour: 'white' },
+      ...rows.map((r) => ({ ...r, colour: BOARD_COLOUR[r.colour] ?? r.colour }))];
+    this._setEdge(edge);
+
+    // --- geometry: the delivery, then the ball past the bat frame by frame
+    const log = edge.log, tr = edge.trace;
+    const pts = this._pts;
+    pts.length = 0;
+    const F = log.frames.length ? tr.frames.map((t) => frameAt(log, t)) : [];
+    const zStart = F.length ? F[0].z : Infinity;
+    const src = deliveryPath || [];
+    let last = -1;
+    for (let i = 0; i < src.length; i++) if (src[i].z < zStart - 0.02) last = i;
+    const room = MAX_DELIVERY - F.length - 1;
+    if (last >= 1) {
+      const n = Math.max(2, Math.min(last + 1, room));
+      for (let k = 0; k < n; k++) pts.push(src[Math.round(k * last / (n - 1))]);
+    } else {
+      const m = CONFIG.machine;
+      pts.push({ x: m.releaseX, y: m.releaseHeight, z: m.releaseZ });
+    }
+    const pre = pts.length;
+    for (const f of F) pts.push({ x: f.x, y: Math.max(R, f.y), z: f.z });
+    if (pts.length < 2) pts.push({ x: 0, y: 0.5, z: PITCH.battingStumpsZ - 1 });
+    fillTube(this._delivery, pts, pts.length, R);
+    this._cPreS = this._delivery.len[Math.max(0, pre - 1)];
+    this._cS = F.map((_, k) => this._delivery.len[Math.min(this._delivery.n - 1, pre + k)]);
+    pts.length = 0;
+    const bat = edge.truth.bat;
+    this._contactT = bat ? bat.t : null;
+    for (const part of this._lbwParts) part.visible = false;
+    this._corridor.visible = true;
+    this._corridor.material.opacity = 0;
+    this._delivery.mesh.visible = true;
+    if (bat && bat.pos) this._impactMark.position.set(bat.pos.x, bat.pos.y, bat.pos.z);
+    this._impactMark.material.color.setHex(HEX.white);
+    const v = this._viewer;
+    this._markScale = Math.min(2.4, Math.max(1, Math.hypot(v.x, v.z - PITCH.battingStumpsZ) / 8)) * 0.8;
+    this._ball.position.set(this._delivery.ctr[0], this._delivery.ctr[1], this._delivery.ctr[2]);
+
+    // --- timeline
+    const E = this._edgeStage(EDGE_T.start);
+    for (let i = 0; i < this._rows.length; i++) {
+      const label = this._rows[i].label;
+      this._at(i === 0 ? LBW_T.onField : label === 'SNICKO' ? E.snickoRow : label === 'HOT SPOT' ? E.hotRow : LBW_T.extras, 'row', i);
+    }
+    const tDecision = E.end + 0.2;
+    this._at(tDecision, 'decision', null);
+    this._at(tDecision + LBW_T.showDecision, 'done', null);
+    this._events.sort((a, b) => a.t - b.t);
+    this._drawBoard();
+  }
+
+  _setEdge(edge) {
+    this._edge = edge || null;
+    this._dims = (edge && edge.log && edge.log.dims) || batDims();
+  }
+
+  // Snicko (the third umpire steps through the frames: quickly away from the
+  // bat, slowly either side of it, holding on the ball at the bat), then Hot
+  // Spot. Returns the times of its rows and its end.
+  _edgeStage(t0) {
+    const tr = this._edge.trace, fr = tr.frames, fdt = tr.frameDt;
+    let t = t0;
+    this._at(t, 'phase', 'snicko');
+    for (let k = 0; k < fr.length; k++) {
+      this._at(t, 'frame', k);
+      const off = Math.abs(fr[k] - tr.tc) / fdt;
+      t += off < 0.5 ? EDGE_T.at : off < 2.5 ? EDGE_T.near : EDGE_T.far;
+    }
+    const snickoRow = t + EDGE_T.snickoRow - EDGE_T.far;
+    const tHot = snickoRow + EDGE_T.toHot;
+    this._at(tHot, 'phase', 'hotspot');
+    this._at(tHot + EDGE_T.mark, 'mark', null);
+    return { snickoRow, hotRow: tHot + EDGE_T.hotRow, end: tHot + EDGE_T.hold };
   }
 
   // kind: 'run_out' | 'stumping'. end: 'batting' | 'bowling'. margin (m): how
@@ -524,8 +708,28 @@ export class DRSView {
   _fire(e) {
     if (e.type === 'phase') {
       this.phase = e.arg;
-      if (this._kind === 'lbw') { if (e.arg === 'tracking') this._note = 'BALL TRACKING'; }
-      else if (e.arg === 'tracking') { this._note = 'CHECKING'; this._dots = 0; }
+      if (e.arg === 'snicko' || e.arg === 'hotspot') {
+        this._stage = e.arg;
+        this._note = e.arg === 'snicko' ? 'SNICKO' : 'HOT SPOT';
+        this._screen.mesh.visible = true;
+        this._screenDirty = true;
+      } else if (this._kind === 'lbw') {
+        if (e.arg === 'tracking') {
+          this._note = 'BALL TRACKING';
+          // The edge checks are done: the screen goes, ball tracking has the view.
+          this._stage = null;
+          this._screen.mesh.visible = false;
+        }
+      } else if (e.arg === 'tracking') { this._note = 'CHECKING'; this._dots = 0; }
+    } else if (e.type === 'frame') {
+      this._frameK = e.arg;
+      this._screenDirty = true;
+      const tr = this._edge && this._edge.trace;
+      if (tr && Math.abs(tr.frames[e.arg] - tr.tc) < tr.frameDt * 0.5 && this._edge.truth.touched) this._cues.push('spike');
+    } else if (e.type === 'mark') {
+      this._markOn = true;
+      this._screenDirty = true;
+      if (this._edge && this._edge.marks.length) this._cues.push('mark');
     } else if (e.type === 'row') {
       this._shown = Math.max(this._shown, e.arg + 1);
       const row = this._rows[e.arg];
@@ -542,6 +746,8 @@ export class DRSView {
           // (a missing one has flown on past the stumps and stays).
           if (this._hasStumps && this._tipAtStumps) this._tipHidden = true;
         }
+      } else if (this._kind === 'caught') {
+        if (row.label === 'SNICKO') this._impactMark.material.color.setHex(hex);
       } else if (row.label === 'GROUNDING') {
         this._gap.visible = true;
         this._batLine.visible = true;
@@ -577,8 +783,11 @@ export class DRSView {
       if (this._dirty) this._drawBoard();
     }
     if (this._kind === 'lbw') this._animateLbw();
+    else if (this._kind === 'caught') this._animateCaught();
     else this._animateThird();
     this._panel.update();
+    if (this._screenDirty) { this._screenDirty = false; this._screen.dirty = true; }
+    if (this._screen.mesh.visible) this._screen.update();
   }
 
   _animateLbw() {
@@ -587,22 +796,39 @@ export class DRSView {
     this._corridor.material.opacity = 0.32 * clamp01(t / 0.8);
 
     // The delivery, eased so it settles into the pad.
-    const u = clamp01((t - T.track) / T.toImpact);
+    const u = clamp01((t - this._tTrack) / T.toImpact);
     const d = this._delivery;
     const s = d.total * u * (1.15 - 0.15 * u);
     const u2 = clamp01((t - this._tProject) / T.project);
     const p = this._projection;
     growTube(d, s, this._head);
     if (u2 > 0) growTube(p, p.total * u2 * (2 - u2), this._head);
-    this._ball.visible = t >= T.track && !this._tipHidden;
+    this._ball.visible = t >= this._tTrack && !this._tipHidden;
     if (this._ball.visible && (u2 > 0 || u > 0)) this._ball.position.copy(this._head);
 
     const k = this._markScale * pulse;
-    this._pitchMark.visible = this._hasPitch && t >= T.track && s >= this._pitchS;
+    this._pitchMark.visible = this._hasPitch && t >= this._tTrack && s >= this._pitchS;
     if (this._pitchMark.visible) this._pitchMark.scale.set(k, 1, k);
     this._impactMark.visible = u >= 1;
     if (this._impactMark.visible) this._impactMark.scale.setScalar(k);
     this._zone.material.opacity = 0.26 + 0.06 * Math.sin(this._clock * 5);
+  }
+
+  // Caught: the delivery draws to the start of the Snicko window, then its
+  // tip goes with the camera frame being shown (on to the bat and past it).
+  _animateCaught() {
+    const t = this._t, d = this._delivery;
+    this._corridor.material.opacity = 0.32 * clamp01(t / 0.8);
+    const u = clamp01((t - 0.3) / (EDGE_T.start - 0.35));
+    let s = this._cPreS * u * (2 - u);
+    const tr = this._edge.trace;
+    if (this._frameK >= 0 && this._cS && this._cS.length) s = this._cS[Math.min(this._frameK, this._cS.length - 1)];
+    growTube(d, s, this._head);
+    this._ball.visible = t >= 0.3;
+    if (this._ball.visible) this._ball.position.copy(this._head);
+    const atBat = this._contactT != null && this._frameK >= 0 && tr.frames[this._frameK] >= this._contactT - tr.frameDt * 0.5;
+    this._impactMark.visible = atBat;
+    if (atBat) this._impactMark.scale.setScalar(this._markScale * (1 + 0.08 * Math.sin(this._clock * 9)) * 0.7);
   }
 
   _animateThird() {
@@ -617,12 +843,16 @@ export class DRSView {
     while (this._ev < ev.length) this._fire(ev[this._ev++]);
     // Only the result is announced: no backlog of chimes.
     this._cues = this._cues.filter((c) => !c.startsWith('chime:'));
+    this._cues = this._cues.filter((c) => c !== 'spike' && c !== 'mark');
     this._t = ev.length ? ev[ev.length - 1].t : 0;
     this._drawBoard();
+    this._screenDirty = true;
     this.update(0);
   }
 
-  // Cues since the last call: 'stinger', 'chime:green|red|amber', 'out', 'not_out'.
+  // Cues since the last call: 'stinger', 'chime:green|red|amber', 'out',
+  // 'not_out', and in the edge checks 'spike' (Snicko on the frame of a bat
+  // contact) and 'mark' (Hot Spot's marks come up).
   takeCues() {
     if (this._cues.length === 0) return EMPTY;
     const out = this._cues;
@@ -642,7 +872,10 @@ export class DRSView {
     if (this._built) {
       for (const part of this._lbwParts) part.visible = false;
       for (const part of this._thirdParts) part.visible = false;
+      this._screen.mesh.visible = false;
     }
+    this._stage = null;
+    this._edge = null;
   }
 
   dispose() {
@@ -653,6 +886,7 @@ export class DRSView {
       if (o.material) o.material.dispose();
     });
     this._panel.tex.dispose();
+    this._screen.tex.dispose();
     this._haloTex.dispose();
     this.group.clear();
     this._built = false;
