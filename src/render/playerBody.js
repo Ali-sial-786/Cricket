@@ -40,6 +40,7 @@ const SOFT = 0.03;                 // m: the knees are never quite locked (the h
 const KNEEL_ON = 0.36, KNEEL_OFF = 0.27;   // x the figure's scale: head this far down -> on the back knee (and back up)
 // Blade from its shoulder to its toe, along the bat's +Y from the grip point (m); leg axis to the blade's centre line at least.
 const BLADE_TOP = CONFIG.bat.gripFromHandleTop - CONFIG.bat.handleLength, BLADE_TOE = BLADE_TOP - CONFIG.bat.bladeLength, LEG_CLEAR = 0.19;
+const HIP_DOWN = 2.5;              // the pelvis moving down costs this many times moving along the ground (reachBoth)
 const KNEE_MIN = 0.12;             // knee joint above the turf at least (the pad's knee roll rests on it)
 const SNAP_EVERY = 12;             // frames between saved solver states in the log
 const LOOK_RATE = 7;               // rad/s: the head turns (and nods) at most this fast
@@ -378,6 +379,7 @@ export class PlayerBodyView {
     if (this.debug) { h.update(); this.debug.pre = h.worldPos('head', _a).distanceTo(Hj); }
     // ---- the gloves on the handle; the head looking where you look
     A.gripBat(bp, bq, elbowUp);
+    this.kneesUp();
     this.look(hq, e.ball, dt);
     h.syncShadow();
     // (lifted clear of the turf: the gloves go back on the handle)
@@ -434,19 +436,12 @@ export class PlayerBodyView {
       const a = clamp(rx * ux + rz * uz, -0.22, ll + 0.22), b = clamp(rx * -uz + rz * ux, -0.3, 0.34);
       P.x = F.R.x + a * ux + b * -uz; P.z = F.R.z + a * uz + b * ux;
     }
-    // (low enough for both legs to reach their feet, never lower than a kneel)
+    // (where both legs reach their feet: moved the least it can, along the ground
+    // before down, so a long stride shifts the weight over the front foot instead of squatting)
     const legLen = (h.bones.kneeL.position.length() + h.bones.ankleL.position.length()) * sc;
-    for (let pass = 0; pass < 2; pass++) {
-      let drop = 0;
-      for (const sd of ['L', 'R']) {
-        const hj = _a.copy(M['h' + sd]).sub(M.H).add(P), T = M['t' + sd];
-        const d = hj.distanceTo(T), over = d - legLen * 0.992;
-        if (over > 0) drop = Math.max(drop, over * d / Math.max(0.3, hj.y - T.y));
-      }
-      if (drop <= 0) break;
-      P.y -= drop;
-    }
+    reachBoth(P, _a.subVectors(M.hL, M.H), M.tL, _b.subVectors(M.hR, M.H), M.tR, legLen * 0.985, HIP_DOWN);
     P.y = Math.max(P.y, A.kneelHipY * sc * 0.82);
+    if (this.dbg) this.dbg('Hj', Hj.y, 'P0', Hj.y - M.hd.y + M.H.y, 'P', P.y, 'feet', F.L.x, F.L.z, F.R.x, F.R.z, 'Hjxz', Hj.x, Hj.z, 'Pxz', P.x, P.z);
     h.bones.hips.position.copy(h.bones.hips.parent.worldToLocal(_a.copy(P)));
     h.update();
     // the trunk leans the rest of the way to your head (it was clamped, or the legs could not reach)
@@ -465,15 +460,9 @@ export class PlayerBodyView {
     for (const sd of ['L', 'R']) {
       const T = M['t' + sd], hip = h.worldPos('hip' + sd, _a);
       const pole = M['o' + sd].addVectors(hip, T).multiplyScalar(0.5).addScaledVector(M['p' + sd], 0.6);
-      h.ikLeg(sd, T, pole);
       // (a knee the capture has down that would go into the turf here: it comes up onto its pad)
-      for (let it = 0; it < 3; it++) {
-        h.update();
-        const ky = h.worldPos('knee' + sd, _b).y, need = KNEE_MIN * sc - ky;
-        if (need <= 0) break;
-        pole.y += need * 4 + 0.05;
-        h.ikLeg(sd, T, pole);
-      }
+      liftPole(h, sd, T, pole, KNEE_MIN * sc);
+      h.ikLeg(sd, T, pole);
     }
     // feet flat the way they point (the back one tipped onto its toe)
     h.setWorldQuat('ankleL', _q.setFromAxisAngle(_up, yawL));
@@ -527,6 +516,22 @@ export class PlayerBodyView {
     }
   }
 
+  // No knee in the turf, whatever moved the legs last (the yield, the reach):
+  // each knee turned up about its hip-ankle line just as far as it must.
+  kneesUp() {
+    const h = this.actor.h, sc = h.root.scale.x;
+    h.update();
+    for (const sd of ['L', 'R']) {
+      const ank = h.worldPos('ankle' + sd, _a), hip = h.worldPos('hip' + sd, _b);
+      const pole = _c.copy(h.worldPos('knee' + sd, _d)).sub(_e.addVectors(hip, ank).multiplyScalar(0.5)).multiplyScalar(4).add(_d);
+      if (!liftPole(h, sd, ank, pole, KNEE_MIN * sc)) continue;
+      h.bones['ankle' + sd].getWorldQuaternion(_q);
+      h.ikLeg(sd, ank, pole);
+      h.setWorldQuat('ankle' + sd, _q);
+      h.update();
+    }
+  }
+
   // The head looks where you look (the headset's forward), as far as a neck
   // turns; on a monitor at the ball, or down the pitch.
   look(hq, ball, dt) {
@@ -563,6 +568,68 @@ function kneeWay(p, yaw, bias = 0.05) {
   const d = p.x * fx + p.z * fz;
   if (d < 0.25) { p.x += fx * (0.25 - d) * 1.2; p.z += fz * (0.25 - d) * 1.2; p.normalize(); }
   return p;
+}
+// Of the places a knee can be with its hip and ankle where they are (a circle
+// about the line between them), the one nearest the way `pole` bends it that
+// is at least minY above the turf. Moves `pole` there and returns true if it
+// had to (false: the knee is already high enough). Continuous in its inputs,
+// so a knee near the limit never flips between two answers.
+const _la = new THREE.Vector3(), _ln = new THREE.Vector3(), _lu = new THREE.Vector3(), _lv = new THREE.Vector3(), _lc = new THREE.Vector3();
+function liftPole(h, sd, T, pole, minY) {
+  const sc = h.root.scale.x;
+  h.update();
+  const hip = h.worldPos('hip' + sd, _la);
+  const l1 = h.bones['knee' + sd].position.length() * sc, l2 = h.bones['ankle' + sd].position.length() * sc;
+  const n = _ln.subVectors(T, hip);
+  let d = n.length();
+  if (d < 1e-5) return false;
+  n.divideScalar(d);
+  d = clamp(d, Math.abs(l1 - l2) + 1e-3, l1 + l2 - 1e-4);
+  const x = (l1 * l1 - l2 * l2 + d * d) / (2 * d), r = Math.sqrt(Math.max(0, l1 * l1 - x * x));
+  const C = _lc.copy(hip).addScaledVector(n, x);
+  const u = _lu.subVectors(pole, C); u.addScaledVector(n, -u.dot(n));
+  if (u.lengthSq() < 1e-10) return false;
+  u.normalize();
+  const v = _lv.crossVectors(n, u);
+  const a = r * u.y, b = r * v.y, c = minY - C.y;
+  if (a >= c) return false;                         // (y at the wanted angle: C.y + a)
+  const R = Math.hypot(a, b), phi = Math.atan2(b, a);
+  let th;
+  if (R < 1e-6) return false;
+  if (c >= R) th = phi;                              // (as high as it goes)
+  else {
+    const dl = Math.acos(c / R), t1 = angDiff(0, phi - dl), t2 = angDiff(0, phi + dl);
+    th = Math.abs(t1) <= Math.abs(t2) ? t1 : t2;
+  }
+  pole.copy(C).addScaledVector(u, Math.cos(th) * 0.6).addScaledVector(v, Math.sin(th) * 0.6);
+  return true;
+}
+// Move P (the pelvis) the least it must so that P + oL is within `reach` of
+// TL and P + oR within reach of TR (both legs reach their feet). The distance
+// is weighed with going down costing `down` times going along the ground.
+// Alternating projections onto the two balls, each along the weighed
+// gradient; continuous in its inputs.
+const _rd = new THREE.Vector3(), _rg = new THREE.Vector3();
+function reachBoth(P, oL, TL, oR, TR, reach, down) {
+  const w2 = down * down;
+  for (let it = 0; it < 6; it++) {
+    let moved = false;
+    for (const [o, T] of [[oL, TL], [oR, TR]]) {
+      const d = _rd.copy(P).add(o).sub(T), l = d.length();
+      if (l <= reach + 1e-5) continue;
+      // direction: toward the foot, with its vertical part scaled down (cheap sideways, dear downward)
+      _rg.copy(d).multiplyScalar(-1 / l);
+      if (_rg.y < 0) _rg.y /= w2;
+      _rg.normalize();
+      // step t along it so that |d + t g| = reach
+      const b = d.dot(_rg), c = l * l - reach * reach, disc = b * b - c;
+      const t = disc >= 0 ? -b - Math.sqrt(disc) : -b;
+      P.addScaledVector(_rg, Math.max(0, t));
+      moved = true;
+    }
+    if (!moved) break;
+  }
+  return P;
 }
 function closestOnSeg(p, a, b, out) {
   out.subVectors(b, a);
