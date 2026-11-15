@@ -42,6 +42,7 @@ const KNEEL_ON = 0.36, KNEEL_OFF = 0.27;   // x the figure's scale: head this fa
 const BLADE_TOP = CONFIG.bat.gripFromHandleTop - CONFIG.bat.handleLength, BLADE_TOE = BLADE_TOP - CONFIG.bat.bladeLength, LEG_CLEAR = 0.19;
 const KNEE_MIN = 0.12;             // knee joint above the turf at least (the pad's knee roll rests on it)
 const SNAP_EVERY = 12;             // frames between saved solver states in the log
+const LOOK_RATE = 7;               // rad/s: the head turns (and nods) at most this fast
 const UPRIGHT = ['forward_defence', 'straight_drive', 'cover_drive', 'lofted_drive'];
 const HALF_PI = Math.PI / 2, TAU = Math.PI * 2;
 const NB = 17;
@@ -83,9 +84,10 @@ export class PlayerBodyView {
   // Everything the solver remembers (plain data).
   reset() {
     this.sense.reset(); this.feet.reset();
-    this.st = { u: {}, kneel: 0, kneelK: 0, kneelV: 0, toeR: 0, look: 0, desk: null, n: 0, out: null, yield: { L: [0, 0], R: [0, 0] } };
+    this.st = { u: {}, kneel: 0, kneelK: 0, kneelV: 0, toeR: 0, look: 0, lookP: 0, lookN: 0, desk: null, n: 0, out: null, yield: { L: [0, 0], R: [0, 0] } };
     this.actor._tw = null; this.actor._eb = null;
     this.log.length = 0;
+    this.gen = (this.gen || 0) + 1;     // (a replay re-solve begun before this has nothing left to make)
   }
   saveState() {
     const A = this.actor, eb = A._eb;
@@ -126,6 +128,7 @@ export class PlayerBodyView {
     };
     if (this.st.n % SNAP_EVERY === 0 || !L.length) e.state = this.saveState();
     this.solve(e);
+    e.arm = this.armsNow();
     L.push(e);
     while (L.length > 1400 || (L.length && t - L[0].t > 16)) L.shift();
     this.actor.bat.visible = false;
@@ -136,29 +139,93 @@ export class PlayerBodyView {
   // is the body you had). write(t, h) stores each pose. The live figure is
   // put back as it was. Returns false if nothing was logged for the clip.
   resolve(t0, t1, write) {
+    const job = this.resolveBegin(t0, t1);
+    if (!job) return false;
+    this.resolveStep(job, Infinity, write);
+    this.resolveEnd(job);
+    return job.n > 0;
+  }
+  // The same in slices, so a replay can spread the work over its first frames
+  // instead of stopping the picture for it: resolveBegin -> resolveStep (until
+  // it returns true) -> resolveEnd. Between begin and end the figure is the
+  // replay's, not the live one (only while play is frozen). job.t: the time of
+  // the last pose made; job.t0, job.t1: the clip. resolveBegin returns null if
+  // nothing was logged for the clip.
+  resolveBegin(t0, t1) {
     const L = this.log, A = this.actor, h = A.h;
+    // (from the last saved solver state at or before t0)
     let i0 = -1;
     for (let i = 0; i < L.length && L[i].t <= t1; i++) if (L[i].state && (L[i].t <= t0 || i0 < 0)) i0 = i;
-    if (i0 < 0) return false;
-    const saved = { state: this.saveState(), snap: h.snapshot(), pos: A.pos.clone(), heading: A.heading, footL: A.footL.clone(), footR: A.footR.clone(), root: h.root.position.clone(), rq: h.root.quaternion.clone(), sc: h.root.scale.x, stretched: A._stretched, arms: A._stretched ? Object.fromEntries(Object.keys(A.armRest).map((b) => [b, h.bones[b].position.clone()])) : null };
+    if (i0 < 0) return null;
+    const saved = { state: this.saveState(), snap: h.snapshot(), pos: A.pos.clone(), heading: A.heading, footL: A.footL.clone(), footR: A.footR.clone(), root: h.root.position.clone(), rq: h.root.quaternion.clone(), sc: h.root.scale.x, arms: this.armsNow() };
     this.loadState(L[i0].state);
-    let n = 0;
-    for (let i = i0; i < L.length && L[i].t <= t1; i++) {
-      const e = L[i];
+    // (the log is the live one: the re-solve must not log again or shift it)
+    return { t0, t1, i: i0, t: -Infinity, n: 0, done: false, saved, gen: this.gen };
+  }
+  // Make up to `count` more poses (at most `ms` milliseconds of work, if given); write(t, h)
+  // stores each one from t0 on. True when all are made.
+  resolveStep(job, count, write, ms = Infinity) {
+    const L = this.log, h = this.actor.h;
+    if (job.done) return true;
+    // (the log was cleared since begin: a new game; nothing more to make)
+    if (job.gen !== this.gen) { job.done = true; return true; }
+    const tEnd = ms < Infinity ? performance.now() + ms : Infinity;
+    // (the log moved on since: find the next frame by its time)
+    if (job.i > 0 && L[job.i - 1] && L[job.i - 1].t !== job.t && job.t > -Infinity) { job.i = 0; while (job.i < L.length && L[job.i].t <= job.t) job.i++; }
+    for (let n = 0; n < count; n++) {
+      const e = L[job.i];
+      if (!e || e.t > job.t1) { job.done = true; break; }
+      job.i++;
       if (e.sc && Math.abs(h.root.scale.x - e.sc) > 1e-6) h.root.scale.setScalar(e.sc);
       this.solve(e);
-      if (e.t >= t0) { write(e.t, h); n++; }
+      job.t = e.t;
+      if (e.t >= job.t0) { write(e.t, h); job.n++; }
+      if (tEnd < Infinity && performance.now() > tEnd) break;
     }
-    // put the live figure back
+    return job.done;
+  }
+  // Put the live figure back as it was.
+  resolveEnd(job) {
+    const A = this.actor, h = A.h, saved = job.saved;
+    if (!saved) return;
+    job.done = true; job.saved = null;
     this.loadState(saved.state);
-    A.restArms();
-    if (saved.arms) { for (const [b, p] of Object.entries(saved.arms)) h.bones[b].position.copy(p); A._stretched = true; }
+    this.setArms(saved.arms);
     A.pos.copy(saved.pos); A.heading = saved.heading; A.footL.copy(saved.footL); A.footR.copy(saved.footR);
     h.root.scale.setScalar(saved.sc);
     h.root.position.copy(saved.root); h.root.quaternion.copy(saved.rq);
     h.blendFrom(saved.snap, 0);
     h.update();
-    return n > 0;
+  }
+
+  // How far each arm is lengthened (the gloves on a bat out of the figure's
+  // reach): [left, right], 1 = its own length. Logged every frame, because a
+  // replay poses joints only.
+  armsNow() {
+    const A = this.actor, h = A.h;
+    if (!A._stretched) return null;
+    return [h.bones.elbowL.position.length() / A.armRest.elbowL.length(), h.bones.elbowR.position.length() / A.armRest.elbowR.length()];
+  }
+  setArms(k) {
+    const A = this.actor, h = A.h;
+    A.restArms();
+    if (!k) return;
+    for (const [i, sd] of [[0, 'L'], [1, 'R']]) {
+      if (Math.abs(k[i] - 1) < 1e-6) continue;
+      h.bones['elbow' + sd].position.copy(A.armRest['elbow' + sd]).multiplyScalar(k[i]);
+      h.bones['hand' + sd].position.copy(A.armRest['hand' + sd]).multiplyScalar(k[i]);
+      A._stretched = true;
+    }
+  }
+  // In a replay at game time t: the arms as long as they were in the pose
+  // shown then (the replay sets the joints; this, the arms' length), so the
+  // gloves are on the bat in the replay as they were live.
+  replayArms(t) {
+    const L = this.log;
+    let lo = 0, hi = L.length - 1;
+    if (hi < 0 || L[0].t >= t) { this.setArms(null); return; }
+    while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (L[mid].t < t) lo = mid; else hi = mid - 1; }
+    this.setArms(L[lo].arm || null);
   }
 
   // Each capture's footwork: where its feet are at contact against its own
@@ -311,7 +378,7 @@ export class PlayerBodyView {
     if (this.debug) { h.update(); this.debug.pre = h.worldPos('head', _a).distanceTo(Hj); }
     // ---- the gloves on the handle; the head looking where you look
     A.gripBat(bp, bq, elbowUp);
-    this.look(hq, e.ball);
+    this.look(hq, e.ball, dt);
     h.syncShadow();
     // (lifted clear of the turf: the gloves go back on the handle)
     if (h.guardLift > 0.002) A.gripBat(bp, bq, elbowUp);
@@ -462,7 +529,7 @@ export class PlayerBodyView {
 
   // The head looks where you look (the headset's forward), as far as a neck
   // turns; on a monitor at the ball, or down the pitch.
-  look(hq, ball) {
+  look(hq, ball, dt) {
     const h = this.actor.h, st = this.st;
     h.update();
     const neck = h.bones.neck;
@@ -474,8 +541,14 @@ export class PlayerBodyView {
     // (looking right round behind you: the head stays turned the way it was, it does not whip to the other shoulder)
     if (Math.abs(yaw) > 2.2 && yaw * st.look < 0) yaw = Math.sign(st.look) * 1.5;
     yaw = clamp(yaw, -1.5, 1.5);
-    st.look = yaw;
-    const pitch = clamp(Math.atan2(-_hf.y, Math.hypot(_hf.x, _hf.z)), -0.7, 0.8);
+    let pitch = clamp(Math.atan2(-_hf.y, Math.hypot(_hf.x, _hf.z)), -0.7, 0.8);
+    // (never faster than a neck turns: a look that swings round past the shoulder, or the
+    // body turning under it, eases the head round instead of popping it)
+    if (st.lookN++ > 0) {
+      yaw = st.look + clamp(yaw - st.look, -LOOK_RATE * dt, LOOK_RATE * dt);
+      pitch = st.lookP + clamp(pitch - st.lookP, -LOOK_RATE * dt, LOOK_RATE * dt);
+    }
+    st.look = yaw; st.lookP = pitch;
     h.rot('neck', pitch * 0.4, yaw * 0.45, 0, 'YXZ');
     h.rot('head', pitch * 0.6, yaw * 0.55, 0, 'YXZ');
   }

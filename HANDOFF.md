@@ -1,4 +1,20 @@
-# Handoff: batting body overhaul (branch wt-bat2, work stopped mid-way)
+# Handoff: batting body overhaul (branch wt-bat2)
+
+## Current status (second engineer, keep this section up to date)
+- `npm test` 181 pass; `final.mjs` smoke clean in all four modes (run on 9de5b08).
+- Node-only metrics runner (no browser, ~12 s for all 14 tracks):
+  `ROOT=/home/user/wt-bat2 node <scratchpad>/bat2n/run.mjs [shot,shot]` (same metrics as harness/bat2_shots.mjs plus
+  torso tilt, solver ms, replay step ms, replay glove error with replayArms).
+- Done since 9de5b08:
+  - `resolve` split into `resolveBegin(t0,t1) -> job|null`, `resolveStep(job, count, write, ms?) -> done`,
+    `resolveEnd(job)` (same interface as wt-replay2's people.js), `resolve()` wraps them.
+  - Arm stretch logged per frame (`e.arm`), `PlayerBodyView.replayArms(t)`; game.js replay branch calls it instead of
+    `actor.restArms()` (one line). Replay glove error now equals live glove error (<= 0.2 cm).
+  - Head look rate-limited (7 rad/s): hook's 94 deg head pop gone.
+- Next: hook hipL 46 deg jump @1.38, sweep sinking/ankle jump, deep_back stumps, advance foot slide, arm stretch,
+  then strips for all shots, unit tests, ghost look, AI striker, DECISIONS.md.
+
+## First engineer's handoff (kept for reference)
 
 Base: 170638a. Everything below is in the WIP commit on wt-bat2. Nothing pushed.
 `npm test` was NOT run after the changes (last known: 187 pass at 170638a). The smoke `final.mjs` was NOT run either.

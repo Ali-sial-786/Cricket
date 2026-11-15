@@ -619,7 +619,7 @@ export class Game {
       this.applyView();
       this.updateEye();
       this.playerBody.actor.h.setGhost(false); this.playerBowler.h.setGhost(false);
-      this.playerBody.actor.restArms();     // (the replay poses joints only: the arms at their own length)
+      this.playerBody.replayArms(this.replay.rt);     // (the replay poses joints only: the arms as long as they were then)
       this.replay.placeVignette(this.eye);
       this.ballFinder.hide();
       Humanoid.updateLods(this.eye.p);
