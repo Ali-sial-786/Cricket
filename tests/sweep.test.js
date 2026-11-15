@@ -98,28 +98,42 @@ test('not a sweep: a batting crouch, a lunge, a duck under a bouncer, a quick cr
   for (const [n, o] of [['crouch', crouch], ['duck', duck], ['duck, bat flat', duckFlat], ['grounding the bat', ground], ['a blip', blip]]) assert.ok(!o.some(Boolean), `${n}: read as a sweep`);
 });
 
-test('the sweep button drops your view to a kneeling sweeper\'s eyes in ~0.2 s, never twice, back up in ~0.3 s, not in a menu', { skip: Game ? false : skip }, () => {
+test('the sweep button drops your view to a kneeling sweeper\'s eyes in ~0.2 s; your own head still moves it 1:1; never twice; back up in ~0.3 s', { skip: Game ? false : skip }, () => {
   let held = true;
-  const g = { input: { xr: true, headRef: { p: { y: 1.6 } }, refreshHeadWorld() {} }, mr: false, end: 'batting', state: 'play', ui: { menuOpen: false }, viewOverride: null, replay: { active: false },
-    session: { isBowling: false, sweepSlog: false, sweepDrop: () => (held ? 1 : 0) }, playerBody: { kneelEyeY: () => 1.0 }, rig: { position: { y: 0 }, updateMatrixWorld() {} }, rigDrop: 0, rigDropV: 0 };
-  const step = (n) => { const o = []; for (let i = 0; i < n; i++) { Game.prototype.updateRigDrop.call(g, 1 / 72); o.push(g.rigDrop); } return o; };
+  const mk = () => ({ input: { xr: true, headRef: { p: { y: 1.6 } }, refreshHeadWorld() {} }, mr: false, end: 'batting', state: 'play', ui: { menuOpen: false }, viewOverride: null, replay: { active: false },
+    settings: { sweepDrop: true }, session: { isBowling: false, sweepSlog: false, sweepDrop: () => (held ? 1 : 0) }, playerBody: { kneelEyeY: () => 1.0 }, rig: { position: { y: 0 }, updateMatrixWorld() {} }, rigDrop: 0 });
+  const g = mk();
+  const step = (n, dt = 1 / 72) => { const o = []; for (let i = 0; i < n; i++) { Game.prototype.updateRigDrop.call(g, dt); o.push(g.rigDrop); } return o; };
+  const eye = () => g.input.headRef.p.y - g.rigDrop;
   const down = step(30);
-  const t90 = down.findIndex((d) => d >= 0.9 * 0.6) / 72;
+  const t90 = (down.findIndex((d) => d >= 0.9 * 0.6) + 1) / 72;
   assert.ok(t90 > 0 && t90 <= 0.25, `90% down in ${t90.toFixed(3)} s`);
-  assert.ok(Math.max(...down) <= 0.6 + 1e-6, 'no overshoot');
+  assert.ok(Math.max(...down) <= 0.6 + 1e-9, 'no overshoot');
   assert.ok(Math.abs(g.rig.position.y + g.rigDrop) < 1e-9, 'the rig moved down by the drop');
-  // crouching yourself as well: the eyes stay at the kneeling height, the view does not drop twice
-  g.input.headRef.p.y = 1.25; step(40);
-  assert.ok(Math.abs(g.rigDrop - 0.25) < 0.01, `crouched: drop ${g.rigDrop.toFixed(3)}`);
-  g.input.headRef.p.y = 0.9; step(40);
-  assert.ok(g.rigDrop < 0.01, 'right down yourself: no drop');
-  g.input.headRef.p.y = 1.6; step(40);
+  // held: your own head moves the view 1:1 (up and down)
+  g.input.headRef.p.y = 1.7; step(1); assert.ok(Math.abs(eye() - 1.1) < 1e-9, `head up 10 cm: eyes ${eye().toFixed(3)}`);
+  g.input.headRef.p.y = 1.5; step(1); assert.ok(Math.abs(eye() - 0.9) < 1e-9, `head down 10 cm: eyes ${eye().toFixed(3)}`);
+  // crouching right down as well: never more than 12 cm under the kneeling height (no double drop), and it does not come back while held
+  g.input.headRef.p.y = 1.0; step(1); assert.ok(Math.abs(eye() - 0.88) < 1e-9, `crouched: eyes ${eye().toFixed(3)}`);
+  g.input.headRef.p.y = 1.6; step(5); assert.ok(Math.abs(g.rigDrop - 0.12) < 1e-9, `stood up again while held: the drop stays ${g.rigDrop.toFixed(3)}`);
   held = false;
-  const up = step(40), back = up.findIndex((d) => d <= 0.06) / 72;
-  assert.ok(back > 0.15 && back <= 0.4, `back up in ${back.toFixed(3)} s`);
+  const up = step(40), back = (up.findIndex((d) => d <= 0.006) + 1) / 72;
+  assert.ok(back > 0.15 && back <= 0.32, `back up in ${back.toFixed(3)} s`);
   assert.ok(up.every((d) => d >= 0), 'never above your real head');
-  held = true; step(40); g.ui.menuOpen = true; step(60);
-  assert.ok(g.rigDrop < 0.005, 'a menu opens: back up');
+  held = true; step(40); g.ui.menuOpen = true; step(40);
+  assert.ok(g.rigDrop < 1e-9, 'a menu opens: back up');
+  // a long frame (50 ms) at the start of the drop: no overshoot, no bounce
+  for (const at of [0, 1, 2]) {
+    const h = mk(); held = true;
+    const o = [];
+    for (let i = 0; i < 40; i++) { Game.prototype.updateRigDrop.call(h, i === at ? 0.05 : 1 / 72); o.push(h.rigDrop); }
+    assert.ok(Math.max(...o) <= 0.6 + 1e-9, `long frame ${at}: overshoot ${(Math.max(...o) - 0.6).toFixed(4)}`);
+    for (let i = 1; i < o.length; i++) assert.ok(o[i] >= o[i - 1] - 1e-12, `long frame ${at}: comes back up at ${i}`);
+  }
+  // Settings -> Sweep view drop off: no drop
+  const off = mk(); off.settings.sweepDrop = false; held = true;
+  for (let i = 0; i < 30; i++) Game.prototype.updateRigDrop.call(off, 1 / 72);
+  assert.equal(off.rigDrop, 0);
 });
 
 test('a bat riding the turf under the view drop: the contact physics turns it about its own (lifted) grip, and it is not going down', { skip: Game ? false : skip }, async () => {

@@ -130,7 +130,7 @@ export class Game {
     // lookYaw about your head; lookOff keeps the head where it was.
     this.lookYaw = 0;
     this.lookOff = { x: 0, z: 0 };
-    this.rigDrop = 0; this.rigDropV = 0;   // m the sweep button has lowered your view (updateRigDrop)
+    this.rigDrop = 0;                     // m the sweep button has lowered your view (updateRigDrop)
     this.turnArmed = true;
     this.turnRate = 0;                    // smooth turn: current rad/s (eased toward the stick)
     this.runMarks = buildRunMarks();
@@ -443,20 +443,38 @@ export class Game {
   }
 
   // Holding the sweep button lowers your view to a kneeling sweeper's eyes
-  // (the figure's kneeling head for your height), vertically only, eased in
-  // and out (critically damped): the drop is how far your real eyes are above
-  // that height, so crouching yourself as well drops it less, never twice.
-  // Not in replays, menus, a catch, MR, while running or when not batting.
+  // (the figure's kneeling head for your height), vertically only. The drop
+  // is set when you press (how far your real eyes are above that height
+  // then) and never grows while held, so your own head still moves the view
+  // 1:1; crouching further only shrinks it, as far as needed to keep your
+  // eyes no lower than DROP_FLOOR under the kneeling height (never a double
+  // drop). It moves in a fixed-time smootherstep blend (DROP_IN down, DROP_OUT
+  // back up; a new target is blended from where it is), so a long frame never
+  // overshoots. Settings -> Sweep view drop; not in replays, menus, a catch,
+  // MR, while running or diving, or when not batting.
   updateRigDrop(dt) {
-    const ses = this.session;
-    const allow = this.input.xr && !this.mr && ses && !ses.isBowling && ses.sweepDrop && this.end === 'batting' && this.state === 'play'
-      && !this.ui.menuOpen && !this.viewOverride && !(this.replay && this.replay.active);
-    const target = allow && ses.sweepDrop() ? Math.max(0, this.input.headRef.p.y - this.playerBody.kneelEyeY(!!ses.sweepSlog)) : 0;
-    const om = target > this.rigDrop ? DROP_IN : DROP_OUT, acc = om * om * (target - this.rigDrop) - 2 * om * this.rigDropV;
-    this.rigDropV += acc * dt;
-    this.rigDrop = Math.max(0, this.rigDrop + this.rigDropV * dt);
-    if (this.rigDrop === 0 && this.rigDropV < 0) this.rigDropV = 0;
-    if (target === 0 && this.rigDrop < 1e-4) { this.rigDrop = 0; this.rigDropV = 0; }
+    const ses = this.session, D = this.drop || (this.drop = { held: false, latched: 0, from: 0, to: 0, t: 0, dur: DROP_IN });
+    const allow = this.input.xr && !this.mr && this.settings.sweepDrop !== false && ses && !ses.isBowling && ses.sweepDrop && this.end === 'batting'
+      && this.state === 'play' && !this.ui.menuOpen && !this.viewOverride && !(this.replay && this.replay.active);
+    const held = !!(allow && ses.sweepDrop()), real = this.input.headRef.p.y;
+    const kneel = this.playerBody.kneelEyeY(!!(ses && ses.sweepSlog));
+    let floor = Infinity;
+    if (held) {
+      if (!D.held) D.latched = Math.max(0, real - kneel);                     // (set on the press)
+      floor = Math.max(0, real - (kneel - DROP_FLOOR));                       // (eyes no lower than the floor)
+      D.latched = Math.min(D.latched, floor);                                 // (only ever shrinks while held)
+    }
+    D.held = held;
+    const to = held ? D.latched : 0;
+    if (Math.abs(to - D.to) > 1e-6) {                                         // a new target: blended from where it is now
+      D.from = this.rigDrop; D.to = to; D.t = 0;
+      D.dur = to > D.from ? DROP_IN : DROP_OUT;
+    }
+    D.t = Math.min(D.dur, D.t + dt);
+    const u = D.t / D.dur, e = u * u * u * (u * (u * 6 - 15) + 10);
+    let v = D.from + (D.to - D.from) * e;
+    if (v > floor) { v = floor; D.from = floor; D.t = 0; D.dur = DROP_OUT; }   // (held to the floor: the blend goes on from there)
+    this.rigDrop = Math.max(0, v);
     if (!this.input.xr || this.viewOverride || (this.replay && this.replay.active)) return;    // (they place the rig themselves)
     if (Math.abs(this.rig.position.y + this.rigDrop) > 1e-7) {
       this.rig.position.y = -this.rigDrop;
@@ -1076,7 +1094,7 @@ const _off = new Quat(), _tilt = new Quat(), _xAxis = new Vec3(1, 0, 0);
 const _batPose = new Pose();
 const _swRef = { x: 0, y: 0, z: 0 }, _lin = new Vec3();
 const BAT_ABOVE_TURF = 0.01;       // m: the lowest corner of your bat's toe is kept this far up while the view is dropped
-const DROP_IN = 20, DROP_OUT = 13; // 1/s: the sweep's view drop eases in (90% in ~0.2 s) and back up (~0.3 s), critically damped
+const DROP_IN = 0.22, DROP_OUT = 0.3, DROP_FLOOR = 0.12;   // s the sweep's view drop takes down / back up; m your eyes may go under the kneeling height
 const GHOST_LEGS = 0.72;          // opacity of your see-through pads when you look down (boots +0.3, thighs x0.7; Humanoid.setGhost)
 const _bd = new Vec3();
 const _eq = new THREE.Quaternion();

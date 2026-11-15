@@ -41,6 +41,7 @@ export function defaultSettings() {
     contactAssist: 'normal',       // off | low | normal | high (see CONFIG.contactAssist)
     view: 'eyes',                  // eyes | helmet (eyes behind a helmet grille) | behind (third person)
     ownBody: true,                 // see a faint body (legs, feet) when you look down
+    sweepDrop: true,               // holding the sweep button lowers your view to a kneeling sweeper's
     ballFinder: true,              // arrow / halo / landing ring to find the ball after a hit
     replay: 'bowler',              // off | bowler: a replay after every ball, from the bowler's end
     commentary: true,
