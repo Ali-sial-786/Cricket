@@ -388,7 +388,7 @@ export class DRSView {
       w.push({ type: 'label', text: r.label, x: 44, y: y + h / 2 + 1, size: fs, bold: true, color: shown ? '#e8eef5' : 'rgba(232,238,245,0.32)' });
       if (shown) {
         w.push({ type: 'bar', x: pillX, y: y + 5, w: pillW, h: h - 10, color: CSS[r.colour] || CSS.white, radius: 10 });
-        w.push({ type: 'label', text: r.text, x: pillX + pillW / 2, y: y + h / 2 + 1, size: fs, bold: true, align: 'center', color: '#0a0f16' });
+        w.push({ type: 'label', text: r.text, x: pillX + pillW / 2, y: y + h / 2 + 1, size: fs, bold: true, align: 'center', color: '#0a0f16', maxW: pillW - 32 });
       }
     }
     const dy = H * 0.735, dh = H * 0.235;
