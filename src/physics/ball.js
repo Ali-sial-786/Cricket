@@ -35,6 +35,7 @@ export class BallState {
     this.maxHeightSinceBat = 0;
     this.seamRandomScale = 1;   // scales CONFIG.surfaces.seamRandomDeg for this ball
     this.padded = false;        // struck the batter's pad (dead for bat / keeper logic)
+    this.thrown = false;        // a fielder's throw carrying on (src/game/fielding.js relaunch), not a delivery or a hit
     return this;
   }
   copyFrom(o) {

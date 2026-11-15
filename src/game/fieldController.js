@@ -7,7 +7,8 @@
 //     the end a fielder throws to
 import * as THREE from 'three';
 import { Fielding, PLAYER_CLEAR, STUMP_CLEAR } from './fielding.js';
-import { planRuns, RUNNER_CLEAR } from './running.js';
+import { planRuns, planMoreRuns, RUNNER_CLEAR } from './running.js';
+import { overthrowRuns } from './throwing.js';
 import { Vec3, clamp, smoothstep as sstep } from '../physics/math.js';
 import { PITCH } from '../physics/pitch.js';
 import { CONFIG } from '../config.js';
@@ -30,8 +31,11 @@ export class FieldController {
   constructor(game, { spinner = false, bowlerFields = true, playerBatting = true } = {}) {
     this.game = game;
     const skill = CONFIG.ai[game.settings.difficulty] || CONFIG.ai.medium;
-    this.logic = new Fielding({ rng: game.rng, catchSkill: skill.catchSkill, spinner, bowlerFields });
+    // (throwing: easy 0.85, medium 1, hard 1.15 -- the spread of a throw is divided by it)
+    const throwSkill = 0.85 + (skill.catchSkill - 0.55) / (0.88 - 0.55) * 0.3;
+    this.logic = new Fielding({ rng: game.rng, catchSkill: skill.catchSkill, throwSkill, spinner, bowlerFields });
     this.logic.autoRuns = false;
+    this.logic.runs = game.runs;           // (where to throw depends on how the batters are running)
     this.playerBatting = playerBatting;
     this.playerFielding = !playerBatting;
     this.delivering = false;
@@ -48,6 +52,7 @@ export class FieldController {
     const g = this.game;
     g.fieldView.show(true);
     this.logic.reset();
+    this.logic.runs = g.runs;
     g.fieldView.update(0, this.logic.states(), { t: g.simTime, ball: null, delivering: false });
     this.clearRunners();
   }
@@ -155,7 +160,13 @@ export class FieldController {
 
   onBoundary(e) {
     this.logic.onBoundary(e);
-    if (this.logic.outcome && !this.outcome) { this.outcome = this.logic.outcome; this.runs.close({ boundary: this.outcome.kind === 'boundary' }); }
+    if (this.logic.outcome && !this.outcome) this.takeLogicOutcome();
+  }
+  // A boundary or a catch: the ball is dead. Overthrows to the rope: a run in
+  // progress that they had crossed on when the throw was made counts, and is finished.
+  takeLogicOutcome() {
+    const o = this.outcome = this.logic.outcome;
+    this.runs.close({ boundary: o.kind === 'boundary', to: o.overthrows && o.crossed ? o.ran : null });
   }
 
   // Player batting controls.
@@ -286,12 +297,32 @@ export class FieldController {
   // The wicket at `end` is broken this instant (the replay cuts to that crease).
   breakNow(end, t) {
     const g = this.game;
+    const w = g.world && g.world.wickets ? g.world.wickets.find((x) => x.end === end) : null;
+    if (w) w.broken = true;                    // (a ball rolling into them later does not break them again)
     if (g.stumps[end].broken) return;
     g.stumps[end].break({ x: 0, y: 0, z: end === 'batting' ? -8 : 8 }, 1);
     g.sample('stumps') || g.sfx.stumps();
     g.sample('bails', { gain: 0.6 });
     g.replay.mark('break', t);
     g.replay.marks.breakEnd = end;
+  }
+
+  // A throw has hit the stumps, got past everyone (overthrows) or been put down.
+  onThrowEvent(e, t) {
+    const g = this.game, L = this.logic, r = this.runs;
+    if (e.type === 'stumps') { this.breakNow(e.end, t); return; }
+    if (this.outcome || L.dead) return;
+    if (e.type === 'overthrow') {
+      g.ui.prompt(this.playerBatting ? 'OVERTHROW!  Run?' : 'Overthrow!', 1.6, this.playerBatting ? '#7dff8a' : '#ffb347');
+      g.crowdReact('close');
+      // The AI batters: more runs if the ball is well away and nobody is backing up.
+      if (!this.playerBatting && r.active && !r.closed) {
+        const bold = 0.25 + 0.5 * (g.aiBatter.aggression || 0.4);
+        this.ropeWatch = false;
+        this.turnedBack = false;
+        this.aiRunsLeft = planMoreRuns(L.estimateBack(t), r, bold, g.rng);
+      }
+    }
   }
 
   // ------------------------------------------------------------- per frame
@@ -387,11 +418,14 @@ export class FieldController {
       if (got === 'take') { w.removeBall(); g.sample('gloves') || g.sfx.catchThud(); g.replay.mark('held', t); }
       else if (got === 'miss') g.crowdReact('close');
     }
-    // His throw at the stumps arrives.
+    // His throw at the stumps arrives: it breaks them, or it misses and runs on (byes).
     if (L.shy && !L.shy.done && t >= L.shy.at) {
       L.shy.done = true;
       if (L.shy.hit) this.breakNow('batting', t);
+      else L.shyMissed(w, t);
     }
+    // What the throws did this frame: the stumps hit, a throw got away (overthrows).
+    for (const e of L.events.splice(0)) this.onThrowEvent(e, t);
 
     // ---- running ----
     if (r.active && !this.outcome) {
@@ -450,23 +484,30 @@ export class FieldController {
     if (!this.outcome) {
       if (L.dropped && !this.droppedTold) { this.droppedTold = true; g.crowdReact(this.playerBatting ? 'close' : 'dropped'); }
       if (L.outcome) {                                   // boundary or catch
-        this.outcome = L.outcome;
-        r.close({ boundary: L.outcome.kind === 'boundary' });
+        this.takeLogicOutcome();
       } else if (L.throwArrived) {
-        const end = L.throwArrived.end;
+        const ta = L.throwArrived, end = ta.end;
         const short = r.running ? r.shortBy() : -1;
+        const ot = L.overthrow ? overthrowRuns : null;
         if (r.running && short > 0) {
-          this.outcome = { kind: 'runout', runs: r.completed, end, margin: short, who: r.headingTo(end) };
-          this.breakStumps(end, t, 0.12);
+          this.outcome = { kind: 'runout', runs: r.completed, end, margin: short, who: r.headingTo(end), direct: !!ta.direct };
+          if (ta.direct) this.breakNow(end, t);          // (the ball has broken them itself)
+          else this.breakStumps(end, t, 0.12);
           r.close({ stop: !r.diving });
+          r.close();
+        } else if (ta.direct && !(r.rate !== 0 && short > -0.45)) {
+          // A direct hit with the batters home: the ball comes off the stumps
+          // and is still in play (they may run again on it).
+          L.throwArrived = null;
         } else {
           // Made their ground: the run counts, and they finish it as they were going
           // (running through, or sliding in on the chest) instead of being put on the line.
           const close = r.rate !== 0 && short > -1.2 ? -short : null;
-          this.outcome = { kind: 'runs', runs: r.makeGround(), closeCall: close, end };
-          g.sample('gloves', { gain: 0.7 });
+          const runs = r.makeGround();
+          this.outcome = { kind: 'runs', runs, closeCall: close, end, overthrows: ot ? ot(runs, L.overthrow.base).overthrows : 0 };
+          if (!ta.direct) g.sample('gloves', { gain: 0.7 });
+          r.close();
         }
-        r.close();
       }
     }
 

@@ -59,6 +59,15 @@ export function glovesPoint(end, out = new Vec3()) {
 // The middle of the stumps (where a shy is aimed).
 export function stumpsAim(end, out = new Vec3()) { return out.set(0, 0.36, STUMPS_Z[end]); }
 
+// How hard a throw is (m/s) over `dist` m: a shy is flat out, a throw to
+// the gloves with a run-out on nearly so, a safe return from close in only
+// a firm lob (nobody fires a ball at a teammate from 5 m).
+export function throwSpeedFor(dist, kind = 'return', top = CONFIG.field.throwSpeed) {
+  if (kind === 'direct') return Math.min(top, 18 + 0.45 * dist);
+  if (kind === 'gloves') return Math.min(top, 12 + 0.6 * dist);
+  return Math.min(top - 1, 8 + 0.55 * dist);
+}
+
 // Spread (1 sigma, m) of where a throw arrives, across its line and up/down.
 // A shy is a flat, hard throw at a target 23 cm wide; a throw to the gloves a
 // little looser. Longer, hurried (on the run, after a dive) and less skilled
@@ -110,14 +119,16 @@ export function decideThrow({ from, release = 0, runner = null, ends, speed = CO
   for (const E of ENDS) {
     const e = ends[E] || { readyIn: Infinity };
     const d = Math.hypot(from.x, from.z - STUMPS_Z[E]);
-    const arrive = release + d / speed;
-    const ready = !!e.self || e.readyIn <= arrive - 0.05;
-    const short = (dt) => (runner && !runner.back ? runner.remaining - runner.v * dt - T.runnerReach : -Infinity);
+    const arrive = release + d / throwSpeedFor(d, 'return', speed);      // a safe return
+    const arriveD = release + d / throwSpeedFor(d, 'direct', speed);     // a shy
+    const arriveG = release + d / throwSpeedFor(d, 'gloves', speed);     // hard, into the gloves
+    const ready = !!e.self || e.readyIn <= arriveG - 0.05;
+    const short = (dt) => (runner ? runner.remaining - runner.v * dt - T.runnerReach : -Infinity);
     const sig = throwScatter(d, { kind: 'direct', hurried, skill });
     const pHit = d <= T.directMax && !e.self ? directHitChance(from, E, sig) : 0;
-    opt[E] = { E, d, arrive, ready, readyIn: e.self ? 0 : e.readyIn, backed: !!e.backed, self: !!e.self,
-      shortDirect: short(arrive), shortGloves: short(arrive + T.takeBreak), pHit,
-      near: e.self || e.readyIn <= arrive + 0.35 };        // someone at the stumps (or nearly) to stop a miss
+    opt[E] = { E, d, arrive, ready, readyR: !!e.self || e.readyIn <= arrive - 0.05, readyIn: e.self ? 0 : e.readyIn, backed: !!e.backed, self: !!e.self,
+      shortDirect: short(arriveD), shortGloves: short(arriveG + T.takeBreak), pHit,
+      near: e.self || e.readyIn <= arriveD + 0.35 };       // someone at the stumps (or nearly) to stop a miss
   }
   const pack = (o, kind, why, wait = 0) => ({
     end: o.E, kind, wait: Math.max(0, wait), why, dist: o.d, pHit: o.pHit,
@@ -142,7 +153,7 @@ export function decideThrow({ from, release = 0, runner = null, ends, speed = CO
   if (gl && !(di && di.shortDirect > T.sure && gl.shortGloves < T.chance + 0.3 && di.pHit > 0.4)) return pack(gl, 'gloves', 'run-out on: to the gloves');
   if (di) return pack(di, 'direct', di.near || di.backed ? 'shy: run-out on' : 'shy: run-out on, nobody backing up');
   // (c) nothing on: a safe return to whoever is at the stumps (to stop the next run)
-  const ready = both.filter((o) => o.ready);
+  const ready = both.filter((o) => o.readyR);
   if (ready.length) {
     let o;
     if (runner) o = ready.sort((a, b) => a.arrive - b.arrive)[0];           // the quicker end
@@ -219,7 +230,7 @@ export function aimThrow(th, rng, { skill = 1, hurried = false, receiver = null,
   th.dist = d;
   th.bounce = th.bounce ? clamp(1 - 9 / d, 0.6, 0.85) : 0;
   th.arc = throwArc(d, th.kind, th.bounce);
-  th.flight = d / speed;
+  th.flight = d / throwSpeedFor(d, th.kind, speed);
   if (th.kind === 'direct') {
     const c = hitsStumps(th.to, ux, uz, th.end, (th.to.y - th.from.y) / d - Math.PI * th.arc / d);
     if (c) { th.to.copy(c); th.result = 'hit'; th.contact = c; return th; }
