@@ -687,6 +687,12 @@ export class Game {
     this.ballFinder.update(dt, this.eye, ball, landing);
   }
 
+  // Your other hand (not the bat's) in the headset, or null: your batting body reads it (on the handle or off).
+  offHandPos() {
+    const off = this.mainHand === 'left' ? this.input.right : this.input.left;
+    return this.input.xr && off.connected ? off.gripPose.p : null;
+  }
+
   // Record this frame for the replay and spot the moments it needs.
   recordForReplay() {
     const R = this.replay, ses = this.session, m = R.marks;
@@ -862,7 +868,7 @@ export class Game {
       if (batting || deskThird) {
         if (this.input.xr) this.poseBatMesh();
         this.playerBody.update(pdt || 1e-4, this.simTime, this.batMesh.position, this.batMesh.quaternion, lookBall, this.input.xr ? this.input.headPose : null,
-          this.session && this.session.bodyState ? this.session.bodyState() : null, this.input.xr && this.input.left.connected ? this.input.left.gripPose.p : null);
+          this.session && this.session.bodyState ? this.session.bodyState() : null, this.offHandPos());
       }
       // Through your own eyes you see a faint body below you (no head), so you
       // know where your feet are in the crease.
