@@ -216,3 +216,28 @@ test('caught behind: a noise as it passes gets an appeal; a clear miss does not;
   assert.equal(flow.done, true);
   assert.deepEqual(flow.result(), { kind: 'dot' });
 });
+
+test('decisionPending(): true through an appeal window, a decision, a review, the third umpire; false once the ball is settled', async () => {
+  const { BowlingSession } = await import('../src/game/bowling.js');
+  const { BattingSession } = await import('../src/game/batting.js');
+  for (const S of [BowlingSession, BattingSession]) {
+    const s = (o) => S.prototype.decisionPending.call({ state: 'settle', lbw: { active: false }, third: { active: false }, game: { drs: { active: false } }, ...o });
+    assert.equal(s({}), false, `${S.name}: settled`);
+    assert.equal(s({ state: 'idle' }), false);
+    assert.equal(s({ state: 'review' }), true, `${S.name}: review state (window, appeal, decision, board)`);
+    assert.equal(s({ lbw: { active: true } }), true);
+    assert.equal(s({ third: { active: true } }), true);
+    assert.equal(s({ game: { drs: { active: true } } }), true);
+  }
+  // the real flow: pending from the window to the end of the review, not after
+  const g = stubGame({ rng: () => 0 });
+  const flow = new LbwFlow(g, new Reviews(2));
+  const sess = { state: 'review', lbw: flow, third: { active: false }, game: g };
+  const pending = () => BowlingSession.prototype.decisionPending.call(sess);
+  flow.start({ impactState: impactState(), path: null, shotOffered: true, playerIsBatter: false, by: 'offer' });
+  sess.state = 'settle';              // (even if the session's state said otherwise, the flow holds it)
+  assert.equal(pending(), true);
+  run(flow, g, 4);
+  assert.equal(flow.done, true);
+  assert.equal(pending(), false);
+});

@@ -148,6 +148,13 @@ export class BattingSession {
   // bowler sets off (or the machine counts down) until the ball has reached
   // you, nothing at all; while it is in play, only the calls of the moment
   // and the running controls; between balls, everything.
+  // An appeal (your window to appeal included), an umpire's decision, a DRS
+  // review or the third umpire is under way (lbwFlow.js, thirdUmpire.js): the
+  // ball is dead but nothing may skip on to the next delivery yet.
+  decisionPending() {
+    return this.state === 'review' || !!(this.lbw && this.lbw.active) || !!(this.third && this.third.active) || !!(this.game.drs && this.game.drs.active);
+  }
+
   quiet() {
     const st = this.state;
     if (st === 'cue' || st === 'runup') return 'clear';

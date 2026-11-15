@@ -110,6 +110,9 @@ edge on a catch / no edge in an LBW), green = good for him. Cues: `stinger`, `ch
 ## 5. Things you must do around it
 
 - Freeze play while `drs.active` (ball dead, no next delivery, no bat collisions).
+- `session.decisionPending()` (BattingSession and BowlingSession): true from the moment an appeal starts
+  (your 2.6 s window to appeal included) through the umpire's call, a review and the third umpire, until
+  the delivery's result. Anything that moves on to the next ball (a skip button) must check it.
 - `viewerPos` is sampled once at start; call `placeBoard()` again if the viewer moves ends.
 - `hide()` clears `done`/`active` (so an `if (drs.done)` block runs once) but keeps `result`.
 
