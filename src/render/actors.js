@@ -819,10 +819,35 @@ export class BatterActor extends Actor {
   // than a knee does (a straight leg in a capture, a blend, or the pad clearing
   // the bat can swing it round in a frame: the pad wrings round the leg), no
   // knee or pad in the turf; then nothing under the turf (syncShadow).
+  // The head too turns no faster than a neck does (looking at the ball as the
+  // body spins round, it would whip from one shoulder to the other).
   steadyLegs(dt) {
-    const sc = this.h.root.scale.x;
-    steadyKnees(this.h, this._kd || (this._kd = { L: null, R: null }), dt, 7, 0.12 * sc, 0.3 * sc);
-    this.h.syncShadow();
+    const h = this.h, sc = h.root.scale.x;
+    const L = this._lk || (this._lk = { neck: null, head: null });
+    for (const b of ['neck', 'head']) {
+      const q = h.bones[b].quaternion;
+      if (L[b] && dt > 0 && dt < 0.1) { const a = L[b].angleTo(q), m = 7 * dt; if (a > m) q.copy(L[b].slerp(q, m / a)); }
+      (L[b] ||= new THREE.Quaternion()).copy(q);
+    }
+    steadyKnees(h, this._kd || (this._kd = { L: null, R: null }), dt, 7, 0.12 * sc, 0.3 * sc);
+    // (and the feet: a capture's foot turns are rough, from video)
+    const F = this._ft || (this._ft = { L: null, R: null });
+    for (const sd of ['L', 'R']) {
+      h.bones['ankle' + sd].getWorldQuaternion(_ql);
+      if (F[sd] && dt > 0 && dt < 0.1) {
+        const a = F[sd].angleTo(_ql), m = 9 * dt;
+        if (a > m) {
+          _ql.copy(F[sd].slerp(_ql, m / a)); h.setWorldQuat('ankle' + sd, _ql);
+          // (a foot turned less than the capture's may put its toe in the turf: the leg bends, its knee the way it was)
+          h.update();
+          const k = h.worldPos('knee' + sd, _a), mid = _b.addVectors(h.worldPos('hip' + sd, _c), h.worldPos('ankle' + sd, _d)).multiplyScalar(0.5);
+          h.clearFoot(sd, _e.subVectors(k, mid).multiplyScalar(3).add(k));
+          h.bones['ankle' + sd].getWorldQuaternion(_ql);
+        }
+      }
+      (F[sd] ||= new THREE.Quaternion()).copy(_ql);
+    }
+    h.syncShadow();
   }
 
   // The capture for this plan (cached per plan), or null.
@@ -893,6 +918,14 @@ export class BatterActor extends Actor {
     h.reset();
     this.apply();
     poseShot(h, s, u);
+    // (the capture's trunk at most so fast: time-warped onto a quick plan, a capture's hips can spin a quarter turn in a frame)
+    const tk = this._tk || (this._tk = { t: -1, q: [new THREE.Quaternion(), new THREE.Quaternion(), new THREE.Quaternion()] }), dtk = t - tk.t;
+    ['hips', 'spine', 'chest'].forEach((b, i) => {
+      const q = h.bones[b].quaternion;
+      if (dtk > 0 && dtk < 0.1) { const a = tk.q[i].angleTo(q), m = 12 * dtk; if (a > m) q.copy(tk.q[i].slerp(q, m / a)); }
+      tk.q[i].copy(q);
+    });
+    tk.t = t;
     // A shot with less turn than the capture (a push): take some of the pelvis turn out.
     if (use.turn < 1) {
       const dy = angDiff(ref.yaw0, yawOfQ(h.bones.hips.quaternion));
@@ -939,8 +972,12 @@ export class BatterActor extends Actor {
         rx = clamp(dx * 0.5, -0.12, 0.12); rz = clamp(dz * 0.5, -0.12, 0.12);
         lift = 0.085 * Math.sin(Math.PI * k) * Math.min(1, gl / 0.3);
       }
+      // (a foot going somewhere is picked up and put down, never dragged along the turf)
+      // (up first, then along: the step eases out of and into the turf)
+      lift = Math.max(lift, 0.05 * Math.sin(Math.PI * clamp(k, 0, 1)) * Math.min(1, gl / 0.15));
+      const kh = k > 0 && k < 1 ? k * k * (3 - 2 * k) : k;
       const F = M['F' + sd];
-      F.set(g0x + k * gx + rx, Math.max(ankleY * 0.95, m.y) + lift, g0z + k * gz + rz);
+      F.set(g0x + kh * gx + rx, Math.max(ankleY * 0.95, m.y) + lift, g0z + kh * gz + rz);
     }
     // Pelvis: where the capture has it between its feet (along and across the
     // line of the feet), and as high.
