@@ -214,7 +214,7 @@ export class BattingSession {
     if (this.state !== 'settle') return;
     this.nextAsked = true;
     const R = this.game.replay, p = R && R.pending;
-    this.timer = Math.min(this.timer, p ? Math.max(0, p.at - this.game.simTime) : 0);
+    this.timer = Math.min(this.timer, p ? Math.max(0, (R.dueAt ? R.dueAt() : p.at) - this.game.simTime) : 0);
   }
 
   // The replay has put you back: straight on, if the next ball was asked for.
@@ -238,7 +238,8 @@ export class BattingSession {
       // the right side of the stumps) before the bowler runs in.
       if (!this.planned) this.planNext();
       this.waitField = (this.waitField || 0) + dt;
-      if (this.timer <= 0 && !this.announced && this.announce()) { /* (the card is up: the field walks back meanwhile) */ }
+      if (this.timer <= 0 && g.replay && g.replay.pending) { /* (the last ball's replay first: Replay.dueAt) */ }
+      else if (this.timer <= 0 && !this.announced && this.announce()) { /* (the card is up: the field walks back meanwhile) */ }
       else if (this.timer <= 0 && this.peopleReady()) { this.waitField = 0; this.prepare(t); }
     } else if (this.state === 'cue') {
       const el = t - this.cueStart, cd = CONFIG.machine.countdownSec;

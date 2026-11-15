@@ -41,7 +41,8 @@ function session(g, inn) {
   s.peopleReady = () => true;
   return s;
 }
-const step = (g, s, n = 1, dt = 1 / 72) => { for (let i = 0; i < n; i++) { g.simTime += dt; s.update(dt, g.simTime); } };
+// (the replay, when one is pending, plays once it is due and is then done)
+const step = (g, s, n = 1, dt = 1 / 72) => { for (let i = 0; i < n; i++) { g.simTime += dt; if (g.replay.pending && g.simTime >= g.replay.pending.at) g.replay.pending = null; s.update(dt, g.simTime); } };
 
 test('batting session: the next ball asked for during the last wicket\'s result ends the innings, never bowls again', () => {
   const g = fakeGame(), inn = new Innings({ balls: 30, wickets: 5, target: 48 });
@@ -97,3 +98,16 @@ test('batting session: without a replay pending, X during the result goes straig
   step(g, s, 4);
   assert.equal(s.prepared, 1);
 });
+
+test('batting session: between balls it waits for the last ball\'s replay before the next delivery', () => {
+  const g = fakeGame({ replayAt: 103 }), inn = new Innings({ balls: 30, wickets: 5, target: 48 });
+  const s = session(g, inn);
+  s.state = 'idle'; s.timer = 0;
+  const hold = g.replay.pending;
+  for (let i = 0; i < 30; i++) { g.simTime += 1 / 72; g.replay.pending = hold; s.update(1 / 72, g.simTime); }
+  assert.equal(s.prepared, undefined, 'bowled before the replay');
+  g.replay.pending = null;
+  step(g, s, 3);
+  assert.equal(s.prepared, 1);
+});
+

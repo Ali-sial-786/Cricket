@@ -168,6 +168,14 @@ export class Replay {
     return true;
   }
 
+  // When the pending replay is due (game s; Infinity if none): its tail of
+  // aftermath on the tape, by the marks as they are now.
+  dueAt() {
+    const p = this.pending, m = this.marks;
+    if (!p) return Infinity;
+    return m.dead != null ? Math.max(p.at, m.dead + tailFor(m) + 0.05) : p.at;
+  }
+
   // The hand that skips: your off hand, the one without the bat / the ball
   // (game.mainHand names the other; with one controller connected, that one).
   skipHand() {
@@ -262,8 +270,10 @@ export class Replay {
       const ses = g.session;
       if (g.settings.replay === 'off' || !ses || g.state !== 'play') { this.pending = null; return; }
       if (g.ui.menuOpen) return;                        // (paused: it starts when the menu closes)
-      // Due — or play is about to move on (next ball asked for): it plays first.
-      if (g.simTime >= p.at || ses.state !== 'settle') {
+      // Due — or play is about to move on: it plays first. (A batting session
+      // waits between balls, 'idle', for its replay; the due time moves on if
+      // the stumps are broken a moment after the result: tailFor.)
+      if (g.simTime >= this.dueAt() || (ses.state !== 'settle' && ses.state !== 'idle')) {
         const clip = this.plan();
         if (clip) this.start(clip); else this.pending = null;
       }
