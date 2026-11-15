@@ -18,7 +18,7 @@ import { LENGTH_PRESETS, LINE_PRESETS } from '../physics/bowlingMachine.js';
 import { createSession, startMatch } from './modes.js';
 import { buildHelmetGrille, PlayerBowlerActor, NearCull } from '../render/viewModes.js';
 import { PLAYER_BOWLER_ORDER } from './bowlerTypes.js';
-import { Replay, TAIL } from './replay.js';
+import { Replay, tailFor } from './replay.js';
 import { BallFinder } from '../render/ballFinder.js';
 import { CrowdAudio } from '../audio/crowd.js';
 import { MRPlacer } from '../xr/mr.js';
@@ -784,7 +784,7 @@ export class Game {
     }
     // A review (the appeal, DRS, the third umpire) can outlast the tape: only
     // its first moments are recorded, so the ball is still there afterwards.
-    if (!(st === 'review' && m.dead != null && t > m.dead + TAIL + 0.2)) R.record(t);
+    if (!(st === 'review' && m.dead != null && t > m.dead + tailFor(m) + 0.2)) R.record(t);
     // Every ball that was bowled gets its replay, after the result (and any review's verdict) is up.
     if (st === 'settle' && this._prevSessState !== 'settle' && this.settings.replay !== 'off') R.schedule(t);
     this._prevSessState = st;

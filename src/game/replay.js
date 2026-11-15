@@ -8,8 +8,9 @@
 //     the keeper's take, the pick-up and throw, the catch) until the ball is
 //     dead. No cuts, no second angle, no change of height;
 //   * real time, from PRE s before the release to TAIL s after the ball is dead
-//     (the next ball asked for during the result waits for that much tape:
-//     BattingSession.requestNext);
+//     (TAIL_OUT after a catch or the stumps broken; the next ball asked for
+//     during the result waits for that much tape: BattingSession.requestNext);
+//     the camera's framing holds once the ball is dead (a lob back is not chased);
 //   * the off-hand trigger (the hand without the bat / the ball, see
 //     skipHand; Space on a monitor) skips it, and that press does nothing
 //     else; nothing but the skip or its own end stops it (an open menu only
@@ -27,8 +28,8 @@ import { computeRigFacing, headForward } from './calibration.js';
 import { Vec3 } from '../physics/math.js';
 import { PITCH } from '../physics/pitch.js';
 import { CONFIG } from '../config.js';
-import { planCamera, cameraAt, cameraBase, pathStats, clipFor, replayAt, CAM, PRE, TAIL } from './replayFraming.js';
-export { PRE, TAIL };
+import { planCamera, cameraAt, cameraBase, pathStats, clipFor, replayAt, tailFor, CAM, PRE, TAIL } from './replayFraming.js';
+export { PRE, TAIL, tailFor };
 
 const RATE = 90;                 // recorded frames per second (max): every frame at 72 and 90 Hz
 const SECONDS = 24;              // ring buffer length (a ball can be live for 20 s)
@@ -344,7 +345,10 @@ export class Replay {
       return this.buf[this.slotAt(this.find(t)) * this.stride + 7 + 8] > 0.5;
     };
     const key = clamp(Math.round((clip.key - clip.start) / dt), 0, n);
-    return planCamera({ n, dt, ball, key, base, face: { x: 0, z: PITCH.battingStumpsZ - PITCH.poppingOffset }, centerZ: PITCH.centerZ, lim });
+    const dead = clip.dead != null ? clamp(Math.round((clip.dead - clip.start) / dt), key, n) : n;
+    // the striker's side of the stumps: your head when you bat (recorded), else a right-hander's
+    const strikerX = clip.playerBatting ? this.buf[this.slotAt(this.find(clip.key)) * this.stride] : -0.4;
+    return planCamera({ n, dt, ball, key, dead, strikerX, base, face: { x: 0, z: PITCH.battingStumpsZ - PITCH.poppingOffset }, centerZ: PITCH.centerZ, lim });
   }
 
   // Put the camera (in the headset: you) where the path is at replay time t.

@@ -93,6 +93,7 @@ export const CAM = {
   x: 0,               // on the line of the stumps
   near: 15,           // m: after the shot it closes in on the ball (the catch, the pick-up, the throw) to about this far, horizontally
   short: 7,           // m: it never comes nearer than this to the batter's popping crease along the pitch (a ball behind him is watched over his head)
+  aside: 2.5,         // m: …and from this far to the other side of the stumps from him, so he does not hide the keeper
   high: 38 * D2R,     // a ball going up is kept within this of level (it does not close in under a skied ball)…
   highT: 1.5,         // …looking this far ahead
   lookAhead: 0.3,     // s: it turns toward where the ball will be this much later
@@ -121,22 +122,31 @@ export function cameraBase(bowlingStumpsZ, dir = 1) {
 //   key          the first sample at which the ball has reached the batter (n if it never does)
 //   base         where the camera starts {x, y, z}
 //   face         the point it faces until then {x, z} (the batter's end of the pitch)
+//   dead         the sample at which the ball was dead (n if never): the framing holds there
+//                (a ball lobbed back, overthrows running on, are not chased); the
+//                side-step still watches the ball (a throw coming back at the camera)
+//   strikerX     where the striker stands across the pitch (his side of the stumps):
+//                a ball behind him is watched from the other side, so he does not hide the keeper
 //   centerZ      the middle of the ground (for the rim)
 //   lim          CAM.xr or CAM.desk
 // Returns { n, dt, x, y, z, yaw } (Float32Array each; yaw: atan2(x, z) of the way it faces).
-export function planCamera({ n, dt, ball, key, base, face, centerZ = -10.06, lim = CAM.xr }) {
+export function planCamera({ n, dt, ball, key, base, face, dead = n, strikerX = -0.4, centerZ = -10.06, lim = CAM.xr }) {
   const X = new Float32Array(n), Y = new Float32Array(n), Z = new Float32Array(n), W = new Float32Array(n);
-  // The subject on the ground: the batter's end, then the ball (held where it was last seen).
+  // The subject on the ground: the batter's end, then the ball (held where it
+  // was last seen, and from the moment it is dead); r*: the ball itself.
   const sx = new Float32Array(n), sy = new Float32Array(n), sz = new Float32Array(n);
+  const rx = new Float32Array(n), ry = new Float32Array(n), rz = new Float32Array(n);
   const o = { x: 0, y: 0, z: 0 };
-  let lx = face.x, ly = 0, lz = face.z;
+  let lx = face.x, ly = 0, lz = face.z, hx = lx, hy = ly, hz = lz;
   for (let i = 0; i < n; i++) {
     if (i >= key && ball(i, o)) {
       lx = o.x; ly = o.y; lz = o.z;
       const r = Math.hypot(lx, lz - centerZ);
       if (r > CAM.rim) { lx *= CAM.rim / r; lz = centerZ + (lz - centerZ) * CAM.rim / r; }
     }
-    sx[i] = lx; sy[i] = ly; sz[i] = lz;
+    rx[i] = lx; ry[i] = ly; rz[i] = lz;
+    if (i <= dead) { hx = lx; hy = ly; hz = lz; }
+    sx[i] = hx; sy[i] = hy; sz[i] = hz;
   }
   // 1. Where it stands: still until the ball reaches the batter, then it
   //    closes in on the ball to about CAM.near (whatever happens to it: the
@@ -145,8 +155,16 @@ export function planCamera({ n, dt, ball, key, base, face, centerZ = -10.06, lim
   //    A ball that is going up high is not closed in on (it would go out of
   //    the top of the view): the distance kept is at least what puts the
   //    highest it gets in the next CAM.highT s within CAM.high of level.
-  const dirZ = Math.sign(face.z - base.z) || 1, zStop = face.z - dirZ * CAM.short;
+  //    A ball behind the striker is watched from the far side of the stumps
+  //    from him (CAM.aside), so he is not in the way of the keeper's take.
+  const dirZ = Math.sign(face.z - base.z) || 1, zStop = face.z - dirZ * CAM.short, side = strikerX <= base.x ? 1 : -1;
   const dodgeN = Math.round(CAM.dodgeT / dt), hiN = Math.round(CAM.highT / dt), tanHigh = Math.tan(CAM.high);
+  // (behind[i]: the ball is behind the striker now or within the next second: the side-step starts at the shot)
+  const behind = new Uint8Array(n), aheadN = Math.round(1.0 / dt);
+  for (let i = n - 1, last = -1; i >= 0; i--) {
+    if ((sz[i] - face.z) * dirZ > 0.5) last = i;
+    behind[i] = last >= 0 && last - i <= aheadN ? 1 : 0;
+  }
   let px = base.x, pz = base.z, vx = 0, vz = 0;
   for (let i = 0; i < n; i++) {
     let gx = 0, gz = 0;
@@ -159,21 +177,22 @@ export function planCamera({ n, dt, ball, key, base, face, centerZ = -10.06, lim
         const sp = Math.min(lim.vMax, 1.5 * over, Math.sqrt(1.6 * lim.aMax * over));
         gx = dx / L * sp; gz = dz / L * sp;
       }
+      if (behind[i]) gx += clamp((base.x + side * CAM.aside - px) * 1.5, -lim.vMax, lim.vMax);
     }
     // --- side-step a ball that is coming at the camera (so it passes to one side)
     if (i >= key) {
       let best = CAM.dodge * CAM.dodge, bj = -1;
       for (let j = i, je = Math.min(n, i + dodgeN); j < je; j++) {
-        const ex = sx[j] - px, ey = sy[j] - base.y, ez = sz[j] - pz, d2 = ex * ex + ey * ey + ez * ez;
+        const ex = rx[j] - px, ey = ry[j] - base.y, ez = rz[j] - pz, d2 = ex * ex + ey * ey + ez * ez;
         if (d2 < best) { best = d2; bj = j; }
       }
       if (bj >= 0) {
         best = Math.sqrt(best);
         // away from the ball's line: across the way it is travelling
         const j0 = Math.max(0, bj - 1), j1 = Math.min(n - 1, bj + 1);
-        let tx = sx[j1] - sx[j0], tz = sz[j1] - sz[j0];
+        let tx = rx[j1] - rx[j0], tz = rz[j1] - rz[j0];
         const tl = Math.hypot(tx, tz);
-        let ax = px - sx[bj], az = pz - sz[bj];
+        let ax = px - rx[bj], az = pz - rz[bj];
         if (tl > 1e-6) { tx /= tl; tz /= tl; const along = ax * tx + az * tz; ax -= along * tx; az -= along * tz; }
         let al = Math.hypot(ax, az);
         if (al < 0.05) { ax = tl > 1e-6 ? -tz : 1; az = tl > 1e-6 ? tx : 0; al = 1; }
@@ -270,11 +289,14 @@ export function pathStats(frames, { jump = 0.5, turn = 0.2, cone = CAM.cone } = 
 
 // ---------------------------------------------------------------- the clip
 export const PRE = 1.5;     // s of the run-up shown before the release
-export const TAIL = 1.0;    // s shown after the ball is dead
+export const TAIL = 1.0;    // s shown after the ball is dead…
+export const TAIL_OUT = 2.0;   // …after a catch, or the stumps broken by a fielder (stumped, run out, or a near thing)
+export const tailFor = (m) => (m && (m.caught != null || m.break != null) ? TAIL_OUT : TAIL);
 
 // The stretch of the tape a ball's replay shows: { start, end, release, key,
-// playerBatting } (game s), or null (no ball bowled, already replayed, or the
-// release no longer on the tape).
+// dead, playerBatting } (game s), or null (no ball bowled, already replayed,
+// or the release no longer on the tape). It runs to tailFor(m) s after the
+// ball was dead (TAIL_OUT after a catch or the stumps broken).
 //   m            the ball's marks: { release, hit, pad, dead, played, playerBatting }
 //   first, last  the oldest and the newest moment on the tape
 //   arrive       when the ball got to the batter's end (null: it never did)
@@ -284,11 +306,11 @@ export function clipFor(m, first, last, arrive = null) {
   if (!m || m.release == null || m.played || !(last >= first)) return null;
   if (m.release < first) return null;
   const start = Math.max(first, m.release - PRE);
-  const end = Math.min((m.dead ?? last) + TAIL, last);
+  const end = Math.min((m.dead ?? last) + tailFor(m), last);
   if (end - start < 0.5) return null;
   let key = Infinity;
   for (const t of [m.hit, m.pad, arrive]) if (t != null && t > m.release && t < key) key = t;
-  return { start, end, release: m.release, key: Math.min(key, end), playerBatting: !!m.playerBatting };
+  return { start, end, release: m.release, key: Math.min(key, end), dead: m.dead != null ? Math.min(m.dead, end) : null, playerBatting: !!m.playerBatting };
 }
 
 // When the replay of a ball whose result went up at t plays (game s): once
@@ -296,5 +318,5 @@ export function clipFor(m, first, last, arrive = null) {
 // well after the ball was dead), a moment after the verdict.
 export function replayAt(m, t) {
   const dead = m.dead ?? t;
-  return Math.max(dead + TAIL + 0.05, t + (t - dead > 0.5 ? 1.0 : 0));
+  return Math.max(dead + tailFor(m) + 0.05, t + (t - dead > 0.5 ? 1.0 : 0));
 }
