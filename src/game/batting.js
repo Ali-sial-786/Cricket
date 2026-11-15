@@ -315,7 +315,10 @@ export class BattingSession {
     g.ballView.setVisible(false);
     g.ballView.clearTrail();
     g.world.removeBall();
-    if (this.newBatter) { g.ui.setHud({ detail: `New batter in: ${this.newBatter}` }); this.newBatter = null; }
+    // A new ball: the last one's result, delivery and shot lines go (an appeal
+    // or a review of this one writes its own; the result writes the verdict).
+    g.ui.setHud({ big: '', last: '', detail: this.newBatter ? `New batter in: ${this.newBatter}` : '' });
+    this.newBatter = null;
     if (!this.planned) this.planNext();
     const settings = this.planned.settings;
     this.delivery = this.planned.delivery;

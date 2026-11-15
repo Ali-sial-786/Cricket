@@ -46,6 +46,7 @@ export class LbwFlow {
     g.say('appeal');
     g.crowdReact('appeal');
     g.ui.prompt('HOWZAT?!', 1.6, '#ffd34d');
+    g.ui.setHud({ big: 'Appeal…', bigColor: '#ffd34d', detail: '' });     // (not the last ball's result)
     g.sample('pad', { gain: 0.9 });
   }
 
@@ -58,6 +59,7 @@ export class LbwFlow {
     g.drs.startLbw({ track: this.track, deliveryPath: this.path, onFieldOut: this.onFieldOut, outcome: this.outcome, viewerPos: _head });
     if (!this.playerIsBatter) g.drs.placeBoard(_head, { distance: 9, scale: 2.2, height: 3.4 });
     g.ui.showHud(false);          // the review board takes its place
+    g.ui.setHud({ big: 'Under review…', bigColor: '#7fd3ff' });
     g.umpires.signal('review', g.clock);
     g.say('review');
     g.ui.prompt(byPlayer ? 'You review the decision' : 'The batter reviews', 2.5, '#7fd3ff');
@@ -80,6 +82,7 @@ export class LbwFlow {
       g.sample(this.onFieldOut ? 'umpire_out' : 'umpire_not_out');
       g.say('lbw_call', { out: this.onFieldOut });
       g.ui.prompt(this.onFieldOut ? 'OUT — LBW' : 'NOT OUT', 2.2, this.onFieldOut ? '#ff5a5a' : '#7dff8a');
+      g.ui.setHud({ big: this.onFieldOut ? 'Given OUT — LBW' : 'NOT OUT', bigColor: this.onFieldOut ? '#ff5a5a' : '#7dff8a' });
       this.phase = 'decision'; this.t = 0;
       // The ball is dead: it doesn't lie about on the pitch through the review.
       g.world.removeBall();
@@ -109,6 +112,7 @@ export class LbwFlow {
         g.say('review_result', { overturned: r.out !== this.onFieldOut, umpires_call: r.umpiresCall });
         g.umpires.signal(r.out ? 'out' : 'notout', g.clock);
         g.ui.prompt(r.out ? 'DECISION: OUT' : 'DECISION: NOT OUT', 2.5, r.out ? '#ff5a5a' : '#7dff8a');
+        g.ui.setHud({ big: r.out ? 'OUT — LBW' : 'NOT OUT', bigColor: r.out ? '#ff5a5a' : '#7dff8a' });
         // The review is over: its tracking line, markers and board go now
         // (the board has already held the decision), and the HUD comes back.
         g.drs.hide();

@@ -23,6 +23,7 @@ export class ThirdUmpireFlow {
     const farEnd = end === 'batting' ? hp.z < -9 : hp.z > -9;
     if (farEnd) g.drs.placeBoard(_head, { distance: 9, scale: 2.2, height: 3.4 });
     g.ui.showHud(false);
+    g.ui.setHud({ big: 'Third umpire…', bigColor: '#7fd3ff', detail: '' });   // (not the last ball's result)
     g.umpires.signal('review', g.clock);
     g.sample('drs_stinger', { gain: 0.8 });
     g.say('third_umpire');

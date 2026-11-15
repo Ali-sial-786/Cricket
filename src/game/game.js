@@ -578,6 +578,7 @@ export class Game {
     this.ballOverride = null;
     this.session = session;
     this.state = 'play';
+    this.ui.setHud({ big: '', last: '', detail: '', players: '' });   // a new game: nothing left over from the last one
     this.ui.closeMenu();
     this.session.enter();
     if (!this.ui.menuOpen) this.input.desktop.mode = this.session.isBowling ? 'bowl' : 'bat';   // (enter() may open a page: the bowler)
