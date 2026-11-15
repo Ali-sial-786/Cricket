@@ -210,7 +210,12 @@ export class Replay {
     if (g.ballView.trail) g.ballView.clearTrail?.();
     // The camera's whole move, and where your head is in the room (it moves the rig under that).
     this.path = this.layoutCamera(clip, xr ? CAM.xr : CAM.desk);
-    this.ref = xr ? { p: g.input.headRef.p.clone(), f: heading(g.input.headRef.q) } : null;
+    // The camera's heading goes to the way you face when you play (the pitch's
+    // direction in your room, game.roomForward), not to wherever your head
+    // happens to point as the replay starts (still looking at the crease after
+    // a dive, or round at the keeper): look where you always look and you see
+    // the play. (Before the pitch has a direction in your room: your head.)
+    this.ref = xr ? { p: g.input.headRef.p.clone(), f: g.roomForward ? g.roomForward.clone() : heading(g.input.headRef.q) } : null;
     this.look = null; this.camLog = []; this.camPrev = null;
     this.fade.cut(FADE_IN);
     this.apply(clip.start);

@@ -90,7 +90,10 @@ export const CAM = {
   back: 7.5,          // m behind the bowler's stumps
   height: 3.5,        // m: over the umpire and the bowler's arm; more than CLEAR above anybody's head
   x: 0,               // on the line of the stumps
-  rope: 6,            // m of slack beyond the distance to the batter before the camera starts to move
+  near: 15,           // m: after the shot it closes in on the ball (the catch, the pick-up, the throw) to about this far, horizontally
+  short: 7,           // m: it never comes nearer than this to the batter's popping crease along the pitch (a ball behind him is watched over his head)
+  high: 38 * D2R,     // a ball going up is kept within this of level (it does not close in under a skied ball)…
+  highT: 1.5,         // …looking this far ahead
   lookAhead: 0.3,     // s: it turns toward where the ball will be this much later
   lead: 0.1,          // s the eased turn follows its plan ahead by (its own lag)
   share: 0.4,         // of a turn too quick to make (a ball whipping past), the part made before the ball gets there
@@ -134,20 +137,31 @@ export function planCamera({ n, dt, ball, key, base, face, centerZ = -10.06, lim
     }
     sx[i] = lx; sy[i] = ly; sz[i] = lz;
   }
-  // 1. Where it stands: still until the ball is a rope's length away, then after it.
-  const rope = Math.hypot(face.x - base.x, face.z - base.z) + CAM.rope, dirZ = Math.sign(face.z - base.z) || 1;
-  const dodgeN = Math.round(CAM.dodgeT / dt);
+  // 1. Where it stands: still until the ball reaches the batter, then it
+  //    closes in on the ball to about CAM.near (whatever happens to it: the
+  //    keeper taking it, the fielder picking it up, his throw, the catch),
+  //    never nearer than CAM.short to the batter's crease along the pitch.
+  //    A ball that is going up high is not closed in on (it would go out of
+  //    the top of the view): the distance kept is at least what puts the
+  //    highest it gets in the next CAM.highT s within CAM.high of level.
+  const dirZ = Math.sign(face.z - base.z) || 1, zStop = face.z - dirZ * CAM.short;
+  const dodgeN = Math.round(CAM.dodgeT / dt), hiN = Math.round(CAM.highT / dt), tanHigh = Math.tan(CAM.high);
   let px = base.x, pz = base.z, vx = 0, vz = 0;
   for (let i = 0; i < n; i++) {
-    // --- glide: after the ball once it is more than a rope away; a ball behind
-    //     the batter is watched from this end (never flown after down the pitch)
-    const dx = sx[i] - px, dz = (dirZ > 0 ? Math.min(sz[i], face.z) : Math.max(sz[i], face.z)) - pz;
-    const L = Math.hypot(dx, dz), over = L - rope;
     let gx = 0, gz = 0;
-    if (over > 0 && L > 1e-6) {
-      const sp = Math.min(lim.vMax, 1.5 * over, Math.sqrt(1.6 * lim.aMax * over));
-      gx = dx / L * sp; gz = dz / L * sp;
+    if (i >= key) {
+      let top = sy[i];
+      for (let j = i + 1, je = Math.min(n, i + hiN); j < je; j++) if (sy[j] > top) top = sy[j];
+      const dx = sx[i] - px, dz = sz[i] - pz;
+      const L = Math.hypot(dx, dz), over = L - Math.max(CAM.near, (top - base.y) / tanHigh);
+      if (over > 0 && L > 1e-6) {
+        const sp = Math.min(lim.vMax, 1.5 * over, Math.sqrt(1.6 * lim.aMax * over));
+        gx = dx / L * sp; gz = dz / L * sp;
+      }
     }
+    // (toward the batter's end only as fast as it can still stop short of zStop)
+    const room = (zStop - pz) * dirZ, vCap = room > 0 ? Math.sqrt(1.6 * lim.aMax * room) : 0;
+    if (gz * dirZ > vCap) gz = dirZ * vCap;
     // --- side-step a ball that is coming at the camera (so it passes to one side)
     if (i >= key) {
       let best = CAM.dodge * CAM.dodge, bj = -1;
@@ -166,7 +180,7 @@ export function planCamera({ n, dt, ball, key, base, face, centerZ = -10.06, lim
         let al = Math.hypot(ax, az);
         if (al < 0.05) { ax = tl > 1e-6 ? -tz : 1; az = tl > 1e-6 ? tx : 0; al = 1; }
         const k = lim.vMax * Math.min(1, CAM.dodgeGain * (1 - best / CAM.dodge));
-        gx += ax / al * k; gz += az / al * k;
+        gx = ax / al * k; gz = az / al * k;              // (no closing in on a ball that is coming at it)
       }
     }
     const gl = Math.hypot(gx, gz);

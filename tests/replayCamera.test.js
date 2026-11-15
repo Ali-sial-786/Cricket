@@ -83,13 +83,34 @@ test('replay camera: follows the ball after the shot, inside the comfortable for
   assert.ok(Math.hypot(six.path.x[n], six.path.z[n] + 10.06) < CAM.rim, 'past the rim');
 });
 
-test('replay camera: a ball that goes behind the batter (edge, fine leg, a leave) is watched from the bowler\'s end, not flown after down the pitch', () => {
+test('replay camera: a ball that goes behind the batter (edge, fine leg, a leave) is followed down the pitch, never nearer than CAM.short to his crease', () => {
   for (const name of ['fine', 'edge', 'leave']) {
-    const { path, base, s } = fly(AWAY[name]);
+    const { path, base, s, pts } = fly(AWAY[name]);
     let maxZ = -Infinity;
     for (let i = 0; i < path.n; i++) maxZ = Math.max(maxZ, path.z[i]);
-    assert.ok(maxZ - base.z < 1, `${name}: came ${(maxZ - base.z).toFixed(1)} m down the pitch`);
+    assert.ok(maxZ <= FACE.z - CAM.short + 0.05, `${name}: ${(maxZ - FACE.z).toFixed(1)} m from the batter's crease`);
+    assert.ok(maxZ - base.z > 5, `${name}: did not close in (${(maxZ - base.z).toFixed(1)} m)`);
     assert.equal(s.inCone, 1, name);
+    const n = path.n - 1, before = Math.hypot(pts[n].x - base.x, pts[n].z - base.z), after = Math.hypot(pts[n].x - path.x[n], pts[n].z - path.z[n]);
+    assert.ok(after < before - 5, `${name}: ${after.toFixed(1)} m from the ball at the end (${before.toFixed(1)} from where it started)`);
+  }
+});
+
+test('replay camera: after the shot it closes in on a ball in the infield (the pick-up, the throw) and keeps it in view', () => {
+  const INFIELD = { push: [6, 0.5, -8], block: AWAY.block, dab: [3, 0.3, 2.5], cover: AWAY.cover };
+  for (const [name, v] of Object.entries(INFIELD)) {
+    const { path, base, s, pts } = fly(v);
+    assert.equal(s.inCone, 1, name);
+    const n = path.n - 1, d = Math.hypot(pts[n].x - path.x[n], pts[n].z - path.z[n]), d0 = Math.hypot(pts[n].x - base.x, pts[n].z - base.z);
+    assert.ok(d < Math.max(CAM.near + 3, d0 - 8), `${name}: ended ${d.toFixed(1)} m from the ball (started ${d0.toFixed(1)})`);
+  }
+});
+
+test('replay camera: it does not close in under a skied ball (it would go out of the top of the view)', () => {
+  const { path, base, pts, key } = fly([2, 22, -4]);
+  for (let i = key; i < path.n; i++) {
+    const h = Math.hypot(pts[i].x - path.x[i], pts[i].z - path.z[i]);
+    if (h < CAM.near) assert.ok(Math.hypot(path.x[i] - base.x, path.z[i] - base.z) < 1, `moved in under it at ${i}`);
   }
 });
 
