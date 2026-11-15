@@ -824,8 +824,12 @@ export class Game {
     if (paused) return;
     // (the provider on the game clock, as the ball; the controller's velocities are real m/s, so slow
     // motion gives you more time, not more power. The swing's load is measured on the real clock.)
-    if (this.snapBat) { this.playerBatProvider.snap(this.simTime, _batPose, R.gripPose.p); this.playerBat.swing.reset(); this.snapBat = false; }
-    else this.playerBatProvider.push(this.simTime, _batPose, R.gripPose.p, R.linVel, R.angVel);
+    // (the grip the bat turns about is the bat's own: lifted onto the turf with it, and a bat riding the
+    // turf is not going down into it - its downward speed is not bat speed)
+    let lin = R.linVel;
+    if (this.batLift > 0 && R.linVel.y < 0) lin = _lin.set(R.linVel.x, 0, R.linVel.z);
+    if (this.snapBat) { this.playerBatProvider.snap(this.simTime, _batPose, _batPose.p); this.playerBat.swing.reset(); this.snapBat = false; }
+    else this.playerBatProvider.push(this.simTime, _batPose, _batPose.p, lin, R.angVel);
     if (this.input.xr) { const hp = this.input.headPose.p; _swRef.x = hp.x; _swRef.z = hp.z; _swRef.y = this.rig.position.y; }
     this.playerBat.swing.push(this.simTime, this.realNow ?? this.clock, _batPose, this.input.xr ? _swRef : null);
   }
@@ -845,8 +849,9 @@ export class Game {
       _bd.set(1, 0, 0).applyQuat(q); const xy = Math.abs(_bd.y);
       _bd.set(0, 0, 1).applyQuat(q); const zy = Math.abs(_bd.y);
       const low = _batPose.p.y + ay * toeY - xy * B.bladeWidth / 2 - zy * B.bladeThickness / 2;
-      _batPose.p.y += clamp(BAT_ABOVE_TURF - low, 0, this.rigDrop);
-    }
+      this.batLift = clamp(BAT_ABOVE_TURF - low, 0, this.rigDrop);
+      _batPose.p.y += this.batLift;
+    } else this.batLift = 0;
     toV3(this.batMesh.position, _batPose.p);
     toQ(this.batMesh.quaternion, _batPose.q);
   }
@@ -1069,7 +1074,7 @@ export class Game {
 const _identity = new Quat();
 const _off = new Quat(), _tilt = new Quat(), _xAxis = new Vec3(1, 0, 0);
 const _batPose = new Pose();
-const _swRef = { x: 0, y: 0, z: 0 };
+const _swRef = { x: 0, y: 0, z: 0 }, _lin = new Vec3();
 const BAT_ABOVE_TURF = 0.01;       // m: the lowest corner of your bat's toe is kept this far up while the view is dropped
 const DROP_IN = 20, DROP_OUT = 13; // 1/s: the sweep's view drop eases in (90% in ~0.2 s) and back up (~0.3 s), critically damped
 const GHOST_LEGS = 0.72;          // opacity of your see-through pads when you look down (boots +0.3, thighs x0.7; Humanoid.setGhost)

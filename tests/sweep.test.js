@@ -121,3 +121,19 @@ test('the sweep button drops your view to a kneeling sweeper\'s eyes in ~0.2 s, 
   held = true; step(40); g.ui.menuOpen = true; step(60);
   assert.ok(g.rigDrop < 0.005, 'a menu opens: back up');
 });
+
+test('a bat riding the turf under the view drop: the contact physics turns it about its own (lifted) grip, and it is not going down', { skip: Game ? false : skip }, async () => {
+  const THREE = await import('three');
+  const { InterpolatedBatProvider } = await import('../src/physics/world.js');
+  const { SwingLoad } = await import('../src/physics/swingLoad.js');
+  const grip = new Pose(new Vec3(0.1, 0.3, -1.0), new Quat(0, 0, 0, 1));
+  const g = { input: { xr: true, right: { connected: true, tracked: true, gripPose: grip, linVel: new Vec3(0, -3, -1), angVel: new Vec3(10, 0, 0) }, headPose: { p: new Vec3(-0.25, 1.1, -1.05) } },
+    session: { isBowling: false }, state: 'play', ui: { menuOpen: false }, viewOverride: null, batMesh: new THREE.Object3D(), playerBat: { swing: new SwingLoad() },
+    playerBatProvider: new InterpolatedBatProvider(), calibration: new Quat(0, 0, 0, 1), settings: {}, rigDrop: 0.5, simTime: 1, realNow: 1, rig: { position: { y: -0.5 } }, snapBat: false };
+  Object.setPrototypeOf(g, Game.prototype);
+  g.updatePlayerBat(false);
+  const c = g.playerBatProvider.curr;
+  assert.ok(g.batLift > 0.3, `the bat is lifted onto the turf (${g.batLift.toFixed(2)} m)`);
+  assert.ok(c.grip.distanceTo(c.pose.p) < 1e-9, 'the grip the bat turns about is the lifted one');
+  assert.ok(c.lin.y >= 0 && c.lin.z === -1, 'no downward speed into the turf; the rest kept');
+});
