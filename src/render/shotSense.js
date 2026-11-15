@@ -45,6 +45,7 @@ export const SENSE = {
   uRate: 2.2,          // the body moves through a capture at most this many times its real speed
   homeAfter: 1.0, homeTau: 0.5,   // s: where you took guard follows your head once you have been still this long
   offOn: 0.24,         // m: the other controller this near the top of the handle is "on the handle"
+  flatFrom: [0.1, 0.4],  // stroke progress over which the blade's lie (upright / flat) comes to count for the swing plane
   faceDir: 1.1,        // how much the bat's face (opened to the off side / closed to the leg side) says about the way it goes
 };
 
@@ -207,13 +208,16 @@ export class ShotSense {
       const wgt = speed * speed * dt;
       sw.vx = sw.vx * a + vx * wgt; sw.vy = sw.vy * a + vy * wgt; sw.vz = sw.vz * a + vz * wgt; sw.vw = sw.vw * a + speed * wgt;
       sw.sy = sw.sy * a + sy * wgt; sw.hx = sw.hx * a + (grip.x - head.x + 0.08 * clamp(gvx, -3, 3)) * wgt; sw.hy = sw.hy * a + (grip.y - head.y) * wgt;
-      sw.ay = sw.ay * a + Math.abs(dy) * wgt; sw.ww = sw.ww * a + wgt; sw.fx = sw.fx * a + faceX * wgt;
+      sw.ww = sw.ww * a + wgt; sw.fx = sw.fx * a + faceX * wgt;
+      // (how upright the blade is, near contact only: at the top of a backlift every bat lies flat)
+      const wa = wgt * sstep(SENSE.flatFrom[0], SENSE.flatFrom[1], sw.prog);
+      sw.ay = sw.ay * a + Math.abs(dy) * wa; sw.aw = sw.aw * a + wa;
       const feat = this.features(head, sweepBtn);
       // contact: the blade pointing down (upright bat) or square out to the off side (bat across the line)
       const cx = mix(0, 0.97, feat.cross), cy = mix(-0.99, -0.05, feat.cross), cz = mix(-0.12, -0.24, feat.cross), cl = Math.hypot(cx, cy, cz);
       const rem = Math.acos(clamp((dx * cx + dy * cy + dz * cz) / cl, -1, 1));
       sw.remMin = Math.min(sw.remMin, rem);
-      const prog = sw.th / (sw.th + rem + 1e-6);
+      const prog = sw.prog = sw.th / (sw.th + rem + 1e-6);
       S.phase = Math.max(S.phase, 1 + clamp(prog, 0, 1));
       const vf = blockOK ? SENSE.vFull : SENSE.vIdle;
       S.target = clamp(Math.max(sstep(vf[0], vf[1], sw.peak), blockOK ? this.blockEvidence(head, grip.z, dy) : 0), 0, 1) * sstep(0.02, 0.15, Math.max(...feat.scores));
@@ -265,7 +269,7 @@ export class ShotSense {
     const S = this.s;
     S.state = 'down'; S.tState = 0; S.phase = 1; S.locked = false;
     if (S.E < 0.05) { S.phaseS = 1; S.leader = -1; S.w.fill(0); S.g.fill(0); }
-    S.sw = { t0: t, tC: t, th: 0, nx: 0, ny: 0, nz: 0, peak: 0, vx: 0, vy: 0, vz: 0, vw: 0, sy: 0, hx: 0, hy: 0, ay: 0, ww: 0, fx: 0, remMin: 9, past: 0, lift0: S.lift };
+    S.sw = { t0: t, tC: t, th: 0, nx: 0, ny: 0, nz: 0, peak: 0, vx: 0, vy: 0, vz: 0, vw: 0, sy: 0, hx: 0, hy: 0, ay: 0, aw: 0, prog: 0, ww: 0, fx: 0, remMin: 9, past: 0, lift0: S.lift };
   }
 
   // A slow, upright bat brought down in front of you (a block): a stroke too, though it is not swung.
@@ -281,7 +285,7 @@ export class ShotSense {
     const nl = Math.hypot(sw.nx, sw.ny, sw.nz) || 1, vl = Math.hypot(sw.vx, sw.vy, sw.vz) || 1, hl = Math.hypot(sw.vx, sw.vz) || 1;
     const ww = sw.ww || 1;
     // the swing plane: the blade turning about the vertical is a bat across the line; near contact the bat lying flat says so too
-    const turn = Math.abs(sw.ny) / nl, flat = 1 - sw.ay / ww;
+    const turn = Math.abs(sw.ny) / nl, flat = sw.aw > 1e-6 ? (1 - sw.ay / sw.aw) * sstep(0, 0.3, sw.aw / ww) : 0;
     const cross = clamp(0.55 * sstep(0.35, 0.8, turn) + 0.45 * sstep(0.35, 0.75, flat), 0, 1);
     const fwd = home.z - head.z, down = S.stand - head.y;
     const sy = sw.sy / ww;

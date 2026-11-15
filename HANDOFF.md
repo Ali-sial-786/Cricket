@@ -1,18 +1,21 @@
 # Handoff: batting body overhaul (branch wt-bat2)
 
 ## Current status (second engineer, keep this section up to date)
-- `npm test` 181 pass; `final.mjs` smoke clean in all four modes (run on 9de5b08).
-- Node-only metrics runner (no browser, ~12 s for all 14 tracks):
-  `ROOT=/home/user/wt-bat2 node <scratchpad>/bat2n/run.mjs [shot,shot]` (same metrics as harness/bat2_shots.mjs plus
-  torso tilt, solver ms, replay step ms, replay glove error with replayArms).
-- Done since 9de5b08:
-  - `resolve` split into `resolveBegin(t0,t1) -> job|null`, `resolveStep(job, count, write, ms?) -> done`,
-    `resolveEnd(job)` (same interface as wt-replay2's people.js), `resolve()` wraps them.
-  - Arm stretch logged per frame (`e.arm`), `PlayerBodyView.replayArms(t)`; game.js replay branch calls it instead of
-    `actor.restArms()` (one line). Replay glove error now equals live glove error (<= 0.2 cm).
-  - Head look rate-limited (7 rad/s): hook's 94 deg head pop gone.
-- Next: hook hipL 46 deg jump @1.38, sweep sinking/ankle jump, deep_back stumps, advance foot slide, arm stretch,
-  then strips for all shots, unit tests, ghost look, AI striker, DECISIONS.md.
+- `npm test`: 205 pass (new: tests/shotSense.test.js 8, tests/footwork.test.js 9, tests/playerBody.test.js 7 on the
+  real rig: gloves, pops, trunk tilt, slide, turf, stumps, head, sliced replay == live, determinism).
+- Node-only metrics runner (no browser, ~12 s for all 14 tracks): `<scratchpad>/bat2n/run.mjs [shot,shot]`
+  (ROOT=<tree> for the baseline: `ROOT=<scratchpad>/bat2_before_tree OUT=before.json`); traces: trace.mjs, stages*.mjs,
+  slide.mjs, feet.mjs, reach.mjs, kneeang.mjs, caphips.mjs (capture pelvis yaw), capscan.mjs.
+- Browser strips: harness/bat2_shots.mjs (out: harness/bat2_out_b2 = latest full set), capture reference gallery
+  harness/bat2_caps.mjs -> harness/bat2_out_caps/cap_<shot>.jpg.
+- Done since 9de5b08 (see commits): sliced replay re-solve (resolveBegin/Step/End, same interface as wt-replay2),
+  arm length logged per frame + replayArms(t) (game.js replay branch calls it), head look rate-limited, knee kept
+  out of the turf continuously (liftPole) + shin pad check, pelvis placed by weighted two-ball projection (no squat),
+  trunk follows captures at <= 10 rad/s, hips within [-0.6, 0.9] rad of the feet (back foot pivots), knee bend
+  direction rate-limited, landing retarget fades out (no slide), shoulders turned about the trunk axis, head
+  re-aimed after blends, re-grip after the guard without a second lean, kneel smooth in head height, bat face
+  in shot reading (cover vs straight vs on), extra.live logged (between balls only a full shadow stroke engages).
+- Next: ghost look (item 6), AI striker smoothing (item 5), final strips, DECISIONS.md, before/after table.
 
 ## First engineer's handoff (kept for reference)
 
