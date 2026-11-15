@@ -183,6 +183,7 @@ export class Game {
   prewarm() {
     const r = this.renderer;
     if (!r || !r.compile) return;
+    const t0 = performance.now();
     try {
       this.drs._build();
       r.compile(this.scene, this.camera);
@@ -219,6 +220,7 @@ export class Game {
       for (const [o, v, f] of restore) { o.visible = v; o.frustumCulled = f; }
       this.scene.remove(this.drs.group);
     } catch (e) { console.warn('prewarm', e); }
+    this.prewarmMs = performance.now() - t0;
   }
 
   // ------------------------------------------------------------- settings

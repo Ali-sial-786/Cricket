@@ -4,9 +4,12 @@
 //
 //   * one camera, one continuous move (src/game/replayFraming.js): high behind
 //     the bowler's arm for the last strides of the run-up, the release and the
-//     ball's flight, then it follows the ball (turning, and gliding after it)
-//     until the ball is dead. No cuts, no second angle, no change of height;
-//   * real time, from PRE s before the release to TAIL s after the ball is dead;
+//     ball's flight, then it follows the ball (turning, and closing in on it:
+//     the keeper's take, the pick-up and throw, the catch) until the ball is
+//     dead. No cuts, no second angle, no change of height;
+//   * real time, from PRE s before the release to TAIL s after the ball is dead
+//     (the next ball asked for during the result waits for that much tape:
+//     BattingSession.requestNext);
 //   * the off-hand trigger (the hand without the bat / the ball, see
 //     skipHand; Space on a monitor) skips it, and that press does nothing
 //     else; nothing but the skip or its own end stops it (an open menu only

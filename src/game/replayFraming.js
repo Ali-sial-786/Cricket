@@ -3,8 +3,9 @@
 // 1. The path. One camera, one move: it stands high behind the bowler's arm,
 //    looking down the pitch, through the run-up, the release and the ball's
 //    flight; from the moment the ball reaches the batter it follows the ball,
-//    turning (yaw only) to keep it ahead and, once the ball is more than
-//    CAM.rope metres away, gliding after it on a rope of that length. It
+//    turning (yaw only) to keep it ahead and gliding in to about CAM.near
+//    metres of it (never nearer than CAM.short to the batter's crease along
+//    the pitch, not under a ball going up high, not toward one coming at it). It
 //    never cuts, never changes height, never rolls or pitches, and its speed,
 //    acceleration, turn rate and turn acceleration are bounded (planCamera).
 //    The whole path is laid out before the replay starts, from the recorded
@@ -159,9 +160,6 @@ export function planCamera({ n, dt, ball, key, base, face, centerZ = -10.06, lim
         gx = dx / L * sp; gz = dz / L * sp;
       }
     }
-    // (toward the batter's end only as fast as it can still stop short of zStop)
-    const room = (zStop - pz) * dirZ, vCap = room > 0 ? Math.sqrt(1.6 * lim.aMax * room) : 0;
-    if (gz * dirZ > vCap) gz = dirZ * vCap;
     // --- side-step a ball that is coming at the camera (so it passes to one side)
     if (i >= key) {
       let best = CAM.dodge * CAM.dodge, bj = -1;
@@ -183,6 +181,9 @@ export function planCamera({ n, dt, ball, key, base, face, centerZ = -10.06, lim
         gx = ax / al * k; gz = az / al * k;              // (no closing in on a ball that is coming at it)
       }
     }
+    // (toward the batter's end only as fast as it can still stop short of zStop)
+    const room = (zStop - pz) * dirZ, vCap = room > 0 ? Math.sqrt(1.6 * lim.aMax * room) : 0;
+    if (gz * dirZ > vCap) gz = dirZ * vCap;
     const gl = Math.hypot(gx, gz);
     if (gl > lim.vMax) { gx *= lim.vMax / gl; gz *= lim.vMax / gl; }
     let ax = (gx - vx) / dt, az = (gz - vz) / dt;
