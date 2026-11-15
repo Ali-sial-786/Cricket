@@ -68,6 +68,7 @@ bat's speed is always measured in real time.
 | Look down | You see a faint body (no head): your pads and boots show where you are standing in the crease. A stumping or run-out is judged on those feet **and** on your bat: either one grounded behind the line and you are in (Settings → Own body). |
 | **A** | Review an LBW decision (1 review per innings) while the prompt is up. |
 | — | **No-ball:** the AI bowler oversteps now and then. One run, the ball is bowled again and the next one is a **free hit** (you can only be run out). |
+| **Left trigger**, once the ball is dead | **Skip to the next ball**: the rest of the result, the replay and everyone walking back are skipped. The view dims for a quarter of a second, everyone is put in place (fielders on their marks, the batters at their ends with a new batter in after a wicket, the stumps back up), and as it clears the bowler sets off from his mark (the machine starts its countdown). A new bowler or a free hit gets its card for 1 s first. Not during an appeal, a review or the third umpire, not with a menu open, and never past the end of an innings (that goes straight to its result). It takes a fresh press: a trigger still held from a dive does not skip. |
 | **Left stick click** | Menu (also **Y** between balls). |
 | Hold **left grip** 1 s | Recenter: puts you back on your mark wherever you are looking (the pitch keeps its direction in your room). Menu → **Face this way** re-aims the pitch to where you look. |
 
@@ -87,6 +88,9 @@ bat's speed is always measured in real time.
    the crease by itself. The run always stops at the crease, and you then have 2.5 s to bowl (or it is a dead ball).
 5. **Bowl**: hold the **right trigger** (the ball is in your hand), bowl overarm and let go in the delivery stride
    or at the crease. Letting go anywhere else is not a delivery ("Run in first").
+6. **Skip to your next ball**: once the ball is dead, press the **left trigger** (your off hand): the result, the
+   replay and the walk back are skipped and, after a quarter-second dim, you are on your mark with the ball and
+   the batters and fielders are in place. That press does not start a run-up; press again to run in.
 
 * **Pace:** how quickly you bring the ball down in the moment before you let go, spread across your bowler's pace
   range, times your run-up: a full run gives full pace; from a standstill a seamer loses about 14%, a spinner 5%.
@@ -166,8 +170,9 @@ view also faces forward by itself before each ball, on recenter, catches and rep
   cuts the wait short, the replay still shows the whole of the play. In the headset you are moved through it (level,
   gently, the edges of the view dimmed while it moves), and the play is where you face when you bat, wherever you
   happened to be looking when it started. A small *REPLAY* label shows for the first 1.5 s. Your **off-hand
-  trigger** (the hand without the bat or the ball: the left one) skips it at any moment, and that press does nothing
-  else; no other button stops it, and the menu only pauses it. A catch, a stumping or a run-out is shown for 2 s after
+  trigger** (the hand without the bat or the ball: the left one) skips it at any moment and goes straight on to the
+  next ball (see *Skip to the next ball* above); that press does nothing else; no other button stops it, and the
+  menu only pauses it. A catch, a stumping or a run-out is shown for 2 s after
   the ball is dead (other balls 1 s).
 * **The HUD panel** (beside the pitch, between balls only) shows the last ball's result, the delivery and your shot
   (exit speed, launch angle above the horizontal and where the ball went, e.g. "41° · fine leg", bat speed, how
@@ -204,6 +209,7 @@ Open the page in any WebGL2 browser without a headset. The page starts on the me
 | `Esc` or `M` | Menu (click buttons with the mouse) | Menu |
 | `C` / `T` | Cycle cameras / toggle ball trail | |
 | `Space` / `Enter` during a replay | Skip it | Skip it |
+| `N` once the ball is dead | Skip to the next ball (as the left trigger) | Skip to your next ball |
 
 `window.__game` exposes the game object in the console, for example `__game.world.ball`,
 `__game.settings` and `__game.actions.start('chase')`.

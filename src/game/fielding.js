@@ -1339,6 +1339,20 @@ export class Fielding {
   }
 
   // Back to positions after a ball.
+  // Everyone on his mark at once, standing still, facing in, the ball out of
+  // anyone's hands (a skip to the next ball: nobody can see it). The AI
+  // bowler fielding for himself goes back into his own figure (out = false).
+  settleAll() {
+    this.throw = null; this.lob = null; this.lobFrom = null; this.ballOverride = null; this.shy = null;
+    this.throwArrived = null; this.overthrow = null; this.events = [];
+    this.dead = true; this.hurry = 0;
+    for (const f of this.fielders) {
+      f.playerControlled = false; f.out = false;
+      f.pos.copy(f.home); f.vel.set(0, 0, 0); f.state = 'set'; f.target = null; f.speed = 0; f.prevDist = Infinity;
+      f.action = null; f.leap = null; f.runIn = null; f.coverEnd = null; f.backEnd = null;
+      f.face = f.yaw = this.restFace(f);
+    }
+  }
   returnAll() {
     for (const f of this.fielders) if (f.state !== 'set') f.state = 'return';
     this.ballOverride = null;

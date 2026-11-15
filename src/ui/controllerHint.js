@@ -144,7 +144,7 @@ export const HINTS = {
   another:  { hand: 'L', button: 'a', label: 'ANOTHER', sub: 'X when home', key: 'Space' },
   back:     { hand: 'L', button: 'b', label: 'GO BACK', sub: 'press Y', key: 'G' },
   dive:     { hand: 'L', button: 'trigger', label: 'DIVE', sub: 'hold left trigger', key: 'V' },
-  skip:     { hand: 'L', button: 'trigger', label: 'NEXT BALL', sub: 'left trigger skips', key: 'N' },
+  skip:     { hand: 'L', button: 'trigger', label: 'SKIP', sub: 'left trigger: next ball', key: 'N' },
   move:     { hand: 'L', button: 'stick', label: 'MOVE', sub: 'left stick', key: 'Arrows' },
   menu:     { hand: 'L', button: 'click', label: 'MENU', sub: 'click left stick', key: 'Esc' },
   review:   { hand: 'R', button: 'a', label: 'REVIEW', sub: 'press A', key: 'Z' },

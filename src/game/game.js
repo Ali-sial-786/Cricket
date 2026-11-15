@@ -36,6 +36,7 @@ import { BatGeometry, aiBatConfig } from '../physics/bat.js';
 import { Runs } from './running.js';
 import { ShadowPool, Humanoid } from '../render/humanoid.js';
 import { FrameLog } from './frameLog.js';
+import { QuickSkip } from './quickSkip.js';
 
 export const BAT_HEAD = { z: -1.05, legOffset: -0.35 };      // head relative to guard (hand) x
 export const BOWL_HEAD = { x: 0.75, z: -19.6 };
@@ -113,6 +114,7 @@ export class Game {
     this.ballOverride = null;   // fielding drives the ball view after a catch / pick-up
 
     this.input = new InputManager(renderer, rig, camera, dom);
+    this.quickSkip = new QuickSkip(this);   // the off-hand trigger once the ball is dead: straight to the next ball
     this.sfx = new Sfx();
     this.sfx.setEnabled(this.settings.sound);
     this.samples = new Samples(this.sfx);
@@ -124,7 +126,8 @@ export class Game {
     this.timeScale = 1;              // current game-time scale (slow motion)
     this.timeScaleTarget = 1;
     // The hand with the bat and the ball. The game reads both from the right controller
-    // (there is no left-handed setting yet); the other one is your off hand (it skips replays).
+    // (there is no left-handed setting yet); the other one is your off hand (its trigger
+    // skips to the next ball once the ball is dead, quickSkip.js, and dives while running).
     this.mainHand = 'right';
     this.rigOffset = { x: 0, z: 0 }; // stick movement / coming down the pitch / the bowling run-up
     // Right stick: look around without turning your body. The rig turns by
@@ -757,6 +760,7 @@ export class Game {
       if (--this.pendingRecenter <= 0) { this.pendingRecenter = null; this.recenter(); this.afterXRSettled(); }
     }
 
+    this.quickSkip.update(realDt);           // (first: a press it uses is gone before anything else reads it)
     this.handleGlobalInput(dt);
     this.updateRigDrop(realDt);
     this.replay.update(realDt);

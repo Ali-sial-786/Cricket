@@ -872,6 +872,16 @@ export class BowlerActor extends Actor {
   }
 
   holdingBall() { return this.state === 'runup' && this.run && !this.run.released; }
+  // Stood on his mark at once, facing the batter, at the next ball's size:
+  // only while nobody can see it (a skip to the next ball, in the dark).
+  // (his last run-up is long over: he may have been fielding since, his own figure not posed)
+  placeAtMark() {
+    if (this.next) this.h.root.scale.setScalar(this.next.scale);
+    this.state = 'idle'; this.speed = 0; this.hurry = false;
+    this.cut();
+    this.place(this.home.x, this.home.z, 0);
+    this.h.syncShadow();
+  }
   // From the fielder's figure that fielded for him: he walks back to his mark from there.
   takeOver(o, speed) { super.takeOver(o, speed); this.state = 'walkback'; }
 }

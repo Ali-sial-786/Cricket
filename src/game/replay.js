@@ -227,7 +227,7 @@ export class Replay {
     // Nothing but a small label low in the corner for the first moments (the UI hides its panels while a replay is on).
     g.ui.clearHints?.();
     g.ui.prompt('', 0);
-    setLabel(this.label, 'REPLAY', xr ? `off-hand (${this.skipHand().hand}) trigger skips` : 'Space skips');
+    setLabel(this.label, 'REPLAY', xr ? `off-hand (${this.skipHand().hand}) trigger: next ball` : 'Space skips · N: next ball');
     this.label.visible = true; this.label.material.opacity = 1; this.labelT = 0;
     if (g.ballView.trail) g.ballView.clearTrail?.();
     // The camera's whole move, and where your head is in the room (it moves the rig under that).
@@ -461,7 +461,8 @@ function heading(q) {
 
 // The view comes in from dark whenever the game moves you somewhere else at
 // once (a replay starting or ending, back to the top of your mark): a
-// head-locked black screen that clears over `sec` real seconds.
+// head-locked black screen that clears over `sec` real seconds. (fadeOut:
+// first down to dark, for a skip to the next ball.)
 export class ViewFade {
   constructor(scene) {
     const m = this.mesh = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 1.2), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, depthTest: false, depthWrite: false, opacity: 0 }));
@@ -471,14 +472,22 @@ export class ViewFade {
     m.visible = false;
     scene.add(m);
     this.left = 0; this.sec = 1;
+    this.outSec = 0; this.outT = 0;
   }
-  cut(sec = FADE_IN) { this.sec = sec; this.left = sec; }
-  get level() { return this.left > 0 ? this.left / this.sec : 0; }
+  cut(sec = FADE_IN) { this.sec = sec; this.left = sec; this.outSec = 0; }
+  // The other way: from where it is now to dark over `sec` real seconds, and
+  // dark it stays until cut() brings the view back in (a skip to the next
+  // ball: everyone is put in place while it is dark).
+  fadeOut(sec) { const a = this.level; this.outSec = sec; this.outT = a * sec; }
+  get fadingOut() { return this.outSec > 0; }
+  get dark() { return this.outSec > 0 && this.outT >= this.outSec; }
+  get level() { if (this.outSec > 0) return Math.min(1, this.outT / this.outSec); return this.left > 0 ? this.left / this.sec : 0; }
   update(eye, dt) {
     const m = this.mesh, a = this.level;
     m.visible = a > 0.01;
     if (m.visible) { m.material.opacity = a * a * (3 - 2 * a); m.position.copy(eye.p); m.quaternion.copy(eye.q); }
-    if (this.left > 0) this.left = Math.max(0, this.left - dt);
+    if (this.outSec > 0) this.outT = Math.min(this.outSec, this.outT + dt);
+    else if (this.left > 0) this.left = Math.max(0, this.left - dt);
   }
 }
 

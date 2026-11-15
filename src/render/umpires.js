@@ -135,6 +135,17 @@ export class UmpireView {
       u.off.set(gx, 0, gz);
     }
   }
+  // Both on their marks at once (out of your way), standing still, no signal
+  // left over: a skip to the next ball, while the view is dark.
+  settleNow() {
+    for (const u of [this.main, this.leg]) {
+      if (!u.mark) continue;
+      u.goal.x = u.mark.x + u.off.x; u.goal.z = u.mark.z + u.off.z;
+      u.task = null; u.speed = 0; u.sig = null;
+      u.cut();
+      u.place(u.goal.x, u.goal.z, u.rest);
+    }
+  }
   // Both where they should be, standing still?
   settled() {
     if (!this.visible) return true;

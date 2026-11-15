@@ -112,6 +112,7 @@ export class BowlerView {
   setMark(releasePos, kind) { this.actor.setMark(releasePos, kind); }
   atMark() { return !this.actor.visible || this.actor.atMark(); }
   hurry() { this.actor.hurry = true; }
+  placeAtMark() { this.actor.placeAtMark(); }
   update(dt, t) { return this.actor.visible ? this.actor.update(dt, t) : false; }
   holdingBall() { return this.actor.visible && this.actor.holdingBall(); }
   handPos(out) { return this.actor.handPos(out, 'R'); }
@@ -174,6 +175,15 @@ export class FieldView {
         a.h.syncShadow();
       }
     });
+  }
+  // Everyone stood where the logic has him now, standing still (a skip to the next ball, in the dark).
+  placeAll(states) {
+    for (let i = 0; i < this.actors.length && i < states.length; i++) {
+      const a = this.actors[i], s = states[i];
+      a.cut(); a.speed = 0; a.ready = 0;
+      a.place(s.x, s.z, s.face);
+      if (this.visible) a.visible = !s.hidden;
+    }
   }
   handPos(i, out) { return this.actors[i].handPos(out, 'R'); }
   // Where a ball held in the right hand sits (in the palm / in the glove).
@@ -292,7 +302,7 @@ export class NonStrikerView {
     else if (Math.hypot(this.goal.x - a.pos.x, this.goal.z - a.pos.z) > 0.12) a.task = walkTask(this.goal, this.restFace(), { speed: Math.hypot(this.goal.x - a.pos.x, this.goal.z - a.pos.z) > 6 ? 3.4 : 1.7 });
     this.moving = !!a.task;
   }
-  // Stood on his mark at once: only when nobody can see it (a session starting or ending).
+  // Stood on his mark at once: only when nobody can see it (a session starting or ending, a skip to the next ball).
   reset() {
     this.running = null; this.backing = 0; this.moving = false;
     const o = this.clearOffset();
