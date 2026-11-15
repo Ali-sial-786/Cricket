@@ -123,3 +123,30 @@ test('Game.frame: the same physical motion gives the same controller velocity at
     assert.ok(Math.abs(g.simTime - (99 / hz + 1 / 72) * ts) < 1e-9, `the game clock is still the slowed one (${g.simTime})`);
   }
 });
+
+// Bowling after a long slowed batting spell: the controller history is on the real clock, which by then
+// is far ahead of the game clock; the release reads the fastest hand speed in the last 0.25 s of it.
+let BowlingSession = null;
+if (input) { try { ({ BowlingSession } = await import('../src/game/bowling.js')); } catch { BowlingSession = null; } }
+test('bowling after a long slowed batting spell: the release reads the hand of the last 0.25 s (real clock)', { skip: BowlingSession ? false : 'three.js is not installed (npm install)' }, () => {
+  const { Controller } = input, R = new Controller('right');
+  // 100 s of real time have gone, 70 s of game time (easy's 0.7 while the ball was live)
+  const t0 = 1100;
+  let y = 2;
+  for (let i = 0; i <= 72; i++) {
+    const t = t0 + i / 72, k = i / 72;
+    // a quick waggle of the arm half a second before (12 m/s), then the delivery itself at 6 m/s
+    y -= (k > 0.3 && k < 0.45 ? 12 : k > 0.7 ? 6 : 0.5) / 72;
+    R.gripPose.p.set(0.5, y, -19);
+    R.gripPose.q.set(0, 0, 0, 1);
+    R._record(t, false);
+  }
+  let got = null;
+  const g = { simTime: 70, input: { xr: true, right: R }, ui: { prompt() {}, setHud() {} }, aiBatter: { reset() {} }, palmDir: (o) => o.set(0, 0, 1) };
+  const s = Object.create(BowlingSession.prototype);
+  Object.assign(s, { game: g, run: { canRelease: true, enabled: false, speed: 0 }, rigShift: 0, holding: true, updateHud() {}, bowl: (o) => { got = o; } });
+  s.attemptRelease();
+  assert.ok(got, 'a delivery (not "dropped it")');
+  const peak = R.history.slice(-18).reduce((m, h) => Math.max(m, h.v.length()), 0);
+  assert.ok(Math.abs(got.paceSpeed - peak) < 1e-9 && got.paceSpeed < 7, `pace from the last 0.25 s: ${got.paceSpeed.toFixed(2)} vs ${peak.toFixed(2)} m/s (not the waggle before)`);
+});
