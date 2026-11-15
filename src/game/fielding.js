@@ -467,7 +467,10 @@ export class Fielding {
   assignCovers(t, side = null) {
     const F = this.fielders, k = F[0], bw = this.bowlerFields ? F[F.length - 1] : null;
     const busy = (f) => this.busyWithBall(f, t) && !(f && f.coverEnd && this.ballOverride && this.ballOverride.holder === F.indexOf(f));
+    const th = this.throw;
     const pick = (end, pref, taken) => {
+      // (a throw on its way to him: he stays the man at those stumps until it gets there)
+      if (th && th.released && !th.done && th.end === end && th.receiverF && th.receiverF !== taken) return th.receiverF;
       if (pref && !busy(pref) && pref !== taken) return pref;
       const cur = this.cover[end];
       if (cur && cur !== taken && cur !== pref && !busy(cur)) return cur;     // (keeps whoever is on his way)
