@@ -18,6 +18,7 @@ import {
 } from './anim.js';
 import { clipsReady, applyClip, applyLocomotion, strideAt, clipInfo, settle, MASK_ALL, MASK_LEGS } from './clips.js';
 import { shotFor, poseShot } from './shots.js';
+import { steadyKnees, legsNow, legsBlend, kneeWay, footYaw } from './legs.js';
 import { CONFIG } from '../config.js';
 import { BatGeometry } from '../physics/bat.js';
 import { PITCH } from '../physics/pitch.js';
@@ -789,7 +790,7 @@ export class BatterActor extends Actor {
     const use = !opts.head && p && p.feet && p.shot && !(p.adv > 0) && !(opts.adv > 0.001) ? this.mocapFor(p) : null;
     const w = use ? this.mocapWeight(opts.t, p) : 0;
     if (w < 1) this.batProcedural(dt, batPos, batQuat, opts);
-    if (w <= 0) return;
+    if (w <= 0) { this.steadyLegs(dt); return; }
     const h = this.h;
     let snap = null;
     if (w < 1) {
@@ -797,16 +798,31 @@ export class BatterActor extends Actor {
       snap = this._pSnap = h.snapshot(this._pSnap);
       const sc = h.root.scale.x, dx = this.pos.x - STANCE_MID[0], dz = this.pos.z - STANCE_MID[1];
       snap.hipsP.x += -dz / sc; snap.hipsP.z += dx / sc;
+      legsNow(h, this._legN || (this._legN = {}));
     }
     this.mocapBody(batPos, batQuat, opts, use);
     if (snap) {
+      legsNow(h, this._legM || (this._legM = {}));
       h.blendFrom(snap, w);
-      h.update(); h.clearFoot('L'); h.clearFoot('R');          // (the blend of two grounded poses can dip a toe)
+      // (the legs on the blended ankles, knees turned from the one way to the other: never wrung round)
+      const P = this._legP || (this._legP = {});
+      legsBlend(h, this._legN, this._legM, w, P);
+      h.update(); h.clearFoot('L', P.L); h.clearFoot('R', P.R);          // (the blend of two grounded poses can dip a toe)
       this.gripBat(batPos, batQuat, this._elbowUp);
     }
     if (opts.ball) h.lookAt(opts.ball, 1, 1.7);
     else h.lookAt(_c.set(0.4, 1.9, -18.8), 1, 1.7);
-    h.syncShadow();
+    this.steadyLegs(dt);
+  }
+
+  // The legs last (src/render/legs.js): a knee's bend direction turns no faster
+  // than a knee does (a straight leg in a capture, a blend, or the pad clearing
+  // the bat can swing it round in a frame: the pad wrings round the leg), no
+  // knee or pad in the turf; then nothing under the turf (syncShadow).
+  steadyLegs(dt) {
+    const sc = this.h.root.scale.x;
+    steadyKnees(this.h, this._kd || (this._kd = { L: null, R: null }), dt, 7, 0.12 * sc, 0.3 * sc);
+    this.h.syncShadow();
   }
 
   // The capture for this plan (cached per plan), or null.
@@ -895,6 +911,9 @@ export class BatterActor extends Actor {
       const k = M['k' + sd], hip = h.worldPos('hip' + sd, _a);
       _b.addVectors(hip, M[sd]).multiplyScalar(0.5);
       k.addScaledVector(_d.subVectors(k, _b), 1.0);
+      // (a leg the capture has straight has no bend direction of its own: out over its toes)
+      _d.set(0, 0, 1).applyQuaternion(M['q' + sd]); _d.y = 0;
+      if (_d.lengthSq() > 1e-6) k.addScaledVector(_d.normalize(), 0.2);
     }
     // The plan's feet: from the stance to where it puts them at contact. Each
     // foot moves as the capture's does (its progress along its own step and
@@ -1683,6 +1702,10 @@ export class BatterActor extends Actor {
         h.bones['ankle' + side].getWorldQuaternion(_qt);
         _gy.copy(ank);
         _gx.copy(knee).addScaledVector(_xr.normalize(), 0.5 + worst * 4);
+        // (the knee still bends the way its foot points: pushed aside, never bent backwards)
+        _bz.addVectors(hip, ank).multiplyScalar(0.5);
+        kneeWay(_gx.sub(_bz), footYaw(_qt), 0);
+        _gx.multiplyScalar(0.6).add(_bz);
         h.ikLeg(side, _gy, _gx);
         h.setWorldQuat('ankle' + side, _qt);
       }

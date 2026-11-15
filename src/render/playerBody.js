@@ -30,6 +30,7 @@ import * as THREE from 'three';
 import { BatterActor } from './actors.js';
 import { ShotSense, FAMILIES, captureTime, SENSE } from './shotSense.js';
 import { Footwork } from './footwork.js';
+import { liftPole, steadyKnees, kneeWay } from './legs.js';
 import { shotByName, shotsReady, poseShot } from './shots.js';
 import { sstep, clamp, mix } from './anim.js';
 import { PITCH } from '../physics/pitch.js';
@@ -598,48 +599,8 @@ export class PlayerBodyView {
   // frame or two), and no knee is in the turf, whatever moved the legs last
   // (the yield, the reach): turned up just as far as it must.
   kneesUp(dt) {
-    const h = this.actor.h, sc = h.root.scale.x, K = this.st.kd;
-    h.update();
-    for (const sd of ['L', 'R']) {
-      const ank = h.worldPos('ankle' + sd, _a), hip = h.worldPos('hip' + sd, _b), mid = _e.addVectors(hip, ank).multiplyScalar(0.5);
-      const ax = _P.subVectors(ank, hip).normalize();
-      const d = _c.copy(h.worldPos('knee' + sd, _d)).sub(mid);
-      d.addScaledVector(ax, -d.dot(ax));
-      const len = d.length();
-      let moved = false;
-      if (len > 1e-5) {
-        d.divideScalar(len);
-        const prev = K[sd];
-        if (prev && dt > 0 && dt < 0.1) {
-          _yp.fromArray(prev); _yp.addScaledVector(ax, -_yp.dot(ax));
-          if (_yp.lengthSq() > 1e-8) {
-            _yp.normalize();
-            const ang = Math.acos(clamp(_yp.dot(d), -1, 1)), m = KNEE_RATE * dt;
-            if (ang > m) {
-              // turn the last direction toward the new one by m about the leg's line
-              const sgn = Math.sign(_hf.crossVectors(_yp, d).dot(ax)) || 1;
-              d.copy(_yp).applyAxisAngle(ax, sgn * m);
-              moved = true;
-            }
-          }
-        }
-      }
-      const pole = d.lengthSq() > 0.5 ? _kp.copy(mid).addScaledVector(d, 0.6) : _kp.copy(h.worldPos('knee' + sd, _d)).sub(mid).multiplyScalar(4).add(mid);
-      if (liftPole(h, sd, ank, pole, KNEE_MIN * sc)) moved = true;
-      h.bones['ankle' + sd].getWorldQuaternion(_q);
-      if (moved) { h.ikLeg(sd, ank, pole); h.setWorldQuat('ankle' + sd, _q); h.update(); }
-      // (the pad below the knee joint, on a shin that slopes up to a raised foot: up onto it, not into the turf)
-      const kb = this.shinIx || (this.shinIx = { L: [h.boneList.indexOf(h.bones.kneeL)], R: [h.boneList.indexOf(h.bones.kneeR)] });
-      const low = h.worldPos('knee' + sd, _hf).y < KNEE_LOW * sc ? h.lowest(kb[sd]) : 0;
-      if (low < 0) {
-        h.worldPos('knee' + sd, _d).sub(mid); _d.addScaledVector(ax, -_d.dot(ax)).normalize();
-        pole.copy(mid).addScaledVector(_d, 0.6);
-        if (liftPole(h, sd, ank, pole, h.worldPos('knee' + sd, _hf).y - low + 0.002)) { h.ikLeg(sd, ank, pole); h.setWorldQuat('ankle' + sd, _q); h.update(); }
-      }
-      // (what it ended as, for the next frame)
-      h.worldPos('knee' + sd, _d).sub(mid);
-      K[sd] = _d.addScaledVector(ax, -_d.dot(ax)).normalize().toArray();
-    }
+    const sc = this.actor.h.root.scale.x;
+    steadyKnees(this.actor.h, this.st.kd, dt, KNEE_RATE, KNEE_MIN * sc, KNEE_LOW * sc);
   }
 
   // The head looks where you look (the headset's forward), as far as a neck
@@ -667,52 +628,6 @@ export class PlayerBodyView {
     h.rot('neck', pitch * 0.4, yaw * 0.45, 0, 'YXZ');
     h.rot('head', pitch * 0.6, yaw * 0.55, 0, 'YXZ');
   }
-}
-// The way a knee bends, made safe: a knee only bends the way its foot points
-// (a straight leg, or a rough capture, can say otherwise), so the direction is
-// kept on that side. Two such directions can always be turned one into the other.
-function kneeWay(p, yaw, bias = 0.05) {
-  const fx = Math.sin(yaw), fz = Math.cos(yaw);
-  p.x += fx * bias; p.z += fz * bias;
-  p.normalize();
-  const d = p.x * fx + p.z * fz;
-  if (d < 0.25) { p.x += fx * (0.25 - d) * 1.2; p.z += fz * (0.25 - d) * 1.2; p.normalize(); }
-  return p;
-}
-// Of the places a knee can be with its hip and ankle where they are (a circle
-// about the line between them), the one nearest the way `pole` bends it that
-// is at least minY above the turf. Moves `pole` there and returns true if it
-// had to (false: the knee is already high enough). Continuous in its inputs,
-// so a knee near the limit never flips between two answers.
-const _la = new THREE.Vector3(), _ln = new THREE.Vector3(), _lu = new THREE.Vector3(), _lv = new THREE.Vector3(), _lc = new THREE.Vector3();
-function liftPole(h, sd, T, pole, minY) {
-  const sc = h.root.scale.x;
-  h.update();
-  const hip = h.worldPos('hip' + sd, _la);
-  const l1 = h.bones['knee' + sd].position.length() * sc, l2 = h.bones['ankle' + sd].position.length() * sc;
-  const n = _ln.subVectors(T, hip);
-  let d = n.length();
-  if (d < 1e-5) return false;
-  n.divideScalar(d);
-  d = clamp(d, Math.abs(l1 - l2) + 1e-3, l1 + l2 - 1e-4);
-  const x = (l1 * l1 - l2 * l2 + d * d) / (2 * d), r = Math.sqrt(Math.max(0, l1 * l1 - x * x));
-  const C = _lc.copy(hip).addScaledVector(n, x);
-  const u = _lu.subVectors(pole, C); u.addScaledVector(n, -u.dot(n));
-  if (u.lengthSq() < 1e-10) return false;
-  u.normalize();
-  const v = _lv.crossVectors(n, u);
-  const a = r * u.y, b = r * v.y, c = minY - C.y;
-  if (a >= c) return false;                         // (y at the wanted angle: C.y + a)
-  const R = Math.hypot(a, b), phi = Math.atan2(b, a);
-  let th;
-  if (R < 1e-6) return false;
-  if (c >= R) th = phi;                              // (as high as it goes)
-  else {
-    const dl = Math.acos(c / R), t1 = angDiff(0, phi - dl), t2 = angDiff(0, phi + dl);
-    th = Math.abs(t1) <= Math.abs(t2) ? t1 : t2;
-  }
-  pole.copy(C).addScaledVector(u, Math.cos(th) * 0.6).addScaledVector(v, Math.sin(th) * 0.6);
-  return true;
 }
 // Move P (the pelvis) the least it must so that P + oL is within `reach` of
 // TL and P + oR within reach of TR (both legs reach their feet). The distance

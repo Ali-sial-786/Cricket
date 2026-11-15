@@ -381,7 +381,6 @@ export class Humanoid {
     if (lod === this.lod) return;
     this.lod = lod;
     this.mesh.geometry = geometryFor(this.opts, lod);
-    if (this.ghostDepth) this.ghostDepth.geometry = this.mesh.geometry;
   }
 
   // See-through body: what you see of yourself when you look down. No head
@@ -415,6 +414,7 @@ export class Humanoid {
       g.boundingSphere = this.mesh.boundingSphere; g.frustumCulled = this.mesh.frustumCulled;
       g.renderOrder = 2.9;
       g.layers.mask = this.mesh.layers.mask;
+      g.onBeforeRender = () => { g.geometry = this.mesh.geometry; };      // (the level of detail drawn)
       this.root.add(g);
     }
     if (this.ghostDepth) this.ghostDepth.visible = on;
