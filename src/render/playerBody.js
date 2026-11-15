@@ -47,11 +47,15 @@ const LOOK_RATE = 7;               // rad/s: the head turns (and nods) at most t
 const UPRIGHT = ['forward_defence', 'straight_drive', 'cover_drive', 'lofted_drive'];
 const HALF_PI = Math.PI / 2, TAU = Math.PI * 2;
 const NB = 17;
+const TRUNK = ['hips', 'spine', 'chest'], TRUNK_RATE = 10;     // rad/s: the captured trunk turns at most this fast (steadyTrunk)
+const HIP_TWIST = [-0.6, 0.9];     // rad: the hips' turn from the way the feet point, at most (closed .. open; hipsToFeet)
+const KNEE_RATE = 7;               // rad/s: a knee's bend direction turns at most this fast (kneesUp)
+const SPINE_TWIST = 0.6;           // rad: of what the hips may not turn, the spine takes at most this much
 
 const _ax = new THREE.Vector3(), _Hj = new THREE.Vector3(), _bp = new THREE.Vector3(), _bq = new THREE.Quaternion();
 const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3(), _d = new THREE.Vector3(), _e = new THREE.Vector3();
-const _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _up = new THREE.Vector3(0, 1, 0);
-const _P = new THREE.Vector3(), _yp = new THREE.Vector3(), _hf = new THREE.Vector3();
+const _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _q3 = new THREE.Quaternion(), _up = new THREE.Vector3(0, 1, 0);
+const _P = new THREE.Vector3(), _yp = new THREE.Vector3(), _hf = new THREE.Vector3(), _kp = new THREE.Vector3();
 const angDiff = (a, b) => { let d = b - a; while (d > Math.PI) d -= TAU; while (d < -Math.PI) d += TAU; return d; };
 const yawOf = (q) => { _e.set(0, 0, 1).applyQuaternion(q); return Math.atan2(_e.x, _e.z); };
 const v3 = () => new THREE.Vector3(), q4 = () => new THREE.Quaternion();
@@ -85,7 +89,7 @@ export class PlayerBodyView {
   // Everything the solver remembers (plain data).
   reset() {
     this.sense.reset(); this.feet.reset();
-    this.st = { u: {}, kneel: 0, kneelK: 0, kneelV: 0, toeR: 0, look: 0, lookP: 0, lookN: 0, desk: null, n: 0, out: null, yield: { L: [0, 0], R: [0, 0] } };
+    this.st = { u: {}, kneel: 0, kneelK: 0, kneelV: 0, toeR: 0, kd: { L: null, R: null }, trunk: null, turn: 0, rel: 0, relOk: false, look: 0, lookP: 0, lookN: 0, desk: null, n: 0, out: null, yield: { L: [0, 0], R: [0, 0] } };
     this.actor._tw = null; this.actor._eb = null;
     this.log.length = 0;
     this.gen = (this.gen || 0) + 1;     // (a replay re-solve begun before this has nothing left to make)
@@ -309,14 +313,14 @@ export class PlayerBodyView {
         // (the captures come from video: their feet's turn is rough, so only some of it)
         pat.yawL = clamp(pat.yawL * 0.6, -0.3, 0.7); pat.yawR = clamp(pat.yawR * 0.5, -0.3, 0.7);
       } else list.length = 0;
-    } else { for (const k of Object.keys(st.u)) delete st.u[k]; st.toeR = 0; }
+    } else { for (const k of Object.keys(st.u)) delete st.u[k]; st.toeR = 0; st.trunk = null; st.turn = 0; st.relOk = false; }
     // ---- the feet
     const cr = ex && ex.crease;
     // (how far apart the legs can put them with the head this high: the hips under an all but upright trunk)
     const legLen = (h.bones.kneeL.position.length() + h.bones.ankleL.position.length()) * sc;
     const hipUp = Hj.y - A.trunkUp * sc * 0.95 - h.ankleHeight * sc;
     const maxStride = 2 * Math.sqrt(Math.max(0, legLen * legLen - hipUp * hipUp));
-    const F = this.feet.update(dt, { hx: Hj.x, hz: Hj.z, crouch, quiet: o.quiet, engage: E, pat, kneel: st.kneelK, maxStride, pin: cr && cr.z != null && cr.pin > 0 ? { z: cr.z, k: cr.pin } : null, stumpsZ: PITCH.battingStumpsZ });
+    const F = this.feet.update(dt, { hx: Hj.x, hz: Hj.z, crouch, quiet: o.quiet, engage: E, pat, turn: list.length ? st.turn * E : 0, kneel: st.kneelK, maxStride, pin: cr && cr.z != null && cr.pin > 0 ? { z: cr.z, k: cr.pin } : null, stumpsZ: PITCH.battingStumpsZ });
     // ---- no stroke: the stance, from the feet, your head and your hands
     A.mode = 'bat'; A.poseKey = 'bat';
     A.bat.position.copy(bp); A.bat.quaternion.copy(bq);
@@ -379,7 +383,7 @@ export class PlayerBodyView {
     if (this.debug) { h.update(); this.debug.pre = h.worldPos('head', _a).distanceTo(Hj); }
     // ---- the gloves on the handle; the head looking where you look
     A.gripBat(bp, bq, elbowUp);
-    this.kneesUp();
+    this.kneesUp(dt);
     this.look(hq, e.ball, dt);
     h.syncShadow();
     // (lifted clear of the turf: the gloves go back on the handle)
@@ -409,6 +413,8 @@ export class PlayerBodyView {
     }
     for (let k = 0; k < NB; k++) h.boneList[k].quaternion.copy(acc.q[k]).normalize();
     h.bones.hips.position.copy(acc.p);
+    this.steadyTrunk(dt);
+    this.hipsToFeet(yawL, yawR);
     h.update();
     h.worldPos('hips', M.H); h.worldPos('head', M.hd);
     for (const sd of ['L', 'R']) {
@@ -441,7 +447,6 @@ export class PlayerBodyView {
     const legLen = (h.bones.kneeL.position.length() + h.bones.ankleL.position.length()) * sc;
     reachBoth(P, _a.subVectors(M.hL, M.H), M.tL, _b.subVectors(M.hR, M.H), M.tR, legLen * 0.985, HIP_DOWN);
     P.y = Math.max(P.y, A.kneelHipY * sc * 0.82);
-    if (this.dbg) this.dbg('Hj', Hj.y, 'P0', Hj.y - M.hd.y + M.H.y, 'P', P.y, 'feet', F.L.x, F.L.z, F.R.x, F.R.z, 'Hjxz', Hj.x, Hj.z, 'Pxz', P.x, P.z);
     h.bones.hips.position.copy(h.bones.hips.parent.worldToLocal(_a.copy(P)));
     h.update();
     // the trunk leans the rest of the way to your head (it was clamped, or the legs could not reach)
@@ -482,6 +487,50 @@ export class PlayerBodyView {
     }
   }
 
+  // No faster than a body turns: the trunk follows the captures at a limited
+  // rate, so a capture that spins (they come from video) or a change of shot
+  // never pops it.
+  steadyTrunk(dt) {
+    const h = this.actor.h, st = this.st, prev = st.trunk, ok = prev && dt > 0 && dt < 0.1, out = [];
+    for (let i = 0; i < TRUNK.length; i++) {
+      const q = h.bones[TRUNK[i]].quaternion;
+      if (ok) {
+        _q.fromArray(prev[i]);
+        const a = _q.angleTo(q), m = TRUNK_RATE * dt;
+        if (a > m) q.copy(_q.slerp(q, m / a));
+      }
+      out.push(q.toArray());
+    }
+    st.trunk = out;
+  }
+
+  // The hips turn only so far from where the feet point (a capture's hips spin
+  // further than planted feet allow: crossed, wrung legs); the rest of the turn
+  // goes to the spine, the chest keeps the capture's. How far the capture
+  // opens the hips is kept for the feet (the back foot pivots, the front one
+  // opens, next frame).
+  hipsToFeet(yawL, yawR) {
+    const h = this.actor.h, st = this.st;
+    h.update();
+    h.bones.hips.getWorldQuaternion(_q2);
+    const hy = yawOf(_q2), mean = yawL + angDiff(yawL, yawR) / 2;
+    // (kept continuous from frame to frame: a capture can spin the hips right round)
+    const turn = angDiff(HALF_PI, hy), rel0 = angDiff(mean, hy), go = st.relOk;
+    st.turn = go ? st.turn + angDiff(st.turn, turn) : turn;
+    const rel = st.rel = go ? st.rel + angDiff(st.rel, rel0) : rel0;
+    st.relOk = true;
+    const ex = rel - clamp(rel, HIP_TWIST[0], HIP_TWIST[1]);
+    if (Math.abs(ex) < 1e-4) return;
+    // (the spine takes up to SPINE_TWIST of what the hips may not turn; past that the whole trunk turns less than the capture's)
+    const keep = Math.sign(ex) * Math.max(0, Math.abs(ex) - SPINE_TWIST);
+    h.bones.chest.getWorldQuaternion(_q).premultiply(_q3.setFromAxisAngle(_up, -keep));
+    h.setWorldQuat('hips', _q2.premultiply(_q3.setFromAxisAngle(_up, -ex)));
+    h.update();
+    h.bones.spine.getWorldQuaternion(_q2);
+    h.setWorldQuat('spine', _q2.premultiply(_q3.setFromAxisAngle(_up, (ex - keep) * 0.5)));
+    h.setWorldQuat('chest', _q);
+  }
+
   // The bat is where your hands have it: a pad in its way gives, the knee
   // swinging aside about the line from the hip to the planted foot. Gently
   // (the sideways push grows with how far the blade is in, and moves at a
@@ -516,19 +565,49 @@ export class PlayerBodyView {
     }
   }
 
-  // No knee in the turf, whatever moved the legs last (the yield, the reach):
-  // each knee turned up about its hip-ankle line just as far as it must.
-  kneesUp() {
-    const h = this.actor.h, sc = h.root.scale.x;
+  // The knees last: each knee's bend direction (about its hip-ankle line) turns
+  // no faster than KNEE_RATE from the last frame's (a nearly straight leg has
+  // no clear bend direction, and a capture's or a blend's can swing round in a
+  // frame or two), and no knee is in the turf, whatever moved the legs last
+  // (the yield, the reach): turned up just as far as it must.
+  kneesUp(dt) {
+    const h = this.actor.h, sc = h.root.scale.x, K = this.st.kd;
     h.update();
     for (const sd of ['L', 'R']) {
-      const ank = h.worldPos('ankle' + sd, _a), hip = h.worldPos('hip' + sd, _b);
-      const pole = _c.copy(h.worldPos('knee' + sd, _d)).sub(_e.addVectors(hip, ank).multiplyScalar(0.5)).multiplyScalar(4).add(_d);
-      if (!liftPole(h, sd, ank, pole, KNEE_MIN * sc)) continue;
-      h.bones['ankle' + sd].getWorldQuaternion(_q);
-      h.ikLeg(sd, ank, pole);
-      h.setWorldQuat('ankle' + sd, _q);
-      h.update();
+      const ank = h.worldPos('ankle' + sd, _a), hip = h.worldPos('hip' + sd, _b), mid = _e.addVectors(hip, ank).multiplyScalar(0.5);
+      const ax = _P.subVectors(ank, hip).normalize();
+      const d = _c.copy(h.worldPos('knee' + sd, _d)).sub(mid);
+      d.addScaledVector(ax, -d.dot(ax));
+      const len = d.length();
+      let moved = false;
+      if (len > 1e-5) {
+        d.divideScalar(len);
+        const prev = K[sd];
+        if (prev && dt > 0 && dt < 0.1) {
+          _yp.fromArray(prev); _yp.addScaledVector(ax, -_yp.dot(ax));
+          if (_yp.lengthSq() > 1e-8) {
+            _yp.normalize();
+            const ang = Math.acos(clamp(_yp.dot(d), -1, 1)), m = KNEE_RATE * dt;
+            if (ang > m) {
+              // turn the last direction toward the new one by m about the leg's line
+              const sgn = Math.sign(_hf.crossVectors(_yp, d).dot(ax)) || 1;
+              d.copy(_yp).applyAxisAngle(ax, sgn * m);
+              moved = true;
+            }
+          }
+        }
+      }
+      const pole = d.lengthSq() > 0.5 ? _kp.copy(mid).addScaledVector(d, 0.6) : _kp.copy(h.worldPos('knee' + sd, _d)).sub(mid).multiplyScalar(4).add(mid);
+      if (liftPole(h, sd, ank, pole, KNEE_MIN * sc)) moved = true;
+      if (moved) {
+        h.bones['ankle' + sd].getWorldQuaternion(_q);
+        h.ikLeg(sd, ank, pole);
+        h.setWorldQuat('ankle' + sd, _q);
+        h.update();
+      }
+      // (what it ended as, for the next frame)
+      h.worldPos('knee' + sd, _d).sub(mid);
+      K[sd] = _d.addScaledVector(ax, -_d.dot(ax)).normalize().toArray();
     }
   }
 

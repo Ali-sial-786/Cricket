@@ -34,6 +34,7 @@ export const FEET = {
   teleport: 1.6,                 // m: further than this in one go is not a step (the rig was moved): the feet are just put there
   stumpX: 0.3, stumpZ: 0.27,     // the feet stay out of this box round the stumps (m, from the middle stump)
   kneelBack: 0.46, kneelSide: 0.2, kneelFront: 0.2,
+  yawMaxL: 1.0, yawMaxR: 1.45,   // rad: the feet turned toward the bowler at most (front, back)
 };
 
 function ease(k) { return k * k * k * (10 - 15 * k + 6 * k * k); }           // (no speed and no acceleration at either end)
@@ -51,7 +52,8 @@ export class Footwork {
   // i: { hx, hz    your head along the ground (m)
   //      crouch    how far it is below standing (m)         quiet   s you and the bat have been still
   //      engage    0..1 a stroke is being played            pat     its feet: { Lx, Lz, Rx, Rz, yawL, yawR } against the stance, or null
-  //      kneel     0..1 right down                          pin     { z, k }: your real back foot while a stumping is judged, or null
+  //      turn      rad the stroke has opened the hips (the feet pivot after them)
+//      kneel     0..1 right down                          pin     { z, k }: your real back foot while a stumping is judged, or null
   //      stumpsZ   the wicket's z (your feet stay out of it), or null
   //      maxStride m between the feet at most (legs only reach so far with the head where it is) }
   // Returns { L, R }: { x, y (m off the turf), z, yaw (rad, + = toes turned toward the bowler), moving }.
@@ -153,8 +155,10 @@ export class Footwork {
       }
     }
     // ---- move the stepping feet; planted feet do not move
-    const yawL = 0.3 + 0.55 * Math.max(0, R.z - L.z - 0.45) + (S.anchor && i.pat ? i.pat.yawL * E : 0);
-    const yawR = -0.04 + (S.anchor && i.pat ? i.pat.yawR * E : 0);
+    // (and as the stroke opens the hips, the back foot pivots round on its toe and the front foot opens)
+    const open = Math.max(0, i.turn || 0);
+    const yawL = Math.min(F.yawMaxL, 0.3 + 0.55 * Math.max(0, R.z - L.z - 0.45) + (S.anchor && i.pat ? i.pat.yawL * E : 0) + Math.min(0.7, open * 0.45));
+    const yawR = Math.min(F.yawMaxR, -0.04 + (S.anchor && i.pat ? i.pat.yawR * E : 0) + Math.min(1.4, open * 0.85));
     for (const [f, t, yawT, rate] of [[L, tL, yawL, 1.5], [R, tR, yawR, 5]]) {
       const m = f.m;
       if (m) {
