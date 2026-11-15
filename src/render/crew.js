@@ -119,6 +119,39 @@ export class BatterCrew {
     g.batterView.blend = null;
   }
 
+  // Everyone where the next ball needs him at once (a skip to the next ball:
+  // the view is dark, so nobody is seen being put anywhere). The run that was
+  // being finished is finished (the score was fixed when the ball went dead),
+  // the batters are sorted out as they would have been (resolve), whoever is
+  // out is gone, the new batter is at his end, the striker at his guard (or,
+  // when you bat, back in you), the non-striker on his mark.
+  settleNow() {
+    const g = this.g, r = g.runs, bv = g.batterView, ns = g.nonStrikerView;
+    if (r.active) {
+      if (r.running) r.p = r.target;
+      r.diving = false; r.diveWanted = false; r.diveHeld = false; r.down = 0; r.rate = 0;
+      if (bv.shown) { const s = r.state(true); bv.actor.pos.set(s.x, 0, s.z); }
+      if (ns.visible) { const s = r.state(false); ns.actor.pos.set(s.x, 0, s.z); }
+      if (!this.pending) this.pending = { wicket: null, who: null, wait: 0 };
+    }
+    if (this.pending) { const p = this.pending; this.pending = null; this.resolve(p); }
+    bv.running = null; ns.running = null;
+    for (const a of this.leaving) { a.task = null; a.visible = false; a.h.setFade(1); a.h.replayVisible = false; }
+    this.leaving.length = 0;
+    const a = bv.actor;
+    if (bv.runnerOnly) {
+      if (bv.shown) { a.task = null; a.h.setFade(0); bv.show(false); }
+    } else if (a.task || bv.blend) {
+      const k = a.task;
+      a.task = null; a.cut(); a.speed = 0;
+      if (k) a.place(k.to.x, k.to.z, k.face ?? a.heading);
+      a.h.setFade(1); a.h.replayVisible = true;
+      bv.blend = null; bv.wasBat = false;
+    }
+    if (ns.visible) ns.reset();
+    for (const b of this.pool) if (b !== bv.actor && b !== ns.actor) { b.task = null; b.visible = false; b.h.replayVisible = false; b.h.setFade(1); }
+  }
+
   // A batter nobody is using (hidden, no task, not one of the two at the crease).
   free() {
     const g = this.g;

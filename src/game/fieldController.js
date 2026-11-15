@@ -73,6 +73,21 @@ export class FieldController {
     if (this.game.crew) this.game.crew.ballDead(info);
     this.deadT = 0;
   }
+  // Everyone in place for the next ball at once (a skip to the next ball, the
+  // view dark): the catching view over, every fielder on his mark (the AI
+  // bowler back in his own figure: the session stands him on his mark), the
+  // batters at their ends (crew.js settleNow), the umpires on theirs.
+  settleNow() {
+    const g = this.game, L = this.logic;
+    this.endCatchView(true);
+    this.pendingBreak = null;
+    L.settleAll();
+    g.fieldView.placeAll(L.states());
+    if (L.bowlerFields && g.fieldView.visible) { g.fieldView.actors[L.fielders.length - 1].visible = false; g.figures.bowler.show(true); }
+    if (g.crew) g.crew.settleNow(); else this.clearRunners();
+    if (g.umpires.settleNow) g.umpires.settleNow();
+    g.ballOverride = null;
+  }
   // Is everyone where he should be, standing still, for the bowler to run in?
   settled() {
     const g = this.game;

@@ -532,24 +532,47 @@ export class BowlingSession {
       }
       if (this.timer <= 0 && ready) {
         if (this.innings && this.innings.complete) { this.complete(); return; }
-        if (this.field) { this.field.reset(); this.field.setSpinner(this.keeperUp); }
-        this.state = 'ready';
-        g.world.removeBall();
-        g.aiBatter.reset();
-        if (this.innings && this.innings.freeHit) {
-          g.umpires.signal('freehit', g.clock);
-          g.ui.prompt('FREE HIT — only a run-out counts', 3.5, '#ffd34d');
-        } else if (this.innings && this.innings.thisOver.length === 0 && this.innings.legal > 0) {
-          g.ui.prompt(`New over · ${this.bowler.label}`, 2.5, '#ffd34d');
-          this.chooseBowler();
-        }
-        this.seamYaw = 0; this.holding = false;
-        this.toMark();
-        this.resetEnds();
-        this.updateAim();
-        g.ui.setHud({ big: 'Your ball', bigColor: '#ffd34d', last: this.howTo() });
+        this.nextBall();
       }
     }
+  }
+
+  // Your next ball: back on your mark with the ball (a new over: the bowler page).
+  nextBall() {
+    const g = this.game;
+    if (this.field) { this.field.reset(); this.field.setSpinner(this.keeperUp); }
+    this.state = 'ready';
+    g.world.removeBall();
+    g.aiBatter.reset();
+    if (this.innings && this.innings.freeHit) {
+      g.umpires.signal('freehit', g.clock);
+      g.ui.prompt('FREE HIT — only a run-out counts', 3.5, '#ffd34d');
+    } else if (this.innings && this.innings.thisOver.length === 0 && this.innings.legal > 0) {
+      g.ui.prompt(`New over · ${this.bowler.label}`, 2.5, '#ffd34d');
+      this.chooseBowler();
+    }
+    this.seamYaw = 0; this.holding = false;
+    this.toMark();
+    this.resetEnds();
+    this.updateAim();
+    g.ui.setHud({ big: 'Your ball', bigColor: '#ffd34d', last: this.howTo() });
+  }
+
+  // The ball is dead and you skip the rest of it (quickSkip.js, while the
+  // view is dark): the result's wait, the replay and the walk back are over at
+  // once. Everyone is stood where the next ball needs him (fielders on their
+  // marks, the batters at their creases, a new batter in) and you are back on
+  // your mark (toMark) with the ball. Never past the end of the innings.
+  // Returns 'next', 'done' or null (nothing to skip).
+  skipToNext() {
+    const g = this.game;
+    if (this.done || this.state !== 'settle') return null;
+    if (this.innings && this.innings.complete) { this.complete(); return 'done'; }
+    if (this.field) { this.field.setSpinner(this.keeperUp); this.field.settleNow(); }
+    g.ballOverride = null;
+    g.ballView.clearTrail();
+    this.nextBall();
+    return 'next';
   }
 
   checkLive(t) {
