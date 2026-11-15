@@ -109,7 +109,7 @@ export class PlayerBodyView {
     return {
       sense: this.sense.save(), feet: this.feet.save(), st: structuredClone(this.st),
       tw: A._tw ? { ...A._tw } : null, roll: A._roll ? { ...A._roll } : null,
-      eb: eb ? { L: eb.L.toArray(), R: eb.R.toArray(), okL: eb.okL, okR: eb.okR } : null,
+      eb: eb ? { L: eb.L.toArray(), R: eb.R.toArray(), okL: eb.okL, okR: eb.okR, pbL: eb.pbL ? eb.pbL.toArray() : null, pbR: eb.pbR ? eb.pbR.toArray() : null, pokL: eb.pokL, pokR: eb.pokR, pf: eb.pf ?? null } : null,
     };
   }
   loadState(s) {
@@ -117,7 +117,8 @@ export class PlayerBodyView {
     this.sense.load(s.sense); this.feet.load(s.feet); this.st = structuredClone(s.st);
     A._tw = s.tw ? { ...s.tw } : null;
     A._roll = s.roll ? { ...s.roll } : null;
-    A._eb = s.eb ? { L: new THREE.Vector3().fromArray(s.eb.L), R: new THREE.Vector3().fromArray(s.eb.R), okL: s.eb.okL, okR: s.eb.okR } : null;
+    const v = (a) => (a ? new THREE.Vector3().fromArray(a) : undefined);
+    A._eb = s.eb ? { L: v(s.eb.L), R: v(s.eb.R), okL: s.eb.okL, okR: s.eb.okR, pbL: v(s.eb.pbL), pbR: v(s.eb.pbR), pokL: s.eb.pokL, pokR: s.eb.pokR, pf: s.eb.pf ?? null } : null;
   }
 
   // What the body is doing, for the harness and the debug overlay: "state/shot engage".
