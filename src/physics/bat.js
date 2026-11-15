@@ -94,6 +94,13 @@ export class BatGeometry {
 }
 const _sp = new Vec3();
 
+// The AI striker's bat (when you bowl): the original restitution curve - 0.12 far
+// from the sweet spot, 0.096 off the toe / side, quality straight onto it - so
+// his mishits, edges and catches are as they were; your bat's floor was raised.
+export function aiBatConfig(c = CONFIG.bat) {
+  return { ...c, restitutionMin: 0.12, restitutionEnd: 0.12 * 0.8, edgeBlend: false };
+}
+
 // Compute contact quality and restitution from the local contact.
 // cLocal = ball centre (local) at contact, nLocal = outward surface normal.
 export function contactQuality(geom, cLocal, nLocal, part, sigmaScale = 1) {
@@ -118,9 +125,11 @@ export function contactQuality(geom, cLocal, nLocal, part, sigmaScale = 1) {
   if (face === 'front') {
     const edgeFactor = 1 - 0.85 * smoothstep(c.edgeStart, 1.0, across);
     quality = along * edgeFactor;
-    // (along the blade: the sweet spot down to an off-centre floor; toward the edge: down to an end's)
+    // (along the blade: the sweet spot down to an off-centre floor; toward the edge: down to an end's.
+    // The AI striker's bat keeps the original curve: aiBatConfig)
     const eEnd = c.restitutionEnd ?? c.restitutionMin * 0.8;
-    e = eEnd + (c.restitutionMin + (c.restitutionSweet - c.restitutionMin) * along - eEnd) * edgeFactor;
+    if (c.edgeBlend === false) e = c.restitutionMin + (c.restitutionSweet - c.restitutionMin) * quality;
+    else e = eEnd + (c.restitutionMin + (c.restitutionSweet - c.restitutionMin) * along - eEnd) * edgeFactor;
     isEdge = across > 0.78;
   } else if (face === 'back') {
     quality = 0.08 * along;

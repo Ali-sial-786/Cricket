@@ -130,3 +130,14 @@ test('the AI batter\'s bat (no load given) is the bare physics', () => {
   assert.equal(a.power, 1);
   assert.equal(a.hands, 1);
 });
+
+test('the AI striker\'s bat keeps the original restitution (his mishits and edges as before)', async () => {
+  const { aiBatConfig, contactQuality } = await import('../src/physics/bat.js');
+  const ai = new BatGeometry(aiBatConfig()), n = new Vec3(0, 0, 1);
+  for (const [x, y] of [[0, ai.sweetY], [0, ai.sweetY + 0.25], [ai.bladeHalf.x * 0.85, ai.sweetY], [ai.bladeHalf.x * 0.7, ai.sweetY - 0.2]]) {
+    const q = contactQuality(ai, new Vec3(x, y, ai.faceZ + R), n, 'blade');
+    // the original curve: 0.12 + 0.30 x quality
+    assert.ok(Math.abs(q.e - (0.12 + 0.3 * q.quality)) < 1e-12, `e ${q.e} at quality ${q.quality}`);
+  }
+  assert.ok(Math.abs(contactQuality(ai, new Vec3(0, ai.toeY - R, 0), new Vec3(0, -1, 0), 'blade').e - 0.096) < 1e-12, 'off the toe: 0.096');
+});

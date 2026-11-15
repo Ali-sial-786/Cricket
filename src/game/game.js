@@ -32,7 +32,7 @@ import { Samples } from '../audio/samples.js';
 import { Commentary } from '../audio/commentary.js';
 import { DRSView } from '../render/drsView.js';
 import { UmpireView } from '../render/umpires.js';
-import { BatGeometry } from '../physics/bat.js';
+import { BatGeometry, aiBatConfig } from '../physics/bat.js';
 import { Runs } from './running.js';
 import { ShadowPool, Humanoid } from '../render/humanoid.js';
 
@@ -65,7 +65,7 @@ export class Game {
     this.playerBat = this.world.addBat('player', this.playerBatProvider);
     this.playerBat.swing = new SwingLoad(new BatGeometry(CONFIG.bat).sweetY);     // how loaded your swing is (the shot's power)
     this.aiBatter = new AIBatter(CONFIG);
-    this.aiBat = this.world.addBat('ai', this.aiBatter, undefined, 1);
+    this.aiBat = this.world.addBat('ai', this.aiBatter, new BatGeometry(aiBatConfig()), 1);     // (his bat's original restitution: bat.js aiBatConfig)
     this.aiBat.enabled = false;
 
     // Views.
