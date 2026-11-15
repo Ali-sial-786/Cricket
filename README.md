@@ -35,7 +35,8 @@ tested without a headset.
 
 **Difficulty** (Settings): *Easy* plays the ball in flight at 70% speed (a 140 km/h ball feels like ~100), with a
 55% bigger sweet spot, slower bowlers, slower fielders and no LBW against you. *Medium* is 85% speed with a 25%
-bigger sweet spot. *Hard* is real time and real size.
+bigger sweet spot. *Hard* is real time and real size. The slow motion gives you more time, never more power: your
+bat's speed is always measured in real time.
 
 **The AI attack** (one bowler per over): swing (126–138 km/h: out-swinger, in-swinger, yorker), express pace
 (136–150: bouncer, yorker, back of a length), seam (114–127: off-cutter, leg-cutter, slower ball), off-spin
@@ -55,10 +56,11 @@ bigger sweet spot. *Hard* is real time and real size.
 
 | Input | What it does |
 |---|---|
-| Swing | The **bat face angle at contact** decides ground or air: a straight/closed face keeps it down, an open face lofts it. |
+| Swing | The **bat face angle at contact** decides ground or air: a straight/closed face keeps it down, an open face lofts it. **Power comes from your backlift and your bat speed**: the further back and higher you take the bat before the downswing, and the faster you bring it through, the harder the ball goes. A full backlift and a fast swing is the most you can hit it (six territory off the middle); a short backlift or a slow push is a controlled shot that stays in the ring; a gentle block is a dead bat that takes the pace off the ball. Off the middle of the bat you lose some power and the ball goes a bit wider, not most of it. After each hit the panel shows the exit speed, the launch angle, your **bat speed** (the middle of your bat, real m/s), your **backlift %** and how close to the middle you hit it. |
 | Hold **right trigger** | Stride down the pitch (about 1.6 m). The sweet spot shrinks, but a clean hit goes up to 32% harder and carries further. Miss and the keeper can stump you. |
-| Hold **right grip** (side button) | Sweep: your player goes down on the back knee with the front leg bent out in front, for as long as you hold it. Swing toward the leg side for a sweep, toward the off side for a **reverse sweep**. |
-| **Trigger + grip** | Come down the pitch and slog-sweep. |
+| Hold **right grip** (side button) | Sweep: your view drops to a kneeling sweeper's height (about 0.2 s; if you crouch yourself it drops only the rest of the way) and your player goes down on the back knee with the front leg bent out in front, for as long as you hold it, whatever you are doing yourself. Let go and you come back up. Swing toward the leg side for a sweep, toward the off side for a **reverse sweep**: the ball goes where your bat sends it, helped into a sweeper's arc, as hard as your swing (and backlift) hit it. |
+| **Trigger + grip** | Come down the pitch and slog-sweep (lofted, in front of square). |
+| Get **down low yourself** | Crouch right down (your eyes at about two thirds of your standing height or lower) with the bat low across the line, or swing at the ball from down there, and it is a sweep, exactly as if you held the grip (no extra view drop). A batting crouch, a lunge, ducking under a bouncer with the bat out of the way, or crouching to ground the bat are not sweeps. |
 | **Left stick**, or really stepping | Move around in your crease: stick forward = the way your left controller points. |
 | **X** | Call a run. The batters stop after each run; press **X** again once they are home for another. |
 | **Left trigger** | Turn back mid-run. |
@@ -157,6 +159,8 @@ view also faces forward by itself before each ball, on recenter, catches and rep
 * **Settings → Contact assist** (off / low / normal / high, default normal): an invisible margin around your bat so a
   ball that would have just missed is still played (and pulled toward the middle of the bat). The bat itself is
   14 cm wide with a 61 cm blade.
+* **Settings → Bat power** (×0.7–2.5, default ×1.25) multiplies your bat's real speed for the shot; the backlift and
+  how firmly you swing still decide how much of it reaches the ball.
 
 ## Desktop debug mode
 
