@@ -653,6 +653,7 @@ export class Fielding {
     this.tally.throws++; this.tally.direct++; this.tally.missed++;
     const fake = { f: this.fielders[0], end: 'batting', atThrow: { completed: 0, crossed: false } };
     this.throw = fake;
+    this.byes = true;                                // (the ball was not hit: whatever they run now is byes)
     this.relaunch(world, s.to, vel, t, 'miss');
   }
 
@@ -938,11 +939,11 @@ export class Fielding {
     f.runIn = null;
     const c = this.cover[th.end];
     let receiver = null, rf = null;
-    if (th.self) { rf = f; receiver = { pos: f.pos, there: true }; }
+    if (th.self) { rf = f; receiver = { pos: f.pos, there: true, reach: THROW.reach }; }
     else if (c) {
       const spot = this.clearGoal(c.target && c.coverEnd === th.end ? c.target : receiverSpot(th.end, 1), c, this.keepOut);
       const dist = Math.hypot(th.to.x - th.from.x, th.to.z - th.from.z);
-      rf = c; receiver = { pos: new Vec3(spot.x, 0, spot.z), there: this.coverEta(th.end) <= dist / throwSpeedFor(dist, th.kind, F.throwSpeed) + 0.1 };
+      rf = c; receiver = { pos: new Vec3(spot.x, 0, spot.z), there: this.coverEta(th.end) <= dist / throwSpeedFor(dist, th.kind, F.throwSpeed) + 0.1, reach: c.keeper ? THROW.keeperReach : THROW.reach };
     }
     aimThrow(th, this.rng, { skill: this.throwSkill, hurried: th.hurried, receiver, speed: F.throwSpeed });
     if (th.self) { th.result = 'take'; th.to = glovesPoint(th.end); }
@@ -1006,6 +1007,7 @@ export class Fielding {
       }
       this.release(t);
     }
+    if (th.done || !this.ballOverride) return;         // (taken: it is in his hands now)
     const k = clamp((t - th.tStart) / (th.tArrive - th.tStart), 0, 1);
     throwPoint(th, k, this.ballOverride.pos);
     // The receiver reaches for it just before it arrives…

@@ -24,7 +24,8 @@ const R = CONFIG.ball.radius;
 export const THROW = {
   windup: 0.47,          // s of the throw before the ball leaves the hand (the figure's THROW_LEAD)
   takeBreak: 0.22,       // s from a take over the stumps to the bails coming off
-  reach: 0.95,           // m to either side a man over the stumps takes a throw
+  reach: 1.0,            // m to either side a fielder over the stumps takes a throw (a step and a stretch)
+  keeperReach: 1.25,     // ... the keeper (gloves, and quick feet)
   runnerReach: 1.0,      // m the bat reaches ahead of a running batter (no dive)
   chance: 0.3,           // m: a batter this far short when the ball gets there is a run-out chance
   sure: 1.2,             // m: ... and this far short, a good one (a shy is worth it with nobody backing up)
@@ -75,8 +76,8 @@ export function throwSpeedFor(dist, kind = 'return', top = CONFIG.field.throwSpe
 export function throwScatter(dist, { kind = 'gloves', hurried = false, skill = 1 } = {}) {
   const k = (hurried ? 1.3 : 1) / Math.max(0.4, skill);
   return {
-    lat: (kind === 'direct' ? 0.05 + 0.0125 * dist : 0.07 + 0.012 * dist) * k,
-    ver: (kind === 'direct' ? 0.04 + 0.009 * dist : 0.08 + 0.012 * dist) * k,
+    lat: (kind === 'direct' ? 0.07 + 0.0125 * dist : 0.07 + 0.012 * dist) * k,
+    ver: (kind === 'direct' ? 0.04 + 0.009 * dist : 0.06 + 0.008 * dist) * k,
   };
 }
 
@@ -217,7 +218,9 @@ export function deflectOffStumps(vel, end, fromZ, out = new Vec3()) {
 
 // Make a throw's actual flight: aim + scatter, and what happens at the end of
 // it. th: { from, end, kind, bounce }; rng; opts: { skill, hurried,
-// receiver: { pos {x, z}, there (he will be over the stumps when it arrives) } | null }.
+// receiver: { pos {x, z}, there (he will be over the stumps when it arrives),
+// reach (m to either side he can take it) } | null }. A throw that arrives
+// low he takes on the bounce.
 // Sets th.to, th.arc, th.result ('take' | 'hit' | 'miss' | 'fumble'), th.contact (a hit).
 export function aimThrow(th, rng, { skill = 1, hurried = false, receiver = null, speed = CONFIG.field.throwSpeed } = {}) {
   const T = THROW;
@@ -238,7 +241,7 @@ export function aimThrow(th, rng, { skill = 1, hurried = false, receiver = null,
     if (receiver && receiver.there) {
       const px = receiver.pos.x - th.to.x, pz = receiver.pos.z - th.to.z;
       const along = px * ux + pz * uz, across = Math.abs(px * uz - pz * ux);
-      if (along > -0.4 && along < 2.5 && across < T.reach && th.to.y < 2.0) {
+      if (along > -0.4 && along < 2.5 && across < (receiver.reach || T.reach) && th.to.y < 2.0) {
         th.to.set(receiver.pos.x - ux * 0.25, clamp(th.to.y + 0.25, 0.4, 1.6), receiver.pos.z - uz * 0.25);
         th.result = 'take'; return th;
       }
@@ -247,7 +250,7 @@ export function aimThrow(th, rng, { skill = 1, hurried = false, receiver = null,
     return th;
   }
   // into the gloves: taken if he is there and it comes within his reach
-  const inReach = Math.abs(el) < T.reach && th.to.y > 0.15 && th.to.y < 2.2;
+  const inReach = Math.abs(el) < (receiver ? receiver.reach || T.reach : T.reach) && th.to.y < 2.3;
   if (receiver && receiver.there && inReach) th.result = rng() < T.fumble / Math.max(0.5, skill) ? 'fumble' : 'take';
   else th.result = 'miss';
   return th;
