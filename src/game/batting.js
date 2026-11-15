@@ -183,9 +183,21 @@ export class BattingSession {
     } else if (L.buttons.a.down || (input.xr && !L.connected && R.buttons.a.down)) this.requestNext();
   }
 
+  // X / Space between balls: the next ball now. During the result ('settle')
+  // it only cuts the wait short: the ball's replay still plays first, with
+  // the whole of the play on its tape (it starts once TAIL s of aftermath are
+  // recorded), and the end of the innings is still checked on the way out of
+  // 'settle' (so a finished innings never gets another ball).
   requestNext() {
-    if (this.state === 'idle' || this.state === 'settle') { this.state = 'idle'; this.timer = 0; }
+    if (this.state === 'idle') { this.timer = 0; return; }
+    if (this.state !== 'settle') return;
+    this.nextAsked = true;
+    const R = this.game.replay, p = R && R.pending;
+    this.timer = Math.min(this.timer, p ? Math.max(0, p.at - this.game.simTime) : 0);
   }
+
+  // The replay has put you back: straight on, if the next ball was asked for.
+  afterReplay() { if (this.state === 'settle' && this.nextAsked) this.timer = 0; }
 
   autoNext() { return this.kind !== 'nets' || this.game.settings.autoFeed; }
 
@@ -198,6 +210,7 @@ export class BattingSession {
     this.creasePin = clamp(this.creasePin + (this.stumpAt && (this.state === 'live' || this.state === 'review') ? 6 : -3) * (g.realDt || dt), 0, 1);
     g.timeScaleTarget = this.state === 'live' && !this.hit && !this.byes && !g.world.ball.padded && g.world.ball.active ? g.diff.timeScale : 1;
     if (this.state === 'idle') {
+      if (this.innings && this.innings.complete) { this.complete(); return; }   // (never a ball after the last one)
       if (this.autoNext() || this.timer <= 0) this.timer -= dt;
       // The next ball is decided now, so that everyone can walk to where it
       // needs him (the bowler to his mark, the umpire and the non-striker to
@@ -229,8 +242,8 @@ export class BattingSession {
       if (this.timer <= 0) {
         g.machine.setCue(0);
         if (this.innings && this.innings.complete) { this.complete(); return; }
-        this.state = 'idle';
-        this.timer = this.autoNext() ? 0.3 : 1e9;
+        this.timer = this.nextAsked ? 0 : this.autoNext() ? 0.3 : 1e9;
+        this.state = 'idle'; this.nextAsked = false;
       }
     }
     if (this.field) this.field.update(dt, t);
@@ -655,7 +668,7 @@ export class BattingSession {
     if (this.innings) {
       const inn = this.innings;
       score = `${inn.scoreText}  (${inn.overs})`;
-      sub = inn.target != null ? `Need ${inn.runsNeeded} off ${inn.ballsLeft} · ${inn.wicketsLimit - inn.wickets} wkts left` : `${inn.ballsLeft} balls left · ${inn.wicketsLimit - inn.wickets} wkts in hand`;
+      sub = inn.target != null ? `Need ${inn.runsNeeded} off ${inn.ballsLeft} · ${inn.wicketsLeft} wkts left` : `${inn.ballsLeft} balls left · ${inn.wicketsLeft} wkts in hand`;
       const card = inn.card;
       g.ui.setBoard([this.title.toUpperCase(), score, card ? card.pairText() : sub, card && card.bowler ? `${card.bowlerText()}   ·   ${inn.thisOver.join(' ') || '-'}` : `This over: ${inn.thisOver.join(' ') || '-'}`]);
       g.ui.setHud({ title: this.title, score, sub, footer: this.footer(), players: card ? `${card.pairText()}${inn.freeHit ? '   ·   FREE HIT' : ''}` : '' });

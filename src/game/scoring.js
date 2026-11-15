@@ -51,6 +51,7 @@ export class Innings {
 
   get overs() { return `${Math.floor(this.legal / 6)}.${this.legal % 6}`; }
   get ballsLeft() { return Math.max(0, this.ballsLimit - this.legal); }
+  get wicketsLeft() { return Math.max(0, this.wicketsLimit - this.wickets); }
   get runsNeeded() { return this.target == null ? null : Math.max(0, this.target - this.runs); }
   get scoreText() { return `${this.runs}/${this.wickets}`; }
 
