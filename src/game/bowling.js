@@ -105,6 +105,9 @@ export class BowlingSession {
     const g = this.game, b = this.bowler;
     this.run = new RunUp(CONFIG.bowling.runUp[b.key] || CONFIG.bowling.runUp.fast, { enabled: !!g.settings.runUp });
     this.autoRun = false; this.latchRunButtons();
+    this.fumbled = false;
+    // Put back at your mark from somewhere else: the view comes in from dark, it does not just jump.
+    if (g.rigOffset && Math.abs(g.rigOffset.z + this.run.dist) > 0.5 && g.replay && g.replay.fade && !g.ui.menuOpen) g.replay.fade.cut();
     g.setRigOffset(0, -this.run.dist);
     g.showRunMarks(this.run.enabled ? this.run.spec : null);
     if (this.state === 'ready') g.ui.setHud({ last: this.howTo() });     // back on the mark: instructions again
@@ -174,6 +177,19 @@ export class BowlingSession {
 
   usesY() { return false; }
 
+  // What may be in your view (src/ui/ui.js quiet): once your delivery has
+  // started (you are running in, or without a run-up the ball is gripped)
+  // nothing at all until the ball has left your hand; then, while it is in
+  // play, only the calls of the moment (what you bowled, the throw). At your
+  // mark, pulled out of a run or after dropping the ball: everything.
+  quiet() {
+    if (this.state === 'live') return 'live';
+    if (this.state !== 'ready' || this.fumbled) return null;
+    const r = this.run;
+    if (r && r.enabled) return r.state === 'running' || r.state === 'committed' || r.state === 'crease' ? 'clear' : null;
+    return this.holding ? 'clear' : null;
+  }
+
   // The ball is no longer in your hand: solid again, and no ghost hand.
   dropHeldBall() {
     const g = this.game;
@@ -231,7 +247,7 @@ export class BowlingSession {
     g.timeScaleTarget = 1;
     g.ballOverride = null;
     g.ui.setHud({ players: '' });
-    g.ui.hud.mesh.visible = true;
+    g.ui.showHud(true);
   }
 
   howTo() {
@@ -319,6 +335,7 @@ export class BowlingSession {
     const rel = (v) => new Vec3(v.x, v.y, v.z - vz);
     if (!pk || !last || pkS < CONFIG.bowling.minReleaseHandSpeed) {
       // Barely moving (e.g. let go by your face): no delivery. You keep your run and can grip again.
+      this.fumbled = true;                       // (this delivery is off: the message may show)
       g.ui.prompt('Dropped it — grip again and bowl through', 1.8, '#ffb347');
       g.ui.setHud({ big: 'Dropped', bigColor: '#ffb347' });
       g.aiBatter.reset();
@@ -369,6 +386,7 @@ export class BowlingSession {
       rng: g.rng,
     });
     this.delivery = d;
+    this.fumbled = false;
     this.run.released();
     this.dropHeldBall();
     this.resetEnds();
@@ -610,7 +628,7 @@ export class BowlingSession {
       g.aiBatter.adjust(g.world.ball.clone(), g.world.time);
       // (Where it pitched, not a wide call: "wide of off" there is only a line.)
       const ln = lineName(e.pos.x).replace('wide outside off', 'well outside off');
-      g.ui.setHud({ last: `Pitched: ${lengthName(-e.pos.z)} (${(-e.pos.z).toFixed(1)} m) · ${ln} · moved ${e.deviationDeg.toFixed(1)}°` });
+      g.ui.setHud({ last: `${this.delivery ? Math.round(this.delivery.vel.length() * 3.6) + ' km/h · ' : ''}Pitched: ${lengthName(-e.pos.z)} (${(-e.pos.z).toFixed(1)} m) · ${ln} · moved ${e.deviationDeg.toFixed(1)}°` });
       // What you bowled and where it went, near the middle of your view.
       const d = this.delivery;
       if (d) {
@@ -793,7 +811,8 @@ const cap = (t) => t.charAt(0).toUpperCase() + t.slice(1);
 function stumpLine(c) {
   if (!c) return '';
   const half = PITCH.wicketHalfWidth + CONFIG.ball.radius;
-  if (Math.abs(c.x) <= half) return c.y > PITCH.stumpHeight + 0.1 ? 'over the stumps' : 'hitting the stumps';
+  // (its line as bowled, not what became of it: the batter may well play it)
+  if (Math.abs(c.x) <= half) return c.y > PITCH.stumpHeight + 0.1 ? 'over the top of the stumps' : 'on the stumps';
   const cm = Math.round((Math.abs(c.x) - PITCH.wicketHalfWidth) * 100);
   return `${cm} cm outside ${c.x > 0 ? 'off' : 'leg'}`;
 }

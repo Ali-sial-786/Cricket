@@ -22,7 +22,7 @@ export class ThirdUmpireFlow {
     // Seen from the far end the board is made big and hung over the pitch.
     const farEnd = end === 'batting' ? hp.z < -9 : hp.z > -9;
     if (farEnd) g.drs.placeBoard(_head, { distance: 9, scale: 2.2, height: 3.4 });
-    g.ui.hud.mesh.visible = false;
+    g.ui.showHud(false);
     g.umpires.signal('review', g.clock);
     g.sample('drs_stinger', { gain: 0.8 });
     g.say('third_umpire');
@@ -32,7 +32,7 @@ export class ThirdUmpireFlow {
   finish() {
     this.done = true; this.active = false;
     this.g.drs.hide();
-    this.g.ui.hud.mesh.visible = true;
+    this.g.ui.showHud(true);
   }
 
   // dt = real seconds.

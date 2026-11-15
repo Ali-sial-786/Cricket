@@ -146,6 +146,12 @@ export class FieldController {
     const s = best ? best.s : { x: p.x, y: p.y, z: p.z, vx: 0, vz: 1, t: p.t };
     const hv = Math.hypot(s.vx, s.vz) || 1;
     const dir = { x: s.vx / hv, z: s.vz / hv };
+    // Not a chance you could take: the ball is there almost at once (an edge to
+    // a keeper standing up), or you would be put right behind the striker with
+    // his body between you and the ball. The fielder there takes it himself.
+    const bat = this.game.batterView && this.game.batterView.actor ? this.game.batterView.actor.pos : null;
+    const gap = bat ? Math.hypot(s.x + dir.x * C.standOff - bat.x, s.z + dir.z * C.standOff - bat.z) : Infinity;
+    if (s.t < C.minTime || gap < C.minGap) return;
     this.catch = {
       f: L.fielders[p.fi], fi: p.fi, state: 'pending',
       point: new Vec3(s.x, Math.min(2.0, Math.max(0.35, s.y)), s.z), tArrive: L.hitT + s.t, dir,

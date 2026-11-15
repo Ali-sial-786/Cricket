@@ -266,6 +266,8 @@ export const CONFIG = {
     leadTime: 0.75,          // s (game time) before the ball arrives that the chance starts
     handRadius: 0.24,        // m: ball centre within this of either hand = caught
     standOff: 0.42,          // m you stand behind the catch point
+    minTime: 0.3,            // s (game time) from the bat to the catch point: anything quicker is the fielder's, not yours
+    minGap: 3.0,             // m from the striker: nearer, his body would fill your view (the keeper up at the stumps)
   },
 
   match: {

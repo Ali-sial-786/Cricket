@@ -52,13 +52,12 @@ export class LbwFlow {
   startReview(byPlayer) {
     const g = this.g;
     this.reviewed = true; this.reviewBy = byPlayer ? 'player' : 'ai';
-    if (g.replay) g.replay.mark('reviewed', g.simTime);      // the review shows the ball: no replay of it afterwards
     this.outcome = reviewOutcome(this.track, { onFieldOut: this.onFieldOut, shotOffered: this.shotOffered });
     const hp = g.input.headPose.p;
     _head.set(hp.x, hp.y, hp.z);
     g.drs.startLbw({ track: this.track, deliveryPath: this.path, onFieldOut: this.onFieldOut, outcome: this.outcome, viewerPos: _head });
     if (!this.playerIsBatter) g.drs.placeBoard(_head, { distance: 9, scale: 2.2, height: 3.4 });
-    g.ui.hud.mesh.visible = false;          // the review board takes its place
+    g.ui.showHud(false);          // the review board takes its place
     g.umpires.signal('review', g.clock);
     g.say('review');
     g.ui.prompt(byPlayer ? 'You review the decision' : 'The batter reviews', 2.5, '#7fd3ff');
@@ -68,7 +67,7 @@ export class LbwFlow {
   finish(out) {
     this.out = out; this.done = true; this.active = false;
     this.g.drs.hide();
-    this.g.ui.hud.mesh.visible = true;
+    this.g.ui.showHud(true);
   }
 
   // dt = real seconds.
@@ -113,7 +112,7 @@ export class LbwFlow {
         // The review is over: its tracking line, markers and board go now
         // (the board has already held the decision), and the HUD comes back.
         g.drs.hide();
-        g.ui.hud.mesh.visible = true;
+        g.ui.showHud(true);
         this.finalOut = r.out;
         this.phase = 'final'; this.t = 0;
       }

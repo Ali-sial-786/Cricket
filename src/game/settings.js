@@ -41,7 +41,7 @@ export function defaultSettings() {
     view: 'eyes',                  // eyes | helmet (eyes behind a helmet grille) | behind (third person)
     ownBody: true,                 // see a faint body (legs, feet) when you look down
     ballFinder: true,              // arrow / halo / landing ring to find the ball after a hit
-    replay: 'bowler',              // off | bowler | batter: replay after every ball
+    replay: 'bowler',              // off | bowler: a replay after every ball, from the bowler's end
     commentary: true,
     seenHowTo: false,
     paceMultiplier: CONFIG.bowling.paceMultiplier,
@@ -61,6 +61,7 @@ export function loadSettings() {
       else if (saved[k] !== undefined && (s[k] === null || typeof saved[k] === typeof s[k])) s[k] = saved[k];
     }
   }
+  if (s.replay !== 'off') s.replay = 'bowler';         // (the batter's-view replay is gone: one camera, from the bowler's end)
   // v3 of the aiming: the floor marker is the target again (once, for everyone).
   if (!saved || saved.aimV !== 3) { s.aimAssist = true; s.aimMarker = true; s.aimV = 3; }
   return s;

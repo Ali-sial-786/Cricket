@@ -27,6 +27,7 @@ import { Innings } from './scoring.js';
 const KMH = (v) => Math.round(msToKmh(v));
 const _hand = new THREE.Vector3();
 const STANCE = { x: -0.4, z: -1.05 };
+const ANNOUNCE = 1.8;            // s a new bowler's card / a free hit is up before the bowler sets off
 
 export class BattingSession {
   constructor(game, { kind = 'nets', title = 'Nets · Batting', innings = null, bowler = 'machine', fielders = null, aiBowler = null, onDone = null } = {}) {
@@ -97,7 +98,7 @@ export class BattingSession {
     g.playerBat.mods = null;
     g.drs.hide();
     g.ui.setHud({ players: '' });
-    g.ui.hud.mesh.visible = true;
+    g.ui.showHud(true);
   }
 
   footer() {
@@ -106,6 +107,17 @@ export class BattingSession {
   }
 
   usesY() { return !!(this.field && this.state === 'live' && (this.hit || this.byes)); }
+
+  // What may be in your view (src/ui/ui.js quiet): from the moment the
+  // bowler sets off (or the machine counts down) until the ball has reached
+  // you, nothing at all; while it is in play, only the calls of the moment
+  // and the running controls; between balls, everything.
+  quiet() {
+    const st = this.state;
+    if (st === 'cue' || st === 'runup') return 'clear';
+    if (st !== 'live') return null;
+    return this.hit || this.byes || this.stumpAt || this.crossedCrease || this.game.world.ball.padded ? 'live' : 'clear';
+  }
 
   resetEnds() {
     const g = this.game;
@@ -221,12 +233,28 @@ export class BattingSession {
 
   prepare(t) {
     const g = this.game;
+    // Between balls: who bowls next and a free hit are told BEFORE the bowler
+    // sets off (the card is up for a moment, then the run-up starts with a
+    // clear view), never over the run-up.
+    if (!this.nextUp) {
+      const next = this.aiBowler ? this.aiBowler.next(this.innings) : g.settings.machine;
+      this.nextUp = next;
+      const freeHit = !!(this.innings && this.innings.freeHit), lines = [];
+      if (next.newBowler) {
+        lines.push(`${next.bowler} — ${next.bowlerLabel}`);
+        g.say('over', { style: next.spinner ? 'SPIN' : next.bowlerType === 'swing' ? 'SWING' : 'FAST', balls: this.innings ? this.innings.ballsLeft : 6 });
+      }
+      if (freeHit) { lines.push('FREE HIT — you can only be run out'); g.umpires.signal('freehit', g.clock); }
+      if (this.aiBowler) g.ui.setHud({ sub: this.aiBowler.describe(next) });
+      if (lines.length) { g.ui.prompt(lines.join('\n'), ANNOUNCE + 0.4, '#ffd34d'); this.timer = ANNOUNCE; return; }
+    }
+    const settings = this.nextUp;
+    this.nextUp = null;
     this.resetEnds();
     g.ballView.setVisible(false);
     g.ballView.clearTrail();
     g.world.removeBall();
-    if (this.newBatter) { g.ui.setHud({ detail: `New batter in: ${this.newBatter}` }); this.newBatter = null; }
-    const settings = this.aiBowler ? this.aiBowler.next(this.innings) : g.settings.machine;
+    this.newBatter = null;
     const rel = this.bowler === 'ai'
       ? new Vec3((settings.release === 'around' ? -1 : 1) * CONFIG.machine.releaseX, settings.spinner ? CONFIG.bowlerAI.releaseHeight : CONFIG.bowlerAI.releaseHeightPace, CONFIG.machine.releaseZ)
       : null;
@@ -248,10 +276,8 @@ export class BattingSession {
     this.freeHit = !!(this.innings && this.innings.freeHit);
     this.noBall = !!(this.innings && this.bowler === 'ai' && g.rng() < (CONFIG.match.noBallChance[g.settings.difficulty] ?? 0.03));
     if (this.innings && this.innings.card && settings.bowler) this.innings.card.setBowler(settings.bowler, settings.bowlerLabel);
-    if (this.freeHit) { g.umpires.signal('freehit', g.clock); g.ui.prompt('FREE HIT — you can only be run out', 3.5, '#ffd34d'); }
     if (this.field) { this.field.reset(); this.field.setSpinner(!!settings.spinner); this.field.beginDelivery(); }
     if (this.bowlerFig) this.bowlerFig.show(true);
-    g.ui.clearHints();                         // the delivery has started: no instruction cards in the view
     if (this.bowler === 'machine') {
       g.machine.setRelease(settings.release || 'over');
       this.state = 'cue';
@@ -260,12 +286,10 @@ export class BattingSession {
     } else {
       this.state = 'runup';
       this.bowlerFig.startRunup(t, this.delivery.releasePos, settings.runup);
-      if (settings.newBowler) {
-        g.say('over', { style: settings.spinner ? 'SPIN' : settings.bowlerType === 'swing' ? 'SWING' : 'FAST', balls: this.innings ? this.innings.ballsLeft : 6 });
-        g.ui.prompt(`${settings.bowler} — ${settings.bowlerLabel}`, 3, '#ffd34d');
-      } else g.say('runup');
+      if (!settings.newBowler) g.say('runup');
     }
-    if (this.aiBowler) g.ui.setHud({ sub: this.aiBowler.describe(settings) });
+    // The delivery has started: nothing in the view until the ball has reached you
+    // (no bowler card, no last-ball panel, no control line, no instruction cards): see quiet().
   }
 
   release(t) {
@@ -284,7 +308,8 @@ export class BattingSession {
       this.ballInfo = { id: (this.ballInfo ? this.ballInfo.id : 0) + 1, arrive: c ? t + c.t : null, y: c ? c.y : null, length: b0 ? -b0.pos.z : -1 };
     }
     g.sample('whoosh', { gain: 0.5 }) || g.sfx.whoosh(d.vel.length() * 0.4);
-    if (this.noBall) { g.umpires.signal('noball', g.clock); g.ui.prompt('NO BALL! Swing freely — free hit next', 2.2, '#ffb347'); g.sample('umpire_not_out', { gain: 0.6 }); }
+    // (A no-ball is called and signalled; its words wait for the result: nothing is written over the ball in flight.)
+    if (this.noBall) { g.umpires.signal('noball', g.clock); g.sample('umpire_not_out', { gain: 0.6 }); }
     const len = d.length;
     g.say('release', { type: s.name && /googly|doosra|arm ball|slower|outswing|inswing/.test(s.name) ? s.name.replace('outswinger', 'outswing').replace('inswinger', 'inswing').replace(' ', '_') : s.spinType === 'off' ? 'off_spin' : s.spinType === 'leg' ? 'leg_spin' : s.bowlerType === 'swing' ? 'swing' : 'fast',
       length: len < 2 ? 'yorker' : len > 11 ? 'bouncer' : undefined, pace: d.paceKmh });
@@ -573,8 +598,10 @@ export class BattingSession {
       g.say('ball', { runs: outcome.runs, wide: outcome.wide, boundary: outcome.boundary, wicket: outcome.wicket, overDone });
     }
     if (this.hit && res.kind === 'hit' && this.hit.carry > this.stats.bestCarry) this.stats.bestCarry = this.hit.carry;
-    g.ui.setHud({ big, bigColor: color, last: ballText, detail: this.shotDetail() || (res.kind === 'beaten' ? 'Played and missed' : '') });
+    const detail = this.shotDetail() || (res.kind === 'beaten' ? 'Played and missed' : '');
+    g.ui.setHud({ big, bigColor: color, last: ballText, detail: this.newBatter ? `New batter in: ${this.newBatter}${detail ? '\n' + detail.split('\n')[0] : ''}` : detail });
     if (outcome.wicket || outcome.boundary) g.ui.prompt(big, 2.4, color);
+    else if (outcome.noBall) g.ui.prompt('NO BALL — free hit next', 2.2, '#ffb347');
     this.updateHud();
   }
 

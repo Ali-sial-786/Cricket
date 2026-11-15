@@ -12,8 +12,8 @@ const signed = (v, d = 2) => (v > 0 ? '+' : '') + v.toFixed(d);
 const CONTACT = ['off', 'low', 'normal', 'high'];
 const VIEWS = ['eyes', 'helmet', 'behind'];
 const VIEW_NAMES = { eyes: 'your eyes', helmet: 'eyes + helmet grille', behind: 'behind the player' };
-const REPLAYS = ['off', 'bowler', 'batter'];
-const REPLAY_NAMES = { off: 'off', bowler: "bowler's view", batter: "batter's view" };
+const REPLAYS = ['off', 'bowler'];
+const REPLAY_NAMES = { off: 'off', bowler: "after every ball" };
 const TURNS = ['snap', 'smooth', 'off'];
 const DEG = Math.PI / 180;
 // Running controls: only while the ball is live.
@@ -96,12 +96,32 @@ export class UI {
     this.cardData = null;
     this._pt = new THREE.Vector3(); this._pq = new THREE.Quaternion(); this._pf = new THREE.Vector3();
     this.clock = 0;
+    this.hudOn = true;           // the HUD panel is wanted (a review board takes its place for a while)
     this.anchorYaw = null;       // where the floating panels were put (see updatePrompt)
     this.pendingPick = null;     // bowler page: the bowler just picked, confirmed before it closes
   }
 
+  // The HUD panel beside the pitch: wanted or not (it is also hidden while a
+  // delivery is on and during replays, see update()).
+  showHud(v) { this.hudOn = !!v; }
+
+  // What may be in the view right now, asked of the session (its quiet()):
+  // 'clear': a delivery is on its way: from the start of the run-up (the
+  // machine's countdown; your own run-up when you bowl) until the ball has
+  // reached the batter (left your hand) there is nothing in the view at all:
+  // no HUD panel, no message strip, no control hints, no cards, and messages
+  // asked for meanwhile are dropped. 'live': the ball is in play: the HUD
+  // panel stays away; only the calls of the moment (RUN!, CATCH IT!,
+  // HOWZAT?!) and the running / throwing controls show. null: between balls,
+  // everything.
+  get quiet() {
+    const g = this.game, s = g.session;
+    return s && s.quiet && g.state === 'play' ? s.quiet() : null;
+  }
+
   // Big hint line (stays `secs`, or until replaced). Empty string clears it.
   prompt(text, secs = 3, color = '#ffffff') {
+    if (text && this.quiet === 'clear') return;
     if (text === this.promptText && color === this.promptColor) { this.promptUntil = this.clock + secs; return; }
     this.promptText = text; this.promptColor = color; this.promptUntil = this.clock + secs;
     this.drawPrompt();
@@ -156,11 +176,17 @@ export class UI {
     const g = this.game, replay = !!(g.replay && g.replay.active);
     const ses = g.session;
     const bowling = !!(ses && ses.isBowling);
-    const card = !!this.cardData && !this.menuOpen && !replay && g.state === 'play';
+    // Nothing floats in the view during a replay, or while a delivery is on its way
+    // (what was up when it started is taken down for good).
+    const quiet = this.quiet === 'clear';
+    if (quiet && !this._wasQuiet) { this.clearHints(); this.promptUntil = 0; this.drawPrompt(); }
+    this._wasQuiet = quiet;
+    const clear = replay || quiet;
+    const card = !!this.cardData && !this.menuOpen && !clear && g.state === 'play';
     // Running controls go as soon as the ball is dead (or a result is up).
-    const live = !ses || ses.state === 'live' || replay;
-    const hints = this.hintList.length > 0 && this.clock < this.hintUntil && !this.menuOpen && !card && !(this.hintRunning && !live);
-    const prompt = this.promptShown && !this.menuOpen;
+    const live = !ses || ses.state === 'live';
+    const hints = this.hintList.length > 0 && this.clock < this.hintUntil && !this.menuOpen && !card && !clear && !(this.hintRunning && !live);
+    const prompt = this.promptShown && !this.menuOpen && !clear;
     // Tag-along: put the panels where you face when they appear; keep them
     // there while you look around, and drag them along past FOLLOW_CONE.
     const any = prompt || hints || card;
@@ -553,6 +579,9 @@ export class UI {
   update() {
     this.updatePrompt(this.game.realDt || 0.016);
     this.menu.update();
+    // The HUD panel: between balls only (not while a delivery is on, not in a replay).
+    const g = this.game;
+    this.hud.mesh.visible = this.hudOn && !this.quiet && !(g.replay && g.replay.active);
     this.hud.update();
     this.board.update();
   }

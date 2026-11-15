@@ -7,8 +7,12 @@ import { Vec3, Quat, Pose, angularVelocityFromQuats, clamp } from '../physics/ma
 import { CONFIG } from '../config.js';
 
 class Button {
-  constructor() { this.pressed = false; this.value = 0; this.down = false; this.up = false; }
+  constructor() { this.pressed = false; this.value = 0; this.down = false; this.up = false; this.muted = false; }
+  // This press has been used up (it skipped a replay): the button reads as up
+  // until it has really been let go, so it cannot also start something else.
+  swallow() { this.muted = this.pressed; this.pressed = false; this.value = 0; this.down = false; this.up = false; }
   set(pressed, value = pressed ? 1 : 0) {
+    if (this.muted) { if (pressed) { pressed = false; value = 0; } else this.muted = false; }
     this.down = pressed && !this.pressed;
     this.up = !pressed && this.pressed;
     this.pressed = pressed;

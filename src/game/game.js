@@ -18,7 +18,7 @@ import { LENGTH_PRESETS, LINE_PRESETS } from '../physics/bowlingMachine.js';
 import { createSession, startMatch } from './modes.js';
 import { buildHelmetGrille, PlayerBowlerActor, NearCull } from '../render/viewModes.js';
 import { PLAYER_BOWLER_ORDER } from './bowlerTypes.js';
-import { Replay } from './replay.js';
+import { Replay, TAIL } from './replay.js';
 import { BallFinder } from '../render/ballFinder.js';
 import { CrowdAudio } from '../audio/crowd.js';
 import { MRPlacer } from '../xr/mr.js';
@@ -620,10 +620,11 @@ export class Game {
       this.updateEye();
       this.playerBody.actor.h.setGhost(false); this.playerBowler.h.setGhost(false);
       this.playerBody.actor.restArms();     // (the replay poses joints only: the arms at their own length)
-      this.replay.placeVignette(this.eye);
+      if (this.playerBowler.showHand) this.playerBowler.showHand(null);
+      this.replay.placeOverlays(this.eye, realDt);
       this.ballFinder.hide();
       Humanoid.updateLods(this.eye.p);
-      this.nearCull.update(this.eye.p, Humanoid.all, 0.6, this.replay.eyesView);
+      this.nearCull.update(this.eye.p, Humanoid.all, 0.6);
       this.commentary.update(realDt);
     } else {
       this.updatePlayerBat(paused);
@@ -642,6 +643,7 @@ export class Game {
       this.updateViews(sdt, paused);
       this.umpires.update(paused ? 0 : realDt, this.clock);
       if (this.session && this.state === 'play' && !paused) this.recordForReplay();
+      this.replay.placeOverlays(this.eye, realDt);
     }
     this.ui.updatePointer(this.input);
     this.ui.update();
@@ -690,15 +692,19 @@ export class Game {
   // Record this frame for the replay and spot the moments it needs.
   recordForReplay() {
     const R = this.replay, ses = this.session, m = R.marks;
-    if (m.release != null) {
-      if (this.ballOverride) R.mark('held', this.simTime);
-      if (this.world.ball.padded) R.mark('pad', this.simTime);
-      if (ses.field && ses.field.logic.caught) R.mark('caught', this.simTime);
+    const st = ses.state, t = this.simTime;
+    if (m.release != null && !m.played) {
+      if (this.ballOverride) R.mark('held', t);
+      if (this.world.ball.padded) R.mark('pad', t);
+      if (ses.field && ses.field.logic.caught) R.mark('caught', t);
+      // The ball is dead once play leaves 'live' (to a review, or to its result).
+      if (st === 'review' || st === 'settle') R.mark('dead', t);
     }
-    R.record(this.simTime);
-    // The ball is over: a replay shortly after the result is shown.
-    const st = ses.state;
-    if (st === 'settle' && this._prevSessState !== 'settle' && this.settings.replay !== 'off') R.schedule(0.9, this.simTime);
+    // A review (the appeal, DRS, the third umpire) can outlast the tape: only
+    // its first moments are recorded, so the ball is still there afterwards.
+    if (!(st === 'review' && m.dead != null && t > m.dead + TAIL + 0.2)) R.record(t);
+    // Every ball that was bowled gets its replay, after the result (and any review's verdict) is up.
+    if (st === 'settle' && this._prevSessState !== 'settle' && this.settings.replay !== 'off') R.schedule(t);
     this._prevSessState = st;
   }
 

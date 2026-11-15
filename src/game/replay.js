@@ -1,26 +1,41 @@
 // Replays: every frame of play is recorded (ball, every figure's pose, the
-// bats, the stumps, your head); after each ball a short replay plays back the
-// way television cuts it: the delivery from high behind the bowler, the shot
-// close and side-on (slow motion), then a camera that follows the ball. A
-// stumping or run-out is shown square-on at the crease. The camera always
-// keeps clear of everybody (CLEAR metres from any head or body) and is moved
-// so nobody stands between it and the batter. Cuts dip briefly to black; in
-// the headset the replay moves you (gently, with a comfort vignette); any
-// button skips it (a small label low in the corner says so).
+// bats, the stumps, your head); after EVERY ball that was bowled its replay
+// plays, once, while the game is frozen:
+//
+//   * one camera, one continuous move (src/game/replayFraming.js): high behind
+//     the bowler's arm for the last strides of the run-up, the release and the
+//     ball's flight, then it follows the ball (turning, and gliding after it)
+//     until the ball is dead. No cuts, no second angle, no change of height;
+//   * real time, from PRE s before the release to TAIL s after the ball is dead;
+//   * the off-hand trigger (the hand without the bat / the ball: the left
+//     controller; Space on a monitor) skips it, and that press does nothing
+//     else; nothing but the skip or its own end stops it (an open menu only
+//     pauses it);
+//   * order with reviews: ball -> appeal / DRS / third umpire (unchanged) ->
+//     verdict -> the ball's replay -> next ball. The recording stops TAIL s
+//     into a review, so the ball is still there when the review is over;
+//   * in the headset the replay moves you (the rig): position and yaw only,
+//     eased, with a comfort vignette while it moves; you can look around. The
+//     view comes in from dark (ViewFade) when it puts you there and when it
+//     puts you back, as it does whenever the game moves you.
 import * as THREE from 'three';
 import { Humanoid } from '../render/humanoid.js';
 import { computeRigFacing, headForward } from './calibration.js';
-import { PITCH, groundDistance } from '../physics/pitch.js';
-import { keepClear, badness } from './replayFraming.js';
+import { Vec3 } from '../physics/math.js';
+import { PITCH } from '../physics/pitch.js';
+import { CONFIG } from '../config.js';
+import { planCamera, cameraAt, cameraBase, pathStats, CAM } from './replayFraming.js';
 
-const RATE = 60;                 // recorded frames per second (max)
-const SECONDS = 15;              // ring buffer length
+const RATE = 90;                 // recorded frames per second (max): every frame at 72 and 90 Hz
+const SECONDS = 24;              // ring buffer length (a ball can be live for 20 s)
+export const PRE = 1.5;          // s of the run-up shown before the release
+export const TAIL = 1.0;         // s shown after the ball is dead
 const CAP = RATE * SECONDS;
 const _v = new THREE.Vector3(), _v2 = new THREE.Vector3(), _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion();
-const _w = new THREE.Vector3();
+const _cam = {};
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
-const FADE = { xr: 0.18, desk: 0.1 };   // real seconds of the dip to black either side of a cut
-const sstep = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
+const FADE_IN = 0.22;            // real seconds the view takes to come in from dark after it was moved
+const DESK_FOV = 36;             // the replay camera's lens on a monitor (the headset has its own)
 
 export class Replay {
   constructor(game) {
@@ -33,8 +48,7 @@ export class Replay {
     this.pending = null;
     this.vignette = buildVignette();
     game.scene.add(this.vignette);
-    this.blackout = buildBlackout();
-    game.scene.add(this.blackout);
+    this.fade = new ViewFade(game.scene);
     this.label = buildLabel();
     game.scene.add(this.label);
   }
@@ -55,7 +69,7 @@ export class Replay {
 
   // A new delivery is on its way.
   mark(name, t) {
-    if (name === 'release') this.marks = {};
+    if (name === 'release') { this.marks = {}; this.pending = null; }
     if (this.marks[name] == null) this.marks[name] = t;
   }
 
@@ -121,48 +135,56 @@ export class Replay {
   }
 
   // ---------------------------------------------------------------- planning
-  // The clip for the ball just finished, or null.
-  plan(endT) {
+  // The clip for the ball just finished: { start, end, release, key, playerBatting }, or null.
+  // key: when the ball reaches the batter (bat, pad or just the crease); the
+  // camera follows the ball from then on.
+  plan() {
     const m = this.marks;
-    if (m.release == null || !this.count) return null;
+    if (m.release == null || m.played || !this.count) return null;
     const first = this.timeAt(0), last = this.timeAt(this.count - 1);
-    // The wicket was broken with a batter near the line (a stumping, a run-out,
-    // or a close call): show it square-on from the crease, the way television
-    // does — the take, the hands going to the stumps, the bat or boot at the line.
-    if (m.break != null) {
-      const s0 = Math.max(first, m.break - 1.4), e0 = Math.min(last, m.break + 1.0, endT + 1.0);
-      if (e0 - s0 >= 0.8) return { start: s0, end: e0, hit: null, release: m.release, arrive: null, key: m.break, crease: m.breakEnd || 'batting', playerBatting: !!m.playerBatting };
-    }
-    // An LBW that went to DRS: the review has just shown the ball; no replay of it again.
-    if (m.reviewed != null) return null;
-    const start = Math.max(first, m.release - 1.0);
-    let end;
-    if (m.hit != null) end = Math.min(m.hit + (m.caught != null ? 1.4 : 3.2), m.held != null && m.held > m.hit ? m.held + 1.0 : Infinity);
-    else end = Math.min(m.release + 3.2, (m.held ?? m.wicket ?? m.pad ?? Infinity) + 1.1);
-    end = Math.min(end, last, endT + 1.0);
-    if (end - start < 1.0) return null;
-    // When the ball reaches the batter (for slow motion on a miss).
+    if (m.release < first) return null;                 // (the ball was live longer than the recording holds)
+    const start = Math.max(first, m.release - PRE);
+    const end = Math.min((m.dead ?? last) + TAIL, last);
+    if (end - start < 0.5) return null;
+    // When the ball gets to the batter's end.
     let arrive = null;
     for (let i = this.find(m.release); i < this.count; i++) {
-      const o = this.slotAt(i) * this.stride + 7;
-      if (this.timeAt(i) > m.release + 0.05 && this.buf[o + 8] > 0.5 && this.buf[o + 2] > -1.6) { arrive = this.timeAt(i); break; }
+      const o = this.slotAt(i) * this.stride + 7, t = this.timeAt(i);
+      if (t > end) break;
+      if (t > m.release + 0.05 && this.buf[o + 8] > 0.5 && this.buf[o + 2] > -1.6) { arrive = t; break; }
     }
-    return { start, end, hit: m.hit ?? null, release: m.release, arrive, playerBatting: !!m.playerBatting };
+    let key = Infinity;
+    for (const t of [m.hit, m.pad, arrive]) if (t != null && t < key) key = t;
+    return { start, end, release: m.release, key: Math.min(key, end), playerBatting: !!m.playerBatting };
   }
 
-  // Schedule a replay `delay` real seconds from now.
-  schedule(delay, endT) {
-    if (!this.plan(endT)) return false;
-    // The clip itself is cut when it starts, so it includes what happened in the meantime.
-    this.pending = { at: this.g.clock + delay, endT };
+  // The ball is dead and its result is up (the session has just gone to
+  // 'settle'): its replay starts once TAIL s of aftermath are on the tape,
+  // and a moment after a review's verdict.
+  schedule(t) {
+    const m = this.marks;
+    if (m.release == null || m.played) return false;
+    if (m.dead == null) m.dead = t;
+    this.pending = { at: Math.max(m.dead + TAIL + 0.05, t + (t - m.dead > 0.5 ? 1.0 : 0)) };
     return true;
   }
 
+  // The hand that skips: the one without the bat / the ball. The game has no
+  // handedness setting (bat and ball are the right controller's), so that is
+  // the left one; with only one controller connected, that one.
+  skipButton() {
+    const I = this.g.input;
+    return (I.left.connected ? I.left : I.right).buttons.trigger;
+  }
+
   // ---------------------------------------------------------------- playback
-  start(clip, view) {
-    const g = this.g;
-    this.clip = clip; this.view = view;
+  start(clip) {
+    const g = this.g, xr = !!g.input.xr;
+    if (g.viewOverride) g.endViewOverride();           // (a catching view still up: back where you play from first)
+    this.clip = clip;
     this.rt = clip.start; this.active = true; this.pending = null;
+    this.marks.played = true;                           // one replay a ball
+    this.stopReason = null;
     // What to put back afterwards.
     this.saved = {
       vis: this.humans.map((h) => h.root.visible),
@@ -170,75 +192,91 @@ export class Replay {
       bat: { v: g.batMesh.visible, p: g.batMesh.position.clone(), q: g.batMesh.quaternion.clone() },
       ball: { v: g.ballView.visible, p: g.ballView.mesh.position.clone(), q: g.ballView.mesh.quaternion.clone(), s: g.ballView.mesh.scale.x },
       pieces: this.pieces.map((m) => [m.position.clone(), m.quaternion.clone()]),
-      menuWasOpen: g.ui.menuOpen,
       fov: g.camera.fov,
     };
-    this.cam = null; this.yaw = null;
-    // Your figure: re-played with the shot as it turned out (src/render/people.js resolve).
-    if (clip.playerBatting && g.playerBody && g.playerBody.resolve) {
-      const k = this.humans.indexOf(g.playerBody.actor.h);
-      if (k >= 0) g.playerBody.resolve(clip.start, clip.end, (t, h) => this.overwrite(k, t, h));
+    // Your figure: re-played with the shot as it turned out (src/render/people.js),
+    // a few poses a frame while the camera is still behind the bowler; the
+    // first 0.8 s keep the poses that were recorded live.
+    this.job = null;
+    const pb = g.playerBody;
+    if (clip.playerBatting && pb && pb.resolveBegin) {
+      const k = this.humans.indexOf(pb.actor.h);
+      const job = k >= 0 ? pb.resolveBegin(Math.min(clip.start + 0.8, clip.key - 0.6), clip.end) : null;
+      if (job) this.job = { job, k };
     }
-    // A small label low in the corner, never over the action (no big card, no hint panel).
+    // Nothing but a small label low in the corner (the UI hides its panels while a replay is on).
     g.ui.clearHints?.();
-    g.ui.prompt('', 0);                                 // (the result stays on the scoreboard; not across the replay)
-    setLabel(this.label, clip.crease ? 'REPLAY · at the crease' : 'REPLAY', g.input.xr ? 'any button skips' : 'Space skips');
+    g.ui.prompt('', 0);
+    setLabel(this.label, 'REPLAY', xr ? 'off-hand (left) trigger skips' : 'Space skips');
     this.label.visible = true;
     if (g.ballView.trail) g.ballView.clearTrail?.();
-    this.direct();
+    // The camera's whole move, and where your head is in the room (it moves the rig under that).
+    this.path = this.layoutCamera(clip, xr ? CAM.xr : CAM.desk);
+    this.ref = xr ? { p: g.input.headRef.p.clone(), f: heading(g.input.headRef.q) } : null;
+    this.look = null; this.camLog = []; this.camPrev = null;
+    this.fade.cut(FADE_IN);
     this.apply(clip.start);
-    this.shotIx = -1; this.fadeIn = 1;
+    this.moveCamera(clip.start, 0);
   }
 
   stop() {
     if (!this.active) return;
     const g = this.g, s = this.saved;
     this.active = false;
+    if (this.job) { g.playerBody.resolveEnd(this.job.job); this.job = null; }
     this.humans.forEach((h, i) => { h.visible = s.vis[i]; });
     this.extras.forEach((x, i) => { x.visible = s.extras[i]; });
     g.batMesh.visible = s.bat.v; g.batMesh.position.copy(s.bat.p); g.batMesh.quaternion.copy(s.bat.q);
     g.ballView.setVisible(s.ball.v); g.ballView.mesh.position.copy(s.ball.p); g.ballView.mesh.quaternion.copy(s.ball.q); g.ballView.mesh.scale.setScalar(s.ball.s);
     this.pieces.forEach((m, i) => { m.position.copy(s.pieces[i][0]); m.quaternion.copy(s.pieces[i][1]); });
     this.vignette.visible = false;
-    this.blackout.visible = false;
     this.label.visible = false;
     if (!g.input.xr && s.fov != null && g.camera.fov !== s.fov) { g.camera.fov = s.fov; g.camera.updateProjectionMatrix(); }
     if (g.input.xr) g.setRig(g.rigState); else g.placeDesktopCamera();
     g.snapBat = true;
+    this.fade.cut(FADE_IN);                             // back where you play from: in from dark
   }
 
-  // Speed of the replay clock: slow motion around the moment that matters.
-  speedAt(t) {
-    const c = this.clip;
-    if (c.crease) return 0.22 + 0.78 * (1 - sstep(c.key - 0.6, c.key - 0.35, t) * (1 - sstep(c.key + 0.3, c.key + 0.6, t)));
-    const key = c.hit ?? c.arrive;
-    if (key == null) return 1;
-    const slow = 1 - sstep(key - 0.45, key - 0.15, t) * (1 - sstep(key + 0.3, key + 0.6, t));
-    // In the headset the chase after the shot runs a little slower (comfort).
-    const chase = this.g.input.xr && c.hit != null && t > c.hit + 0.6 ? 0.75 : 1;
-    return (0.32 + 0.68 * slow) * chase;
+  // The player skips it: this press of the button does nothing else.
+  skip() {
+    const b = this.skipButton();
+    if (b.swallow) b.swallow();
+    this.stopReason = 'skip';
+    this.stop();
   }
 
   update(dt) {
     const g = this.g;
     if (!this.active) {
-      if (this.pending) {
-        // Only while that ball's aftermath is still on: if play has moved on
-        // (next ball requested, a review under way) the replay is dropped.
-        const still = g.session && g.session.state === 'settle' && g.state === 'play';
-        if (g.settings.replay === 'off' || !still) this.pending = null;
-        else if (g.clock >= this.pending.at && !g.ui.menuOpen) { const clip = this.plan(this.pending.endT + 1.5); if (clip) this.start(clip, g.settings.replay); else this.pending = null; }
+      const p = this.pending;
+      if (!p) return;
+      const ses = g.session;
+      if (g.settings.replay === 'off' || !ses || g.state !== 'play') { this.pending = null; return; }
+      if (g.ui.menuOpen) return;                        // (paused: it starts when the menu closes)
+      // Due — or play is about to move on (next ball asked for): it plays first.
+      if (g.simTime >= p.at || ses.state !== 'settle') {
+        const clip = this.plan();
+        if (clip) this.start(clip); else this.pending = null;
       }
       return;
     }
-    // Any button skips.
-    const L = g.input.left, R = g.input.right, D = g.input.desktop;
-    const any = (c) => c.buttons.trigger.down || c.buttons.a.down || c.buttons.b.down || c.buttons.squeeze.down;
-    if (any(L) || any(R) || D.took('Space') || D.took('Enter') || g.ui.menuOpen) { this.stopReason = 'skip'; this.stop(); return; }
-    this.rt += dt * this.speedAt(this.rt);
+    if (g.ui.menuOpen) { this.moveCamera(this.rt, 0); return; }   // paused with the game
+    if (this.skipButton().down || g.input.desktop.took('Space') || g.input.desktop.took('Enter')) { this.skip(); return; }
+    this.rt += dt;
     if (this.rt >= this.clip.end) { this.stopReason = 'end'; this.stop(); return; }
+    this.stepJob();
     this.apply(this.rt);
     this.moveCamera(this.rt, dt);
+  }
+
+  // Your figure's shot, a few poses a frame (always ahead of what is on screen).
+  stepJob() {
+    const J = this.job;
+    if (!J) return;
+    const pb = this.g.playerBody, write = (t, h) => this.overwrite(J.k, t, h);
+    let done = pb.resolveStep(J.job, 4, write);
+    while (!done && J.job.t >= J.job.t0 - 0.05 && J.job.t < this.rt + 0.15) done = pb.resolveStep(J.job, 1, write);
+    if (done) { pb.resolveEnd(J.job); this.job = null; }
   }
 
   // Pose everything as it was at time t.
@@ -286,251 +324,75 @@ export class Replay {
     const a = this.slotAt(i0) * this.stride + 7, b = this.slotAt(i1) * this.stride + 7;
     return out.set(mix(this.buf[a], this.buf[b], k), mix(this.buf[a + 1], this.buf[b + 1], k), mix(this.buf[a + 2], this.buf[b + 2], k));
   }
-  headAt(t, out) {
-    const o = this.slotAt(this.find(t)) * this.stride;
-    return out.set(this.buf[o], this.buf[o + 1], this.buf[o + 2]);
+
+  // ---------------------------------------------------------------- the camera
+  // Lay out the camera's move for the clip from the recorded ball.
+  layoutCamera(clip, lim) {
+    const dt = 1 / RATE, n = Math.max(2, Math.ceil((clip.end - clip.start) / dt) + 1);
+    const base = cameraBase(PITCH.bowlingStumpsZ, 1);
+    const ball = (i, o) => {
+      const t = Math.min(clip.end, clip.start + i * dt);
+      this.ballAt(t, _v);
+      o.x = _v.x; o.y = _v.y; o.z = _v.z;
+      return this.buf[this.slotAt(this.find(t)) * this.stride + 7 + 8] > 0.5;
+    };
+    const key = clamp(Math.round((clip.key - clip.start) / dt), 0, n);
+    return planCamera({ n, dt, ball, key, base, face: { x: 0, z: PITCH.battingStumpsZ - PITCH.poppingOffset }, centerZ: PITCH.centerZ, lim });
   }
 
-  // ---------------------------------------------------------------- the director
-  // The batters' figures (whoever is in the recording): yours, the AI
-  // striker / your runner, the non-striker.
-  batterIdx() {
-    const g = this.g, out = [];
-    for (const h of [g.playerBody && g.playerBody.actor && g.playerBody.actor.h, g.batterView && g.batterView.actor && g.batterView.actor.h, g.nonStrikerView && g.nonStrikerView.actor && g.nonStrikerView.actor.h]) {
-      const k = h ? this.humans.indexOf(h) : -1;
-      if (k >= 0) out.push(k);
-    }
-    return out;
-  }
-
-  // Everybody drawn in the pose last applied: head, hips and the ground under
-  // the hips (two segments that cover the body).
-  bodies(skip = -1) {
-    const out = [];
-    this.humans.forEach((h, k) => {
-      if (k === skip || !h.root.visible || !h.bones.head) return;
-      const a = h.bones.head.getWorldPosition(new THREE.Vector3());
-      a.y += 0.12;                                        // the top of the head (helmet)
-      const b = h.bones.hips.getWorldPosition(new THREE.Vector3());
-      out.push({ k, a, b, c: new THREE.Vector3(b.x, 0.05, b.z) });
-    });
-    return out;
-  }
-
-  // Score a fixed camera over a stretch of the clip (several recorded poses);
-  // `subjectAt(t)` gives the point that must stay in view.
-  score(pos, subjectAt, t0, t1, skip) {
-    let bad = 0;
-    for (let i = 0; i <= 5; i++) {
-      const t = t0 + (t1 - t0) * (i / 5);
-      this.apply(t);
-      bad += badness(pos, subjectAt(t), this.bodies(skip));
-    }
-    return bad;
-  }
-
-  // Lay out the clip's shots: [{ kind, t0, pos, look, fov }] (a cut between each).
-  direct() {
-    const c = this.clip, g = this.g, xr = !!g.input.xr;
-    const shots = this.shots = [];
-    const bats = this.batterIdx();
-    // The point (on a figure) that must stay in view.
-    const chest = (k) => (t) => { const h = this.humans[k]; return h && h.root.visible ? h.bones.spine.getWorldPosition(new THREE.Vector3()) : new THREE.Vector3(-0.4, 1.0, -1.1); };
-    if (c.crease) {
-      // Square of the wicket at the crease, far enough back to have the
-      // stumps, the line and the batter making his ground all in the frame.
-      const zs = c.crease === 'batting' ? PITCH.battingStumpsZ : PITCH.bowlingStumpsZ, dir = c.crease === 'batting' ? -1 : 1;
-      const zc = zs + dir * PITCH.poppingOffset;
-      this.apply(c.key);
-      let who = -1, best = Infinity;
-      for (const k of bats) {
-        const h = this.humans[k];
-        if (!h.root.visible) continue;
-        const p = h.bones.hips.getWorldPosition(_w);
-        const d = Math.hypot(p.x, p.z - zc);
-        if (d < best) { best = d; who = k; }
-      }
-      let short = 0;
-      if (who >= 0) { const p = this.humans[who].bones.hips.getWorldPosition(_w); short = clamp((p.z - zc) * dir, 0, 5); }
-      const D = (xr ? 3.4 : 4.4) + 0.8 * short;
-      const look = new THREE.Vector3(0, 0.55, zc + dir * (short * 0.45 - 0.3));
-      const at = (t) => (who >= 0 && this.humans[who].root.visible ? chest(who)(t) : look);
-      let pick = null;
-      for (const [sx, y] of [[1, 1.0], [-1, 1.0], [1, 1.8], [-1, 1.8], [1, 2.8], [-1, 2.8]]) {
-        const pos = new THREE.Vector3(sx * D, y, zc + dir * short * 0.35);
-        const bad = this.score(pos, at, c.start, c.end, who) + this.score(pos, () => new THREE.Vector3(0, 0.4, zc), c.key - 0.3, c.key + 0.2, -1);
-        if (!pick || bad < pick.bad) pick = { pos, bad };
-        if (bad === 0) break;
-      }
-      shots.push({ kind: 'fixed', t0: c.start, pos: pick.pos, look, fov: 42 });
-      return;
-    }
-    const K = c.hit ?? c.arrive ?? c.release + 0.75;      // the ball reaches the bat
-    // The striker: the batter nearest the batting crease as the ball arrives.
-    this.apply(K);
-    let sk = -1, sd = Infinity;
-    for (const k of bats) {
-      const h = this.humans[k];
-      if (!h.root.visible) continue;
-      const p = h.bones.hips.getWorldPosition(_w);
-      const d = Math.hypot(p.x + 0.4, p.z + 1.1);
-      if (d < sd) { sd = d; sk = k; }
-    }
-    if (sd > 4) sk = -1;
-    const at = sk >= 0 ? chest(sk) : () => new THREE.Vector3(-0.4, 1.0, -1.1);
-    const S = sk >= 0 ? this.humans[sk].bones.hips.getWorldPosition(new THREE.Vector3()) : new THREE.Vector3(-0.4, 0.95, -1.1);
-    const chaseAt = c.hit != null && c.end - (c.hit + 0.7) > 0.8 ? c.hit + 0.7 : null;
-    if (this.view === 'batter') {
-      shots.push({ kind: 'eyes', t0: c.start, fov: 70 });
-      if (chaseAt != null) shots.push({ kind: 'chase', t0: chaseAt, fov: 60 });
-      return;
-    }
-    // 1. The delivery: high behind the bowler's arm, over the umpire, looking
-    //    down the pitch at the batter (raised further if anyone is in the way).
-    const cut = K - 0.35;
-    if (cut - c.start >= 0.7) {
-      let pick = null;
-      for (let lift = 0; lift <= 4; lift += 0.75) {
-        const pos = xr ? new THREE.Vector3(0.9, 4.3 + lift, PITCH.bowlingStumpsZ - 3.6) : new THREE.Vector3(0.5, 4.4 + lift, PITCH.bowlingStumpsZ - 11);
-        const bad = this.score(pos, at, c.start, cut, sk);
-        if (!pick || bad < pick.bad) pick = { pos, bad };
-        if (bad === 0) break;
-      }
-      // Framed the television way: the batter in the upper part of the
-      // picture, the bowler's crease (and the bowler) in the lower part.
-      const pos = pick.pos;
-      const d1 = new THREE.Vector3(S.x, S.y + 0.4, S.z).sub(pos).normalize();
-      const d2 = new THREE.Vector3(0, 0, PITCH.bowlingStumpsZ + 2.0).sub(pos).normalize();
-      const look = pos.clone().addScaledVector(d1.add(d2).normalize(), 20);
-      shots.push({ kind: 'fixed', t0: c.start, pos, look, fov: 24 });
-    }
-    // 2. The shot: close, square of the wicket, facing the batter's chest
-    //    (his off side when he stands side-on), slow motion.
-    this.apply(Math.max(c.start, K - 0.5));
-    let sx = 1;
-    if (sk >= 0) {
-      const h = this.humans[sk];
-      const r = h.bones.shoulderR.getWorldPosition(new THREE.Vector3()), l = h.bones.shoulderL.getWorldPosition(new THREE.Vector3());
-      const nx = r.z - l.z;                           // up × (R − L), x part: the way the chest faces
-      if (Math.abs(nx) > 0.05) sx = Math.sign(nx);
-    }
-    const D = xr ? 3.3 : 4.2, t1 = chaseAt ?? c.end;
-    let pick = null;
-    for (const [side, dz, y] of [[sx, -1.0, 1.35], [sx, -2.0, 1.4], [sx, 0.1, 1.35], [sx, -1.0, 2.3], [sx, -2.2, 2.6], [-sx, -1.0, 1.35], [-sx, -2.0, 2.3]]) {
-      const pos = new THREE.Vector3(S.x + side * D, y, S.z + dz);
-      const bad = this.score(pos, at, Math.max(c.start, cut), Math.min(t1, K + 0.6), sk);
-      if (!pick || bad < pick.bad) pick = { pos, bad };
-      if (bad === 0) break;
-    }
-    shots.push({ kind: 'side', t0: shots.length ? cut : c.start, pos: pick.pos, look: new THREE.Vector3(S.x, 0.95, S.z - 0.45), fov: 40 });
-    // 3. Then follow the ball.
-    if (chaseAt != null) shots.push({ kind: 'chase', t0: chaseAt, fov: 45 });
-  }
-
-  // Seeing it through a batter's eyes (his bat stays drawn though his body is culled).
-  get eyesView() { return this.active && !!this.shots && this.shotIx >= 0 && this.shots[this.shotIx].kind === 'eyes'; }
-
-  shotIndexAt(t) {
-    let i = 0;
-    while (i + 1 < this.shots.length && t >= this.shots[i + 1].t0) i++;
-    return i;
-  }
-
-  // Where the camera wants to be at replay time t: { pos, look, fov }.
-  shot(t) {
-    const c = this.clip, S = this.shots[this.shotIndexAt(t)];
-    const pos = new THREE.Vector3(), look = new THREE.Vector3();
-    if (S.kind === 'eyes') {
-      if (c.playerBatting && this.g.input.xr) this.headAt(Math.min(t, c.hit ?? t), pos);
-      else pos.set(-0.38, 1.62, -1.1);
-      look.set(0.4, 1.4, PITCH.bowlingStumpsZ);
-      if (t > c.release) look.lerp(this.ballAt(t, _v2), 0.35);
-    } else if (S.kind === 'chase') {
-      // Behind the ball and above it, following it out (inside the rope).
-      const b = this.ballAt(t, new THREE.Vector3());
-      const p0 = this.ballAt(c.hit + 0.02, new THREE.Vector3()), p1 = this.ballAt(c.hit + 0.16, new THREE.Vector3());
-      const dir = p1.sub(p0); dir.y = 0;
-      if (dir.lengthSq() < 1e-6) dir.set(0, 0, -1);
-      dir.normalize();
-      // Along the ball's line, never nearer the striker's end than 5 m behind
-      // where it was hit (so the camera starts high behind the batter, not on him).
-      const back = this.g.input.xr ? 9 : 7;
-      const along = Math.max((b.x - p0.x) * dir.x + (b.z - p0.z) * dir.z - back, -5);
-      pos.set(p0.x + dir.x * along, Math.max(3.6, b.y * 0.5 + 2.6), p0.z + dir.z * along);
-      const gd = groundDistance(pos.x, pos.z), lim = 56;
-      if (gd > lim) { const cz = PITCH.centerZ, kk = lim / gd; pos.x *= kk; pos.z = cz + (pos.z - cz) * kk; }
-      look.copy(b);
-    } else {
-      pos.copy(S.pos); look.copy(S.look);
-      // Keep the ball in the picture: the side-on view turns a little with it after the shot.
-      if (S.kind === 'side') {
-        const key = c.hit ?? c.arrive;
-        if (key != null && t > key) look.lerp(this.ballAt(t, _v2), (c.hit != null ? 0.45 : 0.3) * sstep(key, key + 0.4, t));
-      } else if (!c.crease && t > c.release) look.lerp(this.ballAt(t, _v2), 0.15);
-    }
-    return { pos, look, fov: S.fov };
-  }
-
+  // Put the camera (in the headset: you) where the path is at replay time t.
   moveCamera(t, dt) {
-    const g = this.g, xr = !!g.input.xr;
-    const ix = this.shotIndexAt(t);
-    if (ix !== this.shotIx) {                              // a cut: jump there (while it is dark)
-      if (this.shotIx >= 0) this.fadeIn = 1;
-      this.shotIx = ix; this.cam = null; this.yaw = null;
-    }
-    const { pos, look, fov } = this.shot(t);
-    const bodies = this.bodies();
-    keepClear(pos, bodies);
-    // Smooth (critically damped) so the camera never jerks.
-    if (!this.cam) this.cam = { p: pos.clone(), v: new THREE.Vector3() };
-    const w = this.shots[ix].kind === 'chase' ? (xr ? 3.2 : 7) : 9;
-    const c = this.cam;
-    _v.copy(pos).sub(c.p).multiplyScalar(w * w).addScaledVector(c.v, -2 * w);
-    c.v.addScaledVector(_v, dt);
-    c.p.addScaledVector(c.v, dt);
-    keepClear(c.p, bodies);                             // (never through anybody on the way)
-    const speed = c.v.length();
-    // Dip to black either side of a cut.
-    const F = xr ? FADE.xr : FADE.desk;
-    this.fadeIn = Math.max(0, (this.fadeIn ?? 0) - dt / F);
-    let out = 0;
-    const next = this.shots[ix + 1];
-    if (next) { const left = (next.t0 - t) / Math.max(0.05, this.speedAt(t)); out = clamp(1 - left / F, 0, 1); }
-    const bo = this.blackout;
-    bo.material.opacity = Math.max(out, this.fadeIn);
-    bo.visible = bo.material.opacity > 0.01;
-    if (xr) {
-      const dirX = look.x - c.p.x, dirZ = look.z - c.p.z;
-      let yaw = Math.atan2(dirX, dirZ);
-      if (this.yaw == null) this.yaw = yaw;
-      let d = yaw - this.yaw; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI;
-      this.yaw += d * Math.min(1, dt * 2.2);                // turn you slowly
-      const head = g.input.headRef;
-      const r = computeRigFacing(head.p, headForward(head.q), c.p.x, c.p.z, Math.sin(this.yaw), Math.cos(this.yaw));
-      g.rig.position.set(r.x, c.p.y - head.p.y, r.z);
+    const g = this.g, c = cameraAt(this.path, t - this.clip.start, _cam);
+    const prev = this.camPrev;
+    const speed = prev && dt > 0 ? Math.hypot(c.x - prev.x, c.z - prev.z) / dt : 0;
+    const turn = prev && dt > 0 ? Math.abs(c.yaw - prev.yaw) / dt : 0;
+    this.camPrev = { x: c.x, z: c.z, yaw: c.yaw };
+    const bm = g.ballView.mesh.position;
+    if (g.input.xr) {
+      // The rig carries the point of the room your head was at when the replay
+      // began to the camera, and turns the way you were facing to its heading;
+      // from there your own head moves and looks about as it likes. Level
+      // always: position and yaw only.
+      const ref = this.ref;
+      const r = computeRigFacing(ref.p, ref.f, c.x, c.z, Math.sin(c.yaw), Math.cos(c.yaw));
+      g.rig.position.set(r.x, c.y - ref.p.y, r.z);
       g.rig.rotation.set(0, r.yaw, 0);
       g.rig.updateMatrixWorld(true);
       g.input.refreshHeadWorld();
-      // Comfort vignette while the view is moving.
+      // Comfort vignette while the view is moving or turning.
       const vg = this.vignette;
-      vg.material.opacity = clamp((speed - 0.8) / 6, 0, 0.85);
+      vg.material.opacity = clamp(Math.max((speed - 0.8) / 6, (turn - 0.35) / 1.4), 0, 0.8);
       vg.visible = vg.material.opacity > 0.02;
     } else {
-      if (fov && g.camera.fov !== fov) { g.camera.fov = fov; g.camera.updateProjectionMatrix(); }
-      g.camera.position.copy(c.p);
-      g.camera.lookAt(look);
+      // A monitor's camera also tilts to the ball (eased), through one lens.
+      if (g.camera.fov !== DESK_FOV) { g.camera.fov = DESK_FOV; g.camera.updateProjectionMatrix(); }
+      const want = _v.set(0, 1.0, PITCH.battingStumpsZ - PITCH.poppingOffset);
+      if (t >= this.clip.key && g.ballView.visible) want.copy(bm);
+      const pitch = Math.atan2(want.y - c.y, Math.max(3, Math.hypot(want.x - c.x, want.z - c.z)));
+      this.look = this.look == null ? pitch : this.look + (pitch - this.look) * Math.min(1, dt * 5);
+      g.camera.position.set(c.x, c.y, c.z);
+      const ch = Math.cos(this.look);
+      g.camera.lookAt(_v2.set(c.x + Math.sin(c.yaw) * ch, c.y + Math.sin(this.look), c.z + Math.cos(c.yaw) * ch));
       g.camera.updateMatrixWorld(true);
     }
+    // The ball is drawn at least a minimum size from where the camera is (as it is live from where you stand).
+    if (g.settings.ballBoost && g.ballView.visible) {
+      const d = Math.hypot(bm.x - c.x, bm.y - c.y, bm.z - c.z);
+      g.ballView.mesh.scale.setScalar(clamp(d * Math.tan((CONFIG.render.ballMinAngleDeg * Math.PI) / 360) / CONFIG.ball.radius, 1, 2.2));
+    }
+    // What the camera did (for the harness and the tests).
+    if (dt > 0 || !this.camLog.length) this.camLog.push({ t: this.rt, x: c.x, y: c.y, z: c.z, yaw: c.yaw, bx: bm.x, by: bm.y, bz: bm.z, ball: t >= this.clip.key && g.ballView.visible });
   }
 
-  // Keep the vignette, the dip to black and the label in front of your eyes
-  // (after the eye pose is known).
-  placeVignette(eye) {
-    for (const m of [this.vignette, this.blackout]) {
-      if (!m.visible) continue;
-      m.position.copy(eye.p);
-      m.quaternion.copy(eye.q);
-    }
+  // How the camera moved in the replay that is playing (or the last one).
+  camStats() { return pathStats(this.camLog || []); }
+
+  // Keep the vignette, the fade and the label in front of your eyes (after
+  // the eye pose is known). Called every frame, replay or not.
+  placeOverlays(eye, dt) {
+    this.fade.update(eye, dt);
+    const v = this.vignette;
+    if (v.visible) { v.position.copy(eye.p); v.quaternion.copy(eye.q); }
     const L = this.label;
     if (L.visible) {
       // Low and to the left, at the edge of the view; in the headset 0.6 m away,
@@ -542,6 +404,40 @@ export class Replay {
       L.quaternion.copy(eye.q);
       L.scale.setScalar(k);
     }
+  }
+}
+
+// The way a head faces on the ground (unit Vec3), steady even when it looks
+// steeply down or up: its forward, plus its crown (which points the same way
+// when the chin is down).
+function heading(q) {
+  const f = new Vec3(0, 0, -1).applyQuat(q), u = new Vec3(0, 1, 0).applyQuat(q);
+  const s = f.y < 0 ? 1 : -1;
+  const out = new Vec3(f.x + s * u.x, 0, f.z + s * u.z);
+  if (out.lengthSq() < 1e-8) return headForward(q);
+  return out.normalize();
+}
+
+// The view comes in from dark whenever the game moves you somewhere else at
+// once (a replay starting or ending, back to the top of your mark): a
+// head-locked black screen that clears over `sec` real seconds.
+export class ViewFade {
+  constructor(scene) {
+    const m = this.mesh = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 1.2), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, depthTest: false, depthWrite: false, opacity: 0 }));
+    m.geometry.translate(0, 0, -0.11);
+    m.renderOrder = 40;
+    m.frustumCulled = false;
+    m.visible = false;
+    scene.add(m);
+    this.left = 0; this.sec = 1;
+  }
+  cut(sec = FADE_IN) { this.sec = sec; this.left = sec; }
+  get level() { return this.left > 0 ? this.left / this.sec : 0; }
+  update(eye, dt) {
+    const m = this.mesh, a = this.level;
+    m.visible = a > 0.01;
+    if (m.visible) { m.material.opacity = a * a * (3 - 2 * a); m.position.copy(eye.p); m.quaternion.copy(eye.q); }
+    if (this.left > 0) this.left = Math.max(0, this.left - dt);
   }
 }
 
@@ -562,9 +458,11 @@ function buildVignette() {
   const c = document.createElement('canvas');
   c.width = c.height = 256;
   const x = c.getContext('2d');
-  const gr = x.createRadialGradient(128, 128, 40, 128, 128, 128);
+  // clear out to ~32° from the centre of the view, dark by ~58° (the plane is 0.5 m wide, 0.12 m away)
+  const gr = x.createRadialGradient(128, 128, 0, 128, 128, 128);
   gr.addColorStop(0, 'rgba(0,0,0,0)');
-  gr.addColorStop(0.45, 'rgba(0,0,0,0)');
+  gr.addColorStop(0.3, 'rgba(0,0,0,0)');
+  gr.addColorStop(0.78, 'rgba(0,0,0,1)');
   gr.addColorStop(1, 'rgba(0,0,0,1)');
   x.fillStyle = gr; x.fillRect(0, 0, 256, 256);
   const tex = new THREE.CanvasTexture(c);
@@ -577,17 +475,7 @@ function buildVignette() {
 }
 
 
-// A head-locked black screen for the dip to black at a cut.
-function buildBlackout() {
-  const m = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 1.2), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, depthTest: false, depthWrite: false, opacity: 0 }));
-  m.geometry.translate(0, 0, -0.11);
-  m.renderOrder = 21;
-  m.frustumCulled = false;
-  m.visible = false;
-  return m;
-}
-
-// The small "REPLAY · any button skips" tag.
+// The small "REPLAY · off-hand trigger skips" tag.
 function buildLabel() {
   const c = document.createElement('canvas');
   c.width = 512; c.height = 96;

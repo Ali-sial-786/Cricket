@@ -282,8 +282,20 @@ export class PlayerBodyView {
   // stores each pose. The live figure is put back as it was. Returns false if
   // there was no shot to re-play.
   resolve(t0, t1, write) {
+    const job = this.resolveBegin(t0, t1);
+    if (!job) return false;
+    this.resolveStep(job, Infinity, write);
+    this.resolveEnd(job);
+    return true;
+  }
+  // The same in slices, so a replay can spread the work over its first frames
+  // instead of stopping the picture for it: resolveBegin -> resolveStep (until
+  // it returns true) -> resolveEnd. Between begin and end the figure is the
+  // replay's, not the live one: only while play is frozen. job.t: the time of
+  // the last pose made.
+  resolveBegin(t0, t1) {
     const fin = this.reader.cur || this.reader.last;
-    if (!fin || !fin.locked || fin.Tc < t0 - 0.5 || fin.t0 > t1) return false;
+    if (!fin || !fin.locked || fin.Tc < t0 - 0.5 || fin.t0 > t1) return null;
     const A = this.actor, h = A.h;
     const saved = { snap: h.snapshot(), pos: A.pos.clone(), heading: A.heading, footL: A.footL.clone(), footR: A.footR.clone(),
       step: A.step ? { L: A.step.L.clone(), R: A.step.R.clone(), ax: A.step.ax, open: A.step.open, init: A.step.init, mL: A.step.mL && { ...A.step.mL, from: A.step.mL.from.clone() }, mR: A.step.mR && { ...A.step.mR, from: A.step.mR.from.clone() } } : null, handX: A.handX, ps: A._ps, root: h.root.position.clone(), rq: h.root.quaternion.clone() };
@@ -293,23 +305,36 @@ export class PlayerBodyView {
     // A stumping was judged in this clip: your back foot stays where it really was throughout.
     const pinned = this.log.some((e) => e.t >= t0 && e.t <= t1 && e.extra && e.extra.crease && e.extra.crease.pin > 0);
     A._ps = null;
-    for (const e of this.log) {
-      if (e.t < t0 - 2 || e.t > t1) continue;
+    let i = 0;
+    while (i < this.log.length && this.log[i].t < t0 - 2) i++;
+    return { t0, t1, c, pinned, saved, i, t: -Infinity, done: false };
+  }
+  // Make up to `count` more poses; write(t, h) stores each one from t0 on. True when all are made.
+  resolveStep(job, count, write) {
+    const A = this.actor, h = A.h, c = job.c, L = this.log;
+    for (let n = 0; n < count && !job.done; n++) {
+      const e = L[job.i++];
+      if (!e || e.t > job.t1) { job.done = true; break; }
       const shot = e.t >= c.t0 - 0.05 && e.t <= c.Tc + 2.5 ? c : null;
       let hf = null;
       if (e.head) { _q.set(e.head.q.x, e.head.q.y, e.head.q.z, e.head.q.w); hf = _hf.set(0, 0, -1).applyQuaternion(_q); hf.y = 0; if (hf.lengthSq() < 1e-6) hf = null; else hf.normalize(); }
       const cr = e.extra && e.extra.crease;
-      const crease = cr && cr.z != null ? { z: cr.z, pin: pinned ? 1 : cr.pin } : null;
+      const crease = cr && cr.z != null ? { z: cr.z, pin: job.pinned ? 1 : cr.pin } : null;
       A.updateBatting(e.dt, e.bp, e.bq, { t: e.t, plan: null, ball: e.ball, head: e.head ? e.head.p : null, headFwd: hf, sweep: e.extra && e.extra.sweep, crease, shot });
-      if (e.t >= t0) write(e.t, h);
+      job.t = e.t;
+      if (e.t >= job.t0) write(e.t, h);
     }
-    // put the live figure back
+    return job.done;
+  }
+  // Put the live figure back as it was.
+  resolveEnd(job) {
+    const A = this.actor, h = A.h, saved = job.saved;
+    job.done = true;
     if (saved.step) { const S = A.step; S.L.copy(saved.step.L); S.R.copy(saved.step.R); S.ax = saved.step.ax; S.open = saved.step.open; S.init = saved.step.init; S.mL = saved.step.mL; S.mR = saved.step.mR; }
     A.pos.copy(saved.pos); A.heading = saved.heading; A.footL.copy(saved.footL); A.footR.copy(saved.footR); A.handX = saved.handX; A._ps = saved.ps;
     h.root.position.copy(saved.root); h.root.quaternion.copy(saved.rq);
     h.blendFrom(saved.snap, 0);
     h.update();
-    return true;
   }
 
   show(v) { this.visible = v; this.actor.visible = v; this.actor.bat.visible = false; }
