@@ -7,8 +7,8 @@
 //     ball's flight, then it follows the ball (turning, and gliding after it)
 //     until the ball is dead. No cuts, no second angle, no change of height;
 //   * real time, from PRE s before the release to TAIL s after the ball is dead;
-//   * the off-hand trigger (the hand without the bat / the ball: the left
-//     controller; Space on a monitor) skips it, and that press does nothing
+//   * the off-hand trigger (the hand without the bat / the ball, see
+//     skipHand; Space on a monitor) skips it, and that press does nothing
 //     else; nothing but the skip or its own end stops it (an open menu only
 //     pauses it);
 //   * order with reviews: ball -> appeal / DRS / third umpire (unchanged) ->
@@ -24,12 +24,11 @@ import { computeRigFacing, headForward } from './calibration.js';
 import { Vec3 } from '../physics/math.js';
 import { PITCH } from '../physics/pitch.js';
 import { CONFIG } from '../config.js';
-import { planCamera, cameraAt, cameraBase, pathStats, CAM } from './replayFraming.js';
+import { planCamera, cameraAt, cameraBase, pathStats, clipFor, replayAt, CAM, PRE, TAIL } from './replayFraming.js';
+export { PRE, TAIL };
 
 const RATE = 90;                 // recorded frames per second (max): every frame at 72 and 90 Hz
 const SECONDS = 24;              // ring buffer length (a ball can be live for 20 s)
-export const PRE = 1.5;          // s of the run-up shown before the release
-export const TAIL = 1.0;         // s shown after the ball is dead
 const CAP = RATE * SECONDS;
 const _v = new THREE.Vector3(), _v2 = new THREE.Vector3(), _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion();
 const _cam = {};
@@ -135,47 +134,42 @@ export class Replay {
   }
 
   // ---------------------------------------------------------------- planning
-  // The clip for the ball just finished: { start, end, release, key, playerBatting }, or null.
+  // The clip for the ball just finished (replayFraming.js clipFor), or null.
   // key: when the ball reaches the batter (bat, pad or just the crease); the
   // camera follows the ball from then on.
   plan() {
     const m = this.marks;
     if (m.release == null || m.played || !this.count) return null;
-    const first = this.timeAt(0), last = this.timeAt(this.count - 1);
-    if (m.release < first) return null;                 // (the ball was live longer than the recording holds)
-    const start = Math.max(first, m.release - PRE);
-    const end = Math.min((m.dead ?? last) + TAIL, last);
-    if (end - start < 0.5) return null;
-    // When the ball gets to the batter's end.
-    let arrive = null;
-    for (let i = this.find(m.release); i < this.count; i++) {
+    return clipFor(m, this.timeAt(0), this.timeAt(this.count - 1), this.arrival(m.release));
+  }
+
+  // When the ball first got to the batter's end of the pitch after the release (null: never on the tape).
+  arrival(release) {
+    for (let i = Math.max(0, this.find(release)); i < this.count; i++) {
       const o = this.slotAt(i) * this.stride + 7, t = this.timeAt(i);
-      if (t > end) break;
-      if (t > m.release + 0.05 && this.buf[o + 8] > 0.5 && this.buf[o + 2] > -1.6) { arrive = t; break; }
+      if (t > release + 0.05 && this.buf[o + 8] > 0.5 && this.buf[o + 2] > -1.6) return t;
     }
-    let key = Infinity;
-    for (const t of [m.hit, m.pad, arrive]) if (t != null && t < key) key = t;
-    return { start, end, release: m.release, key: Math.min(key, end), playerBatting: !!m.playerBatting };
+    return null;
   }
 
   // The ball is dead and its result is up (the session has just gone to
   // 'settle'): its replay starts once TAIL s of aftermath are on the tape,
-  // and a moment after a review's verdict.
+  // and a moment after a review's verdict (replayFraming.js replayAt).
   schedule(t) {
     const m = this.marks;
     if (m.release == null || m.played) return false;
     if (m.dead == null) m.dead = t;
-    this.pending = { at: Math.max(m.dead + TAIL + 0.05, t + (t - m.dead > 0.5 ? 1.0 : 0)) };
+    this.pending = { at: replayAt(m, t) };
     return true;
   }
 
-  // The hand that skips: the one without the bat / the ball. The game has no
-  // handedness setting (bat and ball are the right controller's), so that is
-  // the left one; with only one controller connected, that one.
-  skipButton() {
-    const I = this.g.input;
-    return (I.left.connected ? I.left : I.right).buttons.trigger;
+  // The hand that skips: your off hand, the one without the bat / the ball
+  // (game.mainHand names the other; with one controller connected, that one).
+  skipHand() {
+    const I = this.g.input, main = this.g.mainHand === 'left' ? I.left : I.right, off = main === I.left ? I.right : I.left;
+    return off.connected ? off : main;
   }
+  skipButton() { return this.skipHand().buttons.trigger; }
 
   // ---------------------------------------------------------------- playback
   start(clip) {
@@ -194,9 +188,13 @@ export class Replay {
       pieces: this.pieces.map((m) => [m.position.clone(), m.quaternion.clone()]),
       fov: g.camera.fov,
     };
-    // Your figure: re-played with the shot as it turned out (src/render/people.js),
-    // a few poses a frame while the camera is still behind the bowler; the
-    // first 0.8 s keep the poses that were recorded live.
+    // Your figure: re-played with the shot as it turned out, a few poses a
+    // frame while the camera is still behind the bowler; the first 0.8 s keep
+    // the poses that were recorded live. All the replay asks of the body
+    // (PlayerBodyView): resolveBegin(t0, t1) -> job | null (it saves the live
+    // figure), resolveStep(job, count, write) -> true when done (write(t, h)
+    // for each pose from t0 on), resolveEnd(job) (puts the live figure back);
+    // it reads job.t0 and job.t (the time of the last pose made).
     this.job = null;
     const pb = g.playerBody;
     if (clip.playerBatting && pb && pb.resolveBegin) {
@@ -207,7 +205,7 @@ export class Replay {
     // Nothing but a small label low in the corner (the UI hides its panels while a replay is on).
     g.ui.clearHints?.();
     g.ui.prompt('', 0);
-    setLabel(this.label, 'REPLAY', xr ? 'off-hand (left) trigger skips' : 'Space skips');
+    setLabel(this.label, 'REPLAY', xr ? `off-hand (${this.skipHand().hand}) trigger skips` : 'Space skips');
     this.label.visible = true;
     if (g.ballView.trail) g.ballView.clearTrail?.();
     // The camera's whole move, and where your head is in the room (it moves the rig under that).
@@ -235,6 +233,7 @@ export class Replay {
     if (g.input.xr) g.setRig(g.rigState); else g.placeDesktopCamera();
     g.snapBat = true;
     this.fade.cut(FADE_IN);                             // back where you play from: in from dark
+    if (g.session && g.session.afterReplay) g.session.afterReplay();
   }
 
   // The player skips it: this press of the button does nothing else.

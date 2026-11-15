@@ -114,6 +114,9 @@ export class Game {
     this.ui = new UI(this);
     this.timeScale = 1;              // current game-time scale (slow motion)
     this.timeScaleTarget = 1;
+    // The hand with the bat and the ball. The game reads both from the right controller
+    // (there is no left-handed setting yet); the other one is your off hand (it skips replays).
+    this.mainHand = 'right';
     this.rigOffset = { x: 0, z: 0 }; // stick movement / coming down the pitch / the bowling run-up
     // Right stick: look around without turning your body. The rig turns by
     // lookYaw about your head; lookOff keeps the head where it was.
@@ -343,6 +346,7 @@ export class Game {
     this.viewOverride = null;
     for (const m of this.handMarkers) m.visible = false;
     if (this.input.xr) this.setRig(this.rigState); else this.placeDesktopCamera();
+    if (this.input.xr && this.replay && !this.replay.active) this.replay.fade.cut();   // back from the catch: in from dark, not a jump
   }
 
   // World positions of the player's hands (XR controllers, or a point on the

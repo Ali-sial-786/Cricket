@@ -114,7 +114,7 @@ _Last updated after the eleventh pass (batting shots from video motion capture).
   for you used to stand inside your head).
 - **View setting:** your eyes / eyes + helmet grille / behind the player (third person, with a body that copies you
   when batting and when bowling).
-- **Replays after every ball** (bowler's or batter's view, then the camera chases the hit; skippable).
+- **Replays after every ball** (bowler's or batter's view, then the camera chases the hit; skippable). (Since replaced: one camera from the bowler's end, see below.)
 - **Keeper and ball handling:** a bug aimed every "hold the ball" pose at the elbow pole, so held balls sat at the
   keeper's crotch; fixed. Balls are held in the right hand; throws are taken over the stumps and the bails come off
   with the glove; stumpings lunge in. Fielders no longer stand inside each other. New gloves and pads.
@@ -153,7 +153,7 @@ _Last updated after the eleventh pass (batting shots from video motion capture).
 - **Keeper:** tracks the line, regulation take / leap / dive from real reach limits (`CONFIG.keeper`); a miss is byes
   (run or four); a stumping needs the take; standing back he shies at the stumps. Keeper stands 5 m back to pace.
 - **Byes** in the scoring (extras, not charged to batter or bowler).
-- **Crease replay:** square-on slow motion whenever the wicket is broken with a batter near the line.
+- **Crease replay:** square-on slow motion whenever the wicket is broken with a batter near the line. (Since removed: the ball's own replay is shown instead.)
 - **Bowling:** bowler chosen on a page before every over; deliveries picked with A/B and listed on a card with what
   each does; target marker back on; run-up per bowler type (hold right grip or left trigger; pull out early, committed
   near the crease, dead ball if you don't bowl); momentum adds pace; result line after each ball.
@@ -225,6 +225,23 @@ several static cameras. `tools/video_shots/` turns it into the batting shots (`a
   swing at a ball: `src/render/playerShot.js` reads the shot from your bat, head and the delivery, the capture gives
   the footwork, knees, hips, trunk and weight, your head and hands stay where they really are. Replays re-play it
   with the shot as it turned out (type and real contact time).
+
+## Replays and run-up text (after the third headset recording)
+
+- **Every ball gets a replay**, once, after its result (and after any review's verdict): dot balls, leaves, hits,
+  boundaries, wickets, run-outs, LBW reviews, the balls you bowl. Asking for the next ball before it starts no
+  longer loses it.
+- **One camera:** high behind the bowler's arm for the last strides, the release and the flight, then it turns and
+  glides after the ball until it is dead. No cuts, no dip to black, no side-on shot; level, speed and turn rate
+  bounded. A ball driven straight back past it is side-stepped and the turn is started early.
+- **Skip with the off-hand (left) trigger**, at any moment; the press does nothing else. Other buttons don't stop it.
+- **The black slab** before replays was an 80–100 ms stall at the replay's start (re-posing your figure); the work is
+  now spread over the first frames (start frame 2–4 ms on the desktop harness).
+- **Nothing in view during the run-up** when you bat (HUD panel, bowler card, FREE HIT, hints) or bowl; the new
+  bowler's card and a free hit are shown just before the bowler sets off.
+- **Catch chances** are never right behind the striker or over in a tenth of a second (an edge to the keeper is taken
+  a little further back); coming back from a catch and back to your bowling mark, the view fades in.
+- "Hitting the stumps" in the bowling result line was the line as bowled, not the outcome: now "on the stumps".
 
 ## Known issues / not verified
 - **Not tested on a real headset.** All XR paths ran only under Meta's IWER emulator in headless Chromium

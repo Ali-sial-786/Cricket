@@ -198,7 +198,8 @@ export class BattingSession {
       if (this.autoNext() || this.timer <= 0) this.timer -= dt;
       this.waitField = (this.waitField || 0) + dt;
       const fieldReady = !this.field || this.field.inPosition() || this.waitField > 4;
-      if (this.timer <= 0 && fieldReady) { this.waitField = 0; this.prepare(t); }
+      if (this.timer <= 0 && !this.nextUp && this.announce()) { /* (the card is up: the field walks back meanwhile) */ }
+      else if (this.timer <= 0 && fieldReady) { this.waitField = 0; this.prepare(t); }
     } else if (this.state === 'cue') {
       const el = t - this.cueStart, cd = CONFIG.machine.countdownSec;
       const stage = el < cd / 2 ? 1 : el < cd ? 2 : 3;
@@ -231,24 +232,30 @@ export class BattingSession {
     g.umpires.setLook(g.ballView.visible ? g.ballView.mesh.position : null);
   }
 
+  // Between balls: who bowls next and a free hit are told BEFORE the bowler
+  // sets off (the card is up for ANNOUNCE s while the field walks back, then
+  // the run-up starts with a clear view), never over the run-up. True if
+  // there was something to tell.
+  announce() {
+    const g = this.game;
+    const next = this.aiBowler ? this.aiBowler.next(this.innings) : g.settings.machine;
+    this.nextUp = next;
+    const freeHit = !!(this.innings && this.innings.freeHit), lines = [];
+    if (next.newBowler) {
+      lines.push(`${next.bowler} — ${next.bowlerLabel}`);
+      g.say('over', { style: next.spinner ? 'SPIN' : next.bowlerType === 'swing' ? 'SWING' : 'FAST', balls: this.innings ? this.innings.ballsLeft : 6 });
+    }
+    if (freeHit) { lines.push('FREE HIT — you can only be run out'); g.umpires.signal('freehit', g.clock); }
+    if (this.aiBowler) g.ui.setHud({ sub: this.aiBowler.describe(next) });
+    if (!lines.length) return false;
+    g.ui.prompt(lines.join('\n'), ANNOUNCE + 0.4, '#ffd34d');
+    this.timer = ANNOUNCE;
+    return true;
+  }
+
   prepare(t) {
     const g = this.game;
-    // Between balls: who bowls next and a free hit are told BEFORE the bowler
-    // sets off (the card is up for a moment, then the run-up starts with a
-    // clear view), never over the run-up.
-    if (!this.nextUp) {
-      const next = this.aiBowler ? this.aiBowler.next(this.innings) : g.settings.machine;
-      this.nextUp = next;
-      const freeHit = !!(this.innings && this.innings.freeHit), lines = [];
-      if (next.newBowler) {
-        lines.push(`${next.bowler} — ${next.bowlerLabel}`);
-        g.say('over', { style: next.spinner ? 'SPIN' : next.bowlerType === 'swing' ? 'SWING' : 'FAST', balls: this.innings ? this.innings.ballsLeft : 6 });
-      }
-      if (freeHit) { lines.push('FREE HIT — you can only be run out'); g.umpires.signal('freehit', g.clock); }
-      if (this.aiBowler) g.ui.setHud({ sub: this.aiBowler.describe(next) });
-      if (lines.length) { g.ui.prompt(lines.join('\n'), ANNOUNCE + 0.4, '#ffd34d'); this.timer = ANNOUNCE; return; }
-    }
-    const settings = this.nextUp;
+    const settings = this.nextUp || (this.aiBowler ? this.aiBowler.next(this.innings) : g.settings.machine);   // (announce() has normally picked it)
     this.nextUp = null;
     this.resetEnds();
     g.ballView.setVisible(false);

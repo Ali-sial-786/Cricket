@@ -182,9 +182,15 @@ Bowl a few overs in **Bowl an Over** or a **Match** and watch the batter from yo
 - [ ] **Settings → View → behind the player:** bat a few balls and bowl a few.
   - **Report:** whether the camera position works (`view.behindBatting` / `behindBowling`), whether you can still
     time the ball, and whether your player copies you believably.
-- [ ] **Replays:** after each ball, watch one bowler's-view and one batter's-view replay, including a big hit.
-  - **Report:** any sickness from the moving camera (it slows to 75% after the shot and dims the edges), whether
-    you want them shorter, and whether *any button skips* works.
+- [ ] **Replays:** bat and bowl a few balls each, including a big hit, a ball driven straight back, a wicket and a
+      run-out. Every ball should get a replay: one camera high behind the bowler that follows the ball after the
+      shot, no cuts.
+  - **Report:** any sickness from the moving camera (it turns at most 75°/s, moves at most 6 m/s, dims the edges),
+    whether it loses the ball, whether the **left (off-hand) trigger** skips it at once and does nothing else (it
+    must not start your run-up), and whether any other button stops it (none should; the menu pauses it).
+- [ ] **Text during the run-up:** batting in nets, a chase and a match, and bowling: from the moment the bowler sets
+      off (the machine's countdown, your own run-up) until the ball reaches the batter there should be nothing in
+      your view. A new bowler's name / FREE HIT should show just before, and the last result between balls.
 - [ ] **Hints:** start a new Run Chase. The controller pictures should appear for the first ball and while running.
   - **Report:** are they easy to read, and is the lit button the right one on your controller?
 - [ ] **Keeper and fielders:** watch the keeper take a few balls, a run-out at each end and a stumping.

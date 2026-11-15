@@ -142,11 +142,17 @@ view also faces forward by itself before each ball, on recenter, catches and rep
 * **Settings → View:** *your eyes* (plain first person), *eyes + helmet grille* (first person from inside a
   batting helmet), or *behind the player* (third person: the camera sits behind and beside your player, who copies
   your bat, head and hands; menus and catches always switch back to your own eyes).
-* **Settings → Replays:** after every ball a short replay plays, from the *bowler's view* (default) or the
-  *batter's view*; once the ball is hit the camera chases it. In the headset you are moved through it with a dimmed
-  edge to the view; press any button to skip. *Off* turns them off. When the wicket is broken with a batter near
-  the line (a stumping, a run-out or a close call) the replay is shot **square-on at that crease**, in slow motion:
-  the take, the gloves going to the stumps, the bat or boot at the line.
+* **Settings → Replays** (*after every ball* / *off*): every ball that is bowled — a leave, a dot ball, a hit, a
+  boundary, a wicket, a run-out, a reviewed ball, the balls you bowl — gets its replay, once, at real speed: one
+  camera high behind the bowler's arm watches the last strides, the release and the ball's flight, then turns and
+  glides after the ball until it is dead. One continuous move: no cuts, no second angle. After an appeal, a DRS
+  review or the third umpire, the replay comes after the verdict. In the headset you are moved through it (level,
+  gently, the edges of the view dimmed while it moves). Your **off-hand trigger** (the hand without the bat or the
+  ball: the left one) skips it at any moment, and that press does nothing else; no other button stops it, and the
+  menu only pauses it.
+* **Text while the ball is coming:** from the moment the bowler sets off (the machine's countdown; your own run-up
+  when you bowl) until the ball reaches the batter, nothing floats in your view. A new bowler's name and a free hit
+  are shown just before the run-up, the last ball's result between balls.
 * **Settings → Contact assist** (off / low / normal / high, default normal): an invisible margin around your bat so a
   ball that would have just missed is still played (and pulled toward the middle of the bat). The bat itself is
   14 cm wide with a 61 cm blade.
@@ -171,7 +177,7 @@ Open the page in any WebGL2 browser without a headset. The page starts on the me
 | `Z` / `X` | Review (`Z`) | Next / previous delivery (by feel: seam out / in) · throw to keeper / bowler's end |
 | `Esc` or `M` | Menu (click buttons with the mouse) | Menu |
 | `C` / `T` | Cycle cameras / toggle ball trail | |
-| `Space` during a replay | Skip it | Skip it |
+| `Space` / `Enter` during a replay | Skip it | Skip it |
 
 `window.__game` exposes the game object in the console, for example `__game.world.ball`,
 `__game.settings` and `__game.actions.start('chase')`.

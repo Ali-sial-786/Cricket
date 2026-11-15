@@ -136,22 +136,42 @@ export class FieldController {
   // ------------------------------------------------------------- catching (player)
   planCatch(t) {
     const L = this.logic, p = L.plan, C = CONFIG.catching;
-    let best = null;
+    // Where you take it: the ball nearest chest height in the moments the
+    // fielder could get there. Not a point the ball reaches almost at once
+    // (C.minTime after the bat: no time to see it), nor one right behind the
+    // striker (within C.minGap: his body would fill your view) — an edge to a
+    // keeper is taken a little further back along its flight instead. With no
+    // such point (it bounces first), the fielder there takes it himself.
+    const bat = this.game.batterView && this.game.batterView.actor ? this.game.batterView.actor.pos : null;
+    const fit = (s) => {
+      if (s.t < C.minTime) return false;
+      if (!bat) return true;
+      const hv = Math.hypot(s.vx, s.vz) || 1;
+      return Math.hypot(s.x + s.vx / hv * C.standOff - bat.x, s.z + s.vz / hv * C.standOff - bat.z) >= C.minGap;
+    };
+    let best = null, first = null;
     for (const s of this.pred.samples) {
       if (s.bouncesSinceBat > 0) break;
       if (s.t < p.t - 0.1 || s.t > p.t + 0.5) continue;
       const score = Math.abs(s.y - 1.25);
       if (!best || score < best.score) best = { s, score };
+      if (first == null && fit(s)) first = s.t;
+    }
+    if (best && !fit(best.s)) {
+      // (moved: the first usable moments of its flight, near chest height)
+      best = null;
+      for (const s of this.pred.samples) {
+        if (s.bouncesSinceBat > 0 || first == null || s.t > p.t + 0.5) break;
+        if (s.t < first || !fit(s)) continue;
+        const score = Math.abs(s.y - 1.25) + 2 * (s.t - first);
+        if (!best || score < best.score) best = { s, score };
+      }
+      if (!best) return;
     }
     const s = best ? best.s : { x: p.x, y: p.y, z: p.z, vx: 0, vz: 1, t: p.t };
+    if (!fit(s)) return;
     const hv = Math.hypot(s.vx, s.vz) || 1;
     const dir = { x: s.vx / hv, z: s.vz / hv };
-    // Not a chance you could take: the ball is there almost at once (an edge to
-    // a keeper standing up), or you would be put right behind the striker with
-    // his body between you and the ball. The fielder there takes it himself.
-    const bat = this.game.batterView && this.game.batterView.actor ? this.game.batterView.actor.pos : null;
-    const gap = bat ? Math.hypot(s.x + dir.x * C.standOff - bat.x, s.z + dir.z * C.standOff - bat.z) : Infinity;
-    if (s.t < C.minTime || gap < C.minGap) return;
     this.catch = {
       f: L.fielders[p.fi], fi: p.fi, state: 'pending',
       point: new Vec3(s.x, Math.min(2.0, Math.max(0.35, s.y)), s.z), tArrive: L.hitT + s.t, dir,

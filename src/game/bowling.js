@@ -177,6 +177,10 @@ export class BowlingSession {
 
   usesY() { return false; }
 
+  // A replay has just put you back at the crease: straight on to your mark
+  // (one move from the replay, not a second one a moment later).
+  afterReplay() { if (this.state === 'settle') this.timer = 0; }
+
   // What may be in your view (src/ui/ui.js quiet): once your delivery has
   // started (you are running in, or without a run-up the ball is gripped)
   // nothing at all until the ball has left your hand; then, while it is in

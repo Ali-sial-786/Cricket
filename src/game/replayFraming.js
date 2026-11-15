@@ -8,7 +8,11 @@
 //    never cuts, never changes height, never rolls or pitches, and its speed,
 //    acceleration, turn rate and turn acceleration are bounded (planCamera).
 //    The whole path is laid out before the replay starts, from the recorded
-//    ball, so it can look a little ahead of the ball instead of lagging it.
+//    ball, so it can look a little ahead of the ball instead of lagging it,
+//    side-step a ball driven back at it early, and start a turn it cannot make
+//    in time (a ball whipping past) before the ball gets there.
+//    clipFor / replayAt: which stretch of the tape a ball's replay shows, and
+//    when it plays (every ball that was bowled gets one, once).
 // 2. Clearance. keepClear / nearestOnBody: the camera is never nearer than
 //    CLEAR to anybody. A body is { a: top of the head, b: hips, c: the ground
 //    under the hips }, points as { x, y, z }; the two segments a–b and b–c
@@ -87,10 +91,14 @@ export const CAM = {
   height: 3.5,        // m: over the umpire and the bowler's arm; more than CLEAR above anybody's head
   x: 0,               // on the line of the stumps
   rope: 6,            // m of slack beyond the distance to the batter before the camera starts to move
-  lookAhead: 0.3,     // s the turn leads the ball by (it cancels the lag of an eased turn)
+  lookAhead: 0.3,     // s: it turns toward where the ball will be this much later
+  lead: 0.1,          // s the eased turn follows its plan ahead by (its own lag)
+  share: 0.4,         // of a turn too quick to make (a ball whipping past), the part made before the ball gets there
   cone: 32 * D2R,     // the comfortable forward view: the ball should stay inside it
   rim: 58,            // m from the middle: the ball's stand-in never goes further (the camera stays inside the rope)
-  dodge: 3.0,         // m: a ball coming this close is side-stepped
+  dodge: 7.0,         // m: a ball coming this close within dodgeT s is side-stepped (it then passes to one side)
+  dodgeT: 2.0,
+  dodgeGain: 1.5,
   // headset: gentle; monitor: brisker
   xr:   { vMax: 6,  aMax: 4, wMax: 75 * D2R,  wAcc: 220 * D2R },
   desk: { vMax: 12, aMax: 9, wMax: 120 * D2R, wAcc: 420 * D2R },
@@ -126,27 +134,29 @@ export function planCamera({ n, dt, ball, key, base, face, centerZ = -10.06, lim
     }
     sx[i] = lx; sy[i] = ly; sz[i] = lz;
   }
-  const rope = Math.hypot(face.x - base.x, face.z - base.z) + CAM.rope;
-  const la = Math.max(0, Math.round(CAM.lookAhead / dt)), dodgeN = Math.round(1.2 / dt);
+  // 1. Where it stands: still until the ball is a rope's length away, then after it.
+  const rope = Math.hypot(face.x - base.x, face.z - base.z) + CAM.rope, dirZ = Math.sign(face.z - base.z) || 1;
+  const dodgeN = Math.round(CAM.dodgeT / dt);
   let px = base.x, pz = base.z, vx = 0, vz = 0;
-  let yaw = Math.atan2(face.x - base.x, face.z - base.z), w = 0;
   for (let i = 0; i < n; i++) {
-    // --- glide: after the ball once it is more than a rope away
-    let dx = sx[i] - px, dz = sz[i] - pz;
+    // --- glide: after the ball once it is more than a rope away; a ball behind
+    //     the batter is watched from this end (never flown after down the pitch)
+    const dx = sx[i] - px, dz = (dirZ > 0 ? Math.min(sz[i], face.z) : Math.max(sz[i], face.z)) - pz;
     const L = Math.hypot(dx, dz), over = L - rope;
     let gx = 0, gz = 0;
     if (over > 0 && L > 1e-6) {
       const sp = Math.min(lim.vMax, 1.5 * over, Math.sqrt(1.6 * lim.aMax * over));
       gx = dx / L * sp; gz = dz / L * sp;
     }
-    // --- side-step a ball that is coming at the camera
+    // --- side-step a ball that is coming at the camera (so it passes to one side)
     if (i >= key) {
-      let best = CAM.dodge, bj = -1;
-      for (let j = i; j < Math.min(n, i + dodgeN); j++) {
-        const d = Math.hypot(sx[j] - px, sy[j] - base.y, sz[j] - pz);
-        if (d < best) { best = d; bj = j; }
+      let best = CAM.dodge * CAM.dodge, bj = -1;
+      for (let j = i, je = Math.min(n, i + dodgeN); j < je; j++) {
+        const ex = sx[j] - px, ey = sy[j] - base.y, ez = sz[j] - pz, d2 = ex * ex + ey * ey + ez * ez;
+        if (d2 < best) { best = d2; bj = j; }
       }
       if (bj >= 0) {
+        best = Math.sqrt(best);
         // away from the ball's line: across the way it is travelling
         const j0 = Math.max(0, bj - 1), j1 = Math.min(n - 1, bj + 1);
         let tx = sx[j1] - sx[j0], tz = sz[j1] - sz[j0];
@@ -155,7 +165,7 @@ export function planCamera({ n, dt, ball, key, base, face, centerZ = -10.06, lim
         if (tl > 1e-6) { tx /= tl; tz /= tl; const along = ax * tx + az * tz; ax -= along * tx; az -= along * tz; }
         let al = Math.hypot(ax, az);
         if (al < 0.05) { ax = tl > 1e-6 ? -tz : 1; az = tl > 1e-6 ? tx : 0; al = 1; }
-        const k = lim.vMax * (1 - best / CAM.dodge);
+        const k = lim.vMax * Math.min(1, CAM.dodgeGain * (1 - best / CAM.dodge));
         gx += ax / al * k; gz += az / al * k;
       }
     }
@@ -166,15 +176,36 @@ export function planCamera({ n, dt, ball, key, base, face, centerZ = -10.06, lim
     if (al > lim.aMax) { ax *= lim.aMax / al; az *= lim.aMax / al; }
     vx += ax * dt; vz += az * dt;
     px += vx * dt; pz += vz * dt;
-    // --- turn: toward where the ball will be in a moment
-    const k = Math.min(n - 1, i + la);
-    dx = sx[k] - px; dz = sz[k] - pz;
-    let e = 0;
-    if (Math.hypot(dx, dz) > 2) e = wrap(Math.atan2(dx, dz) - yaw);
+    X[i] = px; Y[i] = base.y; Z[i] = pz;
+  }
+  // 2. Which way it faces. The bearing to where the ball will be a moment
+  //    later (unwrapped: it turns the short way round, the side the ball passes).
+  const la = Math.max(0, Math.round(CAM.lookAhead / dt));
+  const b = new Float64Array(n);
+  let prev = Math.atan2(face.x - base.x, face.z - base.z);
+  for (let i = 0; i < n; i++) {
+    const k = i < key ? i : Math.min(n - 1, i + la), dx = sx[k] - X[i], dz = sz[k] - Z[i];   // (no peeking past the shot)
+    if (Math.hypot(dx, dz) > 2) prev += wrap(Math.atan2(dx, dz) - prev);
+    b[i] = prev;
+  }
+  //    A turn quicker than it can make (a ball whipping past) is spread round
+  //    the moment: `share` of it before (from the shot on, never before it),
+  //    the rest after. f: the bearing rate-limited forward in time (late),
+  //    g: backward (early); the plan is their mix.
+  const r = 2 * 0.9 * lim.wMax * dt, f = new Float64Array(n), g = new Float64Array(n);
+  f[0] = b[0];
+  for (let i = 1; i < n; i++) f[i] = f[i - 1] + clamp(b[i] - f[i - 1], -r, r);
+  g[n - 1] = b[n - 1];
+  for (let i = n - 2; i >= 0; i--) g[i] = i < key ? b[i] : g[i + 1] + clamp(b[i] - g[i + 1], -r, r);
+  //    The turn itself: eased toward the plan, its rate and its acceleration bounded.
+  const lead = Math.max(0, Math.round(CAM.lead / dt));
+  let yaw = b[0], w = 0;
+  for (let i = 0; i < n; i++) {
+    const k = i < key ? i : Math.min(n - 1, i + lead), e = (1 - CAM.share) * f[k] + CAM.share * g[k] - yaw;
     const ws = Math.sign(e) * Math.min(lim.wMax, 4 * Math.abs(e), Math.sqrt(1.6 * lim.wAcc * Math.abs(e)));
-    w += Math.max(-lim.wAcc * dt, Math.min(lim.wAcc * dt, ws - w));
+    w += clamp(ws - w, -lim.wAcc * dt, lim.wAcc * dt);
     yaw += w * dt;
-    X[i] = px; Y[i] = base.y; Z[i] = pz; W[i] = yaw;
+    W[i] = yaw;
   }
   return { n, dt, x: X, y: Y, z: Z, yaw: W };
 }
@@ -220,4 +251,35 @@ export function pathStats(frames, { jump = 0.5, turn = 0.2, cone = CAM.cone } = 
   }
   s.inCone = seen ? inside / seen : 1;
   return s;
+}
+
+// ---------------------------------------------------------------- the clip
+export const PRE = 1.5;     // s of the run-up shown before the release
+export const TAIL = 1.0;    // s shown after the ball is dead
+
+// The stretch of the tape a ball's replay shows: { start, end, release, key,
+// playerBatting } (game s), or null (no ball bowled, already replayed, or the
+// release no longer on the tape).
+//   m            the ball's marks: { release, hit, pad, dead, played, playerBatting }
+//   first, last  the oldest and the newest moment on the tape
+//   arrive       when the ball got to the batter's end (null: it never did)
+// key: the ball reaches the batter (bat, pad, or the crease, whichever is
+// first): the camera follows the ball from then on.
+export function clipFor(m, first, last, arrive = null) {
+  if (!m || m.release == null || m.played || !(last >= first)) return null;
+  if (m.release < first) return null;
+  const start = Math.max(first, m.release - PRE);
+  const end = Math.min((m.dead ?? last) + TAIL, last);
+  if (end - start < 0.5) return null;
+  let key = Infinity;
+  for (const t of [m.hit, m.pad, arrive]) if (t != null && t > m.release && t < key) key = t;
+  return { start, end, release: m.release, key: Math.min(key, end), playerBatting: !!m.playerBatting };
+}
+
+// When the replay of a ball whose result went up at t plays (game s): once
+// TAIL s of its aftermath are on the tape; after a review (the result came
+// well after the ball was dead), a moment after the verdict.
+export function replayAt(m, t) {
+  const dead = m.dead ?? t;
+  return Math.max(dead + TAIL + 0.05, t + (t - dead > 0.5 ? 1.0 : 0));
 }
