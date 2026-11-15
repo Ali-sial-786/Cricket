@@ -634,7 +634,7 @@ export class Game {
       this.applyView();
       this.updateEye();
       this.playerBody.actor.h.setGhost(false); this.playerBowler.h.setGhost(false);
-      this.playerBody.actor.restArms();     // (the replay poses joints only: the arms at their own length)
+      this.playerBody.replayArms(this.replay.rt);     // (the replay poses joints only: the arms as long as they were then)
       if (this.playerBowler.showHand) this.playerBowler.showHand(null);
       this.replay.placeOverlays(this.eye, realDt);
       this.ballFinder.hide();
@@ -702,6 +702,12 @@ export class Game {
       } else if (this.ballOverride && ses.state === 'live') ball = this.ballView.mesh.position;   // in a fielder's hand / being thrown
     }
     this.ballFinder.update(dt, this.eye, ball, landing);
+  }
+
+  // Your other hand (not the bat's) in the headset, or null: your batting body reads it (on the handle or off).
+  offHandPos() {
+    const off = this.mainHand === 'left' ? this.input.right : this.input.left;
+    return this.input.xr && off.connected ? off.gripPose.p : null;
   }
 
   // Record this frame for the replay and spot the moments it needs.
@@ -883,7 +889,7 @@ export class Game {
       if (batting || deskThird) {
         if (this.input.xr) this.poseBatMesh();
         this.playerBody.update(pdt || 1e-4, this.simTime, this.batMesh.position, this.batMesh.quaternion, lookBall, this.input.xr ? this.input.headPose : null,
-          this.session && this.session.bodyState ? this.session.bodyState() : null);
+          this.session && this.session.bodyState ? this.session.bodyState() : null, this.offHandPos(), this.input.xr ? this.lookYaw || 0 : 0);
       }
       // Through your own eyes you see a faint body below you (no head), so you
       // know where your feet are in the crease.

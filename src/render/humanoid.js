@@ -203,9 +203,11 @@ function hullFor(geo) {
 // baked ambient occlusion, a soft fresnel rim (cooler sheen on cloth, warm
 // scatter on skin), skin a touch warmer in shadow, and a back number whose
 // seven-segment digits are lit from a per-figure bit mask.
-function kitMaterial() {
+// depth: the see-through body's depth pre-pass (setGhost), sharing `shared` (the figure's uniforms).
+function kitMaterial(shared = null, depth = false) {
   const mat = new THREE.MeshLambertMaterial({ vertexColors: true });
-  const uniforms = {
+  if (depth) mat.defines = { GHOST_DEPTH: 1 };
+  const uniforms = shared || {
     uKit1: { value: new THREE.Color(0x1f4fa8) }, uKit2: { value: new THREE.Color(0xf2c12e) }, uKit3: { value: new THREE.Color(0x14285a) },
     uKit4: { value: new THREE.Color(0x17336e) }, uSkin: { value: new THREE.Color(0xc68e62) }, uHair: { value: new THREE.Color(0x1d1510) },
     uPanel: { value: new THREE.Color(0x173f8c) },
@@ -261,7 +263,13 @@ function kitMaterial() {
   if (uGhost.w > 0.0) {
     vec3 sg = clamp(vSeg, 0.0, 1.0);
     float hw = clamp(vHandW, 0.0, 1.0);
-    diffuseColor.a = uGhost.x * clamp(1.0 - sg.x - sg.y - sg.z - hw, 0.0, 1.0) + uGhost.y * sg.x + uGhost.z * sg.y + uGhost.w * sg.z + uGhostHands * hw;
+    // (the gloves fade out close to your eyes: a bat brought up to your face is not hidden behind them)
+    float near = smoothstep(0.14, 0.32, length(vViewPosition));
+    diffuseColor.a = uGhost.x * clamp(1.0 - sg.x - sg.y - sg.z - hw, 0.0, 1.0) + uGhost.y * sg.x + uGhost.z * sg.y + uGhost.w * sg.z + uGhostHands * hw * near;
+    #ifdef GHOST_DEPTH
+      // (only the pads, boots and gloves: the faint trunk, arms and thighs never hide what is behind them)
+      if (sg.y + sg.z + hw < 0.5 || diffuseColor.a < 0.2) discard;
+    #endif
   }`)
       .replace('#include <clipping_planes_fragment>', '#include <clipping_planes_fragment>\n  if ((uNoHead > 0.5 && vHeadW > 0.35 && vHeadW < 1.5) || vHeadW > 1.5) discard;')
       .replace('#include <aomap_fragment>', `#include <aomap_fragment>
@@ -283,7 +291,7 @@ function kitMaterial() {
           }
         }`);
   };
-  mat.customProgramCacheKey = () => 'cricket-kit-v8';
+  mat.customProgramCacheKey = () => (depth ? 'cricket-kit-v9-depth' : 'cricket-kit-v9');
   mat.userData.uniforms = uniforms;
   return mat;
 }
@@ -379,7 +387,13 @@ export class Humanoid {
   // or neck; the trunk and arms very faint, so that you see through them to
   // your legs and feet, which are clearly drawn to judge them against the
   // crease: thighs half see-through, pads more solid, boots most, all with a
-  // dark outline. legs: the pads' opacity (thighs a little less, boots more).
+  // dark outline; the gloves all but solid on your bat (fading out right in
+  // front of your eyes). legs: the pads' opacity (thighs a little less, boots more).
+  // Each part is drawn as one clean layer, the nearest surface only: a
+  // depth pre-pass (a twin of the mesh on the same skeleton that only writes
+  // depth, for everything but the faint trunk) goes just before it, so the
+  // back of a pad, the inside of a glove or the other leg behind never show
+  // through as layers of grey smoke.
   setGhost(on, legs = 0.55, trunk = 0.035) {
     if (!!this.ghost === on) return;
     this.ghost = on;
@@ -389,8 +403,21 @@ export class Humanoid {
     u.uTrunkAlpha.value = 1;
     u.uGhost.value.set(on ? trunk : 0, on ? legs * 0.7 : 0, on ? legs : 0, on ? Math.min(1, legs + 0.3) : 0);
     u.uGhostEdge.value = on ? 0.9 : 0;
-    u.uGhostHands.value = on ? 0.4 : 0;
+    u.uGhostHands.value = on ? 0.92 : 0;
     this.mesh.renderOrder = on ? 3 : 0;
+    if (on && !this.ghostDepth) {
+      const dm = kitMaterial(u, true);
+      dm.transparent = true; dm.colorWrite = false; dm.depthWrite = true;
+      const g = this.ghostDepth = new THREE.SkinnedMesh(this.mesh.geometry, dm);
+      g.bind(this.mesh.skeleton, this.mesh.bindMatrix);
+      g.position.copy(this.mesh.position);
+      g.boundingSphere = this.mesh.boundingSphere; g.frustumCulled = this.mesh.frustumCulled;
+      g.renderOrder = 2.9;
+      g.layers.mask = this.mesh.layers.mask;
+      g.onBeforeRender = () => { g.geometry = this.mesh.geometry; };      // (the level of detail drawn)
+      this.root.add(g);
+    }
+    if (this.ghostDepth) this.ghostDepth.visible = on;
   }
 
   get visible() { return this.root.visible; }
@@ -435,7 +462,8 @@ export class Humanoid {
 
   // A swinging (not planted) foot that dips into the turf: bend that leg
   // (IK, same knee direction, same foot orientation) so the sole clears it.
-  clearFoot(side) {
+  // pole: the knee's IK pole to keep (default: out along the knee's current direction).
+  clearFoot(side, pole = null) {
     const ia = RIG.index['ankle' + side], ik = RIG.index['knee' + side];
     const low = this.lowest(FOOT_ONLY[side] || (FOOT_ONLY[side] = [ia, ik]));
     if (low >= 0) return 0;
@@ -445,7 +473,7 @@ export class Humanoid {
     this.bones['knee' + side].getWorldPosition(_v);
     this.bones['hip' + side].getWorldPosition(_v2);
     _v.add(_v.clone().sub(_v2).setY(0).multiplyScalar(2));       // pole: out along the knee's current direction
-    this.ikLeg(side, _T, _v);
+    this.ikLeg(side, _T, pole || _v);
     this.setWorldQuat('ankle' + side, _bq);
     return -low;
   }
