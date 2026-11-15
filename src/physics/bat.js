@@ -118,7 +118,9 @@ export function contactQuality(geom, cLocal, nLocal, part, sigmaScale = 1) {
   if (face === 'front') {
     const edgeFactor = 1 - 0.85 * smoothstep(c.edgeStart, 1.0, across);
     quality = along * edgeFactor;
-    e = c.restitutionMin + (c.restitutionSweet - c.restitutionMin) * quality;
+    // (along the blade: the sweet spot down to an off-centre floor; toward the edge: down to an end's)
+    const eEnd = c.restitutionEnd ?? c.restitutionMin * 0.8;
+    e = eEnd + (c.restitutionMin + (c.restitutionSweet - c.restitutionMin) * along - eEnd) * edgeFactor;
     isEdge = across > 0.78;
   } else if (face === 'back') {
     quality = 0.08 * along;
@@ -126,14 +128,22 @@ export function contactQuality(geom, cLocal, nLocal, part, sigmaScale = 1) {
   } else {
     // Hit the thin side (edge) or the toe/shoulder.
     quality = 0.06;
-    e = c.restitutionMin * 0.8;
+    e = c.restitutionEnd ?? c.restitutionMin * 0.8;
     isEdge = face === 'side';
   }
   return { quality, e, isEdge, face, across, along };
 }
 
 const _n = new Vec3(), _nw = new Vec3(), _cw = new Vec3(), _r = new Vec3(), _vb = new Vec3(),
-  _vrel = new Vec3(), _tmp = new Vec3(), _xw = new Vec3(), _vin = new Vec3();
+  _vrel = new Vec3(), _tmp = new Vec3(), _xw = new Vec3(), _vin = new Vec3(), _vbat = new Vec3(), _sw = new Vec3();
+
+// Your shot's power: P (how much of the bat's speed reaches the ball, from the
+// swing's load 0..1) and H (how firmly the bat is held, from its real speed
+// into the ball, m/s). See CONFIG.bat.power.
+export function powerOf(load, vin, c = CONFIG.bat) {
+  const pw = c.power, l = load < 0 ? 0 : load > 1 ? 1 : load;
+  return { P: pw.loadFloor + (1 - pw.loadFloor) * l, H: pw.soft + (1 - pw.soft) * smoothstep(pw.hands[0], pw.hands[1], vin) };
+}
 
 // Apply the bat-ball contact. Mutates ball.vel / ball.pos / ball.spin.
 //  ball:      BallState (pos = ball centre at contact, vel = incoming velocity)
@@ -142,7 +152,8 @@ const _n = new Vec3(), _nw = new Vec3(), _cw = new Vec3(), _r = new Vec3(), _vb 
 //  batLinVel, batAngVel: controller (grip) velocities at contact (world)
 //  gripPos:   world position the angular velocity is about
 // Returns contact info or null if the bodies were separating.
-// mods (optional, per bat): { faceLed, power, sigmaScale, loftPower }
+// mods (optional, per bat): { faceLed, power, sigmaScale, loftPower, load }
+//   load (your bat): 0..1 how loaded the swing was (swingLoad.js): the shot's power, see powerOf
 export function resolveBatContact(geom, ball, pose, cLocal, batLinVel, batAngVel, gripPos, R, cfg = CONFIG, speedScale = cfg.bat.speedMultiplier, mods = null) {
   const c = cfg.bat;
   const part = geom.normalAt(_n, cLocal);
@@ -165,6 +176,18 @@ export function resolveBatContact(geom, ball, pose, cLocal, batLinVel, batAngVel
   // Bat surface velocity at the contact point.
   _r.subVectors(_cw, gripPos);
   _vb.crossVectors(batAngVel, _r).add(batLinVel).scale(speedScale);
+  _vbat.copy(_vb);
+  // (the middle of the bat's real speed: what the read-out calls bat speed)
+  pose.dirToWorld(_sw.set(0, geom.sweetY, 0), _sw);
+  const bladeSpeed = _tmp.crossVectors(batAngVel, _sw).add(batLinVel).length();
+  // Your shot's power: the bat's speed counts in full only with the backlift behind it,
+  // and a bat pushed gently is held softly (its rebound damped).
+  let P = 1, H = 1;
+  if (mods && mods.load != null) {
+    const pw = powerOf(mods.load, Math.max(0, _vb.dot(_nw)) / (speedScale || 1), c);
+    P = pw.P; H = pw.H;
+    _vb.scale(P);
+  }
 
   _vrel.subVectors(ball.vel, _vb);
   const vn = _vrel.dot(_nw);
@@ -177,7 +200,7 @@ export function resolveBatContact(geom, ball, pose, cLocal, batLinVel, batAngVel
   // v_rel' = -e vn n + retain * v_t
   _tmp.copy(_nw).scale(vn);          // normal part
   _vrel.sub(_tmp).scale(c.tangentialRetain); // tangential part kept
-  _vrel.addScaled(_nw, -q.e * vn);
+  _vrel.addScaled(_nw, -q.e * H * vn);
   ball.vel.addVectors(_vb, _vrel);
 
   // Thin edges: the ball mostly carries on along its path (to the keeper /
@@ -213,7 +236,10 @@ export function resolveBatContact(geom, ball, pose, cLocal, batLinVel, batAngVel
     part,
     speedIn,
     speedOut: ball.vel.length(),
-    batSpeed: _vb.length(),
+    batSpeed: _vbat.length(),          // the bat's surface where it hit, x speedMultiplier (m/s)
+    batVel: _vbat.clone(),
+    bladeSpeed,                        // the middle of the bat, real m/s
+    power: P, hands: H, load: mods && mods.load != null ? mods.load : null,
     normal: _nw.clone(),
     point: _cw.clone(),
     local: cLocal.clone(),

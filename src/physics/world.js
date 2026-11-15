@@ -103,7 +103,8 @@ export class PhysicsWorld {
     // assist: null, or { capture (m added to the ball radius when looking for
     // contact), magnet (0..1: how far the contact is pulled toward the sweet
     // spot) } — the player's bat only.
-    const bat = { id, provider, geom, enabled: true, cooldownUntil: -Infinity, speedScale, mods: null, assist: null };
+    // swing: a SwingLoad fed with the bat's poses (your bat): the shot's power reads its load at contact.
+    const bat = { id, provider, geom, enabled: true, cooldownUntil: -Infinity, speedScale, mods: null, assist: null, swing: null };
     this.bats.push(bat);
     return bat;
   }
@@ -172,6 +173,9 @@ export class PhysicsWorld {
       if (A) magnetize(bat.geom, _lc, R, A.magnet);
       _poseC.toWorld(b.pos, _lc);
       bat.provider.velAt(tc, _lin, _ang, _grip);
+      // (your bat: how loaded the swing that reached the ball was, from its own track - swingLoad.js)
+      const sw = bat.swing && bat.mods ? bat.swing.read(tc) : null;
+      if (sw) bat.mods.load = sw.load;
       const res = resolveBatContact(bat.geom, b, _poseC, _lc, _lin, _ang, _grip, R, this.cfg, bat.speedScale ?? this.cfg.bat.speedMultiplier, bat.mods || null);
       if (!res && A) b.pos.copy(_swept);           // no contact after all: the ball stays on its path
       if (res) {
@@ -182,7 +186,7 @@ export class PhysicsWorld {
         b.rolling = false;
         b.stopped = false;
         b.maxHeightSinceBat = b.pos.y;
-        this.emit({ type: 'bat', t: tc, batId: bat.id, ...res, vel: b.vel.clone(), pos: b.pos.clone() });
+        this.emit({ type: 'bat', t: tc, batId: bat.id, ...res, lift: sw ? sw.lift : null, travel: sw ? sw.travel : null, vel: b.vel.clone(), pos: b.pos.clone() });
       }
       b.pos.addScaled(b.vel, (1 - s) * h);
       if (b.pos.y < R) b.pos.y = R;

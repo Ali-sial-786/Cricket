@@ -20,6 +20,7 @@ import { ThirdUmpireFlow } from './thirdUmpire.js';
 import { BackFoot, creaseShort } from './crease.js';
 import { HINTS } from '../ui/controllerHint.js';
 import { ShotEvidence, pointVelocity } from './shotOffered.js';
+import { sweepShot } from './sweepShot.js';
 import { BatGeometry } from '../physics/bat.js';
 
 const _fw = new Vec3(), _toe = new Vec3(), _lever = new Vec3(), _bv = new Vec3(), _mid = new Vec3();
@@ -470,22 +471,15 @@ export class BattingSession {
     return { kind: 'hit', runs: 0 };
   }
 
-  // Sweep / reverse sweep / slog sweep: the shot is steered square (or
-  // behind square) on the side you swing to.
+  // Sweep / reverse sweep / slog sweep (the grip held at contact): the shot
+  // your bat played - its power from the contact, its side from where it went
+  // or the way you swept - helped gently into a sweeper's arc (sweepShot.js).
   applySweep(e) {
-    const g = this.game, b = g.world.ball, R = g.input.right, B = CONFIG.bat;
-    if (e.isEdge || e.face !== 'front') return false;
-    const reverse = R.linVel.x > 0.6;                 // swinging toward the off side
-    const slog = R.buttons.trigger.pressed || this.advance > 0.4;
-    const q = e.quality;
-    const speed = Math.min(44, (e.batSpeed * B.sweepSpeedGain + 0.3 * e.speedIn) * (0.5 + 0.5 * q) * (slog ? 1.3 : 1));
-    const behind = slog ? -(0.25 + g.rng() * 0.45) : (0.1 + g.rng() * 0.5);   // radians behind square (+) / in front (-)
-    const elev = slog ? 0.42 + g.rng() * 0.18 : 0.03 + g.rng() * 0.08 + (1 - q) * 0.25;
-    const side = reverse ? 1 : -1;
-    const ch = Math.cos(elev);
-    b.vel.set(side * Math.cos(behind) * ch * speed, Math.sin(elev) * speed, Math.sin(behind) * ch * speed);
-    e.vel.copy(b.vel); e.speedOut = speed;
-    this.shotName = reverse ? 'reverse sweep' : slog ? 'slog sweep' : 'sweep';
+    const g = this.game, b = g.world.ball, R = g.input.right;
+    const name = sweepShot(b.vel, e, { slog: R.buttons.trigger.pressed || this.advance > 0.4, reverse: this.sweepSide().off > 0.35 });
+    if (!name) return false;
+    e.vel.copy(b.vel); e.speedOut = b.vel.length();
+    this.shotName = name;
     return true;
   }
 
@@ -502,7 +496,7 @@ export class BattingSession {
       const v = b.vel;
       const launch = Math.atan2(v.y, Math.hypot(v.x, v.z)) / (Math.PI / 180);
       this.hit = {
-        t: e.t, quality: e.quality, edge: e.isEdge, exit: v.length(), batSpeed: e.batSpeed, launch, carry, dir: { x: v.x, y: v.y, z: v.z },
+        t: e.t, quality: e.quality, edge: e.isEdge, exit: v.length(), batSpeed: e.bladeSpeed ?? e.batSpeed, load: e.load, launch, carry, dir: { x: v.x, y: v.y, z: v.z },
         sixOnFull: !!(pred.boundary && pred.boundary.onFull), pred, advanced: this.advance > 0.5,
       };
       if (e.isEdge) this.stats.edges++; else if (e.quality > 0.75) this.stats.middled++;
@@ -528,7 +522,8 @@ export class BattingSession {
   shotDetail() {
     const h = this.hit;
     if (!h) return '';
-    return `Exit ${KMH(h.exit)} km/h · ${Math.round(h.launch)}° · bat ${h.batSpeed.toFixed(1)} m/s · sweet ${Math.round(h.quality * 100)}%${h.advanced ? ' · stepped out' : ''}\nCarry ${Math.round(h.carry)} m`;
+    // (bat: the middle of your bat's real speed at contact; backlift: how loaded the swing was)
+    return `Exit ${KMH(h.exit)} km/h · ${Math.round(h.launch)}° · bat ${h.batSpeed.toFixed(1)} m/s${h.load != null ? ` · backlift ${Math.round(h.load * 100)}%` : ''} · sweet ${Math.round(h.quality * 100)}%${h.advanced ? ' · stepped out' : ''}\nCarry ${Math.round(h.carry)} m`;
   }
 
   // Non-striker backs up while the ball is being bowled.

@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import { CONFIG } from '../config.js';
 import { Vec3, Quat, Pose, DEG, clamp, makeRng } from '../physics/math.js';
 import { PhysicsWorld, InterpolatedBatProvider } from '../physics/world.js';
+import { SwingLoad } from '../physics/swingLoad.js';
 import { PITCH } from '../physics/pitch.js';
 import { buildEnvironment } from '../render/env.js';
 import { buildBatMesh, BallView, StumpsView, MachineView, PitchMark, buildRingMarker } from '../render/objects.js';
@@ -62,6 +63,7 @@ export class Game {
     this.world = new PhysicsWorld(CONFIG, (Date.now() & 0xffff) + 7);
     this.playerBatProvider = new InterpolatedBatProvider();
     this.playerBat = this.world.addBat('player', this.playerBatProvider);
+    this.playerBat.swing = new SwingLoad(new BatGeometry(CONFIG.bat).sweetY);     // how loaded your swing is (the shot's power)
     this.aiBatter = new AIBatter(CONFIG);
     this.aiBat = this.world.addBat('ai', this.aiBatter, undefined, 1);
     this.aiBat.enabled = false;
@@ -795,8 +797,11 @@ export class Game {
     if (!R.connected || !R.tracked) { this.snapBat = true; return; }
     this.poseBatMesh();
     if (paused) return;
-    if (this.snapBat) { this.playerBatProvider.snap(this.simTime, _batPose, R.gripPose.p); this.snapBat = false; }
+    // (the provider on the game clock, as the ball; the controller's velocities are real m/s, so slow
+    // motion gives you more time, not more power. The swing's load is measured on the real clock.)
+    if (this.snapBat) { this.playerBatProvider.snap(this.simTime, _batPose, R.gripPose.p); this.playerBat.swing.reset(); this.snapBat = false; }
     else this.playerBatProvider.push(this.simTime, _batPose, R.gripPose.p, R.linVel, R.angVel);
+    this.playerBat.swing.push(this.simTime, this.realNow ?? this.clock, _batPose, this.input.xr ? this.input.headPose.p : null);
   }
 
   // The bat where your controller is now (_batPose too). Posed again just
