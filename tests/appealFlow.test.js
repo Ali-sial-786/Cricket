@@ -161,3 +161,44 @@ test('caught: a faint edge to the keeper, the fielders quiet, your appeal; a mid
   const g2 = stubGame({ contacts: mid });
   assert.equal(new LbwFlow(g2, new Reviews(2)).caught({ kind: 'caught', by: 'Mid-off' }, { notOut: { kind: 'runs', runs: 0 }, playerIsBatter: false }), false);
 });
+
+// A log where the ball misses the bat by `d` (m) as it passes at t = 0.5, with
+// the bat thudding into the ground `ground` s before (or none).
+function missLog(d, ground = null) {
+  const log = new ContactLog(CONFIG);
+  log.launchT = 0;
+  for (let i = -40; i <= 40; i++) {
+    const t = 0.5 + i / 960;
+    log.frames.push({ t, x: 0.3, y: 0.3, z: -1.2 + 30 * (t - 0.5), lx: 0.07 + 0.036 + d, ly: -0.6, lz: -30 * (t - 0.5), d: Math.hypot(d, 30 * (t - 0.5)), ax: -1 });
+  }
+  if (ground != null) log.addGround({ t: 0.5 - ground, speed: 2 });
+  log.lastBall = { x: 0.3, y: 0.8, z: 15 };
+  return log;
+}
+
+test('caught behind: a noise as it passes gets an appeal; a clear miss does not; never against you on easy', () => {
+  // the bat thuds into the ground 15 ms before a 3 cm miss: the fielders go up (rng 0), the umpire is fooled (0)
+  let g = stubGame({ rng: () => 0, contacts: missLog(0.03, 0.015) });
+  let flow = new LbwFlow(g, new Reviews(2));
+  assert.equal(flow.behind({ notOut: { kind: 'beaten' }, playerIsBatter: true }), true);
+  assert.equal(flow.phase, 'appeal');
+  assert.equal(flow.onFieldOut, true);
+  assert.equal(flow.truth.noise, 'noise');
+  run(flow, g, 1.8);
+  assert.equal(flow.canPlayer, true, 'you can review it');
+  // a ball 25 cm from the bat: nobody goes up
+  g = stubGame({ rng: () => 0, contacts: missLog(0.25) });
+  assert.equal(new LbwFlow(g, new Reviews(2)).behind({ notOut: { kind: 'beaten' }, playerIsBatter: true }), false);
+  // easy: no phantom caught-behind against you
+  g = stubGame({ rng: () => 0, contacts: missLog(0.03, 0.015) });
+  g.diff.lbwAgainstPlayer = false;
+  assert.equal(new LbwFlow(g, new Reviews(2)).behind({ notOut: { kind: 'beaten' }, playerIsBatter: true }), false);
+  // you bowl, the fielders quiet (rng 0.99): a close one is yours to appeal
+  g = stubGame({ rng: () => 0.99, contacts: missLog(0.03, 0.015) });
+  flow = new LbwFlow(g, new Reviews(2));
+  assert.equal(flow.behind({ notOut: { kind: 'dot' }, playerIsBatter: false }), true);
+  assert.equal(flow.phase, 'window');
+  run(flow, g, 3);
+  assert.equal(flow.done, true);
+  assert.deepEqual(flow.result(), { kind: 'dot' });
+});
