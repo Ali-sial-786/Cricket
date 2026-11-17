@@ -211,7 +211,7 @@ test('contact assist: a ball passing just under the toe or beside the blade is s
   const geom = new BatGeometry(cfg.bat);
   // Bat hanging still, face to the bowler (+Z of the bat = -Z world).
   const q = new Quat(0, 1, 0, 0);
-  const hand = new Vec3(0, 0.95, -1.5);
+  const hand = new Vec3(0, 1.1, -1.5);              // (high enough that the clear miss below is clear of the turf)
   const toeY = hand.y + geom.toeY;
   const shot = (pos, assist) => {
     const w = new PhysicsWorld(cfg, 1);
