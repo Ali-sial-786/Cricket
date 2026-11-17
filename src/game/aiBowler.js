@@ -12,7 +12,7 @@ export const BOWLER_TYPES = {
     deliveries: [
       D('good length', 6, { length: 6.6, line: 0.14 }),
       D('back of a length', 3, { length: 8.6, line: 0.12 }),
-      D('bouncer', 2, { length: 12.2, line: 0.0, pace: 1.0 }),
+      D('bouncer', 2, { length: 11.3, line: 0.0, pace: 1.0 }),      // shoulder to head high at 140 km/h, not over it
       D('yorker', 2, { length: 0.9, line: 0.02 }),
       D('full outside off', 2, { length: 3.6, line: 0.3 }),
       D('slower ball', 1, { length: 6.0, line: 0.1, pace: 0.8 }),
@@ -26,7 +26,7 @@ export const BOWLER_TYPES = {
       D('full outswinger', 2, { length: 3.4, line: 0.22, swing: 0.9 }),
       D('inswinging yorker', 2, { length: 1.0, line: 0.0, swing: -0.9 }),
       D('wobble seam', 2, { length: 6.6, line: 0.12, seam: 0.5 }),
-      D('bouncer', 1, { length: 11.8, line: 0.0 }),
+      D('bouncer', 1, { length: 11.0, line: 0.0 }),
     ],
   },
   seam: {
@@ -80,6 +80,7 @@ export class AIBowler {
     this.attack = ROTATION.map((type) => ({ type, name: NAMES[type][Math.floor(rng() * NAMES[type].length)], ...BOWLER_TYPES[type] }));
     this.current = this.attack[0];
     this.lastName = '';
+    this.bouncers = { over: -1, n: 0 };   // bouncers bowled this over (one allowed: ICC T20I 41.6)
   }
 
   pick(list) {
@@ -105,8 +106,13 @@ export class AIBowler {
     const death = innings && innings.ballsLeft <= 6 && !b.spinner;
     let list = b.deliveries;
     if (death) list = list.map((d) => ({ ...d, weight: d.weight * (d.name.includes('yorker') ? 3 : d.name.includes('slower') ? 2 : 1) }));
+    // Had his bouncer this over: no more of them (another would be a no-ball).
+    const over = Math.floor(legal / 6);
+    if (this.bouncers.over !== over) this.bouncers = { over, n: 0 };
+    if (this.bouncers.n >= CONFIG.match.bouncersPerOver) list = list.filter((d) => d.name !== 'bouncer');
     let d = this.pick(list);
     if (d.name === this.lastName && this.rng() < 0.6) d = this.pick(list);   // avoid obvious repeats
+    if (d.name === 'bouncer') this.bouncers.n++;
     this.lastName = d.name;
     const acc = this.q.accuracy;
     const noise = (s) => (this.rng() - 0.5) * 2 * s * (1.45 - acc);

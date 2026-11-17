@@ -13,10 +13,11 @@
 import * as THREE from 'three';
 import { CONFIG } from '../config.js';
 import { Vec3, msToKmh, clamp } from '../physics/math.js';
-import { PITCH, lengthName, lineName, groundDistance, battingPoppingZ } from '../physics/pitch.js';
+import { lengthName, lineName, groundDistance, battingPoppingZ } from '../physics/pitch.js';
 import { machineDelivery } from '../physics/bowlingMachine.js';
 import { predict, crossingAtZ } from '../physics/trajectory.js';
 import { LbwFlow, padHit, deflectOffPad } from './lbwFlow.js';
+import { isWide, strikerHeights, isShortPitched, BouncerCount, bouncerCall } from './bowlingRules.js';
 import { ThirdUmpireFlow } from './thirdUmpire.js';
 import { Reviews } from './reviews.js';
 import { BackFoot, creaseShort } from './crease.js';
@@ -101,7 +102,8 @@ export class BattingSession {
     this.lbw = new LbwFlow(game, this.reviews);
     this.third = new ThirdUmpireFlow(game);
     this.reviewFlow = null; this.pendingRes = null;
-    this.noBall = false; this.freeHit = false;
+    this.noBall = false; this.freeHit = false; this.noBallWhy = '';
+    this.bouncers = new BouncerCount();   // fast short-pitched balls this over (ICC 41.6)
     this.path = [];
     this.offer = new ShotEvidence();     // did you play at this ball (shotOffered.js)
     this.partnership = 0;
@@ -180,6 +182,9 @@ export class BattingSession {
     g.stumps.batting.reset(); g.stumps.bowling.reset();
     g.world.resetWickets();
   }
+
+  // You standing upright at the popping crease: head and shoulder heights (the wide / bouncer calls).
+  striker() { const g = this.game; return strikerHeights(g.input.xr && g.standEye ? g.standEye : null); }
 
   // Where the batter's legs are (for pads / the crease).
   body() {
@@ -413,13 +418,14 @@ export class BattingSession {
     this.planned = null;
     this.announced = false;
     this.settingsUsed = settings;
-    this.hit = null; this.byes = null; this.firstBounce = null; this.wide = false; this.crossedCrease = false;
+    this.hit = null; this.byes = null; this.firstBounce = null; this.wide = false; this.crossedCrease = false; this.shortChecked = false; this.bouncerNote = '';
     this.offer.reset(); this.stumpAt = 0; this.stumpBroke = false; this.path.length = 0; this.shotName = '';
     this.pendingRes = null; this.reviewFlow = null;
     this.backFoot.reset();           // taking guard
     // Extras: the AI bowler oversteps now and then; the ball after a no-ball is a free hit.
     this.freeHit = !!(this.innings && this.innings.freeHit);
     this.noBall = !!(this.innings && this.bowler === 'ai' && g.rng() < (CONFIG.match.noBallChance[g.settings.difficulty] ?? 0.03));
+    this.noBallWhy = '';
     if (this.innings && this.innings.card && settings.bowler) this.innings.card.setBowler(settings.bowler, settings.bowlerLabel);
     if (this.field) { this.field.reset(); this.field.setSpinner(!!settings.spinner); this.field.beginDelivery(); }
     if (this.bowlerFig) this.bowlerFig.show(true);
@@ -449,15 +455,17 @@ export class BattingSession {
     // When and where the ball will reach you (for the figure that plays your shot).
     {
       const pred = predict(g.world.ball, { maxTime: 3, h: 1 / 240, stop: (bb) => bb.pos.z > 0.5 });
-      const c = crossingAtZ(pred, -1.5), b0 = pred.bounces[0];
+      const c = crossingAtZ(pred, -1.5), b0 = pred.bounces[0], k = crossingAtZ(pred, battingPoppingZ);
       this.ballInfo = { id: (this.ballInfo ? this.ballInfo.id : 0) + 1, arrive: c ? t + c.t : null, y: c ? c.y : null, length: b0 ? -b0.pos.z : -1 };
+      this.atCrease = k ? { y: k.y, bounced: !!b0 && b0.pos.z < battingPoppingZ } : null;   // (the height it would have passed you at)
     }
+    this.guardX = this.body().x;     // where you took guard: moving across neither makes nor saves a wide
     g.sample('whoosh', { gain: 0.5 }) || g.sfx.whoosh(d.vel.length() * 0.4);
     // (A no-ball is called and signalled; its words wait for the result: nothing is written over the ball in flight.)
     if (this.noBall) { g.umpires.signal('noball', g.clock); g.sample('umpire_not_out', { gain: 0.6 }); }
     const len = d.length;
     g.say('release', { type: s.name && /googly|doosra|arm ball|slower|outswing|inswing/.test(s.name) ? s.name.replace('outswinger', 'outswing').replace('inswinger', 'inswing').replace(' ', '_') : s.spinType === 'off' ? 'off_spin' : s.spinType === 'leg' ? 'leg_spin' : s.bowlerType === 'swing' ? 'swing' : 'fast',
-      length: len < 2 ? 'yorker' : len > 11 ? 'bouncer' : undefined, pace: d.paceKmh });
+      length: len < 2 ? 'yorker' : len > 10.5 ? 'bouncer' : undefined, pace: d.paceKmh });
   }
 
   checkLive(t) {
@@ -468,8 +476,20 @@ export class BattingSession {
     if (!b.batted && b.pos.z > -7 && b.pos.z < 0.5) this.trackOffer();
     if (!this.crossedCrease && b.pos.z > battingPoppingZ) {
       this.crossedCrease = true;
-      if (!b.batted && (Math.abs(b.pos.x) > PITCH.wideLineX || b.pos.y > CONFIG.match.wideHeight)) this.wide = true;   // too wide, or over your head
+      if (!b.batted && !b.padded && isWide(b.pos.x, b.pos.y, { shiftX: this.body().x - (this.guardX ?? this.body().x), head: this.striker().head })) this.wide = true;   // too wide, or over your head
     }
+    // Past you (or hit): a bouncer over your shoulder? One an over; the next is a no-ball.
+    if (!this.shortChecked && (this.crossedCrease || b.batted || b.padded)) {
+      this.shortChecked = true;
+      const live = this.crossedCrease && !b.batted && !b.padded, at = live ? { y: b.pos.y, bounced: b.bounces > 0 } : this.atCrease;
+      if (this.innings && this.bowler === 'ai' && at && isShortPitched({ ...at, shoulder: this.striker().shoulder, spinner: !!this.settingsUsed.spinner })) {
+        const r = this.bouncers.add(Math.floor(this.innings.legal / 6));
+        if (r.noBall && !this.noBall) { this.noBall = true; this.noBallWhy = 'second bouncer in the over'; g.umpires.signal('noball', g.clock); g.sample('umpire_not_out', { gain: 0.6 }); }
+        else if (!r.noBall) this.bouncerNote = bouncerCall(r);
+      }
+    }
+    // Into your legs: not a wide (Law 22.3). (With no LBW the ball goes through them.)
+    if (this.wide && !(this.field && g.diff.lbwAgainstPlayer) && !this.hit) { const body = this.body(); if (padHit(b.clone(), body.x, body.z, PLAYER_PAD)) this.wide = false; }
     // Struck on the pad: LBW appeal (match modes, not on easy).
     if (this.field && g.diff.lbwAgainstPlayer && !this.hit && !b.thrown) {      // (not a throw going past you)
       // Your head stands in for your legs, so the box is kept tight and sits
@@ -478,6 +498,7 @@ export class BattingSession {
       if (padHit(b, body.x, body.z, PLAYER_PAD) && g.batDistance(b.pos) > 0.3) {
         const impact = b.clone();
         deflectOffPad(b, g.rng);
+        this.wide = false;                                   // it hit you: not a wide (Law 22.3)
         if (this.noBall || this.freeHit) { this.finish({ kind: 'beaten', padded: true }); return; }
         this.state = 'review';
         this.lbw.start({ impactState: impact, path: this.path.slice(), shotOffered: this.offer.offered, playerIsBatter: true });
@@ -549,7 +570,7 @@ export class BattingSession {
     this.byes = { t };
     g.timeScaleTarget = 1;
     this.field.onHit(b, t, predict(b, { maxTime: 9, h: 1 / 240 }), { byes: true });
-    g.ui.prompt(shy ? 'He misses the stumps — run!' : this.wide ? 'WIDE — and past the keeper! Run?' : 'Past the keeper — BYES! Run?', 2.2, '#ffd34d');
+    g.ui.prompt(shy ? 'He misses the stumps — run!' : this.wide && !this.noBall ? 'WIDE — and past the keeper! Run?' : 'Past the keeper — BYES! Run?', 2.2, '#ffd34d');
     g.crowdReact('close');
   }
 
@@ -837,7 +858,8 @@ export class BattingSession {
     const detail = this.shotDetail() || (res.kind === 'beaten' ? 'Played and missed' : '');
     g.ui.setHud({ big, bigColor: color, last: ballText, detail: this.newBatter ? `New batter in: ${this.newBatter}${detail ? '\n' + detail.split('\n')[0] : ''}` : detail });
     if (outcome.wicket || outcome.boundary) g.ui.prompt(big, 2.4, color);
-    else if (outcome.noBall) g.ui.prompt('NO BALL — free hit next', 2.2, '#ffb347');
+    else if (outcome.noBall) g.ui.prompt(`NO BALL${this.noBallWhy ? ` — ${this.noBallWhy}` : ''} — free hit next`, 2.6, '#ffb347');
+    else if (this.bouncerNote && this.innings) g.ui.prompt(this.bouncerNote, 2.2, '#ffd34d');
     this.updateHud();
   }
 

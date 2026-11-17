@@ -289,7 +289,9 @@ export const CONFIG = {
     overstep: 0.3,           // m your head may be past the popping crease at release before it is a no-ball
     beamerHeight: 1.15,      // m: a full toss above this at the batter is a no-ball
     thirdUmpire: 0.55,       // m: run-outs / stumpings closer than this go upstairs
-    wideHeight: 1.95,        // m: a ball passing the batter above head height is a wide
+    batterHeight: 1.80,      // m: the AI striker standing upright (a 1.80 m figure), and yours without a headset
+    shoulderFrac: 0.82,      // shoulder height / standing height
+    bouncersPerOver: 1,      // fast short-pitched balls over the shoulder allowed per over (ICC T20I 41.6); more = no-ball
   },
 
   audio: {

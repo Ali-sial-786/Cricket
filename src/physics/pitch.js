@@ -12,7 +12,8 @@ export const PITCH = {
   stumpRadius: 0.019,
   wicketHalfWidth: 0.1143,     // 22.86 cm across the three stumps
   bailRise: 0.013,             // bails sit up to ~1.3 cm above the stumps
-  wideLineX: 0.89,             // limited-overs wide guideline from middle stump
+  wideLineX: 0.89,             // limited-overs wide guideline from middle stump (off side)
+  legWideX: 0.3048,            // leg side: the protected-area marker line, 1 ft from middle stump (ICC ODI/T20I 22)
   centerZ: -10.06,             // middle of the pitch = middle of the ground
   stripHalfWidth: 1.6,         // prepared strip (surface = 'pitch' for bounces)
   stripMinZ: -22.0,

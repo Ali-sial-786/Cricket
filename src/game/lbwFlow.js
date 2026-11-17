@@ -118,7 +118,7 @@ export class LbwFlow {
     this.playerIsBatter = playerIsBatter;
     this.log = log || this.snapshot();
     this.truth = edgeTruth(this.log);
-    this.outRes = outRes; this.notOutRes = notOutRes; this.behind = behind;
+    this.outRes = outRes; this.notOutRes = notOutRes; this.atKeeper = behind;   // (not this.behind: that would hide behind())
     this.active = true; this.done = false; this.out = false; this.finalOut = false;
     this.reviewed = false; this.noAppeal = false; this.appealBy = null;
     this.canPlayer = false; this.aiWill = false; this.track = null;
@@ -247,7 +247,7 @@ export class LbwFlow {
     } else {
       const ev = edgeEvidence(this.log, { review: 'caught', seed });
       this.outcome = caughtReview(this.truth, { onFieldOut: this.onFieldOut });
-      g.drs.startCaught({ edge: ev, deliveryPath: this.path, onFieldOut: this.onFieldOut, outcome: this.outcome, viewerPos: _head, title: this.behind ? 'CAUGHT BEHIND' : 'CAUGHT' });
+      g.drs.startCaught({ edge: ev, deliveryPath: this.path, onFieldOut: this.onFieldOut, outcome: this.outcome, viewerPos: _head, title: this.atKeeper ? 'CAUGHT BEHIND' : 'CAUGHT' });
     }
     if (!this.playerIsBatter) g.drs.placeBoard(_head, { distance: 9, scale: 2.2, height: 3.4 });
     g.ui.showHud(false);          // the review board takes its place
