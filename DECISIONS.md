@@ -407,3 +407,17 @@ left trigger held dived (and Y held did not), and a dive held into the dead ball
 | D2 | **Nothing waits for ever**: an unhit ball nobody is doing anything with is dead 6 s (game) after the release (was 12); the keeper's attack is given 2.5 s past when it was due; the slow motion ends once the ball is past you (z > 0.5 m). | Belt and braces for D1: the early-return paths in `checkLive` skipped the old timeout entirely. |
 | D3 | **Between balls the fielders really get back**: anyone standing still off his mark goes back (the ring's walk-in was never undone, so `settled()` was never true and every ball waited the full 7 s cap); a fielder more than 3 m from his mark turns and walks/jogs to it (he stayed facing in and backpedalled at 0.55 m/s: too slow to turn, too turned to speed up); within 3 m he steps back facing in; `settled()` now also wants him facing in (as its comment always said). | Harness: idle wait between balls was 7.0 s every ball (the cap), now 2.2-6.2 s, the bowler's walk to his mark being the longest part. |
 | D4 | **More power for normal shots**: P = 0.6 + 0.4 x load (was 0.45 + 0.55), full load at 103 deg of lift and 1.8 m of travel (was 115 deg / 2.2 m), firm hands from 10 m/s (was 14). A normal drive (blade 10 m/s, 80 deg back) 80 -> 93 km/h off an 85 km/h spinner and 96 -> 112 km/h off a 130 km/h seamer (~+35% roll); a firm one 105 -> 114 / 124 -> 133; a full swing unchanged (151 / 170); a block 23 -> 25 km/h (still dead). | "For normal shots they don't seem to go very far... a bit more power." |
+
+## Your pads behind the bat; a longer, fatter bat
+
+| # | Decision | Why |
+|---|---|---|
+| P1 | **Your pads sit 10 cm further back**: the LBW box (`batting.js PLAYER_PAD`) runs from your eyes to 36 cm behind them (was 10 cm ahead to 26 cm behind), and the figure's front foot stands 10 cm ahead of your head (`footwork.js FEET.front`, was 20), at the most 5 cm behind it when you lean out over it (`frontMin`, was 2 cm ahead). The back foot (and so the crease, `CREASE.footBack`) is where it was. Looking down, the front pad now starts at your eye line, where the box does. | "The legs are always in front of the bat ... the pads need to be a bit behind where they appear." |
+| P2 | Bat blade 67 cm (was 61), 15 cm wide (was 14), 5.6 cm thick (was 5.0); the sweet spot 23 cm up from the toe (was 17), so it is where it was from your hands (power, sweet-spot feel and the AI's shot templates unchanged): the extra 6 cm is all reach. Everything (mesh, physics, edges, Snicko / Hot Spot, the crease's grounded bat, the AI carrying his bat) reads `CONFIG.bat`. | "For tall players the ball sneaks through because the bat doesn't go all the way down ... slightly fatter." |
+
+Measured (`harness/pads_late2.mjs`, `pads_mc.mjs`, `pads_look.mjs`; emulated headset, 72 Hz, medium): the
+bat-first rule (no pad while the bat is within 30 cm of the ball) already decides pad-or-bat, so moving the box
+changes it little: a swing planned under your eyes beats the pad up to 40 ms late and loses from 50-60 ms late
+(when the ball is a metre past you) with either box; 120 swings with human-ish errors: the pad first on 6% / 7%
+of the balls the bat would have reached. A leave on the stumps still hits the pad (8 of 12, the other 4 pass
+outside the box), the same as before.

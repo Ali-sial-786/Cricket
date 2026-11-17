@@ -197,7 +197,7 @@ view also faces forward by itself before each ball, on recenter, catches and rep
   are shown just before the run-up, the last ball's result between balls.
 * **Settings → Contact assist** (off / low / normal / high, default normal): an invisible margin around your bat so a
   ball that would have just missed is still played (and pulled toward the middle of the bat). The bat itself is
-  14 cm wide with a 61 cm blade.
+  15 cm wide with a 67 cm blade.
 * **Settings → Bat power** (×0.7–2.5, default ×1.25) multiplies your bat's real speed for the shot; the backlift and
   how firmly you swing still decide how much of it reaches the ball.
 

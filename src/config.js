@@ -51,14 +51,14 @@ export const CONFIG = {
   bat: {
     // Geometry (bat local frame: origin = controller grip point, +Y toward
     // handle top, +Z = hitting face normal, +X across the face).
-    bladeLength: 0.61,       // a little longer than a real blade (0.56) so low balls don't sneak under the toe
-    bladeWidth: 0.14,        // wider than a real bat (10.8 cm) so contact is easier in VR
-    bladeThickness: 0.050,
+    bladeLength: 0.67,       // longer than a real blade (0.56): the toe reaches the turf in a tall player's stance, so low balls don't sneak under it
+    bladeWidth: 0.15,        // wider than a real bat (10.8 cm) so contact is easier in VR
+    bladeThickness: 0.056,
     edgeRadius: 0.012,       // rounding of the blade edges (affects edge deflection)
     handleLength: 0.30,
     handleRadius: 0.017,
     gripFromHandleTop: 0.12, // where your hand (controller) sits below the handle top
-    sweetSpotFromToe: 0.17,
+    sweetSpotFromToe: 0.23,  // (as far from your hands as on the 61 cm blade: the longer one is all reach)
 
     // Response
     speedMultiplier: 1.25,   // amplifies controller bat speed (home swings are gentle); Settings -> Bat power

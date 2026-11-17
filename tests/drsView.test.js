@@ -25,7 +25,7 @@ const { ContactLog, edgeEvidence } = await import('../src/game/edgeTrack.js');
 const { CONFIG } = await import('../src/config.js');
 const { reviewOutcome } = await import('../src/game/lbw.js');
 
-const G = { bladeHalf: { x: 0.07, z: 0.025 }, toeY: -0.79, shoulderY: -0.18, handleTopY: 0.12, sweetY: -0.62, faceZ: 0.025, handleRadius: 0.017 };
+const G = { bladeHalf: { x: 0.075, z: 0.028 }, toeY: -0.85, shoulderY: -0.18, handleTopY: 0.12, sweetY: -0.62, faceZ: 0.028, handleRadius: 0.017 };
 function log({ edge = true, pad = null }) {
   const L = new ContactLog(CONFIG);
   L.launchT = 0;

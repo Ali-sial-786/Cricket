@@ -29,7 +29,7 @@ const _fw = new Vec3(), _toe = new Vec3(), _lever = new Vec3(), _bv = new Vec3()
 let _sweetY = null;               // the middle of the (visible) bat, along its +Y from your hand
 const UNHIT_DEAD = 6;           // s of game time after the release: a ball nobody hit and nobody is doing anything with is dead
 const ATTACK_DEAD = 2.5;         // s after the keeper's attack was due: dead ball, whatever became of it
-const PLAYER_PAD = { halfX: 0.15, front: 0.1, back: 0.26, top: 0.7 };
+const PLAYER_PAD = { halfX: 0.15, front: 0, back: 0.36, top: 0.7 };   // (m from your head: the legs are behind it, footwork.js FEET)
 import { Innings, runsText } from './scoring.js';
 
 const KMH = (v) => Math.round(msToKmh(v));
@@ -473,7 +473,8 @@ export class BattingSession {
     // Struck on the pad: LBW appeal (match modes, not on easy).
     if (this.field && g.diff.lbwAgainstPlayer && !this.hit && !b.thrown) {      // (not a throw going past you)
       // Your head stands in for your legs, so the box is kept tight and sits
-      // under / behind it, and the bat always gets the first go at the ball.
+      // behind it (nothing ahead of your eyes, where you play the ball), and
+      // the bat always gets the first go at the ball.
       const body = this.body();
       if (padHit(b, body.x, body.z, PLAYER_PAD) && g.batDistance(b.pos) > 0.3) {
         const impact = b.clone();

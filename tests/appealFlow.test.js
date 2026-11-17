@@ -151,7 +151,7 @@ test('caught: a faint edge to the keeper, the fielders quiet, your appeal; a mid
   const contacts = new ContactLog(CONFIG);
   contacts.launchT = 0;
   contacts.addBat({ t: 0.6, face: 'side', part: 'blade', local: { x: 0.07 + 0.9 * CONFIG.ball.radius, y: -0.55, z: 0.03 }, speedIn: 30, batId: 'ai' },
-    { bladeHalf: { x: 0.07, z: 0.025 }, toeY: -0.79, shoulderY: -0.18, handleTopY: 0.12, sweetY: -0.62, faceZ: 0.025, handleRadius: 0.017 }, null, { x: 1, y: 0, z: 0 });
+    { bladeHalf: { x: 0.075, z: 0.028 }, toeY: -0.85, shoulderY: -0.18, handleTopY: 0.12, sweetY: -0.62, faceZ: 0.028, handleRadius: 0.017 }, null, { x: 1, y: 0, z: 0 });
   contacts.lastBall = { x: 0.3, y: 1, z: 14 };
   // rng: 0.9 -> the fielders (0.7 for a faint edge) do not go up; then 0.5 -> the umpire hears it
   const seq = [0.9, 0.5]; let i = 0;
@@ -170,7 +170,7 @@ test('caught: a faint edge to the keeper, the fielders quiet, your appeal; a mid
   // the same catch off the middle of the bat: out by itself, no flow
   const mid = new ContactLog(CONFIG); mid.launchT = 0;
   mid.addBat({ t: 0.6, face: 'front', part: 'blade', local: { x: 0, y: -0.6, z: 0.06 }, speedIn: 30 },
-    { bladeHalf: { x: 0.07, z: 0.025 }, toeY: -0.79, shoulderY: -0.18, handleTopY: 0.12, sweetY: -0.62, faceZ: 0.025, handleRadius: 0.017 });
+    { bladeHalf: { x: 0.075, z: 0.028 }, toeY: -0.85, shoulderY: -0.18, handleTopY: 0.12, sweetY: -0.62, faceZ: 0.028, handleRadius: 0.017 });
   mid.lastBall = { x: 20, y: 1, z: -30 };
   const g2 = stubGame({ contacts: mid });
   assert.equal(new LbwFlow(g2, new Reviews(2)).caught({ kind: 'caught', by: 'Mid-off' }, { notOut: { kind: 'runs', runs: 0 }, playerIsBatter: false }), false);

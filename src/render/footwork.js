@@ -20,11 +20,12 @@ const mix = (a, b, k) => a + (b - a) * k;
 const angDiff = (a, b) => { let d = b - a; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI; return d; };
 
 export const FEET = {
-  back: 0.26, front: 0.2,        // m: back foot behind the head, front foot ahead of it, in the stance (crease.js CREASE.footBack)
+  back: 0.26, front: 0.1,        // m: back foot behind the head, front foot ahead of it, in the stance (crease.js CREASE.footBack; the front
+                                 // foot close under you, so the bat you swing meets the ball before the pad: batting.js PLAYER_PAD)
   lunge: 0.45,                   // the front foot goes this much further for every metre the head leads the back foot
   reach: 0.9,                    // m: the head this far ahead of the back foot is a full lunge (crease.js CREASE.reach)
   backMin: 0.12,                 // m: the head nearer than this to the back foot (or behind it): the back foot goes back
-  frontMin: 0.02, frontSlack: 0.27,   // m: the front foot at least this far ahead of the head; at most its place + this
+  frontMin: -0.05, frontSlack: 0.27,  // m: the front foot at least this far ahead of the head (-: the head out over it); at most its place + this
   xLo: 0.0, xHi: 0.42,           // m: the head this far to the off side of the ankles is fine (it is out over the toes)
   maxStride: 1.0,                // m between the feet at most
   minApart: 0.24,                // m between the feet at least
@@ -121,7 +122,7 @@ export class Footwork {
       if (b < bLo || b > bHi || offR < xLo || offR > xHi) tR = { x: hx - ax + vx * lead, z: hz + F.back + vz * lead };
       // front foot: ahead of the head, further the more the head leads the back foot
       const want = F.front + F.lunge * lungeOf(tR.z), a = hz - Lz0;
-      const aLo = settle ? 0.12 : F.frontMin, aHi = settle ? want + 0.1 : want + F.frontSlack;
+      const aLo = settle ? F.front - 0.08 : F.frontMin, aHi = settle ? want + 0.1 : want + F.frontSlack;
       if (a < aLo || a > aHi || offL < xLo - 0.03 || offL > xHi + 0.03) tL = { x: hx - ax + 0.03 + vx * lead, z: hz - want + vz * lead };
       // a stroke: the feet the shot has, from where they were, as far as the head allows.
       // Each foot goes there once (again only if the shot turned out to be another one):
