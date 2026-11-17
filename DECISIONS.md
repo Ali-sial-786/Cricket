@@ -441,3 +441,9 @@ changes it little: a swing planned under your eyes beats the pad up to 40 ms lat
 (when the ball is a metre past you) with either box; 120 swings with human-ish errors: the pad first on 6% / 7%
 of the balls the bat would have reached. A leave on the stumps still hits the pad (8 of 12, the other 4 pass
 outside the box), the same as before.
+
+| # | Decision | Why |
+|---|---|---|
+| P3 | **The box sits under the legs, 7 cm to the leg side of your head** (`PLAYER_PAD.dx`: the drawn legs stand there, footwork.js), so the off-side half under your eyes, where you play the ball and no leg is drawn, is no pad; and **the pad test sweeps the last frame's path** (`padHit(.., from)`, both ends): a 150 km/h ball goes 0.6 m a frame, deeper than the box, and could skip it. Harness `pads_mc.mjs`: the pad taking a ball the bat would have reached 6/90 (7%) -> 1/63 (2%). | Same complaint; and the 155 km/h hard-mode pace. |
+| H1 | **Hard mode pace**: AI fast bowlers 141-155 km/h (`[138, 152]` x hard `paceScale` 1.02), swing 133-144; the pace drawn as the mean of two (most balls mid-band; about 1 in 5 of a quick's 150+, the odd one 155). Net machine cap 160. | "Make the speed feel like real life ... 155 km/h at times." |
+| H2 | **The Quest boundary**: a web page cannot enlarge it. The safety screen says to use a Roomscale boundary; between balls, a head 0.6 m from where play was centred gets "step back to your spot" and a buzz (`Game.driftCheck`, `xr.driftWarn`), so steps don't add up into the boundary. | "Sometimes when I move a bit it takes me out of VR." |

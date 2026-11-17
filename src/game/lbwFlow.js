@@ -35,11 +35,22 @@ import {
 // Has an unbatted ball reached the batter's legs? (bx, bz) = where the batter
 // stands. The box reaches `front` m toward the bowler and `back` m behind.
 // (Where he stood is kept on the ball for the contact log / Hot Spot.)
-export function padHit(ball, bx, bz, { halfX = 0.2, front = 0.24, back = 0.24, top = 0.74 } = {}) {
+// dx: the box's centre this far to the side of bx (his legs are to the leg
+// side of his head). from: where the ball was a frame ago -- a 150 km/h ball
+// goes 0.6 m a frame, further than the box is deep, so the path between is
+// checked too, and a ball found in it is put back where it met the pad.
+export function padHit(ball, bx, bz, { halfX = 0.2, front = 0.24, back = 0.24, top = 0.74, dx = 0 } = {}, from = null) {
   if (!ball.active || ball.batted || ball.padded || ball.thrown || ball.vel.z <= 0) return false;
-  const p = ball.pos;
-  const hit = p.y < top && Math.abs(p.x - bx) < halfX && p.z > bz - front && p.z < bz + back;
-  if (hit) ball.padAt = { x: bx, z: bz, halfX };
+  const p = ball.pos, cx = bx + dx;
+  const inBox = (x, y, z) => y < top && Math.abs(x - cx) < halfX && z > bz - front && z < bz + back;
+  let hit = inBox(p.x, p.y, p.z);
+  if (!hit && from && from.z < bz - front && p.z > bz - front) {
+    for (let k = 1; k < 8 && !hit; k++) {
+      const u = k / 8, x = from.x + (p.x - from.x) * u, y = from.y + (p.y - from.y) * u, z = from.z + (p.z - from.z) * u;
+      if (inBox(x, y, z)) { hit = true; p.set(x, y, z); }
+    }
+  }
+  if (hit) ball.padAt = { x: cx, z: bz, halfX };
   return hit;
 }
 
@@ -47,10 +58,10 @@ export function padHit(ball, bx, bz, { halfX = 0.2, front = 0.24, back = 0.24, t
 // still going toward the stumps, in the same box.
 export function padHitAfterEdge(ball, bx, bz, box = {}, since = 0) {
   if (!ball.active || !ball.batted || ball.padded || ball.thrown || ball.vel.z <= 0.5 || since > EDGE.batPadGap) return false;
-  const { halfX = 0.2, front = 0.24, back = 0.24, top = 0.74 } = box;
-  const p = ball.pos;
-  const hit = p.y < top && Math.abs(p.x - bx) < halfX && p.z > bz - front && p.z < bz + back;
-  if (hit) ball.padAt = { x: bx, z: bz, halfX };
+  const { halfX = 0.2, front = 0.24, back = 0.24, top = 0.74, dx = 0 } = box;
+  const p = ball.pos, cx = bx + dx;
+  const hit = p.y < top && Math.abs(p.x - cx) < halfX && p.z > bz - front && p.z < bz + back;
+  if (hit) ball.padAt = { x: cx, z: bz, halfX };
   return hit;
 }
 

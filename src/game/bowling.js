@@ -613,7 +613,7 @@ export class BowlingSession {
     // Beaten the bat and struck the pad: appeal.
     if (!this.hit && !b.thrown && plan && plan.shot.type !== 'pull' && plan.shot.type !== 'cut') {
       const body = g.aiBatter.bodyAt(t);
-      if (padHit(b, padX(plan), body.z - 0.2)) {
+      if (padHit(b, padX(plan), body.z - 0.2, undefined, this.path.length > 1 ? this.path[this.path.length - 2] : null)) {
         const impact = b.clone();
         deflectOffPad(b, g.rng);
         this.wide = false;                                   // it hit him: not a wide (Law 22.3)
