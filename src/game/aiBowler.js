@@ -8,7 +8,7 @@ import { CONFIG } from '../config.js';
 const D = (name, weight, o) => ({ name, weight, ...o });
 export const BOWLER_TYPES = {
   fast: {
-    label: 'Fast', pace: [136, 150], runup: 'long',
+    label: 'Fast', pace: [138, 152], runup: 'long',
     deliveries: [
       D('good length', 6, { length: 6.6, line: 0.14 }),
       D('back of a length', 3, { length: 8.6, line: 0.12 }),
@@ -19,7 +19,7 @@ export const BOWLER_TYPES = {
     ],
   },
   swing: {
-    label: 'Swing', pace: [126, 138], runup: 'long',
+    label: 'Swing', pace: [130, 141], runup: 'long',
     deliveries: [
       D('outswinger', 5, { length: 5.6, line: 0.16, swing: 0.8 }),
       D('inswinger', 4, { length: 5.2, line: 0.1, swing: -0.8 }),
@@ -111,7 +111,8 @@ export class AIBowler {
     const acc = this.q.accuracy;
     const noise = (s) => (this.rng() - 0.5) * 2 * s * (1.45 - acc);
     const [lo, hi] = b.pace;
-    const paceKmh = (lo + this.rng() * (hi - lo)) * (d.pace || 1) * this.paceScale;
+    // (most balls in the middle of his band, the odd one at the top: a hard-mode quick touches 155 now and then)
+    const paceKmh = (lo + (this.rng() + this.rng()) / 2 * (hi - lo)) * (d.pace || 1) * this.paceScale;
     return {
       paceKmh,
       line: clamp(d.line + noise(0.16), -0.5, 0.75),

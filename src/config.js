@@ -115,7 +115,7 @@ export const CONFIG = {
     countdownSec: 1.5,       // red → amber → green; ball leaves on green
     autoFeedDelay: 2.2,      // s after a ball is dead before the next one (auto feed)
     paceMinKmh: 70,
-    paceMaxKmh: 150,
+    paceMaxKmh: 160,
     seamerBackspinRps: 10,
     spinMaxRps: 30,
   },
@@ -191,6 +191,8 @@ export const CONFIG = {
     maxFrameRate: 120,       // highest rate we will ask for (Quest 3S: 72/80/90/120)
     foveation: 0.5,          // fixed foveation 0..1
     framebufferScale: 1.0,
+    driftWarn: 0.6,          // m your head has wandered from where play was centred (between balls): "step back to your spot",
+                             // so a few steps forward per ball never add up to walking into the Quest's own boundary
   },
 
   field: {
@@ -269,7 +271,7 @@ export const CONFIG = {
     //         ball flight slowed    bat hit-zone   AI pace    fielders   AI batter aggression
     easy:   { timeScale: 0.70, batAssist: 1.55, paceScale: 0.88, fieldScale: 0.85, chase: 1.7, lbwAgainstPlayer: false },
     medium: { timeScale: 0.85, batAssist: 1.25, paceScale: 0.94, fieldScale: 0.95, chase: 2.0, lbwAgainstPlayer: true },
-    hard:   { timeScale: 1.00, batAssist: 1.00, paceScale: 1.00, fieldScale: 1.00, chase: 2.4, lbwAgainstPlayer: true },
+    hard:   { timeScale: 1.00, batAssist: 1.00, paceScale: 1.02, fieldScale: 1.00, chase: 2.4, lbwAgainstPlayer: true },
   },
 
   catching: {

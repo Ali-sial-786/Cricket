@@ -413,11 +413,27 @@ export class Game {
     const head = this.input.headRef;
     if (!this.roomForward) this.roomForward = headForward(head.q);
     const f = this.roomForward;
+    this.homeRef = { x: head.p.x, z: head.p.z };     // (where you stood: driftCheck)
     let r;
     this.lookYaw = 0; this.lookOff.x = this.lookOff.z = 0;
     if (this.end === 'bowling') r = computeRig(head.p, f, BOWL_HEAD.x, BOWL_HEAD.z, +1);
     else r = computeRig(head.p, f, this.settings.guardX + BAT_HEAD.legOffset, BAT_HEAD.z, -1);
     this.setRig(r);
+  }
+
+  // Between balls in VR: wandered well away from the spot play was centred on?
+  // Tell the player (and buzz) to step back -- drift adds up ball by ball and
+  // ends in the Quest's boundary, which takes you out of the game.
+  driftCheck(sst) {
+    if (!this.input.xr || this.mr || !this.homeRef || this.state !== 'play' || !this.session || this.viewOverride) return;
+    if (sst === 'live' || sst === 'review' || this.ui.menuOpen) return;
+    const p = this.input.headRef.p, d = Math.hypot(p.x - this.homeRef.x, p.z - this.homeRef.z);
+    const now = this.clock;
+    if (d > CONFIG.xr.driftWarn && !(now < (this._driftT || 0))) {
+      this._driftT = now + 4;
+      this.ui.prompt('You have drifted — step back to your spot', 2.5, '#ffd34d');
+      if (this.input.left) this.input.left.pulse(0.3, 60);
+    }
   }
 
   // Temporarily put the player somewhere else, facing (dirX, dirZ) — used
@@ -789,6 +805,7 @@ export class Game {
       this.commentary.update(realDt);
     } else {
       this.updatePlayerBat(paused);
+      if (!paused) this.driftCheck(sst);
 
       if (this.state === 'calibrate') this.updateCalibration(dt);
       if (this.mrPlacer && this.state === 'mrplace') this.mrPlacer.update(xrFrame, dt);

@@ -295,7 +295,7 @@ export class UI {
     if (this.page === 'safety') {
       label(P.W / 2, P.H * 0.24, 'Before you play', { align: 'center', size: 46, bold: true, color: '#ffd34d' });
       label(P.W / 2, P.H * 0.36,
-        'Clear at least 2 × 2 m around you — you will swing hard.\nCheck ceiling height and keep pets/people well away.\nUse the wrist strap. No walking needed: the game moves you.',
+        'Clear at least 2 × 2 m around you — you will swing hard.\nSet a Roomscale boundary (Quest Settings › Boundary) — a\nStationary one is small and will pause the game when you step.\nKeep pets/people away. Wrist strap on. No walking needed.',
         { align: 'center', size: 30 });
       const L = grid(P, { top: 0.72, bottom: 0.06, cols: 1, rows: 1, left: 0.3, right: 0.3 });
       btn('ok', L(0, 0), 'My space is clear', () => g.actions.safetyOk());
