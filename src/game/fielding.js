@@ -143,6 +143,7 @@ const BACKPEDAL = 3.0;       // m: closer to his mark than this, a fielder steps
 const FETCH_REACH = 0.85;     // m: a dead ball the keeper walks up to is picked up from this close
 const FETCH_GIVEUP = 3.0;     // s: ...or this long after he set off for it (round the batter, the stumps)
 const SELF_RUN = 3.2;
+const LOOSE_SLOW = 1.0;      // m/s: a loose ball this slow is anyone's to pick up (the keeper's after byes; reached into your space)
 const LOB_AFTER = 1.3;       // s after the ball is dead before it is tossed back (after the replay's tape ends: TAIL 1 s)        // m: a man with the ball this close to a set of stumps runs in and breaks them himself
 const RELEASE_SET = 4;       // m: a fielder this close to his mark at the release stops and gets set
 const BRAKE = 13;            // m/s^2 pulling up
@@ -871,7 +872,8 @@ export class Fielding {
       if (ball.thrown && this.tryStop(f, ball, dxz, t, world)) return;
       if (f.noGatherUntil > t) continue;                 // (it has just left his hands / gone past him)
       const airborne = ball.batted && ball.bouncesSinceBat === 0;
-      if (this.byes && f.keeper) continue;                // it has already beaten him
+      // (it has already beaten him -- until it has all but stopped: then it is his to pick up like anyone's)
+      if (this.byes && f.keeper && Math.hypot(ball.vel.x, ball.vel.z) > LOOSE_SLOW) continue;
       if (airborne) {
         const reach = f.state === 'chase' ? F.diveReach : F.reach;
         // Take the catch when the ball arrives (within normal reach), or dive
@@ -901,7 +903,7 @@ export class Fielding {
           ball.bouncesSinceBat = 1; // no longer catchable
           continue;
         }
-      } else if (dxz < F.reach && ball.pos.y < 1.0) {
+      } else if (dxz < F.reach + this.reachIn(f, ball) && ball.pos.y < 1.0) {
         this.gather(f, ball, t, world);
         return;
       }
@@ -930,6 +932,16 @@ export class Fielding {
       this.message = 'Fielded by you';
       return;
     }
+  }
+
+  // A ball all but stopped inside the player's space (a block dead at your
+  // feet): nobody may walk in there, so the man at its edge reaches in for it
+  // (m beyond his normal reach; 0 for any other ball).
+  reachIn(f, ball) {
+    const ko = this.keepOut;
+    if (!ko || f.playerControlled || ball.pos.y > 0.3 || Math.hypot(ball.vel.x, ball.vel.z) > LOOSE_SLOW) return 0;
+    const kr = ko.r + (f.keeper ? KEEPER_PADS : 0), d = Math.hypot(ball.pos.x - ko.x, ball.pos.z - ko.z);
+    return d < kr ? kr - d + 0.15 : 0;
   }
 
   // A thrown ball going past within a dive (and below the knee): he goes
@@ -1090,9 +1102,10 @@ export class Fielding {
         if (this.dead) th.wait = 0;
         // Right by the stumps he is going for: no throw -- he runs in with the
         // ball (once he has picked it up) and takes the bails off himself.
+        // Nobody running: it is settled in his hands where he is (dead ball).
         if (th.self && t >= th.tPick - THROW.windup) {
           const spot = receiverSpot(th.end, f.pos.x < 0 ? -1 : 1);
-          if (Math.hypot(f.pos.x - spot.x, f.pos.z - spot.z) > 0.6 && th.held < 2) { f.runIn = spot; th.tStart = t + dt; this.ballOverride.pos.set(f.pos.x, 0.9, f.pos.z); return; }
+          if (Math.hypot(f.pos.x - spot.x, f.pos.z - spot.z) > 0.6 && th.held < 2 && this.runnerNow()) { f.runIn = spot; th.tStart = t + dt; this.ballOverride.pos.set(f.pos.x, 0.9, f.pos.z); return; }
           f.runIn = null; th.tStart = t; th.selfRun = true; th.kind = 'self';
           this.release(t);
         }

@@ -291,15 +291,17 @@ export class BattingSession {
       if (this.bowlerFig.update(dt, t)) this.release(t);
       else if (this.bowlerFig.holdingBall()) { g.ballOverride = { pos: this.bowlerFig.handPos(_hand) }; g.ballView.setVisible(true); }
     } else if (this.state === 'live') {
-      this.checkLive(t);
+      try { this.checkLive(t); } catch (e) { this.deadOnError(e); }
     } else if (this.state === 'review') {
-      const flow = this.reviewFlow || this.lbw;
-      flow.update(g.realDt || dt);
-      if (flow.done) {
-        const res = flow === this.lbw ? this.lbw.result({ kind: 'beaten', padded: true }) : this.pendingRes;
-        this.reviewFlow = null;
-        this.finish(res);
-      }
+      try {
+        const flow = this.reviewFlow || this.lbw;
+        flow.update(g.realDt || dt);
+        if (flow.done) {
+          const res = flow === this.lbw ? this.lbw.result({ kind: 'beaten', padded: true }) : this.pendingRes;
+          this.reviewFlow = null;
+          this.finish(res);
+        }
+      } catch (e) { this.deadOnError(e); }
     } else if (this.state === 'settle') {
       this.timer -= dt;
       if (this.timer <= 0) {
@@ -761,6 +763,17 @@ export class BattingSession {
   }
 
   // ------------------------------------------------------------- results
+  // Judging the ball threw (a bug): it must never freeze play (the frame
+  // would stop here every time, the keeper holding the ball for ever). The
+  // ball is dead: whatever runs were completed, else nothing.
+  deadOnError(e) {
+    const g = this.game, b = g.world.ball;
+    console.error(e);
+    this.reviewFlow = null;
+    if (this.lbw && this.lbw.active) { this.lbw.active = false; this.lbw.done = true; try { g.drs.hide(); g.ui.showHud(true); } catch { /* (as it is) */ } }
+    try { this.finish(b.batted || this.byes ? (this.field ? { kind: 'runs', runs: g.runs.completed } : { kind: 'hit', runs: 0 }) : { kind: this.offer.offered ? 'beaten' : 'left' }); } catch (e2) { console.error(e2); this.state = 'settle'; this.timer = 3; g.timeScaleTarget = 1; }
+  }
+
   finish(res) {
     const g = this.game;
     if (this.state === 'settle') return;
