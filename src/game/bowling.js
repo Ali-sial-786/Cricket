@@ -14,14 +14,14 @@ import { predict, crossingAtZ } from '../physics/trajectory.js';
 import { playerDelivery } from './bowlingInput.js';
 import { LbwFlow, padHit, deflectOffPad } from './lbwFlow.js';
 import { trackLbw } from './lbw.js';
-import { isWide, shouldAppeal, heldBallAlpha } from './bowlingRules.js';
+import { isWide, shouldAppeal, heldBallAlpha, strikerHeights, isShortPitched, BouncerCount, bouncerCall } from './bowlingRules.js';
 import { ThirdUmpireFlow } from './thirdUmpire.js';
 import { Reviews } from './reviews.js';
 import { Innings, runsText } from './scoring.js';
 import { batProfile } from './squad.js';
 import { playerBowler, seamFromWrist, stepDelivery, deliveryInfo, PLAYER_BOWLER_ORDER } from './bowlerTypes.js';
 import { RunUp } from './runup.js';
-import { AI_HOME } from './aiBatter.js';
+import { AI_HOME, padX } from './aiBatter.js';
 import { HINTS } from '../ui/controllerHint.js';
 
 const _palm = new Vec3();
@@ -55,6 +55,7 @@ export class BowlingSession {
     this.path = [];
     this.partnership = 0; this.dots = 0;
     this.noBall = false; this.freeHit = false; this.stumpAt = 0;
+    this.bouncers = new BouncerCount();   // fast short-pitched balls this over (ICC 41.6)
     this.keeperUp = false;           // the keeper stands up to the spinners
     this.seamYaw = 0;                // how far the wrist has been turned since gripping the ball (rad)
     this.pick = null;                // the delivery picked with A / B (null = the stock ball)
@@ -415,9 +416,14 @@ export class BowlingSession {
     g.say('release', { type: d.name.split(' ')[0].replace('off-break', 'off_spin').replace('leg-break', 'leg_spin').replace('outswinger', 'outswing').replace('inswinger', 'inswing').replace('seam-up', 'fast'), length: d.fullToss ? 'full_toss' : d.length < 2 ? 'yorker' : d.length > 11 ? 'bouncer' : undefined, pace: d.paceKmh });
     this.launchT = g.world.time;
     // Where it would pass the stumps (for the one-line summary at the bounce).
-    try { const c = crossingAtZ(predict(g.world.ball, { maxTime: 2.5, h: 1 / 240 }), PITCH.battingStumpsZ); this.atStumps = c ? { x: c.x, y: c.y } : null; } catch { this.atStumps = null; }
+    // And at the popping crease (the bouncer limit: the height it would have passed him at).
+    try {
+      const pr = predict(g.world.ball, { maxTime: 2.5, h: 1 / 240 }), c = crossingAtZ(pr, PITCH.battingStumpsZ), k = crossingAtZ(pr, battingPoppingZ), b0 = pr.bounces[0];
+      this.atStumps = c ? { x: c.x, y: c.y } : null;
+      this.atCrease = k ? { y: k.y, bounced: !!b0 && b0.pos.z < battingPoppingZ } : null;
+    } catch { this.atStumps = null; this.atCrease = null; }
     this.state = 'live';
-    this.hit = null; this.byes = null; this.firstBounce = null; this.adjusted = false; this.crossedCrease = false; this.wide = false; this.beamerChecked = false;
+    this.hit = null; this.byes = null; this.firstBounce = null; this.adjusted = false; this.crossedCrease = false; this.wide = false; this.beamerChecked = false; this.shortChecked = false;
     this.stumpAt = 0; this.pendingRes = null; this.reviewFlow = null;
     // Overstepping: your head is past the popping crease as you let go.
     this.noBall = false;
@@ -582,7 +588,17 @@ export class BowlingSession {
     if (b.active && !b.batted) this.path.push({ x: b.pos.x, y: b.pos.y, z: b.pos.z });
     if (!this.crossedCrease && b.pos.z > battingPoppingZ) {
       this.crossedCrease = true;
-      if (!b.batted && !b.padded && isWide(b.pos.x, b.pos.y, g.aiBatter.bodyAt(t).x - AI_HOME.x)) this.wide = true;   // too wide, or over his head
+      if (!b.batted && !b.padded && isWide(b.pos.x, b.pos.y, { shiftX: g.aiBatter.bodyAt(t).x - AI_HOME.x })) this.wide = true;   // too wide, or over his head
+    }
+    // Past him (or hit): was it a bouncer over his shoulder? One an over; the next is a no-ball.
+    if (!this.shortChecked && (this.crossedCrease || b.batted || b.padded)) {
+      this.shortChecked = true;
+      const live = this.crossedCrease && !b.batted && !b.padded, at = live ? { y: b.pos.y, bounced: b.bounces > 0 } : this.atCrease;
+      if (this.innings && at && isShortPitched({ ...at, shoulder: strikerHeights().shoulder, spinner: this.bowler.spinner })) {
+        const r = this.bouncers.add(Math.floor(this.innings.legal / 6));
+        if (r.noBall) this.callNoBall(bouncerCall(r));
+        else g.ui.prompt(bouncerCall(r), 2.2, '#ffd34d');
+      }
     }
     const plan = g.aiBatter.plan;
     // A full toss above the waist is a no-ball.
@@ -593,9 +609,9 @@ export class BowlingSession {
     // Gone past a batter who came down the pitch: he scrambles back.
     if (!b.batted && plan && plan.adv && plan.C && b.pos.z > plan.C.z + 0.35) g.aiBatter.retreat(t);
     // Beaten the bat and struck the pad: appeal.
-    if (!this.hit && !b.thrown && plan && plan.C && plan.shot.type !== 'pull' && plan.shot.type !== 'cut') {
+    if (!this.hit && !b.thrown && plan && plan.shot.type !== 'pull' && plan.shot.type !== 'cut') {
       const body = g.aiBatter.bodyAt(t);
-      if (padHit(b, plan.C.x - 0.14, body.z - 0.2)) {
+      if (padHit(b, padX(plan), body.z - 0.2)) {
         const impact = b.clone();
         deflectOffPad(b, g.rng);
         this.wide = false;                                   // it hit him: not a wide (Law 22.3)
@@ -616,7 +632,7 @@ export class BowlingSession {
     // An edge onto the pad (lbwFlow.js batPad): an LBW shout (the review finds the bat first), or still in play.
     if (this.hit && this.hit.edge && plan && plan.C && !this.noBall && !this.freeHit && !b.padded) {
       const body = g.aiBatter.bodyAt(t);
-      const bp = this.lbw.batPad(b, { x: plan.C.x - 0.14, z: body.z - 0.2 }, undefined, { path: this.path.slice(), shotOffered: plan.shot.type !== 'leave', playerIsBatter: false, since: t - this.hit.t, field: this.field, t });
+      const bp = this.lbw.batPad(b, { x: padX(plan), z: body.z - 0.2 }, undefined, { path: this.path.slice(), shotOffered: plan.shot.type !== 'leave', playerIsBatter: false, since: t - this.hit.t, field: this.field, t });
       if (bp === 'appeal') { this.state = 'review'; this.reviewFlow = null; return; }
     }
     if (this.field && (b.batted || this.byes)) {
@@ -675,7 +691,7 @@ export class BowlingSession {
     const g = this.game, b = g.world.ball;
     this.byes = { t };
     this.field.onHit(b, t, predict(b, { maxTime: 9, h: 1 / 240 }), { byes: true });
-    g.ui.prompt(shy ? 'The keeper misses the stumps!' : this.wide ? 'Wide — and past the keeper!' : 'Past the keeper — byes!', 2.2, '#ffb347');
+    g.ui.prompt(shy ? 'The keeper misses the stumps!' : this.wide && !this.noBall ? 'Wide — and past the keeper!' : 'Past the keeper — byes!', 2.2, '#ffb347');
     g.crowdReact('close');
   }
 

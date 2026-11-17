@@ -18,6 +18,17 @@ export const AI_HOME = { x: -0.42, z: -1.0 };       // body position in stance (
 export const STANCE_FEET = { L: [-0.31, -1.43], R: [-0.35, -0.95] };
 const BASE = { x: -0.33, z: -1.19 };                // between the feet
 const UP = new Vec3(0, 1, 0);
+// The furthest he can play the ball (contact point: x from middle stump, height),
+// arms and bat at full stretch from where his feet can get to. Beyond it he
+// lets it go (under it if it is too high) rather than throw the bat at it.
+// A block keeps the hands in by the ball, so it reaches less far (defOff).
+export const REACH = { off: 1.1, defOff: 0.95, leg: -1.0, high: 2.0 };
+const offReach = (type) => (type === 'defend' || type === 'backdef' ? REACH.defOff : REACH.off);
+export const canReach = (x, y, type) => x <= offReach(type) && x >= REACH.leg && y <= REACH.high;
+// Where his pads are (x) for a ball he plays at (plan.C) or leaves: with the
+// front leg by the ball, but never further to leg than his stance (a ball down
+// the leg side goes past his legs, not into them).
+export const padX = (plan) => Math.max(plan && plan.C ? plan.C.x - 0.14 : BASE.x, BASE.x);
 
 // Rotation whose +Y = y and +Z = z (orthonormalised, right-handed).
 export function basisQuat(y, z) {
@@ -179,8 +190,12 @@ export class AIBatter {
     let zc = T.zc - plan.adv;
     if (shot.type === 'drive' && !plan.adv && info.length >= 0 && info.length < 1.6) zc = -1.35; // dig out yorkers
     const c = crossingAtZ(info.pred, zc) || crossingAtZ(info.pred, -1.2);
-    if (!c) { plan.shot = { type: 'leave', ang: 0, loft: 0 }; plan.adv = 0; plan.leavePose = LEAVE_POSE; plan.tSwingStart = plan.tSwingEnd = plan.tCommit; this.plan = plan; return plan; }
-    const C = new Vec3(c.x + gauss() * this.skill.posSigma, Math.max(0.06, c.y + gauss() * this.skill.posSigma * 0.7), c.z);
+    if (!c || !canReach(c.x, c.y, shot.type)) {                         // out of reach: let it go
+      const duck = !!c && c.y > REACH.high;
+      plan.shot = { type: 'leave', duck, ang: 0, loft: 0 }; plan.adv = 0; plan.leavePose = duck ? DUCK_POSE : LEAVE_POSE;
+      plan.tSwingStart = plan.tSwingEnd = plan.tCommit + (c ? 0.25 : 0); this.plan = plan; return plan;
+    }
+    const C = new Vec3(clamp(c.x + gauss() * this.skill.posSigma, REACH.leg, offReach(shot.type)), clamp(c.y + gauss() * this.skill.posSigma * 0.7, 0.06, REACH.high), c.z);
     const Tc = t0 + c.t + gauss() * this.skill.timingSigma;
     this.buildSwing(plan, T, shot, C, Tc);
     this.plan = plan;
@@ -289,7 +304,7 @@ export class AIBatter {
     const k = this.skill.adjust;
     const cur = this.currentC(t);
     p.Cfrom = cur.clone();
-    p.Cto = cur.clone().lerp(new Vec3(c.x, Math.max(0.06, c.y), c.z), k);
+    p.Cto = cur.clone().lerp(new Vec3(clamp(c.x, REACH.leg, offReach(p.shot.type)), clamp(c.y, 0.06, REACH.high), c.z), k);   // (no further than he can reach)
     p.TcFrom = this.currentTc(t);
     p.TcTo = p.TcFrom + ((tState + c.t) - p.TcFrom) * k;
     p.blendStart = t;
@@ -394,7 +409,7 @@ export class AIBatter {
     const front = p.foot === 'front';
     out.adv = this.advanceAt(t);
     out.z = AI_HOME.z + (front ? -0.45 : 0.15) * k - out.adv;
-    out.x = AI_HOME.x + clamp(p.C.x * 0.6, -0.25, 0.45) * k;
+    out.x = AI_HOME.x + clamp(p.C.x * 0.6, -0.1, 0.45) * k;       // (across to off; not off to leg after one down the leg side)
     out.lean = (front ? 0.25 : -0.05) * k;
     return out;
   }

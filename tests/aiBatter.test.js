@@ -1,9 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { makeRng } from '../src/physics/math.js';
+import { makeRng, Vec3, Pose } from '../src/physics/math.js';
+import { BatGeometry } from '../src/physics/bat.js';
 import { PhysicsWorld } from '../src/physics/world.js';
 import { machineDelivery } from '../src/physics/bowlingMachine.js';
-import { AIBatter, analyzeDelivery, chooseShot } from '../src/game/aiBatter.js';
+import { AIBatter, analyzeDelivery, chooseShot, REACH, canReach, padX } from '../src/game/aiBatter.js';
 import { CONFIG } from '../src/config.js';
 
 function face(settings, difficulty = 'hard', aggression = 0.4, seed = 3) {
@@ -76,4 +77,45 @@ test('short ball on the body gets pulled/defended off the back foot; full ball d
   assert.ok(['pull', 'backdef'].includes(s1.type), s1.type);
   const fullInfo = st({ paceKmh: 130, length: 3.0, line: 0.05 });
   assert.equal(chooseShot(fullInfo, skill, 0.5, () => 0.9).type, 'drive');
+});
+
+test('a ball he cannot reach is left alone: no bat thrown at a very wide one (any length, any mood)', () => {
+  const geom = new BatGeometry(CONFIG.bat), pose = new Pose();
+  for (const line of [1.4, 1.8, -1.3]) for (const length of [1.5, 5, 9, 11.5]) for (let seed = 1; seed <= 6; seed++) {
+    const r = face({ paceKmh: 125 + seed * 3, length, line }, ['easy', 'medium', 'hard'][seed % 3], 0.95, seed);
+    assert.equal(r.shot, 'leave', `line ${line} length ${length} seed ${seed}: ${r.shot}`);
+    assert.equal(r.bat, undefined);
+  }
+  // Within reach he may play, but the bat stays an arm and a bat from his body.
+  for (let seed = 1; seed <= 12; seed++) {
+    const rng = makeRng(seed * 31 + 7);
+    const world = new PhysicsWorld(CONFIG, seed);
+    const ai = new AIBatter(); ai.setDifficulty('easy'); ai.aggression = 1;
+    world.addBat('ai', ai, undefined, 1);
+    const d = machineDelivery({ paceKmh: 130, length: seed % 2 ? 9 : 3.5, line: 1.05 }, null);
+    world.launch({ pos: d.releasePos, vel: d.vel, spin: d.spin, swing: d.swing, seamDeg: d.seamDeg, seamRandomScale: 0 });
+    const plan = ai.planDelivery(world.ball.clone(), world.time, rng);
+    if (plan.shot.type === 'leave') continue;
+    ai.poseAt(plan.Tc, pose);
+    const sweet = new Vec3(0, geom.sweetY, 0).applyQuat(pose.q).add(pose.p);
+    const body = ai.bodyAt(plan.Tc);
+    assert.ok(plan.C.x <= REACH.off + 1e-9, `C.x ${plan.C.x}`);
+    assert.ok(Math.abs(pose.p.x - body.x) < 1.0 && Math.abs(sweet.x - body.x) < 1.25, `hands ${pose.p.x - body.x} sweet ${sweet.x - body.x}`);
+  }
+});
+
+test('reach: a block reaches less far than a drive; over his head he ducks', () => {
+  assert.equal(canReach(1.0, 0.5, 'drive'), true);
+  assert.equal(canReach(1.0, 0.5, 'defend'), false);
+  assert.equal(canReach(-0.9, 0.5, 'flick'), true);
+  assert.equal(canReach(-1.2, 0.5, 'flick'), false);
+  assert.equal(canReach(0, REACH.high + 0.1, 'pull'), false);
+  const r = face({ paceKmh: 145, length: 13.2, line: 0 }, 'hard', 0.95, 2);
+  assert.equal(r.shot, 'leave');
+  assert.equal(r.bat, undefined);
+});
+
+test('pads: by the ball he plays at, never off to leg of his stance', () => {
+  assert.ok(Math.abs(padX({ C: { x: 0.3 } }) - 0.16) < 1e-9);
+  assert.equal(padX({ C: { x: -0.7 } }), padX(null), 'a ball down leg goes past his legs');
 });
