@@ -157,3 +157,33 @@ test('reader state is plain data: saved mid-stroke and loaded, it carries on exa
     assert.ok(Math.abs(o.engage - r.engage) < 1e-12 && Math.abs(o.phase - r.phase) < 1e-12);
   }
 });
+
+test('a held drive keeps its finish until the player lowers the bat', () => {
+  const keys = SHOTS.straight_drive.keys.map(k => ({ ...k, t: k.t >= 2.2 ? k.t + 1.5 : k.t }));
+  for (const hz of [30, 72, 120]) {
+    const out = read(buildTrack(keys, { hz }));
+    const held = out.filter(o => o.t >= 1.8 && o.t <= 3.7);
+    assert.ok(held.every(o => o.state === 'follow' && o.engage > 0.9), `drive released during the hold at ${hz} Hz`);
+    assert.ok(out.some(o => o.t > 3.7 && o.t < 4.2 && o.state === 'recover'), `no release as the hands came down at ${hz} Hz`);
+    assert.ok(out.at(-1).engage < 0.05);
+  }
+});
+
+test('lowering a drive directly into a wide guard releases the stroke', () => {
+  const guard = { t: 1.9, head: [-0.25, 1.52, -1.15], hand: [0.02, 0.8, -1.39], toe: [0.1, -0.95, 0.28], face: [0, 0, -1] };
+  const out = read(buildTrack([...SHOTS.straight_drive.keys.slice(0, 7), guard, { ...guard, t: 4 }], { noise: 0 }));
+  assert.ok(out.some(o => o.state === 'follow' && o.engage > 0.9));
+  assert.equal(out.at(-1).state, 'ready');
+});
+
+test('a direct return to the player’s own angled guard ends a drive', () => {
+  for (const angle of [35, 45, 55, 75]) {
+    const tilt = angle * Math.PI / 180;
+    const guard = { head: [-0.25, 1.52, -1.15], hand: [0.02, 0.8, -1.39], toe: [0, -Math.cos(tilt), Math.sin(tilt)], face: [0, 0, -1] };
+    const keys = [{ t: 0, ...guard }, { t: 0.6, ...guard }, ...SHOTS.straight_drive.keys.slice(2, 7),
+      { t: 1.9, ...guard }, { t: 5, ...guard }];
+    const out = read(buildTrack(keys));
+    assert.ok(out.some(o => o.state === 'follow' && o.engage > 0.90), `played the drive from a ${angle} degree guard`);
+    assert.equal(out.at(-1).state, 'ready', `returned to a ${angle} degree guard`);
+  }
+});

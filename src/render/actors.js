@@ -11,7 +11,7 @@ import * as THREE from 'three';
 import { Humanoid } from './humanoid.js';
 import { buildBatMesh } from './objects.js';
 import { swingAt } from './swingProfile.js';
-import { GRIP_BETA } from './gear.js';
+import { battingGripAngle } from './gear.js';
 import {
   poseIdle, poseLocomotion, plantFeet, heelFor, poseReady, poseThrow, poseDive, posePickup,
   poseCelebrate, strideFor, keys, sstep, clamp, mix,
@@ -1636,16 +1636,17 @@ export class BatterActor extends Actor {
   // the bottom one, the back of the top hand toward the face of the bat (the
   // bowler), the bottom hand's palm behind the handle, both thumbs down the
   // handle toward the blade and the handle running diagonally across each palm
-  // (GRIP_BETA). The hands are placed from the bat; the arms reach them by IK
+  // (battingGripAngle). The hands are placed from the bat; the arms reach them by IK
   // (elbows bending on their hinge), each hand may roll a little round the
   // handle to keep its wrist from bending too far, and the forearm takes half
   // of the hand's turn so the wrist doesn't wring.
   //
   // The hands are always on the handle (for you a hard rule: your gloves are
-  // drawn on your real bat every frame, whatever the body is doing): a bat out
+  // drawn on your real bat every frame, whatever the body is doing). The player's
+  // gripAcross is the shared direction across the shaft from the forearms. A bat out
   // of the arms' reach first leans the trunk toward it, and for your figure
   // (stretchArms) the arms then lengthen by what is still missing.
-  gripBat(batPos, batQuat, elbowUp = 0) {
+  gripBat(batPos, batQuat, elbowUp = 0, gripAcross = null) {
     const h = this.h;
     this.restArms();
     h.update();
@@ -1654,21 +1655,43 @@ export class BatterActor extends Actor {
     _bz.set(0, 0, 1).applyQuaternion(batQuat);
     this.forward(_fwd);
     _left.set(_fwd.z, 0, -_fwd.x);
-    this.reachLean(batPos, _top.copy(batPos).addScaledVector(_by, HAND_GAP));
-    if (this.stretchArms) this.reachShift(batPos, _top.copy(batPos).addScaledVector(_by, HAND_GAP));
+    // The torso follows the tracked hands. Fit the glove leather to the bat
+    // separately, so changing glove size cannot pull the headset pose down.
+    _top.copy(batPos).addScaledVector(_by, HAND_GAP);
+    this.reachLean(batPos, _top);
+    if (this.stretchArms) this.reachShift(batPos, _top);
+    const sc = h.root.scale.y;
+    const gap = gripAcross ? 0.092 * sc : HAND_GAP;
+    // Leave room for the upper little finger below the cap. A larger pair
+    // of gloves sits slightly lower on the same full-size tracked bat.
+    const bottom = gripAcross ? Math.min(0, CONFIG.bat.gripFromHandleTop - 0.046 * sc - gap) : 0;
+    _bottomGrip.copy(batPos).addScaledVector(_by, bottom);
+    _top.copy(_bottomGrip).addScaledVector(_by, gap);
     h.worldPos('shoulderR', _sR); h.worldPos('shoulderL', _sL);
-    h.worldPos('chest', _ch);
-    const sb = Math.sin(GRIP_BETA), cb = Math.cos(GRIP_BETA);
+    if (gripAcross) {
+      _left.subVectors(_sL, _sR).normalize();
+      _fwd.set(-_left.z, 0, _left.x).normalize();
+      _bx.copy(gripAcross);
+      _bz.crossVectors(_bx, _by);
+    }
+    const palm = gripAcross ? PALM * sc : PALM;
     let err = 0;
     for (const side of ['R', 'L']) {
-      const at = side === 'R' ? _c.copy(batPos) : _top.copy(batPos).addScaledVector(_by, HAND_GAP), sh = side === 'R' ? _sR : _sL;
+      const beta = battingGripAngle(side, h.opts.playerGrip);
+      const sb = Math.sin(beta), cb = Math.cos(beta);
+      const at = side === 'R' ? _bottomGrip : _top, sh = side === 'R' ? _sR : _sL;
       // Elbows: down and in, close to the ribs (only a little out along the
       // pitch); the front (top-hand) elbow rises and leads toward the bowler
       // through a straight-bat shot.
       const sign = side === 'R' ? -1 : 1, lift = side === 'R' ? 0 : 0.75 * elbowUp;
-      _pole.copy(sh).addScaledVector(_fwd, ELBOW_FWD).addScaledVector(_left, sign * 0.1).add(_e.set(0, -0.6 + 1.0 * lift, 0))
-        .addScaledVector(_left, sign * 0.3 * lift);
-      this.steadyPole(side, sh, at, _pole);
+      // With tracked hands the elbows stay outside the turning ribcage.
+      // The bottom elbow tucks at guard and opens with the raised hands.
+      const high = gripAcross ? sstep(-0.5, 0.1, (at.y - sh.y) / sc) : 0;
+      const spread = (gripAcross ? mix(0.22, 0.65, high) : 0.1) + 0.3 * lift;
+      _pole.copy(sh).addScaledVector(_fwd, gripAcross ? 0.04 : ELBOW_FWD).addScaledVector(_left, sign * spread);
+      _pole.y += -0.6 + lift + 0.32 * high;
+      if (gripAcross) _gripPole.copy(_pole);
+      else this.steadyPole(side, sh, at, _pole);
       let roll = 0;
       for (let pass = 0; pass < 2; pass++) {
         // The grip frame, rolled `roll` round the handle.
@@ -1677,16 +1700,28 @@ export class BatterActor extends Actor {
         _gx.copy(_bz).multiplyScalar(cr).addScaledVector(_bx, sr);          // back of the hand (left) / palm (right)
         _gy.copy(_xr).multiplyScalar(-sb).addScaledVector(_by, cb);
         _gz.copy(_xr).multiplyScalar(-cb).addScaledVector(_by, -sb);
-        _wr.copy(at).addScaledVector(_gy, PALM);                            // the wrist, a palm's length from the handle
+        _wr.copy(at).addScaledVector(_gy, palm);                            // the wrist, a palm's length from the handle
+        // The elbow bends about the shoulder-to-wrist line. Near the chest
+        // that can point a very different way from the line to the handle.
+        if (gripAcross) this.steadyPole(side, sh, _wr, _pole.copy(_gripPole));
         h.ikArm(side, _wr, _pole);
         if (pass) {
           if (this.stretchArms) this.stretchTo(side, _wr, _pole);
+          if (gripAcross) {
+            // When the wrist passes close to the shoulder the arm axis can
+            // turn sharply in a few millimetres. Preserve the upper arm's
+            // actual direction to keep the elbow on the nearer IK solution.
+            const folded = 1 - sstep(0.20 * sc, 0.40 * sc, sh.distanceTo(_wr));
+            const upper = h.worldPos('elbow' + side, _v1).sub(sh).normalize();
+            this._eb[side].lerp(upper, folded).normalize();
+          }
           break;
         }
         // Roll toward the forearm: the knuckles (-gy) as near its line as the grip allows.
         h.update();
         _f.subVectors(_wr, h.worldPos('elbow' + side, _el)).normalize();
-        roll = clamp(Math.atan2(-_f.dot(_bz), _f.dot(_bx)), -GRIP_ROLL, GRIP_ROLL);
+        const freedom = gripAcross ? 0.44 : GRIP_ROLL;
+        roll = clamp(Math.atan2(-_f.dot(_gx), _f.dot(_xr)), -freedom, freedom);
         // (kept continuous: with the forearm along the handle's back the preferred roll swaps sides, the hand would flip)
         const rs = this._roll || (this._roll = { L: null, R: null, bL: null, bR: null, f: null });
         roll = this.limitStep(rs, side, roll, ROLL_RATE);
@@ -2123,6 +2158,7 @@ export class BatterActor extends Actor {
 }
 const _e = new THREE.Vector3(), _up = new THREE.Vector3(0, 1, 0), _hold = new THREE.Vector3();
 const _kpL = new THREE.Vector3(), _kpR = new THREE.Vector3();
+const _bottomGrip = new THREE.Vector3(), _gripPole = new THREE.Vector3();
 const _H = new THREE.Vector3(), _iL = new THREE.Vector3(), _iR = new THREE.Vector3(), _v1 = new THREE.Vector3(), _v2 = new THREE.Vector3(), _top = new THREE.Vector3();
 const _ql = new THREE.Quaternion(), _ft = new THREE.Vector3(), _sR = new THREE.Vector3(), _sL = new THREE.Vector3(), _ch = new THREE.Vector3(), _pole = new THREE.Vector3();
 const _v3 = new THREE.Vector3();

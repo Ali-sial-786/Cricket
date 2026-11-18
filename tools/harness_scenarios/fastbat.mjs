@@ -10,6 +10,7 @@ export default async function ({ page, shot }) {
   const hz = +(process.env.HZ || 72);
   const res = await page.evaluate(async ({ hz }) => {
     const THREE = await import('three');
+    const { gloveError } = await import('./tests/battingTracks.js');
     const g = window.__game, body = g.playerBody, A = body.actor, h = A.h;
     body.show(true); g.batMesh.visible = true; g.world.ball.active = false;
     const head = new THREE.Vector3(-0.42, 1.62, -1.05);
@@ -17,7 +18,7 @@ export default async function ({ page, shot }) {
     const out = { frames: 0, max: 0, maxAt: null, over2: 0, maxStretch: 0, worst: [] };
     const dt = 1 / hz;
     let id = 1;
-    const v = new THREE.Vector3(), w = new THREE.Vector3(), top = new THREE.Vector3();
+
     for (let rep = 0; rep < 6; rep++) {
       const T0 = 100 + rep * 4, Tc = T0 + 1.2;
       id++;
@@ -40,8 +41,7 @@ export default async function ({ page, shot }) {
         g.batMesh.position.copy(pos); g.batMesh.quaternion.copy(q);
         body.update(dt, t, g.batMesh.position, g.batMesh.quaternion, null, { p: hp, q: { x: -0.38, y: 0, z: 0, w: 0.92 } }, info);
         h.update();
-        top.copy(pos).add(new THREE.Vector3(0, 0.105, 0).applyQuaternion(q));
-        const e = Math.max(Math.abs(h.worldPos('handR', v).distanceTo(pos) - 0.075), Math.abs(h.worldPos('handL', w).distanceTo(top) - 0.075), A.gripErr || 0);
+        const e = Math.max(gloveError(h, pos, q), A.gripErr || 0);
         const st = A.armRest ? h.bones.elbowR.position.length() / A.armRest.elbowR.length() : 1;
         out.maxStretch = Math.max(out.maxStretch, st, A.armRest ? h.bones.elbowL.position.length() / A.armRest.elbowL.length() : 1);
         out.frames++;

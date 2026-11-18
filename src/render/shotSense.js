@@ -112,6 +112,7 @@ export class ShotSense {
       hist: [],                 // [t, sx, sy, sz, dx, dy, dz, gx, gy, gz, hx, hy, hz]
       speed: 0,                 // smoothed speed of the middle of the bat
       quiet: 0, headQuiet: 0,   // s the bat / the head has been still
+      guard: null,              // settled handle position relative to the head, and blade direction
       home: null,               // where you took guard: the head { x, y, z } when settled
       stand: 0,                 // your standing head height (the highest seen, slowly forgotten)
       state: 'ready', tState: 0,
@@ -183,6 +184,13 @@ export class ShotSense {
     else if (S.state === 'ready' && S.quiet > SENSE.homeAfter && S.headQuiet > SENSE.homeAfter) {
       const k = Math.min(1, dt / SENSE.homeTau);
       S.home.x += (head.x - S.home.x) * k; S.home.y += (head.y - S.home.y) * k; S.home.z += (head.z - S.home.z) * k;
+    }
+    // Remember the actual guard, including a raised or angled bat. Freeze it
+    // throughout the stroke so a held finish never replaces the starting pose.
+    const gx = grip.x - head.x, gy = grip.y - head.y, gz = grip.z - head.z;
+    if (!S.guard || (S.state === 'ready' && S.quiet > 0.35 && S.headQuiet > 0.35)) {
+      const g = S.guard ||= {};
+      g.gx = gx; g.gy = gy; g.gz = gz; g.dx = dx; g.dy = dy; g.dz = dz;
     }
     // the other hand on the handle?
     if (off) {
@@ -257,9 +265,28 @@ export class ShotSense {
       } else this.weigh(null, dt, true);
       const vf = blockOK ? SENSE.vFull : SENSE.vIdle;
       S.target = Math.max(S.target, sstep(vf[0], vf[1], sw.peak)) * (S.leader >= 0 ? 1 : 0);
-      // over: the bat has been still a while, or has come back down to the stance
-      const down = S.lift < 0.3 && dy < -0.75 && sw.past > 0.6;
-      if (S.tState > 0.4 && (S.quiet > 0.45 || (down && S.quiet > 0.1))) { S.state = 'recover'; S.tState = 0; }
+      // Hold the finish for as long as the player does. Measure both the grip
+      // and blade against the head so moving around with the bat held still
+      // does not collapse the pose. A stroke without a pause can go straight
+      // back to guard.
+      if (!sw.finish && S.tState > 0.15 && S.quiet > 0.12) {
+        sw.finish = { gx, gy, gz, dx, dy, dz };
+      }
+      const f = sw.finish, scale = S.stand / 1.62;
+      const leftFinish = f && (Math.hypot(gx - f.gx, gy - f.gy, gz - f.gz) > 0.085 * scale
+        || dx * f.dx + dy * f.dy + dz * f.dz < Math.cos(0.35));
+      const bladeY = sy - head.y;
+      sw.highBladeY = Math.max(sw.highBladeY ?? bladeY, bladeY);
+      const g = S.guard;
+      const gripDistance = Math.hypot(gx - g.gx, gy - g.gy, gz - g.gz);
+      const atGuard = gripDistance < 0.13 * scale && dx * g.dx + dy * g.dy + dz * g.dz > Math.cos(0.55);
+      // Also recognise someone resting the bat low in a new position after
+      // playing the ball, without having stopped at the top to hold a finish.
+      const lowered = sw.highBladeY - bladeY > 0.30 * scale;
+      const resting = gy < -0.35 * scale && (dy < -0.75 || lowered);
+      if (S.tState > 0.25 && (leftFinish || ((atGuard || resting) && S.quiet > 0.45))) {
+        S.state = 'recover'; S.tState = 0;
+      }
     } else if (S.state === 'recover') {
       S.target = 0;
       this.weigh(null, dt, true);

@@ -72,7 +72,7 @@ const v3 = () => new THREE.Vector3(), q4 = () => new THREE.Quaternion();
 
 export class PlayerBodyView {
   constructor(scene) {
-    this.actor = new BatterActor(scene, { team: 'home', seed: 3 });
+    this.actor = new BatterActor(scene, { team: 'home', seed: 3, playerGrip: true });
     this.actor.bat.visible = false;     // the real player bat mesh is drawn by the game
     this.actor.stretchArms = true;      // your gloves are on your bat, always
     // A bat beyond the figure's reach (your arms and shoulders are not its): the trunk leans a little
@@ -372,7 +372,7 @@ export class PlayerBodyView {
         // (the captures come from video: their feet's turn is rough, so only some of it)
         pat.yawL = clamp(pat.yawL * 0.6, -0.3, 0.7); pat.yawR = clamp(pat.yawR * 0.5, -0.3, 0.7);
       } else list.length = 0;
-    } else { for (const k of Object.keys(st.u)) delete st.u[k]; st.toeR = 0; st.trunk = null; st.turn = 0; st.relOk = false; }
+    } else { for (const k of Object.keys(st.u)) delete st.u[k]; st.toeR = 0; st.trunk = null; st.handYaw = null; st.turn = 0; st.relOk = false; }
     // (the captures come in from nothing once a shot is first named: the engagement may be under way by then)
     st.capIn = list.length ? Math.min(1, (st.capIn || 0) + dt / CAP_IN) : 0;
     const Eb = E * sstep(0, 1, st.capIn);
@@ -447,8 +447,10 @@ export class PlayerBodyView {
     A._gframe = st.n; A._gdt = dt;          // (gripBat's hand roll / forearm twist limits are per second, from last frame's)
     if (this.debug) { h.update(); this.debug.pre = h.worldPos('head', _a).distanceTo(Hj); }
     // ---- the gloves on the handle; the head looking where you look
-    if (st.kneelK > 0.01) this.handRoom(bp, bq, st.kneelK);
-    A.gripBat(bp, bq, elbowUp);
+    this.handRoom(bp, bq, st.kneelK);
+    this.steadyShoulders(dt);
+    const gripAcross = this.gripFrame(bp, bq, dt);
+    A.gripBat(bp, bq, elbowUp, gripAcross);
     this.kneesUp(dt);
     this.look(hq, e.ball, dt);
     h.syncShadow();
@@ -456,9 +458,63 @@ export class PlayerBodyView {
     if (h.guardLift > 0.002) {
       const lm = A.leanMax, rl = A.reachLimit;
       A.leanMax = NO_LEAN; A.reachLimit = NO_SHIFT;
-      A.gripBat(bp, bq, elbowUp);
+      A.gripBat(bp, bq, elbowUp, gripAcross);
       A.leanMax = lm; A.reachLimit = rl;
     }
+  }
+
+  // Limit the actual shoulder turn after blending the capture with the
+  // tracking solve. Turn around the spine-to-head line, keeping the tracked
+  // head in place. Remember the shoulder line relative to the rig so a snap
+  // turn carries the whole batter around together.
+  steadyShoulders(dt) {
+    const h = this.actor.h, st = this.st;
+    const axis = _a.subVectors(h.worldPos('head', _b), h.worldPos('spine', _c)).normalize();
+    const across = _d.subVectors(h.worldPos('shoulderL', _b), h.worldPos('shoulderR', _c)).projectOnPlane(axis).normalize();
+    if (st.shoulders && dt < 0.15) {
+      const prev = _b.fromArray(st.shoulders).applyQuaternion(h.root.quaternion).projectOnPlane(axis).normalize();
+      const turn = Math.atan2(_c.crossVectors(prev, across).dot(axis), prev.dot(across));
+      const correction = clamp(turn, -7.5 * dt, 7.5 * dt) - turn;
+      if (Math.abs(correction) > 1e-5) {
+        _q.setFromAxisAngle(axis, correction);
+        h.setWorldQuat('spine', h.bones.spine.getWorldQuaternion(_q2).premultiply(_q));
+        across.applyQuaternion(_q);
+      }
+    }
+    st.shoulders = across.applyQuaternion(_q.copy(h.root.quaternion).invert()).toArray(st.shoulders);
+  }
+
+  // A shared approach to the handle for both wrists, from the batter's side.
+  // The bat face biases the grip. When the handle points into the chest its
+  // near side is ambiguous: carry the last grip across the new shaft and
+  // turn it only as fast as the hands can roll.
+  gripFrame(bp, bq, dt) {
+    const h = this.actor.h, sc = h.root.scale.y, st = this.st;
+    const shaft = _ax.set(0, 1, 0).applyQuaternion(bq);
+    const edge = _fc.set(1, 0, 0).applyQuaternion(bq);
+    const chest = h.worldPos('shoulderL', _b).add(h.worldPos('shoulderR', _c)).multiplyScalar(0.5);
+    chest.y -= 0.28 * sc;
+    const across = _a.subVectors(bp, chest).projectOnPlane(shaft);
+    const distance = across.length();
+    edge.negate();
+    if (distance > 1e-6) {
+      across.divideScalar(distance);
+      // In the normal range, the gloves turn with the face. Ease toward
+      // the forearms' approach if the controller rolls the face underneath.
+      across.lerp(edge, sstep(-0.55, 0.75, across.dot(edge))).normalize();
+    } else across.copy(edge);
+    if (st.gripAcross && dt < 0.15) {
+      _b.fromArray(st.gripAcross).applyQuaternion(h.root.quaternion);
+      _b.addScaledVector(shaft, -_b.dot(shaft));
+      if (_b.lengthSq() > 1e-6) {
+        _b.normalize();
+        const angle = Math.atan2(_c.crossVectors(_b, across).dot(shaft), _b.dot(across));
+        const step = 12 * dt * sstep(0.02 * sc, 0.12 * sc, distance);
+        across.copy(_b).applyAxisAngle(shaft, clamp(angle, -step, step));
+      }
+    }
+    st.gripAcross = _b.copy(across).applyQuaternion(_q.copy(h.root.quaternion).invert()).toArray(st.gripAcross);
+    return (this._gripAcross ||= v3()).copy(across);
   }
 
   // The weighted captures' body, placed for you: the pelvis where your head
@@ -494,6 +550,11 @@ export class PlayerBodyView {
       // the way the capture bends this knee
       const p = M['p' + sd].copy(M['k' + sd]).sub(_a.addVectors(M['h' + sd], M['a' + sd]).multiplyScalar(0.5)), yw = sd === 'L' ? yawL : yawR;
       kneeWay(p, yw);
+      // A planted pad tracks its toes. A video taken side-on loses the knee's
+      // depth, especially as a cross-bat shot turns through the line. Keep
+      // the capture's wider bend when down on a knee for the sweep.
+      _b.set(Math.sin(yw), 0, Math.cos(yw));
+      p.lerp(_b, 0.65 * (1 - this.st.kneelK)).normalize();
     }
     const ankleY = h.ankleHeight * sc;
     // ankles: on the planted feet; the back foot up on its toe as far as the capture's heel is up
@@ -531,7 +592,13 @@ export class PlayerBodyView {
     _c.set(0, HAND_TOP, 0).applyQuaternion(bq).add(bp);
     const reach = A.armLen * sc / A.armScale0 + 0.06;
     const over = Math.max(h.worldPos('shoulderR', _d).distanceTo(bp), h.worldPos('shoulderL', _e).distanceTo(_c)) - reach;
-    const dyaw = clamp(angDiff(have, want), -1.2, 1.2) * mix(0.45, 0.9, sstep(0, 0.12, over));
+    // Directly above the chest the hands have no useful bearing. Behind it,
+    // their bearing wraps at +/- pi. Let the shoulders turn through both
+    // transitions without swapping sides in one frame.
+    const bearing = sstep(0.05 * sc, 0.18 * sc, Math.hypot(bp.x - ch.x, bp.z - ch.z));
+    const wantedYaw = bearing * clamp(angDiff(have, want), -1.2, 1.2) * mix(0.45, 0.9, sstep(0, 0.12, over));
+    const prevYaw = st.handYaw ?? wantedYaw;
+    const dyaw = st.handYaw = prevYaw + clamp(wantedYaw - prevYaw, -6 * dt, 6 * dt);
     // (about the trunk's own line, spine to head: a turn of the shoulders does not move the head)
     _yp.subVectors(h.worldPos('head', _d), h.worldPos('spine', _e)).normalize();
     if (_yp.y < 0.2) _yp.copy(_up);
@@ -557,31 +624,20 @@ export class PlayerBodyView {
     h.update(); h.clearFoot('L', M.oL); h.clearFoot('R', M.oR);
   }
 
-  // Kneeling (k: how far), a hand on the handle right at its own shoulder
-  // (the bat held up at your chest while the figure kneels lower than you)
-  // folds the arm to a point, and the elbow swings round it frame to frame:
-  // the trunk leans away from the hands by what is missing of HAND_ROOM (at
-  // most ROOM_LEAN) x k, smoothly - nothing at all while they have the room.
-  handRoom(bp, bq, k) {
-    const h = this.actor.h, sc = h.root.scale.x, room = HAND_ROOM * sc;
-    h.update();
-    const ch = h.worldPos('chest', _d);
-    let need = 0;
-    _e.set(0, 0, 0);
-    for (const [sd, up] of [['R', 0], ['L', HAND_TOP]]) {
-      const at = _a.set(0, up, 0).applyQuaternion(bq).add(bp), l = h.worldPos('shoulder' + sd, _b).distanceTo(at);
-      if (l >= room) continue;
-      const w = room - l;
-      _c.subVectors(ch, at); _c.y = 0;
-      const cl = _c.length();
-      if (cl < 1e-4) continue;
-      _e.addScaledVector(_c, w / cl);
-      need = Math.max(need, w);
-    }
-    const el = _e.length();
-    if (need < 1e-4 || el < 1e-6) return;
-    _e.multiplyScalar(Math.min(need, ROOM_LEAN * sc) * k / el);
-    this.leanTo(_P.copy(h.worldPos('head', _a)).add(_e), 0.5);
+  // Leave space to fold an arm when hands pass a shoulder, especially in
+  // a kneeling sweep. Back away along the chest's facing direction so the
+  // lean stays continuous when the bat crosses the sternum.
+  handRoom(bp, bq, kneel) {
+    const h = this.actor.h, sc = h.root.scale.x;
+    const top = _a.set(0, HAND_TOP, 0).applyQuaternion(bq).add(bp);
+    const reach = Math.min(h.worldPos('shoulderR', _b).distanceTo(bp), h.worldPos('shoulderL', _c).distanceTo(top));
+    const need = Math.min(ROOM_LEAN * sc, HAND_ROOM * sc - reach);
+    if (need <= 0) return;
+    const back = _e.set(0, 0, -1).applyQuaternion(h.bones.chest.getWorldQuaternion(_q));
+    back.y = 0;
+    if (back.lengthSq() < 1e-8) return;
+    back.setLength(need * mix(0.65, 1, kneel));
+    this.leanTo(_P.copy(h.worldPos('head', _a)).add(back), 0.5);
   }
 
   // The trunk (from the spine joint) turned toward your head, by at most maxAng.

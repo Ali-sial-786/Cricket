@@ -292,3 +292,17 @@ export function shotTrack(name, opts = {}) {
   const turn = s.turn ? (t) => { const K = s.turn; if (t <= K[0][0]) return K[0][1]; for (let i = 1; i < K.length; i++) if (t <= K[i][0]) { const u = (t - K[i - 1][0]) / (K[i][0] - K[i - 1][0]); return K[i - 1][1] + (K[i][1] - K[i - 1][1]) * u * u * (3 - 2 * u); } return K[K.length - 1][1]; } : null;
   return buildTrack(s.keys, { extra: { sweep: null, hit: null, crease: null, live: !s.idle }, turn, ...opts });
 }
+
+// Where the handle passes through each rendered glove (hand-local palm
+// centre), compared in 3D with its seat on the recorded bat.
+export function gloveError(h, bp, bq) {
+  const scale = h.root.scale.x, span = 0.092 * scale;
+  const topY = Math.min(span, 0.12 - 0.046 * scale);
+  let error = 0;
+  for (const [side, y] of [['L', topY], ['R', topY - span]]) {
+    const seat = bp.clone().set(0, y, 0).applyQuaternion(bq).add(bp);
+    const palm = h.bones['hand' + side].localToWorld(bp.clone().set(0, -0.075, 0));
+    error = Math.max(error, palm.distanceTo(seat));
+  }
+  return error;
+}

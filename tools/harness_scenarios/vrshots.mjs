@@ -8,7 +8,7 @@
 import fs from 'node:fs';
 import { execSync } from 'node:child_process';
 export const width = 300, height = 400;
-const takesJson = JSON.parse(fs.readFileSync((process.env.GAME_ROOT || '/home/user/Cricket') + '/tools/video_shots/takes.json'));
+const takesFile = process.env.GAME_ROOT ? process.env.GAME_ROOT + '/tools/video_shots/takes.json' : new URL('../video_shots/takes.json', import.meta.url);
 
 // The bat's toe direction (world: +x off side, +y up, +z toward the keeper) at stance, top, contact, finish.
 const TOE = {
@@ -37,7 +37,7 @@ function axisAt(take, tau) {
   let k = Math.min(1, Math.max(0, (tau - ta) / (tb - ta))); k = k * k * (3 - 2 * k);
   return nrm(A.map((v, j) => v + (B[j] - v) * k)).map((v) => -v);   // handle-up axis = -toe
 }
-function build(take, mode) {
+export function coachingFrames(take, mode = 'real') {
   const C = take.canon, n = C.length;
   // keep indices: 0 nose,1/2 ears,3/4 sh L/R,5/6 elbows,7/8 wrists L/R,9/10 index L/R,11/12 hips,13/14 knees,15/16 ankles
   const sm = (f, j) => { const o = [0, 0, 0]; let w = 0; for (let k = -1; k <= 1; k++) { const i = Math.min(n - 1, Math.max(0, f + k)); const ww = k ? 0.25 : 0.5; for (let a = 0; a < 3; a++) o[a] += C[i][j][a] * ww; w += ww; } return o.map((v) => v / w); };
@@ -68,13 +68,15 @@ export default async function ({ page, shot, out }) {
   const want = (process.env.TAKES || '').split(',').filter(Boolean);
   const mode = process.env.MODE || 'real';
   const render = process.env.RENDER !== '0';
+  const takesJson = JSON.parse(fs.readFileSync(takesFile));
   const takes = takesJson.takes.filter((t) => !want.length || want.some((w) => t.label.includes(w)));
   const summary = [];
   for (const take of takes) {
-    const frames = build(take, mode), ev = take.events, fps = takesJson.fps;
+    const frames = coachingFrames(take, mode), ev = take.events, fps = takesJson.fps;
     const name = take.label.replace(/ /g, '_');
     const res = await page.evaluate(async ({ frames, ev, fps, label, mode, name, dumpAt }) => {
       const THREE = await import('three');
+      const { gloveError } = await import('./tests/battingTracks.js');
       const g = window.__game, body = g.playerBody, A = body.actor, h = A.h;
       body.show(true); g.batMesh.visible = true;
       // the figure at your height, as updateViews sizes it (from the tallest you stand: here the stance + 8 cm)
@@ -122,22 +124,25 @@ export default async function ({ page, shot, out }) {
       };
       const marks = { top: T0 + ev.top, pre: Tc - 0.12, contact: Tc, mid: Tc + (Tf - Tc) * 0.5, finish: Tf, f05: Tf + 0.5, f15: Tf + 1.5, end: tEnd - 0.05 };
       const live = {}, liveM = {};
+      let fe = null;
       let prevE = null, maxEl = 0, elAt = null, jumpAt = null, indep = 0, gmax = 0, gsum = 0, gn = 0, cls = null, clsAt = null, t0 = null, worst = 0, worstT = 0, maxJump = 0, prevQ = null;
       for (let t = T0; t <= tEnd; t += 1 / 72) {
         const P = at(t), B = pose(P);
         body.update(1 / 72, t, B.pos, B.q, ballPos, { p: { x: P.head[0], y: P.head[1], z: P.head[2] }, q: { x: 0, y: 0, z: 0, w: 1 } }, info(t));
         const e = A.gripErr || 0; gsum += e; gn++; if (e > gmax) { gmax = e; worstT = t - Tc; }
-        const c = body.reader.cur; if (c && t0 == null) { t0 = c.t0 - Tc; } if (c) { cls = c.cls; }
+        if (body.sense.leader) {
+          cls = body.sense.leader; fe = body.sense.s.feat;
+          if (t0 == null) t0 = body.sense.s.sw.t0 - Tc;
+        }
         // largest per-frame joint jump (deg) after the swing: a freeze / snap detector
         h.update();
         const q = h.boneList.map((b) => b.getWorldQuaternion(new THREE.Quaternion()));
         const elb = ['elbowL', 'elbowR', 'handL', 'handR'].map((n) => h.worldPos(n, new THREE.Vector3()));
         if (prevE && t > T0 + 0.3) elb.forEach((p, i) => { const d = p.distanceTo(prevE[i]); if (d > maxEl) { maxEl = d; elAt = [+(t - Tc).toFixed(2), i]; } });
-        if (dumpAt != null && Math.abs(t - Tc - dumpAt) < 0.06) { const f = (v) => v.toArray().map((x) => x.toFixed(2)).join(','); const P2 = A._ps; console.log('D', (t - Tc).toFixed(3), 'shR', f(h.worldPos('shoulderR', new THREE.Vector3())), 'elR', f(elb[1]), 'hR', f(elb[3]), 'elL', f(elb[0]), 'hips', f(h.worldPos('hips', new THREE.Vector3())), 'bat', f(B.pos), 'cls', body.reader.cur && body.reader.cur.cls, P2 && P2.prev ? 'switch' : ''); }
+        if (dumpAt != null && Math.abs(t - Tc - dumpAt) < 0.06) { const f = (v) => v.toArray().map((x) => x.toFixed(2)).join(','); console.log('D', (t - Tc).toFixed(3), 'shR', f(h.worldPos('shoulderR', new THREE.Vector3())), 'elR', f(elb[1]), 'hR', f(elb[3]), 'elL', f(elb[0]), 'hips', f(h.worldPos('hips', new THREE.Vector3())), 'bat', f(B.pos), 'cls', body.sense.leader); }
         prevE = elb;
         if (prevQ) { let m = 0, mi = 0; q.forEach((qq, i) => { const a = qq.angleTo(prevQ[i]); if (a > m) { m = a; mi = i; } }); if (m * 57.3 > maxJump && t > T0 + 0.3) { maxJump = m * 57.3; jumpAt = [+(t - Tc).toFixed(2), h.boneList[mi].name]; } }
-        { const v = new THREE.Vector3(), w = new THREE.Vector3(); h.update(); const top = B.pos.clone().add(new THREE.Vector3(0, 0.105, 0).applyQuaternion(B.q));
-          const e2 = Math.max(Math.abs(h.worldPos('handR', v).distanceTo(B.pos) - 0.075), Math.abs(h.worldPos('handL', w).distanceTo(top) - 0.075)); if (e2 > indep) indep = e2; }
+        indep = Math.max(indep, gloveError(h, B.pos, B.q));
         prevQ = q;
         for (const [k, mt] of Object.entries(marks)) if (Math.abs(t - mt) < 0.5 / 72) { live[k] = { ...keep(), bat: B }; liveM[k] = metrics(); }
       }
@@ -149,7 +154,7 @@ export default async function ({ page, shot, out }) {
         for (const [k, mt] of Object.entries(marks)) if (Math.abs(t - mt) < 0.5 / 72) { const P = at(t); rep[k] = { ...keep(), bat: pose(P) }; repM[k] = metrics(); }
       });
       window.__rep = rep;
-      const fe = body.reader.last && body.reader.last.feat || body.reader.cur && body.reader.cur.feat; return { feat: fe && { cross: +fe.cross.toFixed(2), peak: +fe.peak.toFixed(1), v: [fe.vx, fe.vy, fe.vz].map((x) => +(x / (Math.hypot(fe.vx, fe.vy, fe.vz) || 1)).toFixed(2)), front: +fe.front.toFixed(2) }, name, cls, t0: t0 != null ? +t0.toFixed(2) : null, gripMaxCm: +(gmax * 100).toFixed(2), worstAt: +worstT.toFixed(2), gripMeanCm: +(gsum / gn * 100).toFixed(2), repGripMaxCm: +(rgmax * 100).toFixed(2), resolved: ok, maxJumpDeg: +maxJump.toFixed(1), jumpAt, elJumpCm: +(maxEl * 100).toFixed(1), elAt, indepCm: +(indep * 100).toFixed(2), liveM, repM, marks: Object.keys(marks) };
+      return { feat: fe && { cross: +fe.cross.toFixed(2), peak: +fe.peak.toFixed(1), dirX: +fe.dirX.toFixed(2), up: +fe.up.toFixed(2), front: +fe.front.toFixed(2) }, name, cls, t0: t0 != null ? +t0.toFixed(2) : null, gripMaxCm: +(gmax * 100).toFixed(2), worstAt: +worstT.toFixed(2), gripMeanCm: +(gsum / gn * 100).toFixed(2), repGripMaxCm: +(rgmax * 100).toFixed(2), resolved: ok, maxJumpDeg: +maxJump.toFixed(1), jumpAt, elJumpCm: +(maxEl * 100).toFixed(1), elAt, indepCm: +(indep * 100).toFixed(2), liveM, repM, marks: Object.keys(marks) };
     }, { frames, ev, fps, label: take.label, mode, name, dumpAt: process.env.DUMP ? +process.env.DUMP : null });
     console.log(JSON.stringify({ ...res, liveM: undefined, repM: undefined, marks: undefined }));
     for (const k of ['contact', 'finish', 'f15']) console.log('   ', k, 'live', JSON.stringify(res.liveM[k]), 'rep', JSON.stringify(res.repM[k]));
