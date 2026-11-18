@@ -8,7 +8,7 @@
 import fs from 'node:fs';
 import { execSync } from 'node:child_process';
 export const width = 300, height = 400;
-const takesJson = JSON.parse(fs.readFileSync((process.env.GAME_ROOT || '/home/user/Cricket') + '/tools/video_shots/takes.json'));
+const takesFile = process.env.GAME_ROOT ? process.env.GAME_ROOT + '/tools/video_shots/takes.json' : new URL('../video_shots/takes.json', import.meta.url);
 
 // The bat's toe direction (world: +x off side, +y up, +z toward the keeper) at stance, top, contact, finish.
 const TOE = {
@@ -37,7 +37,7 @@ function axisAt(take, tau) {
   let k = Math.min(1, Math.max(0, (tau - ta) / (tb - ta))); k = k * k * (3 - 2 * k);
   return nrm(A.map((v, j) => v + (B[j] - v) * k)).map((v) => -v);   // handle-up axis = -toe
 }
-function build(take, mode) {
+export function coachingFrames(take, mode = 'real') {
   const C = take.canon, n = C.length;
   // keep indices: 0 nose,1/2 ears,3/4 sh L/R,5/6 elbows,7/8 wrists L/R,9/10 index L/R,11/12 hips,13/14 knees,15/16 ankles
   const sm = (f, j) => { const o = [0, 0, 0]; let w = 0; for (let k = -1; k <= 1; k++) { const i = Math.min(n - 1, Math.max(0, f + k)); const ww = k ? 0.25 : 0.5; for (let a = 0; a < 3; a++) o[a] += C[i][j][a] * ww; w += ww; } return o.map((v) => v / w); };
@@ -68,10 +68,11 @@ export default async function ({ page, shot, out }) {
   const want = (process.env.TAKES || '').split(',').filter(Boolean);
   const mode = process.env.MODE || 'real';
   const render = process.env.RENDER !== '0';
+  const takesJson = JSON.parse(fs.readFileSync(takesFile));
   const takes = takesJson.takes.filter((t) => !want.length || want.some((w) => t.label.includes(w)));
   const summary = [];
   for (const take of takes) {
-    const frames = build(take, mode), ev = take.events, fps = takesJson.fps;
+    const frames = coachingFrames(take, mode), ev = take.events, fps = takesJson.fps;
     const name = take.label.replace(/ /g, '_');
     const res = await page.evaluate(async ({ frames, ev, fps, label, mode, name, dumpAt }) => {
       const THREE = await import('three');

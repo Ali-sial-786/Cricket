@@ -6,7 +6,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { SHOTS, shotTrack, buildTrack, gloveError } from './battingTracks.js';
+import { SHOTS, shotTrack, buildTrack, gloveError, batQuat } from './battingTracks.js';
 
 let THREE = null;
 try { THREE = await import('three'); } catch { THREE = null; }
@@ -360,6 +360,37 @@ test('the planted front knee tracks the boot through a pull and a hook', { skip 
       const toe = V().set(0, 0, 1).applyQuaternion(h.bones.ankleL.getWorldQuaternion(new THREE.Quaternion())).projectOnPlane(axis);
       assert.ok(knee.angleTo(toe) < Math.PI / 6, `${name}: front pad turned more than 30 degrees away from the boot`);
     }
+  }
+});
+
+test('both elbows clear the shoulders as the coaching sweep comes back across the chest', { skip }, async () => {
+  const { coachingFrames } = await import('../tools/harness_scenarios/vrshots.mjs');
+  const { takes, fps } = JSON.parse(fs.readFileSync(new URL('../tools/video_shots/takes.json', import.meta.url)));
+  const sweep = takes.find(t => t.label === 'sweep'), frames = coachingFrames(sweep);
+  const { body, A, h } = await load(), originalScale = h.root.scale.x;
+  try {
+    const eye = frames.slice(0, 5).reduce((sum, f) => sum + f.head[1], 0) / 5 + 0.08;
+    h.root.scale.setScalar(h.baseScale * Math.max(0.84, Math.min(1.12, eye / (A.headRestY * h.baseScale + 0.11))));
+    body.reset();
+    const last = {}, dt = 1 / 72, ev = sweep.events;
+    let worst = 0;
+    for (let i = 0; i * dt <= (frames.length - 1) / fps; i++) {
+      const t = i * dt, frame = t * fps, j = Math.min(frames.length - 2, Math.floor(frame));
+      const sample = field => V().fromArray(frames[j][field]).lerp(V().fromArray(frames[j + 1][field]), frame - j);
+      const k = Math.min(1, Math.max(0, (t - ev.top + 0.35) / 0.2)) * (1 - Math.min(1, Math.max(0, (t - ev.finish - 0.5) / 0.3)));
+      const extra = { sweep: { k: k * k * (3 - 2 * k) }, live: t < ev.contact, hit: t >= ev.contact ? { t: ev.contact } : null };
+      body.update(dt, t, sample('hand'), batQuat(sample('ax').negate().toArray(), [0, 0, -1]), null,
+        { p: sample('head'), q: new THREE.Quaternion() }, extra);
+      for (const side of ['L', 'R']) {
+        const elbow = h.worldPos('elbow' + side, V());
+        if (last[side] && t > ev.contact) worst = Math.max(worst, elbow.distanceTo(last[side]));
+        last[side] = elbow;
+      }
+    }
+    assert.ok(worst < 0.16, `an elbow jumped ${(100 * worst).toFixed(1)} cm in a frame of the sweep`);
+  } finally {
+    h.root.scale.setScalar(originalScale);
+    body.reset();
   }
 });
 

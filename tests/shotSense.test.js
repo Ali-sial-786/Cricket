@@ -168,3 +168,10 @@ test('a held drive keeps its finish until the player lowers the bat', () => {
     assert.ok(out.at(-1).engage < 0.05);
   }
 });
+
+test('lowering a drive directly into a wide guard releases the stroke', () => {
+  const guard = { t: 1.9, head: [-0.25, 1.52, -1.15], hand: [0.02, 0.8, -1.39], toe: [0.1, -0.95, 0.28], face: [0, 0, -1] };
+  const out = read(buildTrack([...SHOTS.straight_drive.keys.slice(0, 7), guard, { ...guard, t: 4 }], { noise: 0 }));
+  assert.ok(out.some(o => o.state === 'follow' && o.engage > 0.9));
+  assert.equal(out.at(-1).state, 'ready');
+});

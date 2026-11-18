@@ -268,8 +268,10 @@ export class ShotSense {
       const f = sw.finish, scale = S.stand / 1.62;
       const leftFinish = f && (Math.hypot(gx - f.gx, gy - f.gy, gz - f.gz) > 0.085 * scale
         || dx * f.dx + dy * f.dy + dz * f.dz < Math.cos(0.35));
-      const guard = dy < -0.75 && gy < -0.35 * scale && gz > -0.14 * scale;
-      if (S.tState > 0.25 && (leftFinish || (guard && S.quiet > 0.12))) {
+      // Players take guard at different distances in front of their eyes.
+      // A low, settled blade can return directly without pausing at the top.
+      const guard = dy < -0.75 && gy < -0.35 * scale;
+      if (S.tState > 0.25 && (leftFinish || (guard && S.quiet > 0.45))) {
         S.state = 'recover'; S.tState = 0;
       }
     } else if (S.state === 'recover') {

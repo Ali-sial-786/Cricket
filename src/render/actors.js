@@ -1690,7 +1690,8 @@ export class BatterActor extends Actor {
       const spread = (gripAcross ? mix(0.22, 0.65, high) : 0.1) + 0.3 * lift;
       _pole.copy(sh).addScaledVector(_fwd, gripAcross ? 0.04 : ELBOW_FWD).addScaledVector(_left, sign * spread);
       _pole.y += -0.6 + lift + 0.32 * high;
-      this.steadyPole(side, sh, at, _pole);
+      if (gripAcross) _gripPole.copy(_pole);
+      else this.steadyPole(side, sh, at, _pole);
       let roll = 0;
       for (let pass = 0; pass < 2; pass++) {
         // The grip frame, rolled `roll` round the handle.
@@ -1700,9 +1701,20 @@ export class BatterActor extends Actor {
         _gy.copy(_xr).multiplyScalar(-sb).addScaledVector(_by, cb);
         _gz.copy(_xr).multiplyScalar(-cb).addScaledVector(_by, -sb);
         _wr.copy(at).addScaledVector(_gy, palm);                            // the wrist, a palm's length from the handle
+        // The elbow bends about the shoulder-to-wrist line. Near the chest
+        // that can point a very different way from the line to the handle.
+        if (gripAcross) this.steadyPole(side, sh, _wr, _pole.copy(_gripPole));
         h.ikArm(side, _wr, _pole);
         if (pass) {
           if (this.stretchArms) this.stretchTo(side, _wr, _pole);
+          if (gripAcross) {
+            // When the wrist passes close to the shoulder the arm axis can
+            // turn sharply in a few millimetres. Preserve the upper arm's
+            // actual direction to keep the elbow on the nearer IK solution.
+            const folded = 1 - sstep(0.20 * sc, 0.40 * sc, sh.distanceTo(_wr));
+            const upper = h.worldPos('elbow' + side, _v1).sub(sh).normalize();
+            this._eb[side].lerp(upper, folded).normalize();
+          }
           break;
         }
         // Roll toward the forearm: the knuckles (-gy) as near its line as the grip allows.
@@ -2146,7 +2158,7 @@ export class BatterActor extends Actor {
 }
 const _e = new THREE.Vector3(), _up = new THREE.Vector3(0, 1, 0), _hold = new THREE.Vector3();
 const _kpL = new THREE.Vector3(), _kpR = new THREE.Vector3();
-const _bottomGrip = new THREE.Vector3();
+const _bottomGrip = new THREE.Vector3(), _gripPole = new THREE.Vector3();
 const _H = new THREE.Vector3(), _iL = new THREE.Vector3(), _iR = new THREE.Vector3(), _v1 = new THREE.Vector3(), _v2 = new THREE.Vector3(), _top = new THREE.Vector3();
 const _ql = new THREE.Quaternion(), _ft = new THREE.Vector3(), _sR = new THREE.Vector3(), _sL = new THREE.Vector3(), _ch = new THREE.Vector3(), _pole = new THREE.Vector3();
 const _v3 = new THREE.Vector3();
