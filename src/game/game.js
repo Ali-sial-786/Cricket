@@ -414,9 +414,9 @@ export class Game {
     const head = this.input.headRef;
     if (!this.roomForward) this.roomForward = headForward(head.q);
     const f = this.roomForward;
-    // With a Roomscale play area, your place is the spot with the most room
-    // round it (the yellow ring), wherever you stand now; else where you stand.
-    const A = this.playArea, at = A ? new Vec3(A.spot.x, head.p.y, A.spot.z) : head.p;
+    // You are always put in your place (the crease, your mark) where you stand:
+    // never left away from it because the room's best spot is somewhere else.
+    const at = head.p;
     this.homeRef = { x: at.x, z: at.z };             // (driftCheck)
     let r;
     this.lookYaw = 0; this.lookOff.x = this.lookOff.z = 0;
@@ -427,21 +427,22 @@ export class Game {
 
   // The Roomscale play area (xr/playArea.js) and the yellow ring on the floor
   // at the spot with the most room: shown when you are off it, before play
-  // and between balls (it is a spot in your room: a child of the rig).
+  // and between balls (it is a spot in your room: a child of the rig). Step
+  // into it and the crease is re-centred on you there.
   updatePlayArea(xrFrame) {
     const on = this.input.xr && !this.mr && this.xrManager && this.xrManager.playArea;
-    const A = this.playArea = on ? this.xrManager.playArea(xrFrame) : null;
+    let A = on ? this.xrManager.playArea(xrFrame) : null;
+    const p = this.input.headRef.p;
+    if (A && edgeDistance(A.poly, p.x, p.z) < -0.5) A = null;       // (you are well outside it: not an area to trust)
+    this.playArea = A;
     if (A && !this.areaMark) { this.areaMark = buildRingMarker(0xffd34d, 0.3); this.areaMark.visible = false; this.rig.add(this.areaMark); }
     if (!this.areaMark) return;
-    const sst = this.session ? this.session.state : null, p = this.input.headRef.p;
+    const sst = this.session ? this.session.state : null;
     const calm = this.state === 'safety' || this.state === 'calibrate' || this.state === 'menu' || (this.state === 'play' && sst !== 'live' && sst !== 'review');
     const show = !!A && calm && !this.viewOverride && !(this.replay && this.replay.active) && Math.hypot(p.x - A.spot.x, p.z - A.spot.z) > 0.25;
-    // (a play area found, or redrawn, after you were placed: placed again, at its spot -- not mid-ball)
-    if (A && calm && !this.viewOverride && !(this.replay && this.replay.active) && this.pendingRecenter == null
-      && (!this._areaSpot || Math.hypot(this._areaSpot.x - A.spot.x, this._areaSpot.z - A.spot.z) > 0.2)) {
-      this._areaSpot = { x: A.spot.x, z: A.spot.z };
-      this.recenter();
-    }
+    // (the ring is only a suggestion: walk into it and your place comes with you -- re-centred there, not mid-ball)
+    if (A && calm && !this.viewOverride && !(this.replay && this.replay.active) && this.pendingRecenter == null && this.homeRef
+      && Math.hypot(p.x - A.spot.x, p.z - A.spot.z) < 0.2 && Math.hypot(this.homeRef.x - p.x, this.homeRef.z - p.z) > 0.3) this.recenter();
     this.areaMark.visible = show;
     if (show) this.areaMark.position.set(A.spot.x, this.rigDrop + 0.005, A.spot.z);
   }
