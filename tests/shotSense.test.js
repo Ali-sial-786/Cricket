@@ -157,3 +157,14 @@ test('reader state is plain data: saved mid-stroke and loaded, it carries on exa
     assert.ok(Math.abs(o.engage - r.engage) < 1e-12 && Math.abs(o.phase - r.phase) < 1e-12);
   }
 });
+
+test('a held drive keeps its finish until the player lowers the bat', () => {
+  const keys = SHOTS.straight_drive.keys.map(k => ({ ...k, t: k.t >= 2.2 ? k.t + 1.5 : k.t }));
+  for (const hz of [30, 72, 120]) {
+    const out = read(buildTrack(keys, { hz }));
+    const held = out.filter(o => o.t >= 1.8 && o.t <= 3.7);
+    assert.ok(held.every(o => o.state === 'follow' && o.engage > 0.9), `drive released during the hold at ${hz} Hz`);
+    assert.ok(out.some(o => o.t > 3.7 && o.t < 4.2 && o.state === 'recover'), `no release as the hands came down at ${hz} Hz`);
+    assert.ok(out.at(-1).engage < 0.05);
+  }
+});

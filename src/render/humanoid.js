@@ -151,7 +151,7 @@ function gearPart(list, geom, bone, color, pos = [0, 0, 0], rot = null, scale = 
   list.push(g);
 }
 function geometryFor(o, lod) {
-  const key = `${lod}|${o.headgear}|${o.pads ? 1 : 0}|${o.gloves ? 1 : 0}|${o.keeper ? 1 : 0}`;
+  const key = `${lod}|${o.headgear}|${o.pads ? 1 : 0}|${o.gloves ? 1 : 0}|${o.keeper ? 1 : 0}|${o.playerGrip ? 1 : 0}`;
   let g = RIG.geoCache.get(key);
   if (!g) {
     const parts = RIG.lods[lod].filter((p) => !p.optional).map((p) => p.geo);
@@ -304,10 +304,10 @@ const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const FOOT_ONLY = {}, HAND_ONLY = {};
 
 export class Humanoid {
-  constructor({ team = 'home', skin = null, hair = null, headgear = 'cap', pads = false, gloves = false, keeper = false, scale = 1, seed = 0 } = {}) {
+  constructor({ team = 'home', skin = null, hair = null, headgear = 'cap', pads = false, gloves = false, keeper = false, playerGrip = false, scale = 1, seed = 0 } = {}) {
     if (!RIG) throw new Error('loadAthlete() must finish before creating players');
     const rnd = (n) => ((Math.sin(seed * 12.9898 + n * 78.233) * 43758.5453) % 1 + 1) % 1;
-    this.opts = { headgear, pads, gloves, keeper };
+    this.opts = { headgear, pads, gloves, keeper, playerGrip };
     this.material = kitMaterial();
     const u = this.material.userData.uniforms;
     u.uSkin.value.setHex(skin ?? SKIN_TONES[Math.floor(rnd(1) * SKIN_TONES.length)]);

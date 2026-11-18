@@ -72,7 +72,7 @@ const v3 = () => new THREE.Vector3(), q4 = () => new THREE.Quaternion();
 
 export class PlayerBodyView {
   constructor(scene) {
-    this.actor = new BatterActor(scene, { team: 'home', seed: 3 });
+    this.actor = new BatterActor(scene, { team: 'home', seed: 3, playerGrip: true });
     this.actor.bat.visible = false;     // the real player bat mesh is drawn by the game
     this.actor.stretchArms = true;      // your gloves are on your bat, always
     // A bat beyond the figure's reach (your arms and shoulders are not its): the trunk leans a little
@@ -448,7 +448,8 @@ export class PlayerBodyView {
     if (this.debug) { h.update(); this.debug.pre = h.worldPos('head', _a).distanceTo(Hj); }
     // ---- the gloves on the handle; the head looking where you look
     if (st.kneelK > 0.01) this.handRoom(bp, bq, st.kneelK);
-    A.gripBat(bp, bq, elbowUp);
+    const gripAcross = this.gripFrame(bp, bq, dt);
+    A.gripBat(bp, bq, elbowUp, gripAcross);
     this.kneesUp(dt);
     this.look(hq, e.ball, dt);
     h.syncShadow();
@@ -456,9 +457,42 @@ export class PlayerBodyView {
     if (h.guardLift > 0.002) {
       const lm = A.leanMax, rl = A.reachLimit;
       A.leanMax = NO_LEAN; A.reachLimit = NO_SHIFT;
-      A.gripBat(bp, bq, elbowUp);
+      A.gripBat(bp, bq, elbowUp, gripAcross);
       A.leanMax = lm; A.reachLimit = rl;
     }
+  }
+
+  // A shared approach to the handle for both wrists, from the batter's side.
+  // The bat face biases the grip. When the handle points into the chest its
+  // near side is ambiguous: carry the last grip across the new shaft and
+  // turn it only as fast as the hands can roll.
+  gripFrame(bp, bq, dt) {
+    const h = this.actor.h, sc = h.root.scale.y, st = this.st;
+    const shaft = _ax.set(0, 1, 0).applyQuaternion(bq);
+    const edge = _fc.set(1, 0, 0).applyQuaternion(bq);
+    const chest = h.worldPos('shoulderL', _b).add(h.worldPos('shoulderR', _c)).multiplyScalar(0.5);
+    chest.y -= 0.28 * sc;
+    const across = _a.subVectors(bp, chest).projectOnPlane(shaft);
+    const distance = across.length();
+    edge.negate();
+    if (distance > 1e-6) {
+      across.divideScalar(distance);
+      // In the normal range, the gloves turn with the face. Ease toward
+      // the forearms' approach if the controller rolls the face underneath.
+      across.lerp(edge, sstep(-0.55, 0.75, across.dot(edge))).normalize();
+    } else across.copy(edge);
+    if (st.gripAcross && dt < 0.15) {
+      _b.fromArray(st.gripAcross);
+      _b.addScaledVector(shaft, -_b.dot(shaft));
+      if (_b.lengthSq() > 1e-6) {
+        _b.normalize();
+        const angle = Math.atan2(_c.crossVectors(_b, across).dot(shaft), _b.dot(across));
+        const step = 12 * dt * sstep(0.02 * sc, 0.12 * sc, distance);
+        across.copy(_b).applyAxisAngle(shaft, clamp(angle, -step, step));
+      }
+    }
+    st.gripAcross = across.toArray(st.gripAcross);
+    return (this._gripAcross ||= v3()).copy(across);
   }
 
   // The weighted captures' body, placed for you: the pelvis where your head
@@ -494,6 +528,11 @@ export class PlayerBodyView {
       // the way the capture bends this knee
       const p = M['p' + sd].copy(M['k' + sd]).sub(_a.addVectors(M['h' + sd], M['a' + sd]).multiplyScalar(0.5)), yw = sd === 'L' ? yawL : yawR;
       kneeWay(p, yw);
+      // A planted pad tracks its toes. A video taken side-on loses the knee's
+      // depth, especially as a cross-bat shot turns through the line. Keep
+      // the capture's wider bend when down on a knee for the sweep.
+      _b.set(Math.sin(yw), 0, Math.cos(yw));
+      p.lerp(_b, 0.65 * (1 - this.st.kneelK)).normalize();
     }
     const ankleY = h.ankleHeight * sc;
     // ankles: on the planted feet; the back foot up on its toe as far as the capture's heel is up

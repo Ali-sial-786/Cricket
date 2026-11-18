@@ -257,9 +257,21 @@ export class ShotSense {
       } else this.weigh(null, dt, true);
       const vf = blockOK ? SENSE.vFull : SENSE.vIdle;
       S.target = Math.max(S.target, sstep(vf[0], vf[1], sw.peak)) * (S.leader >= 0 ? 1 : 0);
-      // over: the bat has been still a while, or has come back down to the stance
-      const down = S.lift < 0.3 && dy < -0.75 && sw.past > 0.6;
-      if (S.tState > 0.4 && (S.quiet > 0.45 || (down && S.quiet > 0.1))) { S.state = 'recover'; S.tState = 0; }
+      // Hold the finish for as long as the player does. Measure both the grip
+      // and blade against the head so moving around with the bat held still
+      // does not collapse the pose. A stroke without a pause can go straight
+      // back to guard.
+      const gx = grip.x - head.x, gy = grip.y - head.y, gz = grip.z - head.z;
+      if (!sw.finish && S.tState > 0.15 && S.quiet > 0.12) {
+        sw.finish = { gx, gy, gz, dx, dy, dz };
+      }
+      const f = sw.finish, scale = S.stand / 1.62;
+      const leftFinish = f && (Math.hypot(gx - f.gx, gy - f.gy, gz - f.gz) > 0.085 * scale
+        || dx * f.dx + dy * f.dy + dz * f.dz < Math.cos(0.35));
+      const guard = dy < -0.75 && gy < -0.35 * scale && gz > -0.14 * scale;
+      if (S.tState > 0.25 && (leftFinish || (guard && S.quiet > 0.12))) {
+        S.state = 'recover'; S.tState = 0;
+      }
     } else if (S.state === 'recover') {
       S.target = 0;
       this.weigh(null, dt, true);
