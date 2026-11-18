@@ -175,3 +175,15 @@ test('lowering a drive directly into a wide guard releases the stroke', () => {
   assert.ok(out.some(o => o.state === 'follow' && o.engage > 0.9));
   assert.equal(out.at(-1).state, 'ready');
 });
+
+test('a direct return to the player’s own angled guard ends a drive', () => {
+  for (const angle of [35, 45, 55, 75]) {
+    const tilt = angle * Math.PI / 180;
+    const guard = { head: [-0.25, 1.52, -1.15], hand: [0.02, 0.8, -1.39], toe: [0, -Math.cos(tilt), Math.sin(tilt)], face: [0, 0, -1] };
+    const keys = [{ t: 0, ...guard }, { t: 0.6, ...guard }, ...SHOTS.straight_drive.keys.slice(2, 7),
+      { t: 1.9, ...guard }, { t: 5, ...guard }];
+    const out = read(buildTrack(keys));
+    assert.ok(out.some(o => o.state === 'follow' && o.engage > 0.90), `played the drive from a ${angle} degree guard`);
+    assert.equal(out.at(-1).state, 'ready', `returned to a ${angle} degree guard`);
+  }
+});
