@@ -23,6 +23,7 @@ import { Replay, tailFor } from './replay.js';
 import { BallFinder } from '../render/ballFinder.js';
 import { CrowdAudio } from '../audio/crowd.js';
 import { MRPlacer } from '../xr/mr.js';
+import { edgeDistance } from '../xr/playArea.js';
 import { AIBatter } from './aiBatter.js';
 import { BatterView, BowlerView, FieldView, NonStrikerView, PlayerBodyView } from '../render/people.js';
 import { BatterCrew } from '../render/crew.js';
@@ -413,12 +414,36 @@ export class Game {
     const head = this.input.headRef;
     if (!this.roomForward) this.roomForward = headForward(head.q);
     const f = this.roomForward;
-    this.homeRef = { x: head.p.x, z: head.p.z };     // (where you stood: driftCheck)
+    // With a Roomscale play area, your place is the spot with the most room
+    // round it (the yellow ring), wherever you stand now; else where you stand.
+    const A = this.playArea, at = A ? new Vec3(A.spot.x, head.p.y, A.spot.z) : head.p;
+    this.homeRef = { x: at.x, z: at.z };             // (driftCheck)
     let r;
     this.lookYaw = 0; this.lookOff.x = this.lookOff.z = 0;
-    if (this.end === 'bowling') r = computeRig(head.p, f, BOWL_HEAD.x, BOWL_HEAD.z, +1);
-    else r = computeRig(head.p, f, this.settings.guardX + BAT_HEAD.legOffset, BAT_HEAD.z, -1);
+    if (this.end === 'bowling') r = computeRig(at, f, BOWL_HEAD.x, BOWL_HEAD.z, +1);
+    else r = computeRig(at, f, this.settings.guardX + BAT_HEAD.legOffset, BAT_HEAD.z, -1);
     this.setRig(r);
+  }
+
+  // The Roomscale play area (xr/playArea.js) and the yellow ring on the floor
+  // at the spot with the most room: shown when you are off it, before play
+  // and between balls (it is a spot in your room: a child of the rig).
+  updatePlayArea(xrFrame) {
+    const on = this.input.xr && !this.mr && this.xrManager && this.xrManager.playArea;
+    const A = this.playArea = on ? this.xrManager.playArea(xrFrame) : null;
+    if (A && !this.areaMark) { this.areaMark = buildRingMarker(0xffd34d, 0.3); this.areaMark.visible = false; this.rig.add(this.areaMark); }
+    if (!this.areaMark) return;
+    const sst = this.session ? this.session.state : null, p = this.input.headRef.p;
+    const calm = this.state === 'safety' || this.state === 'calibrate' || this.state === 'menu' || (this.state === 'play' && sst !== 'live' && sst !== 'review');
+    const show = !!A && calm && !this.viewOverride && !(this.replay && this.replay.active) && Math.hypot(p.x - A.spot.x, p.z - A.spot.z) > 0.25;
+    // (a play area found, or redrawn, after you were placed: placed again, at its spot -- not mid-ball)
+    if (A && calm && !this.viewOverride && !(this.replay && this.replay.active) && this.pendingRecenter == null
+      && (!this._areaSpot || Math.hypot(this._areaSpot.x - A.spot.x, this._areaSpot.z - A.spot.z) > 0.2)) {
+      this._areaSpot = { x: A.spot.x, z: A.spot.z };
+      this.recenter();
+    }
+    this.areaMark.visible = show;
+    if (show) this.areaMark.position.set(A.spot.x, this.rigDrop + 0.005, A.spot.z);
   }
 
   // Between balls in VR: wandered well away from the spot play was centred on?
@@ -429,9 +454,10 @@ export class Game {
     if (sst === 'live' || sst === 'review' || this.ui.menuOpen) return;
     const p = this.input.headRef.p, d = Math.hypot(p.x - this.homeRef.x, p.z - this.homeRef.z);
     const now = this.clock;
-    if (d > CONFIG.xr.driftWarn && !(now < (this._driftT || 0))) {
+    const A = this.playArea, near = A && edgeDistance(A.poly, p.x, p.z) < Math.min(1.0, A.spot.room - 0.25);
+    if ((d > CONFIG.xr.driftWarn || near) && !(now < (this._driftT || 0))) {
       this._driftT = now + 4;
-      this.ui.prompt('You have drifted — step back to your spot', 2.5, '#ffd34d');
+      this.ui.prompt(A ? 'Near the edge of your play area — step into the yellow ring' : 'You have drifted — step back to your spot', 2.5, '#ffd34d');
       if (this.input.left) this.input.left.pulse(0.3, 60);
     }
   }
@@ -775,6 +801,7 @@ export class Game {
     this.realNow = now;
     this.input.update(now, xrFrame);
 
+    this.updatePlayArea(xrFrame);
     if (this.pendingRecenter != null && this.input.xr) {
       if (--this.pendingRecenter <= 0) { this.pendingRecenter = null; this.recenter(); this.afterXRSettled(); }
     }

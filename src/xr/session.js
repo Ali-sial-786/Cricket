@@ -1,5 +1,6 @@
 // WebXR session management: VR (immersive-vr, local-floor) and MR
 // (immersive-ar passthrough), highest supported frame rate, fixed foveation.
+import { toLocal, bestSpot } from './playArea.js';
 import { CONFIG } from '../config.js';
 
 export class XRSessionManager {
@@ -48,7 +49,13 @@ export class XRSessionManager {
       r.xr.setFoveation(CONFIG.xr.foveation);
       // System recenter (long-press Meta button) resets the reference space.
       const ref = r.xr.getReferenceSpace();
-      if (ref && ref.addEventListener) ref.addEventListener('reset', () => { if (this.onReset) this.onReset(); });
+      if (ref && ref.addEventListener) ref.addEventListener('reset', () => { this.area = null; if (this.onReset) this.onReset(); });
+      // The Roomscale play area, where the headset shares it (none with a Stationary boundary).
+      this.bounded = null; this.area = null; this.areaT = 0;
+      session.requestReferenceSpace('bounded-floor').then((sp) => {
+        this.bounded = sp;
+        if (sp.addEventListener) sp.addEventListener('reset', () => { this.area = null; });
+      }).catch(() => { /* not offered */ });
       session.addEventListener('select', () => { if (this.onSelect) this.onSelect(); });
       session.addEventListener('visibilitychange', () => { if (this.onVisibility) this.onVisibility(session.visibilityState); });
       this.applyFrameRate(session);
@@ -99,6 +106,25 @@ export class XRSessionManager {
     }
   }
 
+  // { poly, spot: { x, z, room } } in the local-floor space, or null; worked out
+  // again every 2 s (the play area can be redrawn mid-session).
+  playArea(frame) {
+    const b = this.bounded;
+    if (!b || !frame || !b.boundsGeometry || b.boundsGeometry.length < 3) return null;
+    const now = performance.now();
+    if (now - this.areaT < 2000) return this.area;
+    this.areaT = now;
+    try {
+      const pose = frame.getPose(b, this.renderer.xr.getReferenceSpace());
+      if (!pose) return this.area || null;
+      const poly = toLocal(b.boundsGeometry, pose.transform.matrix);
+      // (the search runs only when the area has really changed: a redraw, a recenter)
+      const key = poly.length + ':' + poly.map((p) => `${p.x.toFixed(2)},${p.z.toFixed(2)}`).join(';');
+      if (key !== this.areaKey) { this.areaKey = key; const spot = bestSpot(poly); this.area = spot ? { poly, spot } : null; }
+    } catch (e) { this.area = null; }
+    return this.area;
+  }
+
   end() { if (this.session) this.session.end().catch(() => {}); }
 
   // End the current session and start another kind (must be called from an
@@ -116,6 +142,7 @@ export class XRSessionManager {
     this.session = null;
     this.mode = null;
     this.frameRate = null;
+    this.bounded = null; this.area = null;
     this.renderer.setClearAlpha(1);
     if (this.onEnd) this.onEnd();
   }
