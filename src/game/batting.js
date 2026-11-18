@@ -13,7 +13,7 @@
 import * as THREE from 'three';
 import { CONFIG } from '../config.js';
 import { Vec3, msToKmh, clamp } from '../physics/math.js';
-import { lengthName, lineName, groundDistance, battingPoppingZ } from '../physics/pitch.js';
+import { PITCH, lengthName, lineName, groundDistance, battingPoppingZ } from '../physics/pitch.js';
 import { machineDelivery } from '../physics/bowlingMachine.js';
 import { predict, crossingAtZ } from '../physics/trajectory.js';
 import { LbwFlow, padHit, deflectOffPad } from './lbwFlow.js';
@@ -30,7 +30,12 @@ const _fw = new Vec3(), _toe = new Vec3(), _lever = new Vec3(), _bv = new Vec3()
 let _sweetY = null;               // the middle of the (visible) bat, along its +Y from your hand
 const UNHIT_DEAD = 6;           // s of game time after the release: a ball nobody hit and nobody is doing anything with is dead
 const ATTACK_DEAD = 2.5;         // s after the keeper's attack was due: dead ball, whatever became of it
-const PLAYER_PAD = { halfX: 0.15, front: 0, back: 0.36, top: 0.7, dx: -0.07 };   // (m from your head: the legs are behind it and to its leg side, footwork.js FEET)
+const PAD_GO = 0.6;              // m behind your eyes the bat still gets its go at a ball that has met your pads
+const PAD_BAT_NEAR = 1.0;        // m: a bat further than this from that ball is not playing at it (the pad at once)
+const PLAYER_PAD = { halfX: 0.15, front: 0, back: 0.36, top: 0.7, dx: -0.07 };   // (on a monitor, no figure under you: m from your stance)
+// In the headset your pads are the legs you see when you look down (pads()): each
+// from its ankle, a pad's width either way along the pitch, to past the knee (which bends toward the off side).
+const LEG_PAD = { halfX: 0.1, front: 0.12, back: 0.1, top: 0.7, dx: 0.02 };
 import { Innings, runsText } from './scoring.js';
 
 const KMH = (v) => Math.round(msToKmh(v));
@@ -191,6 +196,16 @@ export class BattingSession {
     const g = this.game;
     if (g.input.xr) return g.input.headPose.p;
     return { x: STANCE.x + this.crease.x, z: STANCE.z + this.crease.z - this.advance };
+  }
+
+  // Your pads, front leg first: [{ x, z, box }] for padHit. In the headset, the
+  // two legs your figure stands on (footwork.js: they stay planted while your
+  // head goes over the ball, up to 0.4 m to the off side of them), so what you
+  // see is what the ball hits; never a box hung under your eyes, where the bat is.
+  pads() {
+    const g = this.game, S = g.input.xr && g.playerBody && g.playerBody.feet ? g.playerBody.feet.s : null;
+    if (!S || !S.init) { const p = this.body(); return [{ x: p.x, z: p.z, box: PLAYER_PAD }]; }
+    return [S.L, S.R].map((f) => ({ x: f.x, z: f.z, box: LEG_PAD }));
   }
 
   // ------------------------------------------------------------- input (real time)
@@ -420,7 +435,7 @@ export class BattingSession {
     this.planned = null;
     this.announced = false;
     this.settingsUsed = settings;
-    this.hit = null; this.byes = null; this.firstBounce = null; this.wide = false; this.crossedCrease = false; this.shortChecked = false; this.bouncerNote = '';
+    this.hit = null; this.byes = null; this.firstBounce = null; this.wide = false; this.crossedCrease = false; this.padPending = null; this.padDone = false; this.shortChecked = false; this.bouncerNote = '';
     this.offer.reset(); this.stumpAt = 0; this.stumpBroke = false; this.path.length = 0; this.shotName = '';
     this.pendingRes = null; this.reviewFlow = null;
     this.backFoot.reset();           // taking guard
@@ -491,29 +506,49 @@ export class BattingSession {
       }
     }
     // Into your legs: not a wide (Law 22.3). (With no LBW the ball goes through them.)
-    if (this.wide && !(this.field && g.diff.lbwAgainstPlayer) && !this.hit) { const body = this.body(); if (padHit(b.clone(), body.x, body.z, PLAYER_PAD)) this.wide = false; }
+    if (this.wide && !(this.field && g.diff.lbwAgainstPlayer) && !this.hit) { const c = b.clone(); if (this.pads().some((p) => padHit(c, p.x, p.z, p.box))) this.wide = false; }
     // Struck on the pad: LBW appeal (match modes, not on easy).
-    if (this.field && g.diff.lbwAgainstPlayer && !this.hit && !b.thrown) {      // (not a throw going past you)
-      // Your head stands in for your legs, so the box is kept tight and sits
-      // behind it (nothing ahead of your eyes, where you play the ball), and
-      // the bat always gets the first go at the ball.
-      const body = this.body();
-      const was = this.path.length > 1 ? this.path[this.path.length - 2] : null, at = b.pos.clone();
-      const padded = padHit(b, body.x, body.z, PLAYER_PAD, was);
-      if (padded && g.batDistance(b.pos) <= 0.3) b.pos.copy(at);     // (the bat is there: it gets its go, from where the ball really is)
-      else if (padded) {
-        const impact = b.clone();
+    if (this.field && g.diff.lbwAgainstPlayer && !b.thrown) {                   // (not a throw going past you)
+      // Your pads are the legs you see (pads()), and in VR a swing is often late: so
+      // the bat always gets its go. A ball that meets your pads is not stopped
+      // there: it carries on through your legs (padPending) for as far as a
+      // late bat could still reach it (PAD_GO m behind your eyes, never into
+      // the stumps). Hit it and it never touched the pad; miss it and it
+      // goes back to where it struck you. A bat nowhere near (a leave): at once.
+      const P = this.padPending;
+      const strike = (impact, path, padAt) => {
+        b.copyFrom(impact); b.padAt = padAt;
         deflectOffPad(b, g.rng);
         this.wide = false;                                   // it hit you: not a wide (Law 22.3)
         if (this.noBall || this.freeHit) { this.finish({ kind: 'beaten', padded: true }); return; }
         this.state = 'review';
-        this.lbw.start({ impactState: impact, path: this.path.slice(), shotOffered: this.offer.offered, playerIsBatter: true });
-        return;
+        this.lbw.start({ impactState: impact, path, shotOffered: this.offer.offered, playerIsBatter: true });
+      };
+      if (P) {
+        const d = g.batDistance(b.pos);
+        P.near = P.near && d <= 0.3;                         // (the bat right on it all the way: it goes through, as before)
+        if (this.hit || b.batted) this.padPending = null;    // the bat got it
+        else if (!b.active || b.pos.z > P.exitZ || b.vel.z <= 0 || b.pos.z + b.vel.z * (g.realDt || 1 / 72) * 1.5 > PITCH.battingStumpsZ - 0.1) {   // (or it would be into the stumps next frame)
+          this.padPending = null;
+          if (!P.near && b.active) { strike(P.impact, P.path, P.padAt); return; }
+        }
+      } else if (!this.hit && !this.padDone) {
+        const body = this.body();
+        const was = this.path.length > 1 ? this.path[this.path.length - 2] : null, at = b.pos.clone();
+        if (this.pads().some((p) => padHit(b, p.x, p.z, p.box, was))) {
+          this.padDone = true;                               // (one meeting with the pads a ball)
+          const impact = b.clone(), padAt = b.padAt, path = this.path.slice();
+          b.pos.copy(at); b.padAt = null;
+          const d = g.batDistance(b.pos), exitZ = body.z + PAD_GO;
+          if (d > PAD_BAT_NEAR || b.pos.z > exitZ || b.pos.z + b.vel.z * (g.realDt || 1 / 72) * 1.5 > PITCH.battingStumpsZ - 0.1) { strike(impact, path, padAt); return; }
+          this.padPending = { impact, path, padAt, exitZ, near: d <= 0.3 };
+        }
       }
     }
     // An edge onto the pad (lbwFlow.js batPad): an LBW shout (the review finds the bat first), or still in play.
     if (this.field && g.diff.lbwAgainstPlayer && this.hit && this.hit.edge && !this.noBall && !this.freeHit && !b.padded) {
-      const bp = this.lbw.batPad(b, this.body(), PLAYER_PAD, { path: this.path.slice(), shotOffered: this.offer.offered, playerIsBatter: true, since: t - this.hit.t, field: this.field, t });
+      const leg = this.pads().reduce((a, p) => (Math.abs(p.z - b.pos.z) < Math.abs(a.z - b.pos.z) ? p : a));   // (the leg it is at)
+      const bp = this.lbw.batPad(b, leg, leg.box, { path: this.path.slice(), shotOffered: this.offer.offered, playerIsBatter: true, since: t - this.hit.t, field: this.field, t });
       if (bp === 'appeal') { this.state = 'review'; this.reviewFlow = null; return; }
     }
     if (this.field && (b.batted || this.byes)) {

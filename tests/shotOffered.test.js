@@ -85,7 +85,11 @@ test('the session: a wristy swing and miss is "beaten" and offers a shot to an L
     // the ball comes on through the last 7 m (a missed nets ball runs on past the stumps; an LBW one hits the pad)
     for (let z = -6.9; z < 0.5 && !lbw && !result; z += 0.4) { ball.pos.z = z; s.checkLive(z); }
     if (!padded) { ball.pos.z = 3; s.checkLive(1); }
-    else { ball.pos.set(-0.25, 0.3, -1.0); s.checkLive(1); }
+    else {
+      ball.pos.set(-0.25, 0.3, -1.0); s.checkLive(1);
+      // (the bat gets its go through your legs: the pad is given once the ball is past where a late bat could reach)
+      if (!lbw && !result) { assert.ok(s.padPending, 'the pad waits for the bat'); ball.pos.z = -0.3; s.checkLive(1.02); }
+    }
     return { result, lbw };
   };
   assert.deepEqual(run(new Vec3(10, 0, 0), false).result, { kind: 'beaten' });
