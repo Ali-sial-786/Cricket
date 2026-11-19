@@ -5,6 +5,7 @@ import { drawHintCard, drawController, drawKey } from './controllerHint.js';
 import { PLAYER_BOWLERS, PLAYER_BOWLER_ORDER } from '../game/bowlerTypes.js';
 import { LENGTH_PRESETS, LINE_PRESETS } from '../physics/bowlingMachine.js';
 import { CONFIG } from '../config.js';
+import { buildVisionChart } from './visionChart.js';
 
 const fmt1 = (v) => (Math.round(v * 10) / 10).toFixed(1);
 const signed = (v, d = 2) => (v > 0 ? '+' : '') + v.toFixed(d);
@@ -44,6 +45,8 @@ export class UI {
     this.menu.mesh.renderOrder = 30;
     this.menu.mesh.material.depthTest = false;
     this.scene.add(this.menu.mesh);
+    this.chart = buildVisionChart();            // (beside the Vision page: tune by eye)
+    this.scene.add(this.chart);
     this.page = 'main';
 
     // HUD (world-locked, beside the pitch).
@@ -277,6 +280,7 @@ export class UI {
   closeMenu() {
     this.pendingPick = null;
     this.menu.mesh.visible = false;
+    this.chart.visible = false;
     this.laser.visible = false;
     this.dot.visible = false;
     this.game.onMenuChanged(false);
@@ -287,6 +291,7 @@ export class UI {
   // ---------------------------------------------------------------- pages
   buildPage() {
     const g = this.game, s = g.settings, P = this.menu;
+    this.placeChart();
     const W = [];
     const btn = (id, r, text, onClick, extra = {}) => W.push({ type: 'button', id, ...r, text, onClick, ...extra });
     const step = (id, r, label, value, onDec, onInc) => W.push({ type: 'stepper', id, ...r, label, value, onDec, onInc });
@@ -452,7 +457,33 @@ export class UI {
       btn('feel', L(1, 7), `Deliveries: ${s.bowlByFeel ? 'by wrist action' : 'pick with A/B'}`, () => g.actions.toggle('bowlByFeel'), { size: 26 });
       label(P.W * 0.5, P.H * 0.968, 'Y / Esc: back to the game', { align: 'center', size: 18, color: '#7f8fa0' });
       btn('back', { x: P.W - 150, y: 14, w: 130, h: 56 }, 'Back', () => this.go('main'));
+      btn('vision', { x: 20, y: 14, w: 260, h: 56 }, `Vision…${s.vision.on ? ' (on)' : ''}`, () => this.go('vision'), { size: 24, active: s.vision.on });
       P.set(W, 'Settings');
+    } else if (this.page === 'vision') {
+      const v = s.vision, L = grid(P, { top: 0.2, bottom: 0.1, cols: 2, rows: 7 });
+      const dz = (x) => `${x > 0 ? '+' : x < 0 ? '−' : ''}${Math.abs(x).toFixed(2)}`;
+      const info = g.vision && g.vision.info;
+      const blur = info && info.eyes && info.eyes.length === 2 ? `left ${info.eyes[0] ? info.eyes[0].radius.toFixed(1) : 0} px · right ${info.eyes[1] ? info.eyes[1].radius.toFixed(1) : 0} px` : '–';
+      label(P.W / 2, P.H * 0.165, `Your glasses' prescription. A help, not glasses. Blur: ${blur} · ${Math.round(g.stats.fps)} fps`, { align: 'center', size: 20, color: '#8fb3d1' });
+      for (const [col, eye, name] of [[0, 'L', 'Left'], [1, 'R', 'Right']]) {
+        const rx = v[eye];
+        step(`sph${eye}`, L(col, 0), `${name} sphere`, dz(rx.sph), () => g.actions.vision('sph', -0.25, -10, 6, eye), () => g.actions.vision('sph', 0.25, -10, 6, eye));
+        step(`cyl${eye}`, L(col, 1), `${name} cylinder`, dz(rx.cyl), () => g.actions.vision('cyl', -0.25, -6, 6, eye), () => g.actions.vision('cyl', 0.25, -6, 6, eye));
+        step(`axis${eye}`, L(col, 2), `${name} axis`, `${Math.round(rx.axis)}°`, () => g.actions.vision('axis', -5, -5, 185, eye), () => g.actions.vision('axis', 5, -5, 185, eye));
+      }
+      step('tune', L(0, 3), 'Fine tune', `${dz(v.tune)} D`, () => g.actions.vision('tune', -0.25, -2, 2), () => g.actions.vision('tune', 0.25, -2, 2));
+      step('pupil', L(1, 3), 'Pupil', `${v.pupil.toFixed(1)} mm`, () => g.actions.vision('pupil', -0.5, 2, 7), () => g.actions.vision('pupil', 0.5, 2, 7));
+      step('strength', L(0, 4), 'Strength', `${Math.round(v.strength * 100)}%`, () => g.actions.vision('strength', -0.25, 0.25, 1), () => g.actions.vision('strength', 0.25, 0.25, 1));
+      step('steps', L(1, 4), 'Quality (GPU)', `${v.steps} step${v.steps > 1 ? 's' : ''}/frame`, () => g.actions.vision('steps', -1, 1, 6), () => g.actions.vision('steps', 1, 1, 6));
+      step('region', L(0, 5), 'Area', `${Math.round(v.region * 100)}%`, () => g.actions.vision('region', -0.05, 0.3, 0.9), () => g.actions.vision('region', 0.05, 0.3, 0.9));
+      step('dist', L(1, 5), 'Headset focus', `${v.imageDist.toFixed(1)} m`, () => g.actions.vision('imageDist', -0.1, 0.8, 3), () => g.actions.vision('imageDist', 0.1, 0.8, 3));
+      { const r = L(0, 6), hw = (r.w - 12) / 2;
+        btn('von', { x: r.x, y: r.y, w: hw, h: r.h }, `Correction: ${v.on ? 'ON' : 'OFF'}`, () => g.actions.visionToggle(), { active: v.on, size: 24 });
+        btn('vab', { x: r.x + hw + 12, y: r.y, w: hw, h: r.h }, g.vision && !g.vision.show ? 'Showing: without' : 'Showing: with', () => { g.actions.visionCompare(); this.refresh(); }, { size: 24 }); }
+      btn('vcopy', L(1, 6), 'Left eye = right eye', () => g.actions.visionCopyEye(), { size: 24 });
+      label(P.W * 0.5, P.H * 0.955, 'Look at the chart on the right. Sphere/cylinder/axis as written on your prescription.', { align: 'center', size: 18, color: '#7f8fa0' });
+      btn('back', { x: P.W - 150, y: 14, w: 130, h: 56 }, 'Back', () => this.go('settings'));
+      P.set(W, 'Vision');
     } else if (this.page === 'bowler') {
       // The tick marks who bowls: the bowler you just picked (shown for a
       // moment before the page closes), else the current one. Hover is blue.
@@ -497,6 +528,19 @@ export class UI {
   }
 
   go(page) { this.page = page; this.buildPage(); }
+
+  // The test chart: on the Vision page, to the right of the menu and turned toward you.
+  placeChart() {
+    const on = this.menuOpen && this.page === 'vision';
+    this.chart.visible = on;
+    if (!on) return;
+    const m = this.menu.mesh;
+    m.updateMatrixWorld(true);
+    const right = new THREE.Vector3(1, 0, 0).applyQuaternion(m.quaternion);
+    this.chart.position.copy(m.position).addScaledVector(right, 0.98);
+    this.chart.position.y += 0.05;
+    this.chart.quaternion.copy(m.quaternion).multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -0.55));   // (turned toward you)
+  }
 
   // Bowler page: show the tick on the pick for a moment, then take it.
   pickBowler(k) {

@@ -52,6 +52,9 @@ export function defaultSettings() {
     hapticsScale: 1.0,
     seenSafety: false,
     bowlNeutralElevDeg: null,      // set by "Calibrate bowling release"
+    // Vision correction without glasses (src/game/vision.js): your prescription for each eye
+    // (sph / cyl in dioptres, axis in degrees), and the in-headset fine tuning.
+    vision: { on: false, L: { sph: 0, cyl: 0, axis: 0 }, R: { sph: 0, cyl: 0, axis: 0 }, pupil: 4, tune: 0, strength: 1, steps: 2, region: 0.45, imageDist: 1.3 },
   };
 }
 
@@ -61,6 +64,9 @@ export function loadSettings() {
   if (saved && typeof saved === 'object') {
     for (const k of Object.keys(s)) {
       if (k === 'machine' && saved.machine) s.machine = { ...s.machine, ...saved.machine };
+      else if (k === 'vision' && saved.vision && typeof saved.vision === 'object') {
+        s.vision = { ...s.vision, ...saved.vision, L: { ...s.vision.L, ...(saved.vision.L || {}) }, R: { ...s.vision.R, ...(saved.vision.R || {}) } };
+      }
       else if (saved[k] !== undefined && (s[k] === null || typeof saved[k] === typeof s[k])) s[k] = saved[k];
     }
   }

@@ -174,6 +174,14 @@ view also faces forward by itself before each ball, on recenter, catches and rep
 * **Settings → View:** *your eyes* (plain first person), *eyes + helmet grille* (first person from inside a
   batting helmet), or *behind the player* (third person: the camera sits behind and beside your player, who copies
   your bat, head and hands; menus and catches always switch back to your own eyes).
+* **Settings → Vision… (playing without glasses):** enter the prescription from your glasses for each eye
+  (sphere, cylinder, axis) and turn *Correction* on. In the headset, the middle of each eye's picture is
+  pre-corrected for your eye's blur (the method of ChromaCorrect, Güzel et al. 2023: the picture whose blurred
+  version is closest to the sharp one), so that the blur in your eye undoes some of it. It makes things crisper,
+  not glasses-sharp: the finest detail (small text) the blur wipes out cannot come back, and to anyone else the
+  picture looks over-sharpened. Tune it by eye on the chart beside the menu (*Fine tune*, *Pupil*; *Showing*
+  flips with / without). It costs GPU time: lower *Area* or *Quality* if the frame rate drops. Prescription
+  lens inserts remain the way to see sharply.
 * **Settings → Replays** (*after every ball* / *off*): every ball that is bowled — a leave, a dot ball, a hit, a
   boundary, a wicket, a run-out, a reviewed ball, the balls you bowl — gets its replay, once, at real speed: one
   camera high behind the bowler's arm watches the last strides, the release and the ball's flight, then turns to

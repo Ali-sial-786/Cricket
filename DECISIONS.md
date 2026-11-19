@@ -449,3 +449,42 @@ outside the box), the same as before.
 | H1 | **Hard mode pace**: AI fast bowlers 141-155 km/h (`[138, 152]` x hard `paceScale` 1.02), swing 133-144; the pace drawn as the mean of two (most balls mid-band; about 1 in 5 of a quick's 150+, the odd one 155). Net machine cap 160. | "Make the speed feel like real life ... 155 km/h at times." |
 | H2 | **The Quest boundary**: a web page cannot enlarge it. The safety screen says to use a Roomscale boundary; between balls, a head 0.6 m from where play was centred gets "step back to your spot" and a buzz (`Game.driftCheck`, `xr.driftWarn`), so steps don't add up into the boundary. | "Sometimes when I move a bit it takes me out of VR." |
 | H3 | **Your place is the middle of your Roomscale play area**: where the Quest shares it (WebXR `bounded-floor` boundsGeometry), the game finds the spot furthest from every edge (`xr/playArea.js bestSpot`) and anchors the crease (and the bowling mark) there, not wherever you happened to stand; a yellow ring on the floor shows it before play and between balls when you are off it, and "near the edge of your play area" replaces the drift warning. The Quest draws its lines when your head or hands come near the edge; it cannot be switched off from a web page. | "With roomscale the lines keep showing." |
+
+## Vision correction without glasses
+
+"I normally wear glasses ... could you build something where I provided my prescription it would shift the image so
+it would seem accurate for me without glasses?" Read first (arXiv, with the user's network permission):
+ChromaCorrect (Güzel, Beyazian, Chakravarthula, Akşit, *Biomedical Optics Express* 2023, arXiv 2212.04264) and
+Balaji & Ramu 2024 (arXiv 2501.01450, inverse blurring); their related work (Huang et al. 2012/2014 light-field
+displays, Montalto et al. 2015 TV pre-correction, Xu & Li 2018 HMD). The published ChromaCorrect code
+(complight/learned_prescription) could not be fetched (repository access refused); the method is fully described
+in the paper. ChromaCorrect: a Zernike PSF of the user's eye; find the displayed image s in [0,1] minimising
+||PSF*s - t||^2 (L2, LMS space), starting from s = t, Adam, ~60 iterations (8 s a 512^2 image on an RTX 2070), or a
+U-Net trained to mimic it (3 ms); evaluated on a Quest 1 with a camera behind a defocus lens (-1.5 D) and in
+simulation; "not able to produce the same quality as the target image"; additive displays are fundamentally limited
+(contrast). Balaji & Ramu: disk PSF, Wiener deconvolution of luma only, ringing masked; simulation only.
+
+Our simulation lab (scratchpad `vlab/`: Fourier-optics PSF at the Quest 3S eye buffer's scale, 824 px/rad, 4 mm
+pupil; the game's own frames; SSIM on luma, FLIP) on the batting view:
+
+| | 1.5 D | 2.5 D |
+|---|---|---|
+| no correction | 0.862 | 0.772 |
+| Wiener, RGB or luma only (+clamp) | 0.88 best, often worse than nothing on text | 0.80 |
+| ChromaCorrect optimiser, 60 Adam steps | 0.929 | 0.868 |
+| projected gradient (mu 1.8), 4 / 16 / 120 steps | 0.892 / 0.905 / 0.919 | 0.800 / 0.825 / 0.852 |
+| a single learned linear filter (fitted to Adam's output) | 0.868 | 0.783 |
+
+Menu text barely gains with any method (as the papers say: the blur removes those frequencies).
+
+| # | Decision | Why |
+|---|---|---|
+| V1 | **ChromaCorrect's problem, solved on the GPU by projected gradient descent** (`render/visionCorrect.js`): r = PSF*s - t, s = clamp(s - 1.8 PSF*r), from s = t, in linear light, RGB, each eye its own PSF. | Adam needs ~60 steps (worse than nothing below ~10); a U-Net is not for WebGL on a Quest; linear filters (Wiener, a learned one) cannot follow the clamp. PGD's steps are 2 small convolutions each. |
+| V2 | **Carried from frame to frame**: each frame starts from the last frame's correction (s - t), re-projected by the head's rotation (the scene is far), wherever the picture under it and as far round as the blur reaches is unchanged; anything that changed starts again from s = t. 2 steps a frame (`steps`). | A still view converges to ~120 steps in half a second: game frames, -2.5 D eye: no correction 0.868, one frame 0.889, 30 frames 0.920 (Python PGD-120 0.923). Head turning + ball in flight: 0.869 / 0.889 / 0.895, and round the ball 0.910 / 0.931 / 0.939: no smearing. |
+| V3 | **The eye**: geometric defocus PSF, a uniformly lit ellipse (`game/vision.js`): the eye focuses the 1.3 m picture (Quest 2 / 3S lenses, Carmack's figure) as well as it can between its two meridians (sph, sph + cyl), up to 2 D of accommodation; the rest is blur, pupil 4 mm, at the eye buffer's own px/rad (from the XR projection). TABO axis, mirrored to the wearer's view. Kernel: strongest taps holding 92% of the light, neighbours merged into bilinear fetches (18 for -2.5 D). | Matches the Zernike PSF (0.892 vs 0.893). Over-estimating the blur hurts more than under-estimating (+0.5 D: 0.868, -0.5 D: 0.879): *Fine tune* in the headset; a modelled cylinder beats the spherical equivalent (0.853 vs 0.846). |
+| V4 | **Only the middle of each eye** (`Area`, 45% of the shorter side, centred where straight ahead lands) is corrected, blended in over 24 px; the scene is drawn off-screen (the headset's tone mapping and sRGB, MSAA) and composited into the headset's buffer. Headset only (not a monitor, not mixed reality). | The Fresnel lenses are only sharp in the middle; the cost scales with the area. Off-screen loses fixed foveation for the scene: the price of reading the frame back. |
+| V5 | **Settings → Vision…**: each eye's sphere / cylinder / axis, fine tune, pupil, strength, steps, area, headset focus; a test chart beside the menu (letters, clock dial, stripes, a ball); *Showing* flips with / without. | Tune by eye: pupil size, the lens distance and the eye's own aberrations are unknown. |
+
+Checked: unit tests (`tests/vision.test.js`); the monitor path rendered and blurred by the simulated eye (above);
+the XR path under IWER (Meta's WebXR emulator, Quest 3 profile, stereo): both eyes corrected with their own
+prescriptions, no errors. Not measured: the frame time on a Quest 3S, and real eyes.

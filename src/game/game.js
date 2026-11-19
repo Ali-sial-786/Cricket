@@ -24,6 +24,8 @@ import { BallFinder } from '../render/ballFinder.js';
 import { CrowdAudio } from '../audio/crowd.js';
 import { MRPlacer } from '../xr/mr.js';
 import { edgeDistance } from '../xr/playArea.js';
+import { VisionCorrector } from '../render/visionCorrect.js';
+import { eyeError } from './vision.js';
 import { AIBatter } from './aiBatter.js';
 import { BatterView, BowlerView, FieldView, NonStrikerView, PlayerBodyView } from '../render/people.js';
 import { BatterCrew } from '../render/crew.js';
@@ -153,6 +155,8 @@ export class Game {
     });
     this._hands = [new Vec3(), new Vec3()];
     this.applyDifficulty();
+    this.vision = renderer && renderer.xr ? new VisionCorrector(renderer) : null;     // (vision correction: render/visionCorrect.js)
+    this.applyVision();
     this._lastView = this.settings.view;
     this.coachSeen = new Set();       // control hints already shown this game
 
@@ -276,6 +280,21 @@ export class Game {
   get diff() { return CONFIG.difficulty[this.settings.difficulty] || CONFIG.difficulty.medium; }
 
   // Difficulty changes the player's bat hit-zone (invisible assist).
+  // Vision correction: the prescription from the settings to the GPU pass.
+  applyVision() {
+    if (!this.vision) return;
+    const v = this.settings.vision;
+    this.vision.configure({ L: { ...v.L }, R: { ...v.R }, pupil: v.pupil, tune: v.tune, strength: v.strength, steps: v.steps, region: v.region, imageDist: v.imageDist });
+  }
+
+  // On, in the headset, and an eye that needs it (not in mixed reality: the room is real, nothing to correct there).
+  visionActive() {
+    const v = this.settings.vision;
+    if (!this.vision || !v || !v.on || this.mr || !this.input.xr) return false;     // (in the headset: its lenses are what the eye model is of)
+    const o = { imageDist: v.imageDist, tune: v.tune };
+    return [v.L, v.R].some((rx) => { const e = eyeError(rx, o); return Math.max(Math.abs(e.e1), Math.abs(e.e2)) >= 0.15; });
+  }
+
   applyDifficulty() {
     const a = this.diff.batAssist, B = CONFIG.bat;
     const lvl = CONFIG.contactAssist[this.settings.contactAssist] || CONFIG.contactAssist.normal;
@@ -1330,6 +1349,16 @@ function makeActions(game) {
       persist();
     },
     toggle: (key) => { g.settings[key] = !g.settings[key]; if (key === 'sound') g.sfx.setEnabled(g.settings.sound); persist(); },
+    // Vision page: a field of settings.vision (eye: 'L' | 'R' for the prescription), or turn it on / off.
+    vision: (key, d, lo, hi, eye = null) => {
+      const v = g.settings.vision, o = eye ? v[eye] : v;
+      o[key] = clamp(Math.round((o[key] + d) * 100) / 100, lo, hi);
+      if (key === 'axis') o.axis = ((o.axis % 180) + 180) % 180;
+      g.applyVision(); persist();
+    },
+    visionToggle: () => { g.settings.vision.on = !g.settings.vision.on; g.applyVision(); persist(); },
+    visionCompare: () => { if (g.vision) g.vision.show = !g.vision.show; },
+    visionCopyEye: () => { const v = g.settings.vision; v.L = { ...v.R }; g.applyVision(); persist(); },
     setting: (key, d, lo, hi) => { g.settings[key] = clamp(Math.round((g.settings[key] + d) * 100) / 100, lo, hi); persist(); },
     difficulty: (dir) => { const i = clamp(DIFFS.indexOf(g.settings.difficulty) + dir, 0, 2); g.settings.difficulty = DIFFS[i]; g.applyDifficulty(); persist(); },
     bowlCalib: () => { g.bowlCalibPending = 3; g.sfx.init(); g.startSession('bowlnets'); },

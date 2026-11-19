@@ -78,6 +78,7 @@ renderer.setAnimationLoop((time, frame) => {
     console.error(e);
     setStatus('Error: ' + (e.message || e));
   }
-  renderer.render(scene, camera);
+  if (game.visionActive()) game.vision.render(scene, camera);     // (vision correction: render/visionCorrect.js)
+  else renderer.render(scene, camera);
   game.sampleFrame(time, performance.now() - t0);     // long frames -> window.__longFrames
 });
