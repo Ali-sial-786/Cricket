@@ -846,6 +846,7 @@ export class Game {
       if (this.playerBowler.showHand) this.playerBowler.showHand(null);
       if (this.session && this.session.field) this.crew.duringReplay(realDt);   // (a batter walking off / in keeps going)
       this.replay.placeOverlays(this.eye, realDt);
+      this.ballView.faceTrail(this.eye.p);
       this.ballFinder.hide();
       Humanoid.updateLods(this.eye.p);
       this.nearCull.update(this.eye.p, Humanoid.all, 0.6);
@@ -866,6 +867,7 @@ export class Game {
       this.applyView();
       this.updateEye();
       this.updateViews(sdt, paused);
+      this.ballView.faceTrail(this.eye.p);
       this.umpires.update(paused ? 0 : realDt, this.clock);
       if (this.session && this.state === 'play' && !paused) this.recordForReplay();
       this.replay.placeOverlays(this.eye, realDt);
@@ -1059,13 +1061,15 @@ export class Game {
   updateViews(dt, paused) {
     const b = this.world.ball;
     if (this.ballOverride) {
+      this.ballView.trailGrowing = false;
       this.ballView.update(this.ballOverride.pos, 0, null, false);
     } else if (b.active && this.ballView.visible) {
       // Extrapolate the sub-step remainder so the ball is drawn at frame time.
       const lag = paused ? 0 : clamp(this.simTime - this.world.time, 0, 0.01);
       _render.copy(b.pos).addScaled(b.vel, b.stopped ? 0 : lag);
       if (_render.y < CONFIG.ball.radius) _render.y = CONFIG.ball.radius;
-      this.ballView.update(_render, paused ? 0 : dt, b.spin, this.settings.trail && b.batted);
+      this.ballView.trailGrowing = !!(this.settings.trail && b.batted);
+      this.ballView.update(_render, paused ? 0 : dt, b.spin, this.ballView.trailGrowing);
     }
     // Visibility assist: keep the ball at a minimum angular size (render only).
     let k = 1;

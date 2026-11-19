@@ -99,7 +99,7 @@ export class Replay {
     const hp = g.input.headPose;
     B[o++] = hp.p.x; B[o++] = hp.p.y; B[o++] = hp.p.z; B[o++] = hp.q.x; B[o++] = hp.q.y; B[o++] = hp.q.z; B[o++] = hp.q.w;
     const bm = g.ballView.mesh;
-    o = put(B, o, bm.position, bm.quaternion); B[o++] = bm.scale.x; B[o++] = g.ballView.visible ? 1 : 0;
+    o = put(B, o, bm.position, bm.quaternion); B[o++] = bm.scale.x; B[o++] = g.ballView.visible ? (g.ballView.trailGrowing ? 2 : 1) : 0;   // (2: its trail growing)
     // Your bat: not when a runner in your kit has taken over (he carries his own;
     // yours would stand on its own at the crease where you are).
     o = put(B, o, g.batMesh.position, g.batMesh.quaternion); B[o++] = g.batMesh.visible && g.batReplayVisible !== false ? 1 : 0;
@@ -230,6 +230,7 @@ export class Replay {
     setLabel(this.label, 'REPLAY', xr ? `off-hand (${this.skipHand().hand}) trigger: next ball` : 'Space skips · N: next ball');
     this.label.visible = true; this.label.material.opacity = 1; this.labelT = 0;
     if (g.ballView.trail) g.ballView.clearTrail?.();
+    this.trailT = -Infinity;
     // The camera's whole move, and where your head is in the room (it moves the rig under that).
     this.path = this.layoutCamera(clip, xr ? CAM.xr : CAM.desk);
     // The camera's heading goes to the way you face when you play (the pitch's
@@ -319,6 +320,10 @@ export class Replay {
     lerpTo(B, a, b, k, bm.position, bm.quaternion); bm.scale.setScalar(B[a + 7]);
     g.ballView.setVisible(B[a + 8] > 0.5);
     if (g.ballView.shadow) g.ballView.shadow.position.set(bm.position.x, 0.005, bm.position.z);
+    // the hit ball's trail grows again with the replayed ball (from nothing if the replay went back)
+    if (t < (this.trailT ?? -Infinity)) g.ballView.clearTrail?.();
+    this.trailT = t;
+    if (B[a + 8] > 1.5 && g.settings && g.settings.trail) g.ballView.trail?.add?.(bm.position);
     a += 9; b += 9;
     lerpTo(B, a, b, k, g.batMesh.position, g.batMesh.quaternion); g.batMesh.visible = B[a + 7] > 0.5;
     a += 8; b += 8;

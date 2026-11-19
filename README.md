@@ -148,6 +148,9 @@ view also faces forward by itself before each ball, on recenter, catches and rep
   (never "bowled").
 * **Finding the ball:** after a hit, a yellow arrow at the edge of your view points to the ball when it's out of
   sight, a halo marks it when it's far away, and a ring shows where it will land (Settings → Ball finder).
+* **Ball trail:** a hit ball draws its whole path behind it, a soft ribbon from the bat to wherever it goes, kept
+  until the next ball (and drawn again in the replay). It never gets thinner than a readable line however far the
+  ball goes; the finder's arrow, halo and landing ring still point to the ball itself (Settings → Trail).
 * **The keeper is physical:** he moves across with the line of the ball, takes it on his feet if he can, leaps for
   a bouncer and dives for a wide one. He only ever has the ball if he actually reaches it. Standing up to the
   spinners he takes the bails off himself; standing back to the quicks he has to throw at the stumps, and can miss.

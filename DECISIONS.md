@@ -488,3 +488,9 @@ Menu text barely gains with any method (as the papers say: the blur removes thos
 Checked: unit tests (`tests/vision.test.js`); the monitor path rendered and blurred by the simulated eye (above);
 the XR path under IWER (Meta's WebXR emulator, Quest 3 profile, stereo): both eyes corrected with their own
 prescriptions, no errors. Not measured: the frame time on a Quest 3S, and real eyes.
+
+## The hit ball's trail
+
+| # | Decision | Why |
+|---|---|---|
+| T1 | **A ribbon along the hit ball's whole flight** (`render/objects.js BallTrail`), replacing the 1 px line of its last 40 frames: a point every 25 cm from the bat (480 at most; past that every other one goes and the spacing doubles), turned to face your eyes every frame, 5 cm wide or ~0.17 deg of your view if wider (a 70 m drive stays a readable line), soft-edged, brightest at the ball. Kept until the next ball; the replay grows it again with the replayed ball (the tape's ball flag: 2 = trail growing). The finder (arrow when the ball is out of view, halo, landing ring) is unchanged. | "Like a trail to show where the ball goes; keep the arrows, which help when the ball is right above or behind me." |

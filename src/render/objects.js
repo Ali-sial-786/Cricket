@@ -90,16 +90,8 @@ export class BallView {
     this.shadow.renderOrder = 1;
     scene.add(this.shadow);
 
-    // Trail for hit balls / debug (fixed-size line strip).
-    this.trailN = 40;
-    const tp = new Float32Array(this.trailN * 3);
-    this.trailGeo = new THREE.BufferGeometry();
-    this.trailGeo.setAttribute('position', new THREE.BufferAttribute(tp, 3));
-    this.trail = new THREE.Line(this.trailGeo, new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.35 }));
-    this.trail.frustumCulled = false;
-    this.trail.visible = false;
-    scene.add(this.trail);
-    this.trailCount = 0;
+    // Trail for hit balls: the whole flight from the bat (BallTrail).
+    this.trail = new BallTrail(scene);
     this.trailEnabled = true;
     this.spinAngle = 0;
     this.visible = true;
@@ -110,7 +102,7 @@ export class BallView {
     this.visible = v;
     this.mesh.visible = v && this.fade > 0.02;
     this.shadow.visible = v;
-    if (!v) { this.trail.visible = false; this.trailCount = 0; }
+    if (!v) this.trail.clear();
   }
 
   // Opacity 0..1 (the ball in your hand fades out as it nears your eyes). 1 = the usual solid ball.
@@ -143,18 +135,105 @@ export class BallView {
     this.shadow.position.set(pos.x, 0.008, pos.z);
     this.shadow.material.opacity = Math.max(0.15, 1 - h * 0.12);
 
-    if (showTrail && this.trailEnabled) {
-      const arr = this.trailGeo.attributes.position.array;
-      if (this.trailCount < this.trailN) this.trailCount++;
-      arr.copyWithin(3, 0, (this.trailN - 1) * 3);
-      arr[0] = pos.x; arr[1] = pos.y; arr[2] = pos.z;
-      for (let i = this.trailCount; i < this.trailN; i++) { arr[i * 3] = pos.x; arr[i * 3 + 1] = pos.y; arr[i * 3 + 2] = pos.z; }
-      this.trailGeo.attributes.position.needsUpdate = true;
-      this.trail.visible = true;
-    }
+    if (showTrail && this.trailEnabled) this.trail.add(pos);
   }
-  clearTrail() { this.trailCount = 0; this.trail.visible = false; }
+  clearTrail() { this.trail.clear(); }
+  get trailOn() { return this.trail.count > 0; }
+  // Each frame, after the ball has moved: the ribbon turned to face your eyes.
+  faceTrail(eye) { this.trail.face(eye); }
 }
+
+// The hit ball's path: a soft ribbon from the bat to wherever the ball is now, kept until the
+// next ball. It is turned to face you every frame and never thinner than ~0.17 deg of your view
+// (a 70 m six stays a readable line); the newest part is the brightest. The finder's arrow,
+// halo and landing ring (render/ballFinder.js) still point to the ball itself.
+export class BallTrail {
+  constructor(scene, { max = 480, step = 0.25, width = 0.05, minAngle = 0.003, color = 0xfff3c4 } = {}) {
+    this.max = max; this.step = this.baseStep = step; this.width = width; this.minAngle = minAngle;
+    this.pts = new Float32Array(max * 3);
+    this.count = 0;
+    const geo = new THREE.BufferGeometry();
+    this.pos = new THREE.BufferAttribute(new Float32Array(max * 2 * 3), 3).setUsage(THREE.DynamicDrawUsage);
+    this.col = new THREE.BufferAttribute(new Float32Array(max * 2 * 4), 4).setUsage(THREE.DynamicDrawUsage);
+    const uv = new Float32Array(max * 2 * 2);
+    for (let i = 0; i < max; i++) { uv[i * 4 + 1] = 0; uv[i * 4 + 3] = 1; }
+    const idx = [];
+    for (let i = 0; i < max - 1; i++) { const a = i * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+    geo.setAttribute('position', this.pos); geo.setAttribute('color', this.col); geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+    geo.setIndex(idx); geo.setDrawRange(0, 0);
+    this.geo = geo;
+    const c = new THREE.Color(color);
+    this.rgb = [c.r, c.g, c.b];
+    this.mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ map: edgeTexture(), vertexColors: true, transparent: true, depthWrite: false, side: THREE.DoubleSide, toneMapped: false }));
+    this.mesh.name = 'ballTrail';
+    this.mesh.frustumCulled = false;
+    this.mesh.renderOrder = 4;
+    this.mesh.visible = false;
+    scene.add(this.mesh);
+  }
+
+  get visible() { return this.mesh.visible; }
+  set visible(v) { this.mesh.visible = v; }
+
+  clear() { this.count = 0; this.step = this.baseStep; this.mesh.visible = false; this.geo.setDrawRange(0, 0); }
+
+  // The ball is at p: a new point every `step` m (the newest always follows the ball).
+  add(p) {
+    const P = this.pts;
+    let n = this.count;
+    const y = Math.max(p.y, 0.03);
+    if (n >= 2) {
+      const i = (n - 2) * 3, d = Math.hypot(p.x - P[i], y - P[i + 1], p.z - P[i + 2]);
+      if (d < this.step) { const j = (n - 1) * 3; P[j] = p.x; P[j + 1] = y; P[j + 2] = p.z; return; }
+    }
+    if (n >= this.max) {                       // full: keep every other point (the shape stays; the spacing doubles)
+      let w = 0;
+      for (let r = 0; r < n; r += 2) { P[w * 3] = P[r * 3]; P[w * 3 + 1] = P[r * 3 + 1]; P[w * 3 + 2] = P[r * 3 + 2]; w++; }
+      n = w; this.step *= 2;
+    }
+    P[n * 3] = p.x; P[n * 3 + 1] = y; P[n * 3 + 2] = p.z;
+    this.count = n + 1;
+    this.mesh.visible = this.count >= 2;
+  }
+
+  // Two vertices a point, across the path as you see it; brightest where the ball is now.
+  face(eye) {
+    const n = this.count;
+    if (n < 2 || !this.mesh.visible) return;
+    const P = this.pts, V = this.pos.array, C = this.col.array, [r, g, b] = this.rgb;
+    for (let i = 0; i < n; i++) {
+      const a = Math.max(0, i - 1) * 3, c = Math.min(n - 1, i + 1) * 3, o = i * 3;
+      const tx = P[c] - P[a], ty = P[c + 1] - P[a + 1], tz = P[c + 2] - P[a + 2];
+      const ex = eye.x - P[o], ey = eye.y - P[o + 1], ez = eye.z - P[o + 2];
+      let sx = ty * ez - tz * ey, sy = tz * ex - tx * ez, sz = tx * ey - ty * ex;
+      const sl = Math.hypot(sx, sy, sz) || 1, dist = Math.hypot(ex, ey, ez);
+      const k = 0.5 * Math.max(this.width, dist * this.minAngle) / sl;
+      sx *= k; sy *= k; sz *= k;
+      V[i * 6] = P[o] - sx; V[i * 6 + 1] = P[o + 1] - sy; V[i * 6 + 2] = P[o + 2] - sz;
+      V[i * 6 + 3] = P[o] + sx; V[i * 6 + 4] = P[o + 1] + sy; V[i * 6 + 5] = P[o + 2] + sz;
+      const f = i / (n - 1), al = (0.45 + 0.5 * f) * Math.min(1, (n - 1 - i) / 2 + 0.6);   // (fades toward the bat; soft at the ball)
+      C[i * 8] = C[i * 8 + 4] = r; C[i * 8 + 1] = C[i * 8 + 5] = g; C[i * 8 + 2] = C[i * 8 + 6] = b;
+      C[i * 8 + 3] = C[i * 8 + 7] = al;
+    }
+    this.pos.needsUpdate = true; this.col.needsUpdate = true;
+    this.pos.addUpdateRange?.(0, n * 6); this.col.addUpdateRange?.(0, n * 8);
+    this.geo.setDrawRange(0, (n - 1) * 6);
+  }
+}
+
+// Across the ribbon: solid in the middle, soft at the edges.
+let _edgeTex = null;
+function edgeTexture() {
+  if (_edgeTex) return _edgeTex;
+  const c = document.createElement('canvas'); c.width = 4; c.height = 64;
+  const x = c.getContext('2d'), gr = x.createLinearGradient(0, 0, 0, 64);
+  gr.addColorStop(0, 'rgba(255,255,255,0)'); gr.addColorStop(0.3, 'rgba(255,255,255,0.85)'); gr.addColorStop(0.5, 'rgba(255,255,255,1)');
+  gr.addColorStop(0.7, 'rgba(255,255,255,0.85)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+  x.fillStyle = gr; x.fillRect(0, 0, 4, 64);
+  _edgeTex = new THREE.CanvasTexture(c);
+  return _edgeTex;
+}
+
 const _axis = new THREE.Vector3(), _q = new THREE.Quaternion();
 
 // White leather with a raised stitched seam around the equator.
