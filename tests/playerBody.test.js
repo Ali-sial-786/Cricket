@@ -6,7 +6,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { SHOTS, shotTrack, buildTrack } from './battingTracks.js';
+import { SHOTS, shotTrack, buildTrack, gloveError, batQuat } from './battingTracks.js';
 
 let THREE = null;
 try { THREE = await import('three'); } catch { THREE = null; }
@@ -58,7 +58,7 @@ function segDist(p1, q1, p2, q2) {
 function play(m, name, tweak = null) {
   const { body, A, h, PITCH } = m, trk = tweak ? tweak(shotTrack(name)) : shotTrack(name);
   body.reset();
-  const bp = V(), bq = new THREE.Quaternion(), top = V(), sc = h.root.scale.x, ankleY = h.ankleHeight * sc;
+  const bp = V(), bq = new THREE.Quaternion(), sc = h.root.scale.x, ankleY = h.ankleHeight * sc;
   const ix = BODY.map((n) => h.boneList.indexOf(h.bones[n]));
   const stumps = [-0.1143, 0, 0.1143].map((x) => [new THREE.Vector3(x, 0, PITCH.battingStumpsZ), new THREE.Vector3(x, 0.71, PITCH.battingStumpsZ)]);
   const R = { frames: [], glove: 0, jump: 0, jumpAt: '', slide: 0, low: 0, guard: 0, headMax: 0, headMean: 0, stump: 9, tilt: 0, tiltUp: 0, trunkTurn: 0 };
@@ -72,8 +72,7 @@ function play(m, name, tweak = null) {
       ankL: h.worldPos('ankleL', V()), ankR: h.worldPos('ankleR', V()), trunk: h.worldPos('neck', V()).sub(h.worldPos('hips', V())).normalize() };
     R.frames.push(f);
     // the gloves on the handle (bottom hand on the grip point, top hand a hand's width up)
-    top.copy(bp).add(V().set(0, 0.105, 0).applyQuaternion(bq));
-    R.glove = Math.max(R.glove, Math.abs(h.worldPos('handR', V()).distanceTo(bp) - 0.075), Math.abs(h.worldPos('handL', V()).distanceTo(top) - 0.075));
+    R.glove = Math.max(R.glove, gloveError(h, bp, bq));
     if (prev && i > 3) {
       for (const k of ix) { const a = f.q[k].angleTo(prev.q[k]) * 180 / Math.PI; if (a > R.jump) { R.jump = a; R.jumpAt = h.boneList[k].name + '@' + (e.t - trk[0].t).toFixed(2); } }
       for (const sd of ['L', 'R']) {
@@ -181,7 +180,7 @@ test('replay: the sliced re-solve gives exactly the body you had, and the gloves
       h.boneList.forEach((b, k) => b.quaternion.copy(p.q[k])); h.bones.hips.position.copy(p.hp); h.root.position.copy(p.rp); h.root.quaternion.copy(p.rq);
       body.replayArms(p.t); h.update();            // (at the exact time of the pose: that entry's arms)
       bp.set(e.bp.x, e.bp.y, e.bp.z); bq.set(e.bq.x, e.bq.y, e.bq.z, e.bq.w);
-      rg = Math.max(rg, Math.abs(h.worldPos('handR', V()).distanceTo(bp) - 0.075), Math.abs(h.worldPos('handL', V()).distanceTo(V().set(0, 0.105, 0).applyQuaternion(bq).add(bp)) - 0.075));
+      rg = Math.max(rg, gloveError(h, bp, bq));
     }
     assert.ok(rg < 0.005, `${n}: gloves ${(rg * 100).toFixed(2)} cm off the handle in the replay`);
     A.restArms();
@@ -272,8 +271,7 @@ test('replay tape: record -> re-solve -> overwrite -> apply keeps your gloves on
       const t = R.timeAt(i) + (mid ? 0.5 * (R.timeAt(Math.min(R.count - 1, i + 1)) - R.timeAt(i)) : 0);
       if (t < from || t > to) continue;
       R.apply(t); h.update(); n++;
-      const top = V().set(0, 0.105, 0).applyQuaternion(batMesh.quaternion).add(batMesh.position);
-      worst = Math.max(worst, Math.abs(h.worldPos('handR', V()).distanceTo(batMesh.position) - 0.075), Math.abs(h.worldPos('handL', V()).distanceTo(top) - 0.075));
+      worst = Math.max(worst, gloveError(h, batMesh.position, batMesh.quaternion));
     }
     return { worst, n };
   };
@@ -314,13 +312,87 @@ function playKeys(m, keys, extra) {
     const q = h.boneList.map((b) => b.quaternion.clone());
     if (prev && i > 3) q.forEach((x, k) => { const a = x.angleTo(prev[k]) * 180 / Math.PI; if (ix.includes(k)) jump = Math.max(jump, a); else armJump = Math.max(armJump, a); });
     prev = q;
-    const top = V().set(0, 0.105, 0).applyQuaternion(bq).add(bp);
-    glove = Math.max(glove, Math.abs(h.worldPos('handR', V()).distanceTo(bp) - 0.075), Math.abs(h.worldPos('handL', V()).distanceTo(top) - 0.075));
+    glove = Math.max(glove, gloveError(h, bp, bq));
     out.push({ t: e.t - trk[0].t, hips: h.worldPos('hips', V()).y, knee: Math.min(h.worldPos('kneeL', V()).y, h.worldPos('kneeR', V()).y), low: h.lowest(), lead: body.sense.leader });
   }
   return { trk, out, jump, armJump, glove };
 }
 const STANCE_KEY = { head: [-0.25, 1.56, -1.05], look: [0, -0.05], hand: [0.02, 0.8, -0.98], toe: [0.1, -0.95, 0.28], face: [0, 0, -1] };
+
+test('the wrists approach from the batter’s side in guard at different player heights', { skip }, async () => {
+  const { body, h } = await load();
+  const originalScale = h.root.scale.x;
+  try {
+    for (const size of [0.87, 1, 1.10]) {
+      body.reset();
+      h.root.scale.setScalar(originalScale * size);
+      const track = shotTrack('straight_drive', { hz: 90 });
+      for (const e of track.slice(0, 36)) {
+        const p = V().copy(e.bp).multiplyScalar(size), q = new THREE.Quaternion().copy(e.bq);
+        body.update(e.dt, e.t, p, q, null, { p: V().copy(e.head.p).multiplyScalar(size), q: e.head.q });
+        if (e.t - track[0].t < 0.2) continue;
+        assert.ok(gloveError(h, p, q) < 0.005, 'both palms seated on the handle');
+        for (const side of ['L', 'R']) {
+          const wrist = h.worldPos('hand' + side, V());
+          const forearm = wrist.clone().sub(h.worldPos('elbow' + side, V()));
+          const palm = h.bones['hand' + side].localToWorld(V().set(0, -0.075, 0));
+          const bend = forearm.angleTo(palm.sub(wrist)) * 180 / Math.PI;
+          assert.ok(bend < 40, `size ${size}, ${side} wrist bent ${bend.toFixed(1)} degrees in guard`);
+        }
+      }
+    }
+  } finally {
+    h.root.scale.setScalar(originalScale);
+    body.reset();
+  }
+});
+
+test('the planted front knee tracks the boot through a pull and a hook', { skip }, async () => {
+  const { body, h } = await load();
+  for (const name of ['pull', 'hook']) {
+    body.reset();
+    const track = shotTrack(name);
+    for (const e of track) {
+      body.update(e.dt, e.t, e.bp, e.bq, null, e.head, e.extra, e.off);
+      if (e.t - track[0].t < 1.5 || e.t - track[0].t > 2) continue;
+      const hip = h.worldPos('hipL', V()), axis = h.worldPos('ankleL', V()).sub(hip).normalize();
+      const knee = h.worldPos('kneeL', V()).sub(hip).projectOnPlane(axis);
+      const toe = V().set(0, 0, 1).applyQuaternion(h.bones.ankleL.getWorldQuaternion(new THREE.Quaternion())).projectOnPlane(axis);
+      assert.ok(knee.angleTo(toe) < Math.PI / 6, `${name}: front pad turned more than 30 degrees away from the boot`);
+    }
+  }
+});
+
+test('both elbows clear the shoulders as the coaching sweep comes back across the chest', { skip }, async () => {
+  const { coachingFrames } = await import('../tools/harness_scenarios/vrshots.mjs');
+  const { takes, fps } = JSON.parse(fs.readFileSync(new URL('../tools/video_shots/takes.json', import.meta.url)));
+  const sweep = takes.find(t => t.label === 'sweep'), frames = coachingFrames(sweep);
+  const { body, A, h } = await load(), originalScale = h.root.scale.x;
+  try {
+    const eye = frames.slice(0, 5).reduce((sum, f) => sum + f.head[1], 0) / 5 + 0.08;
+    h.root.scale.setScalar(h.baseScale * Math.max(0.84, Math.min(1.12, eye / (A.headRestY * h.baseScale + 0.11))));
+    body.reset();
+    const last = {}, dt = 1 / 72, ev = sweep.events;
+    let worst = 0;
+    for (let i = 0; i * dt <= (frames.length - 1) / fps; i++) {
+      const t = i * dt, frame = t * fps, j = Math.min(frames.length - 2, Math.floor(frame));
+      const sample = field => V().fromArray(frames[j][field]).lerp(V().fromArray(frames[j + 1][field]), frame - j);
+      const k = Math.min(1, Math.max(0, (t - ev.top + 0.35) / 0.2)) * (1 - Math.min(1, Math.max(0, (t - ev.finish - 0.5) / 0.3)));
+      const extra = { sweep: { k: k * k * (3 - 2 * k) }, live: t < ev.contact, hit: t >= ev.contact ? { t: ev.contact } : null };
+      body.update(dt, t, sample('hand'), batQuat(sample('ax').negate().toArray(), [0, 0, -1]), null,
+        { p: sample('head'), q: new THREE.Quaternion() }, extra);
+      for (const side of ['L', 'R']) {
+        const elbow = h.worldPos('elbow' + side, V());
+        if (last[side] && t > ev.contact) worst = Math.max(worst, elbow.distanceTo(last[side]));
+        last[side] = elbow;
+      }
+    }
+    assert.ok(worst < 0.16, `an elbow jumped ${(100 * worst).toFixed(1)} cm in a frame of the sweep`);
+  } finally {
+    h.root.scale.setScalar(originalScale);
+    body.reset();
+  }
+});
 
 test('the sweep button: standing tall, your figure is down on the back knee within 0.25 s, stays down while held, gets up when you let go', { skip }, async () => {
   const m = await load();

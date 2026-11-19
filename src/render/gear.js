@@ -16,7 +16,7 @@
 //         handle passes through (0, -PALM, 0) and runs DIAGONALLY across the
 //         palm, the way a real batting (or golf) grip holds it: from the heel
 //         of the hand up to the base of the index finger, i.e. along
-//         GRIP_DIR = (0, -cos GRIP_BETA, sin GRIP_BETA), thumb/index end toward
+//         (0, -cos beta, sin beta) for its battingGripAngle, thumb/index end toward
 //         the blade. sx = +1 (left hand) / -1 (right) points to the back of
 //         the hand.
 import * as THREE from 'three';
@@ -25,6 +25,10 @@ export const KIT = { shirt: 1, trim: 2, headgear: 3, trousers: 4, skin: 5, hair:
 const PALM = 0.075, HANDLE_R = 0.017;
 // The handle's angle across the palm (90 deg would be a hammer grip, straight across).
 export const GRIP_BETA = 62 * Math.PI / 180;
+export function battingGripAngle(side, playerGrip) {
+  if (!playerGrip) return GRIP_BETA;
+  return (side === 'L' ? 45 : 55) * Math.PI / 180;
+}
 const WHITE = 0xf4f4f0, PAD_WHITE = 0xf2f2ee, LEATHER = 0xd8d1c0, STEEL = 0xaeb6bf, STRAP = 0x24272c, TAN = 0xc9b48e;
 
 // ------------------------------------------------------------------ mesh builder
@@ -191,7 +195,7 @@ export function buildGear(RIG, part, o, lod = 0) {
   if (o.headgear === 'helmet') helmet(P, part, hc, R, S, lod);
   else if (o.headgear === 'cap' || o.headgear === 'bare') cap(P, part, hc, R, S, lod);
   else if (o.headgear === 'hat') hat(P, part, hc, R, S, lod);
-  if (o.gloves) for (const s of ['L', 'R']) (o.keeper ? keeperGlove : battingGlove)(P, part, s, S, lod);
+  if (o.gloves) for (const s of ['L', 'R']) (o.keeper ? keeperGlove : battingGlove)(P, part, s, S, lod, o.playerGrip);
   if (o.pads) for (const s of ['L', 'R']) pad(P, part, s, !!o.keeper, S, lod);
   return P;
 }
@@ -369,7 +373,7 @@ function pad(P, part, s, keeper, S, lod) {
 }
 
 // Batting glove: a closed fist round the handle line (along Z at y = -PALM).
-function battingGlove(P, part, s, S, lod) {
+function battingGlove(P, part, s, S, lod, playerGrip) {
   const hand = 'hand' + s, sx = s === 'L' ? 1 : -1, G = PALM;
   const fingers = [[0.0332, 0.0119, 0.0296], [0.0112, 0.0124, 0.0302], [-0.0108, 0.0117, 0.0298], [-0.0318, 0.0103, 0.0282]];   // z, roll radius, wrap radius
   const aoF = (fz, rf) => (x, y, z) => {
@@ -378,19 +382,24 @@ function battingGlove(P, part, s, S, lod) {
   };
   // The fist is built round a straight-across handle (along Z at y = -G) and
   // then turned about the palm so it wraps the diagonal one.
-  const tilt = Math.PI / 2 - GRIP_BETA;
+  const tilt = Math.PI / 2 - battingGripAngle(s, playerGrip);
   const fist = (geo) => geo.translate(0, G, 0).rotateX(tilt).translate(0, -G, 0);
   const ct = Math.cos(tilt), st = Math.sin(tilt);
   const unturn = (f) => (typeof f !== 'function' ? f : (x, y, z) => { const yy = y + G; return f(x, yy * ct + z * st - G, -yy * st + z * ct); });
   const fpart = (geo, color, opts) => part(P, fist(geo), hand, color, [0, 0, 0], null, null, opts && { ...opts, ao: unturn(opts.ao) });
-  if (lod) {
-    // distant: a padded fist + thumb
+  if (lod && !playerGrip) {
+    // distant: a padded fist
     fpart(pillow([0.034, 0.03, 0.046], 0.55, 8, 6).translate(0, -0.07, 0.001), WHITE, { ao: 0.92 });
   } else {
     for (const [fz, rf, R] of fingers) {
-      for (const [b0, b1] of [[-0.3, 1.18], [1.3, 2.42], [2.54, 3.85]]) {
-        const pts = arc(sx, 0, -G, fz, R, b0, b1, 3);
-        fpart(tube(pts, rf * (b0 > 2 ? 0.93 : 1), 6, { caps: true, up: [0, 0, 1] }), WHITE, { ao: aoF(fz, rf) });
+      // The top hand closes securely. The bottom hand cradles the handle
+      // with a softer ring finger and little finger; leave the thumb web open.
+      const end = playerGrip ? (s === 'L' ? 3.10 : mix(2.38, 2.98, sstep(-0.032, 0.033, fz))) : 3.85;
+      let joints = [[-0.3, 1.18], [1.3, 2.42], [2.54, end]];
+      if (playerGrip) joints = lod ? [[-0.3, end]] : [[-0.3, 1.06], [1.15, 2.10], [2.19, end]];
+      for (const [b0, b1] of joints) {
+        const pts = arc(sx, 0, -G, fz, R, b0, b1, lod ? 5 : 3);
+        fpart(tube(pts, rf * (b0 > 2 ? 0.93 : 1), lod ? 4 : 6, { caps: true, up: [0, 0, 1] }), WHITE, { ao: aoF(fz, rf) });
       }
     }
     // padded back of the hand, palm, team stripe
@@ -398,7 +407,9 @@ function battingGlove(P, part, s, S, lod) {
     fpart(pillow([0.013, 0.036, 0.043], 0.5, 8, 6).translate(-sx * 0.017, -0.035, 0.0), LEATHER, { ao: 0.82 });
     // thumb: from the palm's index side round the palm side of the handle
     fpart(tube([[-sx * 0.014, -0.018, 0.038], [-sx * 0.028, -0.045, 0.05], [-sx * 0.031, -0.07, 0.056]], [0.0145, 0.014, 0.0132], 7), WHITE, { ao: 0.92 });
-    fpart(tube([[-sx * 0.031, -0.074, 0.0565], [-sx * 0.026, -0.086, 0.058], [-sx * 0.016, -0.097, 0.058]], [0.0124, 0.012, 0.0112], 7), WHITE);
+    const thumbBend = playerGrip ? [-sx * 0.028, -0.081, 0.064] : [-sx * 0.026, -0.086, 0.058];
+    const thumbTip = playerGrip ? [-sx * 0.022, -0.086, 0.071] : [-sx * 0.016, -0.097, 0.058];
+    fpart(tube([[-sx * 0.031, -0.074, 0.0565], thumbBend, thumbTip], [0.0124, 0.012, 0.0112], 7), WHITE);
   }
   // cuff: over the wrist and up the forearm, bending with the wrist
   const cuffN = S(16, 8), Bc = new Builder(), rows = [];
