@@ -32,7 +32,7 @@ export function battingGripAngle(side, playerGrip) {
   if (!playerGrip) return GRIP_BETA;
   return (side === 'L' ? 45 : 55) * Math.PI / 180;
 }
-const WHITE = 0xf5f3ee, PAD_WHITE = 0xf4f1e9, LEATHER = 0xd8d1c0, STEEL = 0xaeb6bf, STRAP = 0x24272c, TAN = 0xc9b48e;
+const WHITE = 0xece9e2, PAD_WHITE = 0xe9e5dc, LEATHER = 0xd8d1c0, STEEL = 0xaeb6bf, STRAP = 0x24272c, TAN = 0xc9b48e;
 
 // ------------------------------------------------------------------ mesh builder
 // Vertices carry a reference point; every triangle is wound so that its
@@ -354,19 +354,25 @@ function pad(P, part, s, keeper, S, lod) {
   const W = keeper ? 1.5 : 1.85;                        // wrap half-angle (rad)
   const yt = (a) => mix(keeper ? 0.1 : 0.215, keeper ? 0.04 : 0.07, sstep(0.55, 1.45, Math.abs(a)));
   const yb = (a) => mix(keeper ? -0.425 : -0.445, -0.385, sstep(0.25, 1.6, Math.abs(a)));
-  const rin = (a, y) => { const k = 1 + (keeper ? 0 : 0.5 * sstep(0.06, 0.2, y)), w = sstep(0.6, 1.7, Math.abs(a)); return [mix(0.097, 0.088, w) * k, mix(0.1, 0.09, w) * k]; };
+  // (the inside hugs the fitted trousers, trousers.js: about 7 cm round the shin, 1 cm of lining)
+  const rin = (a, y) => { const k = 1 + (keeper ? 0 : 0.42 * sstep(0.06, 0.2, y)), w = sstep(0.6, 1.7, Math.abs(a)); return [mix(0.088, 0.077, w) * k, mix(0.092, 0.08, w) * k]; };
   const cz = 0.008;
   const canes = (a, y) => {
     const front = 1 - sstep(1.0, 1.25, Math.abs(a));
     const kneeZone = Math.exp(-Math.pow((y - 0.03) / 0.07, 2));
-    const rib = (keeper ? 0.006 : 0.008) * Math.pow(0.5 + 0.5 * Math.cos(2 * Math.PI * a / (keeper ? 0.55 : 0.4)), 0.7);
+    // rounded bolsters with narrow stitched grooves between them
+    const f = a / (keeper ? 0.55 : 0.4) + 0.5, q = f - Math.floor(f) - 0.5;
+    const rib = (keeper ? 0.006 : 0.008) * Math.pow(Math.max(0, Math.cos(Math.PI * q)), 0.45);
     return rib * front * (1 - kneeZone);
   };
   const thick = (a, y) => {
     const front = 1 - sstep(0.95, 1.9, Math.abs(a));
-    let t = 0.012 + (keeper ? 0.016 : 0.022) * front + canes(a, y);
-    const kr = Math.exp(-Math.pow((y - 0.035) / (keeper ? 0.035 : 0.042), 2)) * Math.pow(Math.cos(clamp(a, -1.5, 1.5)), 2);
-    t += (keeper ? 0.016 : 0.024) * kr;                                  // knee roll
+    let t = 0.012 + (keeper ? 0.02 : 0.028) * front + canes(a, y);
+    // knee roll: two stacked rolls (one for a keeper's), and a raised edge down the outer wing
+    const ca2 = Math.pow(Math.cos(clamp(a, -1.5, 1.5)), 2);
+    const kr = keeper ? Math.exp(-Math.pow((y - 0.035) / 0.035, 2)) : Math.max(Math.exp(-Math.pow((y - 0.012) / 0.026, 2)), 0.9 * Math.exp(-Math.pow((y - 0.07) / 0.024, 2)));
+    t += (keeper ? 0.016 : 0.024) * kr * ca2;
+    t += 0.006 * Math.exp(-Math.pow((Math.abs(a) - W + 0.22) / 0.1, 2)) * sstep(0.1, -0.05, y);
     t -= 0.006 * Math.exp(-Math.pow((y + 0.03) / 0.012, 2)) * front;     // groove under it
     t -= 0.005 * Math.exp(-Math.pow((y - 0.105) / 0.012, 2)) * front * (keeper ? 0 : 1);
     return t;
@@ -376,7 +382,7 @@ function pad(P, part, s, keeper, S, lod) {
     return [Math.sin(a) * (rx + t), y, cz + Math.cos(a) * (rz + t) + inst];
   };
   const inner = (a, y) => { const [rx, rz] = rin(a, y), inst = 0.022 * sstep(-0.37, -0.445, y) * Math.pow(Math.cos(clamp(a, -1.5, 1.5)), 2); return [Math.sin(a) * rx, y, cz + Math.cos(a) * rz + inst]; };
-  const nu = lod ? 10 : 24, nv = lod ? 10 : 24, B = new Builder();
+  const nu = lod ? 10 : 34, nv = lod ? 10 : 24, B = new Builder();
   const at = (i, j, n, m) => { const a = mix(-W, W, i / n); return [a, mix(yb(a), yt(a), j / m)]; };
   const rowsO = [];
   for (let j = 0; j <= nv; j++) { const r = []; for (let i = 0; i <= nu; i++) { const [a, y] = at(i, j, nu, nv); r.push(B.v(outer(a, y), [0, y, cz])); } rowsO.push(r); }
@@ -407,13 +413,14 @@ function pad(P, part, s, keeper, S, lod) {
   // straps round the back of the leg, buckled on the outside
   const straps = keeper ? [-0.1, -0.31] : [0.15, -0.11, -0.32];
   for (const y of straps) {
-    const bl = y > 0.1 ? { to: hip, y0: 0.07, y1: 0.15 } : null, th = y > 0.1 ? 0.03 : 0;
+    const bl = y > 0.1 ? { to: hip, y0: 0.07, y1: 0.15 } : null;
     const a0 = W * 0.84, pts = [];
     for (let k = 0; k <= 16; k++) {
       const a = mix(a0, 2 * Math.PI - a0, k / 16), back = Math.sin((k / 16) * Math.PI);
       const [rx, rz] = rin(a, y), t = thick(Math.atan2(Math.sin(a), Math.cos(a)), y);
       // from inside the wing, round the back of the trousers
-      const rb = 0.108 + th + 0.008 * Math.exp(-Math.pow(y / 0.15, 2)), r = mix(rx + t * 0.6, rb, sstep(0, 0.35, back)), rzz = mix(rz + t * 0.6, rb, sstep(0, 0.35, back));
+      // (round the back of the fitted trousers, trousers.js: thigh ~9 cm, shin ~7 cm)
+      const rb = y > 0.1 ? 0.096 : 0.072, r = mix(rx + 0.004, rb, sstep(0, 0.3, back)), rzz = mix(rz + 0.004, rb, sstep(0, 0.3, back));
       pts.push([Math.sin(a) * r, y, cz + Math.cos(a) * rzz]);
     }
     part(P, tube(pts, 0.012, 4, { caps: false, ratio: 0.3, up: [0, 0, 1] }), knee, KIT.trim, [0, 0, 0], null, null, { blend: bl, ao: 0.85 });
