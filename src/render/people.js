@@ -102,7 +102,7 @@ const _bq = new THREE.Quaternion();
 export class BowlerView {
   constructor(scene) {
     this.actor = new BowlerActor(scene, { team: 'away', seed: 5, headgear: 'bare' });
-    this.actor.h.lodNear = 24;         // (the man you face: full detail through his last strides and delivery)
+    this.actor.h.lodNear = 21;         // (the man you face: full detail through his bound and delivery)
     this.fig = this.actor.h.root;      // for visibility toggling elsewhere
     this.show(false);
   }

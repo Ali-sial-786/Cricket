@@ -1,5 +1,6 @@
 // Cricket gear for the athlete figure: helmet (shell, peak, steel grille, ear
-// guards, chin strap), cap (six-panel crown, curved peak), wide-brim hat,
+// guards, chin strap, neck guard), cap (six-panel crown, curved peak), wide-brim hat,
+// wraparound sunglasses,
 // batting pads (vertical canes, knee roll, thigh flap, straps), batting gloves
 // (a closed fist of segmented finger rolls, thumb and palm round the handle,
 // with a cuff that bends with the wrist) and keeping gloves.

@@ -5,7 +5,7 @@
 //
 // Two textures, built once at load and shared by every figure's material
 // (so one shader program, one draw call per figure as before):
-//  * the face map (512², linear RGBA, painted per texel from the model's own
+//  * the face map (256 x 512, linear RGBA, painted per texel from the model's own
 //    landmarks): R shading (creases, sockets, nostrils; 0.5 = none),
 //    G beard field (how central to a beard a point is), B liner (< 0.5: lash
 //    line, brows, painted iris) / eye white (> 0.5: only for the distant
@@ -184,9 +184,9 @@ function sponsor(g, [x, y, w, h], text, col, accent) {
 // ------------------------------------------------------------------ face map
 // F: landmarks in bind space (metres): eyes [x, y] (the +x eye), eyeR (iris radius),
 // mouth [halfWidth, y], nose [y], brow [y], chin y, rect {x0, y0, w, h}.
-export const FACE_N = 512;
+export const FACE_W = 256, FACE_H = 512;    // (0.8 mm across, 0.6 mm down: finer than a headset pixel on a face at 1.5 m)
 function paintFace(F) {
-  const N = FACE_N, data = new Uint8Array(N * N * 4);
+  const N = FACE_W, M = FACE_H, data = new Uint8Array(N * M * 4);
   const { x0, y0, w, h } = F.rect;
   const ex = F.eye[0], ey = F.eye[1], er = F.irisR, my = F.mouth[1], mw = F.mouth[0], ny = F.nose, by = F.brow, cy = F.chin;
   const sq = (v) => v * v, sat = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
@@ -194,20 +194,25 @@ function paintFace(F) {
   const ell = (x, y, cx, cy2, ax, ay) => Math.sqrt(sq((x - cx) / ax) + sq((y - cy2) / ay));
   // the lid opening: an almond, wider at the outer corner
   const ow = er * 1.75, oh = er * 0.82;
-  for (let j = 0; j < N; j++) {
-    const y = y0 + (j + 0.5) / N * h;
-    for (let i = 0; i < N; i++) {
+  // (symmetric: the +x half is painted and mirrored; each feature only where it can reach)
+  for (let j = 0; j < M; j++) {
+    const y = y0 + (j + 0.5) / M * h;
+    if (y > by + 0.025 || y < cy - 0.03) {                 // (no features: neutral)
+      for (let i = 0; i < N; i++) { const k = (j * N + i) * 4; data[k] = 128; data[k + 1] = 0; data[k + 2] = 128; data[k + 3] = 0; }
+      continue;
+    }
+    for (let i = N >> 1; i < N; i++) {
       const x = x0 + (i + 0.5) / N * w, ax = Math.abs(x);
       let shade = 0, beard = 0, liner = 0, white = 0, lips = 0;
       // --- eyes: socket shadow, upper lid crease, lash line, lower lid
       const dxE = ax - ex, dyE = y - ey;
+      if (Math.abs(dxE) < ow * 2.2 && Math.abs(dyE) < oh * 5) {
       const tilt = dyE - dxE * 0.12;                                  // outer corners slightly up
       const open = Math.sqrt(sq(dxE / ow) + sq(tilt / (oh * (dxE > 0 ? 0.95 : 1.05))));
       shade -= 0.16 * Math.exp(-sq(ell(ax, y, ex - 0.002, ey + 0.002, ow * 1.55, oh * 2.6) / 1.0) * 1.2);      // socket
       // upper lid: a dark lash band just above the opening, thicker toward the outer corner
       const upper = tilt > 0 ? 1 : 0;
       const lashW = 0.0011 + 0.0011 * ss(-ow, ow, dxE);
-      const edge = Math.abs(open - 1) * oh;
       liner = Math.max(liner, upper * Math.exp(-sq((open - 1) * oh / lashW)) * ss(1.25, 0.6, Math.abs(dxE) / ow));
       liner = Math.max(liner, (1 - upper) * 0.45 * Math.exp(-sq((open - 1) * oh / 0.0007)) * ss(1.1, 0.5, Math.abs(dxE) / ow));
       // lid crease above
@@ -218,9 +223,9 @@ function paintFace(F) {
         if (ir < 1) liner = Math.max(liner, ir < 0.45 ? 1 : 0.8);
         else white = Math.max(white, ss(1, 0.85, open));
       }
-      void edge;
+      }
       // --- brows: a tapered arc over each eye
-      {
+      if (Math.abs(y - by) < 0.02) {
         const t = (ax - (ex - ow * 1.15)) / (ow * 2.5);              // 0 inner .. 1 outer
         if (t > -0.1 && t < 1.1) {
           const arcY = by + 0.004 * Math.sin(Math.PI * sat(t) * 0.9) - 0.003 * t;
@@ -231,7 +236,7 @@ function paintFace(F) {
         }
       }
       // --- nose: shadowed sides, nostrils, a lit bridge
-      {
+      if (ax < 0.035 && y > ny - 0.025 && y < ey + 0.01) {
         const nw = 0.0105 + 0.006 * ss(ey, ny, y);                     // half width, wider at the wings
         shade -= 0.1 * Math.exp(-sq((ax - nw) / 0.0035)) * ss(ey + 0.004, ey - 0.012, y) * ss(ny - 0.012, ny + 0.002, y);
         shade += 0.07 * Math.exp(-sq(ax / 0.0045)) * ss(ey - 0.004, ny + 0.01, y) * ss(ny - 0.004, ny + 0.012, y);
@@ -243,13 +248,13 @@ function paintFace(F) {
         shade -= 0.08 * Math.exp(-sq((y - (ny - 0.0095)) / 0.003)) * Math.exp(-sq(ax / 0.012));
       }
       // --- smile lines: from the nose wings to past the mouth corners
-      {
+      if (ax < mw + 0.03 && y < ny + 0.004 && y > my - 0.02) {
         const t = sat((ny - 0.004 - y) / (ny - my + 0.008));
         const lx = 0.016 + (mw + 0.008 - 0.016) * t + 0.004 * Math.sin(Math.PI * t);
         shade -= 0.1 * Math.exp(-sq((ax - lx) / 0.0028)) * ss(0, 0.15, t) * ss(1.15, 0.8, t);
       }
       // --- mouth: lips (upper darker, lower fuller), the parting line, philtrum, chin dimple
-      {
+      if (Math.abs(y - my) < 0.03 && ax < mw * 1.6) {
         const ux = ax / (mw * 1.08);
         if (ux < 1.15) {
           const bow = 0.0012 * Math.cos(Math.min(1, ux) * Math.PI * 1.6) ;   // cupid's bow
@@ -266,9 +271,9 @@ function paintFace(F) {
         shade -= 0.1 * Math.exp(-sq((y - (my - 0.0125)) / 0.004)) * Math.exp(-sq(ax / 0.016));                       // under the lower lip
       }
       // --- cheekbones catch light; temples and jaw sides fall off
-      shade += 0.05 * Math.exp(-sq(ell(ax, y, ex + 0.008, ey - 0.024, 0.02, 0.014)));
+      if (Math.abs(y - ey + 0.024) < 0.05) shade += 0.05 * Math.exp(-sq(ell(ax, y, ex + 0.008, ey - 0.024, 0.02, 0.014)));
       // --- beard field: jaw, chin, moustache; the centre of a beard first (goatee), cheeks last
-      {
+      if (y < ny + 0.01 && y > cy - 0.02 && ax < 0.11) {
         const jaw = ss(ny - 0.012, my - 0.004, y) * ss(cy - 0.012, cy + 0.004, y);              // below the cheeks, down to the chin
         const cheekLine = ss(ny - 0.02, ny - 0.002, y + 0.0 * ax) * ss(0.075, 0.05, ax);
         const tache = Math.exp(-sq((y - (my + 0.0095)) / 0.0042)) * ss(mw + 0.012, mw - 0.004, ax) * ss(ny - 0.002, ny - 0.008, y);
@@ -279,11 +284,11 @@ function paintFace(F) {
         if (Math.abs(y - my) < 0.0035 && ax < mw) beard *= 0.2;      // not across the lips
       }
       shade = 0.5 + shade;
-      const k = (j * N + i) * 4;
-      data[k] = Math.round(sat(shade) * 255);
-      data[k + 1] = Math.round(sat(beard) * 255);
-      data[k + 2] = Math.round(sat(0.5 - 0.5 * sat(liner) + 0.5 * sat(white) * (1 - sat(liner))) * 255);
-      data[k + 3] = Math.round(sat(lips) * 255);
+      const k = (j * N + i) * 4, m = (j * N + N - 1 - i) * 4;
+      data[k] = data[m] = Math.round(sat(shade) * 255);
+      data[k + 1] = data[m + 1] = Math.round(sat(beard) * 255);
+      data[k + 2] = data[m + 2] = Math.round(sat(0.5 - 0.5 * sat(liner) + 0.5 * sat(white) * (1 - sat(liner))) * 255);
+      data[k + 3] = data[m + 3] = Math.round(sat(lips) * 255);
     }
   }
   return data;
@@ -292,7 +297,7 @@ function paintFace(F) {
 let TEX = null;
 export function lookTextures(F) {
   if (TEX) return TEX;
-  const face = new THREE.DataTexture(paintFace(F), FACE_N, FACE_N, THREE.RGBAFormat, THREE.UnsignedByteType);
+  const face = new THREE.DataTexture(paintFace(F), FACE_W, FACE_H, THREE.RGBAFormat, THREE.UnsignedByteType);
   face.colorSpace = THREE.NoColorSpace;
   face.wrapS = face.wrapT = THREE.ClampToEdgeWrapping;
   face.magFilter = THREE.LinearFilter; face.minFilter = THREE.LinearMipmapLinearFilter;

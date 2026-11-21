@@ -1,9 +1,10 @@
 // Athletes: the Courtside athlete model (MakeHuman-derived, CC0; converted by
 // tools/build_athlete.mjs into a two-LOD, life-size cricket figure: ~23k / ~2.8k
 // triangles before gear) on a 17-bone skeleton, one SkinnedMesh / draw call per
-// person, with cricket gear (gear.js: helmet, cap, hat, pads, gloves) merged
-// into the same mesh, team kit + skin + hair colours and a back number as
-// shader uniforms, baked ambient occlusion, and two-bone IK for hands and feet.
+// person, with cricket gear (gear.js: helmet, cap, hat, pads, gloves, sunglasses)
+// merged into the same mesh, the look (playerLook.js: team kit, skin, hair,
+// face, name and number, per-player variation) as shader uniforms and two
+// shared detail textures, baked ambient occlusion, and two-bone IK for hands and feet.
 //
 // Canonical pose used by all animation code: standing, arms hanging straight
 // down, facing +Z, every bone's local rotation = identity, limbs along -Y.
@@ -509,7 +510,7 @@ function kitMaterial(shared = null, depth = false) {
         else if (k < 33.5) mt = vec4(0.15, 0.3, 36.0, 5.0);
         else if (k < 34.5) { kc = uKit3; mt = vec4(0.1, 0.2, 60.0, 2.0); }
         else if (k < 35.5) { kc = uKit2; mt = vec4(0.1, 0.25, 45.0, 2.0); }
-        else if (k < 36.5) { kc = uKit1; mt = vec4(0.3, 0.07, 14.0, 5.0); }
+        else if (k < 36.5) { kc = mix(vec3(0.9), uKit1, 0.6); mt = vec4(0.3, 0.07, 14.0, 5.0); }
         #ifdef USE_COLOR
           vColor.rgb = kc;
         #endif
@@ -746,6 +747,18 @@ function kitMaterial(shared = null, depth = false) {
     } else if (gKind > 4.5 && gKind < 5.5) {
       // padding / leather / boots: a fine grain
       kitH += 0.00003 * sin(vBind.x * 2100.0 + vBind.y * 1700.0) * sin(vBind.z * 1900.0 - vBind.y * 1300.0) * (1.0 - smoothstep(0.0008, 0.0016, fw));
+      if (vSeg.z > 0.5 && vBind.y < 0.17) {
+        // boots: a stitched toe cap, a heel tab in the team colour, a rubber sole
+        vec3 aj = vBind.x > 0.0 ? uAnkleL : uAnkleL * vec3(-1.0, 1.0, 1.0);
+        vec2 f = vec2(vBind.z - aj.z, vBind.y);
+        float sx = (abs(vBind.x) - abs(aj.x)) / 0.05;
+        if (s < 0.5) c *= 0.78;
+        else if (s > 32.5) {
+          float toe = abs(f.x - 0.17 + 0.035 * sx * sx);
+          c *= 1.0 - 0.3 * smoothstep(0.003, 0.001, toe) * (1.0 - smoothstep(0.0015, 0.003, fw));
+          c = mix(c, uKit1, smoothstep(-0.055, -0.065, f.x) * smoothstep(0.07, 0.08, f.y));
+        }
+      }
       if (vSeg.y > 0.4 && vBind.y < uLegAxis.w + 0.25) {
         // batting / keeping pads: the canes down the front, stitched between, the knee roll's seams
         bool l = vBind.x > 0.0;
