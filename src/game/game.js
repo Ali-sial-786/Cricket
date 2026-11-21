@@ -1108,6 +1108,7 @@ export class Game {
     // People.
     const lookBall = b.active ? _look.set(b.pos.x, b.pos.y, b.pos.z) : (this.ballOverride ? _look.set(this.ballOverride.pos.x, this.ballOverride.pos.y, this.ballOverride.pos.z) : null);
     const pdt = paused ? 0 : dt;
+    this.batterView.between = !!(this.session && this.session.isBowling && this.session.state === 'settle');     // (the AI striker out of his stance between balls)
     this.batterView.update(this.simTime, pdt || 1e-4, lookBall);
     this.nonStrikerView.update(pdt || 1e-4, this.simTime, { backingUp: this.nonStrikerBacksUp(), ball: lookBall, watch: this.bowlerSpot(_watch) });
     if (!this.session || !this.session.field) {

@@ -41,7 +41,7 @@ test('each man reacts his own way and at his own moment; only the men round the 
   assert.ok(kinds.size >= 2 && delays.size >= 5, 'the field never reacts as one');
   assert.equal(G.reactionFor('appeal', 107, 1, 60).kind, null, 'nobody appeals from the boundary');
   assert.equal(G.reactionFor('appeal', 107, 1, 8).kind, 'appeal');
-  assert.equal(G.reactionFor('celebrate', 107, 1, 60).kind, 'clap', 'a man in the deep claps');
+  assert.ok(['clap', 'arms'].includes(G.reactionFor('celebrate', 107, 1, 60).kind), 'a man in the deep claps or throws his arms up');
 });
 
 test('between balls: mostly standing, now and then hands on hips, a clap, hands behind, wiping the hands', { skip }, () => {

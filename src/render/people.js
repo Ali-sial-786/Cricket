@@ -79,6 +79,27 @@ export class BatterView {
     if (this.runnerOnly) { a.h.setFade(0); return; }       // (your runner with nowhere to go: not drawn)
     a.h.setFade(1);
     a.h.replayVisible = true;
+    // Between balls he does not stand frozen in his stance: he straightens up,
+    // half turns toward the bowler's end, leans on his bat, taps the pitch with
+    // it now and then and looks round the field; he settles back into his
+    // stance (cross-faded, bat and all) when the next ball is coming.
+    if (this.between) {
+      if (this.wasBat) { a.handover(); a.slowNext = 0.6; a._batFrom.dur = 0.7; this.wasBat = false; this.relaxT = 0; }
+      this.blend = null;
+      this.relaxT = (this.relaxT || 0) + dt;
+      a.speed = 0;
+      a.turnToward(RELAX_FACE, dt, 0.9);
+      const T = this.relaxT + 1.3, slot = Math.floor(T / 2.6) % LOOKS.length;
+      const tap = slot === 3 ? Math.max(0, Math.sin(T * 7.5)) * sstep(0, 0.3, T % 2.6) * (1 - sstep(2.2, 2.6, T % 2.6)) : 0;
+      a.updateLeaning(dt, t, _look.set(...LOOKS[slot]), tap);
+      this.relaxed = true;
+      return;
+    }
+    if (this.relaxed) {
+      // back into his stance from the way he was standing
+      this.relaxed = false;
+      this.blend = { snap: a.h.snapshot(), p: a.bat.position.clone(), q: a.bat.quaternion.clone(), t: 0 };
+    }
     this.ai.poseAt(t, this.pose);
     toV3(_p, this.pose.p);
     toQ(_q, this.pose.q);
@@ -98,6 +119,10 @@ export class BatterView {
   }
 }
 const _bq = new THREE.Quaternion();
+// The striker relaxing between balls: half turned toward the bowler's end; where he looks
+// (the bowler walking back, square leg, the off side, the pitch in front of him while he taps it).
+const RELAX_FACE = Math.PI / 2 + 0.55;
+const LOOKS = [[0.5, 1.5, -26], [-22, 1.2, -1], [20, 1.2, -6], [-0.2, 0, -2.2]];
 
 // AI bowler wrapper (keeps the session API).
 export class BowlerView {

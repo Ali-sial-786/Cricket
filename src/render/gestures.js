@@ -63,13 +63,13 @@ const VARIANTS = {
 // How this man reacts to the n-th event: a variant, how late he reacts (s), and
 // a little more or less of it (each man is his own: the field never moves as one).
 // far: m from the batter's stumps. Only the men round the bat appeal or groan
-// at a play-and-miss; a man in the deep claps a wicket from where he is.
+// at a play-and-miss; a man in the deep claps a wicket, or throws his arms up, from where he is.
 export function reactionFor(mood, seed, n = 0, far = 0) {
   const V = VARIANTS[mood];
   if (!V) return null;
   if ((mood === 'appeal' && far > 24) || (mood === 'ooh' && far > 32)) return { kind: null, delay: 0, amt: 0 };
   const r = hash01(seed, n * 7.3 + 1), r2 = hash01(seed + 3.1, n * 5.7 + 2);
-  const kind = mood === 'celebrate' && far > 45 ? 'clap' : V[Math.floor(r * V.length) % V.length];
+  const kind = mood === 'celebrate' && far > 50 ? (r < 0.6 ? 'clap' : 'arms') : V[Math.floor(r * V.length) % V.length];
   return { kind, delay: 0.05 + 0.4 * r2 + Math.min(0.3, far * 0.004), amt: 0.8 + 0.2 * hash01(seed, n + 9) };
 }
 // Between balls: mostly just standing (the idle clip), now and then hands on

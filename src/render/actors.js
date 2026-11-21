@@ -176,12 +176,12 @@ export class Actor {
     else if (raw && dt > 0) {
       let jump = 0;
       h.boneList.forEach((b, i) => { const d = b.quaternion.angleTo(raw.q[i]); if (d > jump) jump = d; });
-      if (jump > Math.max(0.7, 25 * dt) || (switched && jump > 0.02)) { this._from = copySnap(this._shown || raw, this._from || undefined); this._bt = 0; }
+      if (jump > Math.max(0.7, 25 * dt) || (switched && jump > 0.02)) { this._from = copySnap(this._shown || raw, this._from || undefined); this._bt = 0; this._fd = this.slowNext || dur; this.slowNext = 0; }
     }
     this._raw = h.snapshot(this._raw || undefined);
     if (this._from) {
       this._bt += dt;
-      const w = sstep(0, 1, this._bt / dur);
+      const w = sstep(0, 1, this._bt / (this._fd || dur));       // (slowNext: a change of pose that takes its time, e.g. standing up out of a stance)
       // (A cross-fade between two grounded poses can put a foot under the
       // turf half-way, e.g. legs straightening before the hips rise: re-land it.)
       if (w >= 1) this._from = null; else { h.blendFrom(this._from, w); h.update(); settle(h); h.update(); }
@@ -389,7 +389,7 @@ export class FielderActor extends Actor {
     // Reacting to what has happened, or idling between balls; eyes on the ball while it is live.
     const mood = gest ? this.bodyLanguage(t, dt, idleOK, this.speed > 0.25) : null;
     this.watch(ctx.ball, dt, mood);
-    if (!this.far) this.smooth(dt);
+    this.smooth(dt);                 // (far ones too: a change of pose snapping in one frame shows even at 50 m)
     h.syncShadow();
   }
   // Full length in a dive (k as poseDive): the trunk down on the turf, not
@@ -1054,7 +1054,7 @@ export class BatterActor extends Actor {
     const B = this._batFrom;
     if (B) {
       B.t += dt;
-      const w = sstep(0, 1, B.t / dur);
+      const w = sstep(0, 1, B.t / (B.dur || dur));
       if (w >= 1) this._batFrom = null;
       else {
         this.bat.position.lerpVectors(B.p, this.bat.position, w);
@@ -1968,7 +1968,7 @@ export class BatterActor extends Actor {
       h.rot('hipL', 0.5, 0, 0.1); h.rot('hipR', 0.9, 0, -0.1); h.rot('kneeL', 0.3, 0, 0); h.rot('kneeR', 0.5, 0, 0);
       this.apply();
     }
-    if (look && !diving) h.lookAt(look, 0.8);
+    lookSteady(h, !diving ? look : null, 0.8, dt, this._gs);      // (at a neck's pace: the ball appearing, or a turn at the crease)
     this.smooth(dt);
     this.armBlend(dt);
     this.placeCarriedBat();
@@ -2199,7 +2199,7 @@ export class BatterActor extends Actor {
   }
 
   // Non-striker style: bat grounded in front, leaning on it.
-  updateLeaning(dt, t, look) {
+  updateLeaning(dt, t, look, tap = 0) {
     const h = this.h;
     this.mode = 'idle';
     this.poseKey = 'lean';
@@ -2210,7 +2210,7 @@ export class BatterActor extends Actor {
       this.footWorld(_a, 0.13, 0.03); this.footWorld(_b, -0.13, -0.02);
       plantFeet(h, _a, _b, this.forward(_c).multiplyScalar(0.6));
     }
-    if (look) h.lookAt(look, 0.8);
+    lookSteady(h, look, 0.8, dt, this._gs);
     // (the body cross-fades first; then the hand goes onto the bat, wherever the bat is)
     this.smooth(dt);
     // Bat: toe grounded ~45 cm ahead to the right, handle up toward the hand.
@@ -2218,7 +2218,7 @@ export class BatterActor extends Actor {
     _left.set(_fwd.z, 0, -_fwd.x);
     // (wide enough of the right pad that the blade stays out of it)
     const toe = _c.copy(this.h.root.position).addScaledVector(_fwd, 0.44).addScaledVector(_left, -0.33);
-    toe.y = 0.0;
+    toe.y = 0.06 * tap;                    // (tapping the pitch with it)
     const handle = _d.copy(toe).addScaledVector(_fwd, -0.18).add(_e.set(0, 0.72, 0));
     const dir = _e.subVectors(handle, toe).normalize();
     _q.setFromUnitVectors(_up, dir);
