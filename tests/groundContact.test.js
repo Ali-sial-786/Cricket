@@ -55,7 +55,7 @@ test('AI bowler: no part of the body below the turf through a whole delivery, ev
   const A = new actors.BowlerActor(scene, { team: 'away', seed: 5, headgear: 'bare' });
   const cases = [
     ['long', 0.42, 2.2], ['medium', 0.42, 2.2], ['short', 0.42, 1.98],
-    ['long', -0.42, 2.2], ['medium', -0.42, 2.2], ['short', -0.42, 1.98],
+    ['long', -0.42, 2.2], ['medium', -0.42, 2.2], ['short', -0.42, 1.98], ['leg', 0.42, 1.98], ['leg', -0.42, 1.98],
     ['long', 0.42, 1.85], ['long', 0.42, 2.35],          // near the scale clamps (0.92 .. 1.12), up on the toes
   ];
   for (const [kind, x, y] of cases) {
@@ -80,7 +80,7 @@ test('AI bowler: no part of the body below the turf through a whole delivery, ev
 test('AI bowler: the bound and follow-through stay out of the stumps', { skip }, async () => {
   const { actors, scene } = await load();
   const A = new actors.BowlerActor(scene, { team: 'away', seed: 5, headgear: 'bare' });
-  for (const [kind, x] of [['long', 0.42], ['medium', 0.42], ['short', 0.42], ['long', -0.42], ['short', -0.42]]) {
+  for (const [kind, x] of [['long', 0.42], ['medium', 0.42], ['short', 0.42], ['leg', 0.42], ['long', -0.42], ['short', -0.42]]) {
     let t = 100, near = Infinity;
     A.startRunup(t, new THREE.Vector3(x, 2.2, -18.75), kind);
     const tr = A.run.tr, p = new THREE.Vector3();

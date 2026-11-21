@@ -282,7 +282,7 @@ export class BatterCrew {
     }
     this.advanceLeaving(dt);
     for (const a of this.leaving) {
-      a.updateMoving(dt || 1e-4, t, null);
+      a.updateMoving(dt || 1e-4, t, null, false, a.task && a.task.kind === 'off');
       a.h.replayVisible = a.visible && (a.h.fade ?? 1) > 0.5;
     }
     void ball; void _look;
