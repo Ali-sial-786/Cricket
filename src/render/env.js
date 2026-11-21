@@ -3,9 +3,8 @@
 // crowd with a cheering vertex shader, no realtime shadows.
 //
 //   sky dome with painted clouds + sun · distant skyline · tone-mapped lighting
-//   two-tier stepped stands (sector seat colours, concourse, roof canopies,
-//   pillars) · pavilion · big screen · scrolling LED boards · floodlights
-//   with halos · striped turf with a worn rim · detailed pitch · sightscreens
+//   the bowl, roofs, pavilion, towers, boards and crowd (stadium.js, crowd.js)
+//   · striped turf with a worn rim · detailed pitch · sightscreens
 import * as THREE from 'three';
 import { PITCH } from '../physics/pitch.js';
 import { CONFIG } from '../config.js';

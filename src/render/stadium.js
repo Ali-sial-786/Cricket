@@ -388,7 +388,7 @@ export function buildStadium(root, lights) {
   const trunkGeo = new THREE.CylinderGeometry(0.25, 0.35, 4, 6, 1, true), crownGeo = new THREE.IcosahedronGeometry(1, 1);
   const T = (h) => B.tint(h);
   const C = {
-    concrete: T(0xb9b5ad), wall: T(0x24333f), seatLow: T(0x2f5266), seatUp: T(0x3b6276), seatAlt: T(0xc9ced4), cover: T(0x161a20),
+    concrete: T(0xb9b5ad), wall: T(0x24333f), seatLow: T(0x2f5266), seatUp: T(0x3b6276), seatAlt: T(0xc9ced4), cover: T(0x272d36),
     members: T(0x2f5a3c), fascia: T(0x18222d), roofUnder: T(0xadb9d4), roofTop: T(0xdfe3e6), steel: T(0xe9ecee), dark: T(0x14181d),
     grass: T(0x5e8f3e), cream: T(0xece3cf), green: T(0x3f6b55), white: T(0xf4f2ec), tower: T(0xa8afb6),
   };
@@ -485,7 +485,7 @@ export function buildStadium(root, lights) {
         }
       }
       if (kind === 'vom') vomitory(a0, a1);
-      if (kind === 'aisle') handrail(a0 + AISLE / 2, lowRowR(0) + 0.2, lowRowY(0), lowRowR(L.rows) - 0.3, lowEndY);
+      if (kind === 'aisle') { handrail(a0 + AISLE / 2, lowRowR(0) + 0.2, lowRowY(0), lowRowR(L.rows) - 0.3, lowEndY); aisleWalker(a0, a1, lowRowR, lowRowY, L, 0); }
       // Concourse, the box level, the upper tier's fascia (pavilion bays stop at the concourse).
       sweep(a0, a1, lowEndR, lowEndY, BOWL.concourseR, lowEndY, 'ROW', 0.3, 0.1, {});
       if (type === 'pav') continue;
@@ -507,7 +507,7 @@ export function buildStadium(root, lights) {
           if (!covered) addSeats(a0, a1, r + U.depth - 0.36, yt, j, blockOf(bay, 1), 'seat', 0.5, j < 4);
         }
       }
-      if (kind === 'aisle') handrail(a0 + AISLE / 2, upRowR(0) + 0.2, upRowY(0), upRowR(U.rows) - 0.3, upEndY);
+      if (kind === 'aisle') { handrail(a0 + AISLE / 2, upRowR(0) + 0.2, upRowY(0), upRowR(U.rows) - 0.3, upEndY); aisleWalker(a0, a1, upRowR, upRowY, U, 1); }
       // Back wall, the top, the outside.
       sweep(a0, a1, BOWL.backR, upEndY, BOWL.backR, BOWL.top, 'CONC', 0.95, 0.4, { tint: C.concrete });
       sweep(a0, a1, BOWL.backR, BOWL.top, BOWL.outerR, BOWL.top, 'PLAIN', 0.5, 0.5, { tint: C.concrete });
@@ -529,6 +529,14 @@ export function buildStadium(root, lights) {
       const sh = shadeAt(x, y + 1.0, z, -Math.sin(a) * 0.6, 0.8, -Math.cos(a) * 0.6);
       spots.push({ x, y, z, nx: -Math.sin(a), nz: -Math.cos(a), sun: sh[0], sky: sh[1], block, row, i: Math.round(a / D * 20 + k), type });
     }
+  }
+  // Now and then someone on the stairs, going for a drink or back to their seat.
+  function aisleWalker(a0, a1, rowR, rowY, T, tier) {
+    if (rand() > 0.3) return;
+    const i = 1 + Math.floor(rand() * (T.rows - 2)), a = (a0 + (a1 - a0) * (0.3 + rand() * 0.4)) * D, r = rowR(i) + T.depth * 0.5;
+    const x = Math.sin(a) * r, z = Math.cos(a) * r, y = rowY(i);
+    const sh = shadeAt(x, y + 1.3, z, -Math.sin(a) * 0.6, 0.8, -Math.cos(a) * 0.6);
+    spots.push({ x, y, z, nx: -Math.sin(a), nz: -Math.cos(a), sun: sh[0], sky: sh[1], block: -1, row: i, i: 0, type: 'stand', team: tier ? 0 : undefined });
   }
   function concourseStanders(a0, a1, block) {
     const r = lowEndR + 0.45, n = Math.floor(((a1 - a0) * D * r) / 0.7);
@@ -732,8 +740,8 @@ export function buildStadium(root, lights) {
     for (let l = 0; l < levels; l++) {
       const ya = y0 + ((H - y0) * l) / levels, yb = y0 + ((H - y0) * (l + 1)) / levels;
       for (const [k0, k1] of [[0, 1], [1, 3], [3, 2], [2, 0]]) {
-        B.beam(corner(k0, yb), corner(k1, yb), 0.14, o);
-        B.beam(corner(k0, ya), corner(k1, yb), 0.11, o);
+        B.beam(corner(k0, yb), corner(k1, yb), 0.18, o);
+        B.beam(corner(k0, ya), corner(k1, yb), 0.15, o);      // not thinner: sub-pixel braces crawl at 120 m
       }
     }
     // Head: frame + lamps, facing the middle and tilted down.
