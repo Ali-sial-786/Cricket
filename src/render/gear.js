@@ -210,7 +210,7 @@ function helmet(P, part, c, R, S, lod) {
   const edgeY = (phi) => { const f = (1 - Math.cos(phi)) / 2; return c[1] + 0.012 - 0.115 * Math.pow(f, 0.85); };
   // two raised ridges front-to-back, like a vented shell
   const rmod = lod ? null : (phi, th) => 1 + 0.012 * (Math.exp(-Math.pow((Math.sin(phi) - 0.33) / 0.05, 2)) + Math.exp(-Math.pow((Math.sin(phi) + 0.33) / 0.05, 2))) * sstep(0.15, 0.6, th);
-  part(P, shell(cc, A, edgeY, S(30, 12), S(10, 4), lod ? 0 : 0.011, rmod), 'head', KIT.shell, [0, 0, 0], null, null, { ao: (x, y, z) => 0.8 + 0.2 * sstep(c[1] - 0.09, c[1] + 0.02, y) });
+  part(P, shell(cc, A, edgeY, S(36, 12), S(12, 4), lod ? 0 : 0.011, rmod), 'head', KIT.shell, [0, 0, 0], null, null, { ao: (x, y, z) => 0.8 + 0.2 * sstep(c[1] - 0.09, c[1] + 0.02, y) });
   // peak: from the front edge, out and a little down, drooping at the corners
   const y0 = edgeY(0);
   const peak = (u, v) => {
@@ -236,12 +236,12 @@ function helmet(P, part, c, R, S, lod) {
     return pts;
   };
   const bars = lod ? [-0.045, -0.12] : [-0.044, -0.077, -0.11, -0.143];
-  bars.forEach((dy, i) => part(P, tube(bar(dy, i === bars.length - 1 ? 0.012 : 0), 0.0042, lod ? 4 : 6, { caps: false }), 'head', STEEL, [0, 0, 0], null, null, STEEL_M));
+  bars.forEach((dy, i) => part(P, tube(bar(dy, i === bars.length - 1 ? 0.012 : 0), 0.0035, lod ? 4 : 6, { caps: false }), 'head', STEEL, [0, 0, 0], null, null, STEEL_M));
   if (!lod) {
     for (const phi of [-0.4, 0, 0.4]) {
       const pts = [];
       for (let k = 0; k <= 5; k++) { const dy = mix(-0.044, -0.143, k / 5), rin = k === 5 ? 0.012 : 0; pts.push([c[0] + Math.sin(phi) * (Rg - rin) * 0.86, c[1] + dy, zc + Math.cos(phi) * (Rg - rin)]); }
-      part(P, tube(pts, 0.0038, 5, { caps: false }), 'head', STEEL, [0, 0, 0], null, null, STEEL_M);
+      part(P, tube(pts, 0.0032, 5, { caps: false }), 'head', STEEL, [0, 0, 0], null, null, STEEL_M);
     }
     // the grille's mounting under the peak
     part(P, tube(bar(-0.012), 0.0035, 5, { caps: false }), 'head', STEEL, [0, 0, 0], null, null, STEEL_M);
@@ -458,7 +458,7 @@ function battingGlove(P, part, s, S, lod, playerGrip) {
       if (playerGrip) joints = lod ? [[-0.3, end]] : [[-0.3, 1.06], [1.15, 2.10], [2.19, end]];
       for (const [b0, b1] of joints) {
         const pts = arc(sx, 0, -G, fz, R, b0, b1, lod ? 5 : 3);
-        fpart(tube(pts, rf * (b0 > 2 ? 0.93 : 1), lod ? 4 : 6, { caps: true, up: [0, 0, 1] }), WHITE, { ao: aoF(fz, rf), m: 31 });
+        fpart(tube(pts, rf * (b0 > 2 ? 0.93 : 1), lod ? 4 : 7, { caps: true, up: [0, 0, 1] }), WHITE, { ao: aoF(fz, rf), m: 31 });
       }
     }
     // padded back of the hand, palm, team stripe
