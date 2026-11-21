@@ -3,82 +3,25 @@
 import * as THREE from 'three';
 import { CONFIG } from '../config.js';
 import { PITCH, STUMP_X } from '../physics/pitch.js';
-import { BatGeometry } from '../physics/bat.js';
-import { part, merge, vertexColorMat, radialTexture, toV3, colorize } from './util.js';
+import { vertexColorMat, radialTexture, toV3 } from './util.js';
+import { buildBatMesh, addBatMark } from './batModel.js';
+import { ballGeometry, ballMaterial } from './ballModel.js';
+import { stumpGeometry, bailGeometry, socketMesh, wicketTextures, BAIL_LEN, BAIL_R } from './wicketModel.js';
+import { machineGeometry } from './machineModel.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 // ---------------------------------------------------------------- Bat
-// Mesh origin = grip point; axes match the physics bat frame
-// (+Y to handle top, +Z = hitting face, +X across).
-// Shaped willow blade: flat face, curved back with a central spine, rounded
-// edges and toe; turned shoulders; ribbed rubber grip; face + back stickers.
-let _stickerTex = null;
-function stickerTexture() {
-  if (_stickerTex) return _stickerTex;
-  const c = document.createElement('canvas');
-  c.width = 128; c.height = 512;
-  const g = c.getContext('2d');
-  g.clearRect(0, 0, 128, 512);
-  // Top sticker (logo), mid band, toe band.
-  g.fillStyle = '#b3221c'; g.fillRect(6, 10, 116, 150);
-  g.fillStyle = '#ffffff'; g.font = '900 34px system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
-  g.save(); g.translate(64, 85); g.rotate(-Math.PI / 2); g.fillText('CREASE', 0, 0); g.restore();
-  g.fillStyle = '#f2c12e'; g.fillRect(6, 150, 116, 10);
-  g.fillStyle = '#1f3a93'; g.fillRect(14, 420, 100, 26);
-  g.fillStyle = '#ffffff'; g.font = '800 16px system-ui, sans-serif'; g.fillText('PRO', 64, 433);
-  _stickerTex = new THREE.CanvasTexture(c);
-  _stickerTex.colorSpace = THREE.SRGBColorSpace;
-  return _stickerTex;
-}
-
-export function buildBatMesh(cfg = CONFIG.bat) {
-  const g = new BatGeometry(cfg);
-  const bl = cfg.bladeLength, w = cfg.bladeWidth, face = cfg.bladeThickness / 2;
-  const edgeBack = face - 0.038, spineBack = face - 0.064;
-  const shape = new THREE.Shape();
-  shape.moveTo(-w / 2, face);
-  shape.lineTo(w / 2, face);
-  shape.quadraticCurveTo(w / 2 + 0.006, (face + edgeBack) / 2, w / 2, edgeBack);
-  shape.bezierCurveTo(w * 0.28, edgeBack - 0.012, w * 0.12, spineBack, 0, spineBack);
-  shape.bezierCurveTo(-w * 0.12, spineBack, -w * 0.28, edgeBack - 0.012, -w / 2, edgeBack);
-  shape.quadraticCurveTo(-w / 2 - 0.006, (face + edgeBack) / 2, -w / 2, face);
-  const blade = new THREE.ExtrudeGeometry(shape, { depth: bl - 0.012, bevelEnabled: true, bevelThickness: 0.006, bevelSize: 0.003, bevelSegments: 2, curveSegments: 6 });
-  blade.rotateX(Math.PI / 2);                       // extrusion → -Y, face → +Z
-  blade.translate(0, g.shoulderY - 0.006, 0);
-  const parts = [colorize(blade, 0xe9d4a2)];
-  // Shoulders: half-ellipsoid cap blending into the handle.
-  const sh = new THREE.SphereGeometry(w / 2, 14, 6, 0, Math.PI * 2, 0, Math.PI / 2);
-  parts.push(part(sh, 0xdec58f, [0, g.shoulderY - 0.008, (face + spineBack) / 2 * 0.4], null, [1, 0.75, 0.42]));
-  // Handle: splice + ribbed grip + cap.
-  const hl = cfg.handleLength, hr = cfg.handleRadius;
-  parts.push(part(new THREE.CylinderGeometry(hr * 0.95, hr * 1.05, 0.06, 10), 0xc9a466, [0, g.shoulderY + 0.03, 0]));
-  const gripLen = hl - 0.07, rings = 14;
-  for (let i = 0; i < rings; i++) {
-    const y0 = g.shoulderY + 0.06 + (i / rings) * gripLen;
-    parts.push(part(new THREE.CylinderGeometry(hr * 1.08, hr * 1.08, gripLen / rings * 0.62, 10), i % 2 ? 0x1b1b1b : 0x2b2f36, [0, y0 + gripLen / rings * 0.31, 0]));
-    parts.push(part(new THREE.CylinderGeometry(hr, hr, gripLen / rings * 0.4, 10), 0x111111, [0, y0 + gripLen / rings * 0.8, 0]));
-  }
-  parts.push(part(new THREE.CylinderGeometry(hr * 1.12, hr * 0.9, 0.02, 10), 0x111111, [0, g.handleTopY - 0.005, 0]));
-  const mesh = new THREE.Mesh(merge(parts), vertexColorMat());
-  mesh.name = 'bat';
-  // Stickers (face and back) — a second, textured mesh.
-  const tex = stickerTexture();
-  const stMat = new THREE.MeshLambertMaterial({ map: tex, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 });
-  const fg = new THREE.PlaneGeometry(w * 0.86, bl * 0.86);
-  fg.translate(0, (g.shoulderY + g.toeY) / 2 + 0.01, face + 0.0012);
-  const bg = new THREE.PlaneGeometry(w * 0.5, bl * 0.4);
-  bg.rotateY(Math.PI);
-  bg.translate(0, g.shoulderY - bl * 0.25, spineBack - 0.0015);
-  mesh.add(new THREE.Mesh(mergeGeometries([fg, bg], false), stMat));
-  return mesh;
-}
+// The bat (yours and the AI striker's) is built in batModel.js: the physics
+// shape exactly, an English-willow profile, one mesh, one texture.
+export { buildBatMesh, addBatMark };
 
 // ---------------------------------------------------------------- Ball
+// kind: 'white' (the game's limited-overs ball) or 'red'. The seam lies in the
+// mesh's XZ plane (ballModel.js).
 export class BallView {
-  constructor(scene) {
+  constructor(scene, kind = 'white') {
     const r = CONFIG.ball.radius;
-    const geo = new THREE.SphereGeometry(r, 20, 14);
-    this.mesh = new THREE.Mesh(geo, new THREE.MeshPhongMaterial({ map: ballTexture(), color: 0xffffff, emissive: 0x2a2a2a, shininess: 38, specular: 0x555555 }));
+    this.mesh = new THREE.Mesh(ballGeometry(r), ballMaterial(kind));
     this.mesh.name = 'ball';
     scene.add(this.mesh);
 
@@ -138,6 +81,8 @@ export class BallView {
     if (showTrail && this.trailEnabled) this.trail.add(pos);
   }
   clearTrail() { this.trail.clear(); }
+  // 0 new .. 1 very old: the rough half's scuffing and loss of shine.
+  setWear(k) { this.mesh.material.userData.wear.value = Math.max(0, Math.min(1, k)); }
   get trailOn() { return this.trail.count > 0; }
   // Each frame, after the ball has moved: the ribbon turned to face your eyes.
   faceTrail(eye) { this.trail.face(eye); }
@@ -236,76 +181,75 @@ function edgeTexture() {
 
 const _axis = new THREE.Vector3(), _q = new THREE.Quaternion();
 
-// White leather with a raised stitched seam around the equator.
-function ballTexture() {
-  const c = document.createElement('canvas');
-  c.width = 512; c.height = 256;
-  const g = c.getContext('2d');
-  g.fillStyle = '#f6f4ee'; g.fillRect(0, 0, 512, 256);
-  for (let i = 0; i < 4000; i++) { g.fillStyle = `rgba(120,110,95,${Math.random() * 0.08})`; g.fillRect(Math.random() * 512, Math.random() * 256, 2, 2); }
-  // Quarter seam (faint) and main seam.
-  g.strokeStyle = 'rgba(150,145,135,0.6)'; g.lineWidth = 2;
-  g.beginPath(); g.moveTo(128, 0); g.lineTo(128, 256); g.moveTo(384, 0); g.lineTo(384, 256); g.stroke();
-  g.fillStyle = '#d9d4c8'; g.fillRect(0, 120, 512, 16);
-  g.strokeStyle = '#6b7b8c'; g.lineWidth = 2;
-  for (const yy of [118, 138]) for (let x = 0; x < 512; x += 7) { g.beginPath(); g.moveTo(x, yy); g.lineTo(x + 4, yy + (yy < 128 ? 4 : -4)); g.stroke(); }
-  const t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.SRGBColorSpace;
-  return t;
-}
-
 // ---------------------------------------------------------------- Stumps
+// Three stumps and two bails (wicketModel.js), each its own mesh: replays move
+// them by reference (`pieces[i].mesh`). Broken: the bails fly spinning about
+// their length and tumbling, bounce and come to rest lying flat; the stump hit
+// goes back on a damped spring (or cartwheels out of the ground when hit
+// hard), the others are jolted and wobble; the LED tops, base and bails flash.
+const _qa = new THREE.Quaternion(), _va = new THREE.Vector3(), _vb = new THREE.Vector3(), _ax = new THREE.Vector3();
+const FLASH_SEC = 3.2;
 export class StumpsView {
   constructor(parent, z) {
     this.group = new THREE.Group();
     this.group.position.z = z;
     parent.add(this.group);
-    const mat = new THREE.MeshLambertMaterial({ color: 0xf1e6c8 });
-    const tipMat = new THREE.MeshLambertMaterial({ color: 0xc0392b });
+    const T = wicketTextures();
+    // (each end its own material: its LEDs flash on their own)
+    this.mat = new THREE.MeshLambertMaterial({ map: T.map, emissiveMap: T.led, emissive: 0x000000 });
     this.pieces = [];
-    const h = PITCH.stumpHeight, r = PITCH.stumpRadius;
-    const stumpGeo = merge([
-      part(new THREE.CylinderGeometry(r, r * 0.92, h, 8), 0xf1e6c8, [0, h / 2, 0]),
-      part(new THREE.CylinderGeometry(r * 1.03, r * 1.03, 0.07, 8), 0xc0392b, [0, h - 0.13, 0]),
-      part(new THREE.CylinderGeometry(r * 1.03, r * 1.03, 0.02, 8), 0x1f3a93, [0, h - 0.2, 0]),
-    ]);
-    const stumpMat = vertexColorMat();
-    void tipMat;
-    for (const x of STUMP_X) {
-      const m = new THREE.Mesh(stumpGeo, stumpMat);
+    const h = PITCH.stumpHeight, r = PITCH.stumpRadius, flip = z < -10;
+    STUMP_X.forEach((x, i) => {
+      const m = new THREE.Mesh(stumpGeometry(i === 1, flip), this.mat);
       m.position.set(x, 0, 0);
+      m.name = 'stump';
       this.group.add(m);
-      this.pieces.push({ mesh: m, home: m.position.clone(), vel: new THREE.Vector3(), ang: new THREE.Vector3(), kind: 'stump' });
-    }
-    const bailGeo = new THREE.CylinderGeometry(0.007, 0.007, 0.108, 6);
-    bailGeo.rotateZ(Math.PI / 2);
+      this.pieces.push({ mesh: m, home: m.position.clone(), vel: new THREE.Vector3(), ang: new THREE.Vector3(), kind: 'stump',
+        c: new THREE.Vector3(), half: new THREE.Vector3(0, h / 2, 0), ends: [new THREE.Vector3(0, -0.06, 0), new THREE.Vector3(0, h, 0)], rad: r, axis: new THREE.Vector3(0, 1, 0) });
+    });
     for (const x of [(STUMP_X[0] + STUMP_X[1]) / 2, (STUMP_X[1] + STUMP_X[2]) / 2]) {
-      const m = new THREE.Mesh(bailGeo, mat);
+      const m = new THREE.Mesh(bailGeometry(), this.mat);
       m.position.set(x, h + 0.006, 0);
+      m.name = 'bail';
       this.group.add(m);
-      this.pieces.push({ mesh: m, home: m.position.clone(), vel: new THREE.Vector3(), ang: new THREE.Vector3(), kind: 'bail' });
+      this.pieces.push({ mesh: m, home: m.position.clone(), vel: new THREE.Vector3(), ang: new THREE.Vector3(), kind: 'bail',
+        c: new THREE.Vector3(), half: new THREE.Vector3(), ends: [new THREE.Vector3(-BAIL_LEN / 2, 0, 0), new THREE.Vector3(BAIL_LEN / 2, 0, 0)], rad: BAIL_R * 0.7, axis: new THREE.Vector3(1, 0, 0) });
     }
+    this.group.add(socketMesh(STUMP_X));
     this.broken = false;
+    this.flash = 0;
+    this.t = 0;
   }
 
   break(ballVel, stumpIndex = 1) {
     if (this.broken) return;
     this.broken = true;
+    this.flash = FLASH_SEC;
     const sp = Math.min(40, Math.hypot(ballVel.x, ballVel.y, ballVel.z));
     const dirZ = Math.sign(ballVel.z) || 1;
+    const R = Math.random;
     for (let i = 0; i < this.pieces.length; i++) {
       const p = this.pieces[i];
+      p.c.copy(p.home).add(p.half);
+      p.rest = false;
       if (p.kind === 'bail') {
-        p.vel.set((Math.random() - 0.5) * 3, 3 + Math.random() * 3 + sp * 0.08, dirZ * (2 + sp * 0.15));
-        p.ang.set((Math.random() - 0.5) * 30, (Math.random() - 0.5) * 30, (Math.random() - 0.5) * 30);
+        // the bail over the stump that was hit goes highest; both fly away from the ball's side
+        const near = (i === 3 && stumpIndex <= 1) || (i === 4 && stumpIndex >= 1);
+        const side = i === 3 ? -1 : 1;
+        p.vel.set(side * (0.6 + R() * 1.6) + (R() - 0.5), (near ? 3.2 : 2.2) + R() * 2.4 + sp * 0.07, dirZ * (1.6 + sp * 0.17 + R()));
+        p.ang.set((R() < 0.5 ? -1 : 1) * (22 + R() * 22), (R() - 0.5) * 18, (R() - 0.5) * 18);
         p.flying = true;
       } else {
-        const hit = Math.abs(i - stumpIndex) === 0 ? 1 : 0.35;
-        p.tilt = { axis: new THREE.Vector3(1, 0, 0), rate: dirZ * (2 + sp * 0.25) * hit, angle: 0, max: hit > 0.5 ? 1.2 : 0.3 };
-        if (hit > 0.5 && sp > 25) {
-          p.vel.set((Math.random() - 0.5) * 2, 1.5, dirZ * sp * 0.12);
-          p.ang.set(dirZ * 12, 0, (Math.random() - 0.5) * 6);
+        const hit = i === stumpIndex;
+        if (hit && sp > 25) {                              // out of the ground, cartwheeling back
+          p.vel.set((R() - 0.5) * 1.6, 1.2 + R() * 1.2, dirZ * sp * 0.12);
+          p.ang.set(dirZ * (9 + R() * 6), (R() - 0.5) * 4, (R() - 0.5) * 6);
           p.flying = true;
+        } else {
+          // lean back on a spring: the hit stump a long way (it stays there), the others jolted
+          const toward = hit ? 1 : 0.25 + 0.15 * R();
+          p.tilt = { axis: new THREE.Vector3(dirZ, 0, (R() - 0.5) * (hit ? 0.5 : 0.8)).normalize(), angle: 0,
+            w: (hit ? 5 + sp * 0.28 : 1.2 + sp * 0.06) * toward, target: hit ? Math.min(1.25, 0.5 + sp * 0.025) : 0.02 + 0.06 * R(), k: hit ? 40 : 160, c: hit ? 7 : 6 };
         }
       }
     }
@@ -313,70 +257,98 @@ export class StumpsView {
 
   update(dt) {
     if (!this.broken) return;
+    this.t += dt;
+    // LEDs: a red strobe that fades out
+    if (this.flash > 0) {
+      this.flash = Math.max(0, this.flash - dt);
+      const on = Math.sin(this.t * Math.PI * 2 * 4.5) > -0.2 ? 1 : 0.18;
+      const k = on * Math.min(1, this.flash / 0.6);
+      this.mat.emissive.setRGB(1.0 * k, 0.1 * k, 0.06 * k);
+    }
     for (const p of this.pieces) {
       const m = p.mesh;
       if (p.flying) {
         p.vel.y -= 9.81 * dt;
-        m.position.addScaledVector(p.vel, dt);
-        m.rotation.x += p.ang.x * dt; m.rotation.y += p.ang.y * dt; m.rotation.z += p.ang.z * dt;
-        if (m.position.y < 0.01) {
-          m.position.y = 0.01;
-          p.vel.multiplyScalar(0.3);
-          p.vel.y = Math.abs(p.vel.y) * 0.3;
-          p.ang.multiplyScalar(0.5);
-          if (p.vel.length() < 0.3) p.flying = false;
+        p.c.addScaledVector(p.vel, dt);
+        const w = p.ang.length();
+        if (w > 1e-4) { _qa.setFromAxisAngle(_ax.copy(p.ang).divideScalar(w), w * dt); m.quaternion.premultiply(_qa); }
+        const low = this.lowest(p);
+        if (low < p.rad) {
+          p.c.y += p.rad - low;
+          if (p.vel.y < 0) {
+            p.vel.y = -p.vel.y * (p.kind === 'bail' ? 0.38 : 0.25);
+            p.vel.x *= 0.55; p.vel.z *= 0.55;
+            p.ang.multiplyScalar(0.5);
+            if (p.kind === 'bail') p.ang.x += (Math.random() - 0.5) * 6;
+          }
+          if (p.vel.lengthSq() < 0.12 && p.vel.y < 0.5) { p.flying = false; p.rest = true; p.vel.set(0, 0, 0); }
         }
-      } else if (p.tilt && p.tilt.angle < p.tilt.max) {
-        p.tilt.angle = Math.min(p.tilt.max, p.tilt.angle + Math.abs(p.tilt.rate) * dt);
-        m.rotation.x = Math.sign(p.tilt.rate) * p.tilt.angle;
-      }
+      } else if (p.rest) {
+        // settle lying flat: turn the long axis level, then sit on the turf
+        _va.copy(p.axis).applyQuaternion(m.quaternion);
+        _vb.set(_va.x, 0, _va.z);
+        if (_vb.lengthSq() < 1e-6) _vb.set(0, 0, 1);
+        _vb.normalize();
+        _qa.setFromUnitVectors(_va, _vb);
+        if (Math.abs(_va.y) > 1e-3) { _qa.slerp(_qId, 1 - Math.min(1, dt * 7)); m.quaternion.premultiply(_qa); }
+        else p.rest = false;
+        p.c.y += p.rad - this.lowest(p);
+      } else if (p.tilt) {
+        const T = p.tilt;
+        T.w += (T.k * (T.target - T.angle) - T.c * T.w) * dt;
+        T.angle = Math.min(1.45, Math.max(-0.3, T.angle + T.w * dt));
+        m.quaternion.setFromAxisAngle(T.axis, T.angle);
+        continue;
+      } else continue;
+      // the mesh's origin from its centre
+      m.position.copy(p.half).applyQuaternion(m.quaternion).multiplyScalar(-1).add(p.c);
     }
+  }
+
+  // The lowest point of a piece (its two ends), in the group's frame.
+  lowest(p) {
+    let low = Infinity;
+    for (const e of p.ends) { _va.copy(e).sub(p.half).applyQuaternion(p.mesh.quaternion); low = Math.min(low, _va.y + p.c.y); }
+    return low;
   }
 
   reset() {
     this.broken = false;
+    this.flash = 0;
+    this.mat.emissive.setRGB(0, 0, 0);
     for (const p of this.pieces) {
       p.mesh.position.copy(p.home);
-      p.mesh.rotation.set(0, 0, 0);
+      p.mesh.quaternion.identity();
       p.vel.set(0, 0, 0); p.ang.set(0, 0, 0);
-      p.flying = false; p.tilt = null;
+      p.flying = false; p.tilt = null; p.rest = false;
     }
   }
 }
+const _qId = new THREE.Quaternion();
 
 // ---------------------------------------------------------------- Machine
-// Low-poly bowling machine positioned so its wheel outlet is at the release
-// point, with three cue lights (red → amber → green = release).
+// A two-wheel bowling machine on a tripod (machineModel.js), positioned so the
+// gap between its wheels is at the release point, with three cue lights on a
+// hooded board above it (red -> amber -> green = release).
 export class MachineView {
   constructor(parent) {
     this.group = new THREE.Group();
     parent.add(this.group);
-    const m = CONFIG.machine;
-    const parts = [];
-    const outletY = m.releaseHeight;
-    // Tripod legs.
-    for (let i = 0; i < 3; i++) {
-      const a = (i / 3) * Math.PI * 2;
-      parts.push(part(new THREE.CylinderGeometry(0.025, 0.03, outletY - 0.1, 5), 0x3d4148,
-        [Math.sin(a) * 0.3, (outletY - 0.1) / 2, -0.25 + Math.cos(a) * 0.3], [Math.cos(a) * 0.15, 0, -Math.sin(a) * 0.15]));
-    }
-    // Body and wheels (outlet faces +Z, toward the batter).
-    parts.push(part(new THREE.BoxGeometry(0.45, 0.35, 0.55), 0x1f6fb2, [0, outletY + 0.05, -0.32]));
-    parts.push(part(new THREE.CylinderGeometry(0.2, 0.2, 0.07, 14), 0x22252a, [0.09, outletY, -0.12], [0, 0, Math.PI / 2]));
-    parts.push(part(new THREE.CylinderGeometry(0.2, 0.2, 0.07, 14), 0x22252a, [-0.09, outletY, -0.12], [0, 0, Math.PI / 2]));
-    parts.push(part(new THREE.BoxGeometry(0.12, 0.12, 0.3), 0xe8e8e8, [0, outletY + 0.3, -0.45]));
-    this.group.add(new THREE.Mesh(merge(parts), vertexColorMat()));
-
+    const outletY = CONFIG.machine.releaseHeight;
+    this.group.add(new THREE.Mesh(machineGeometry(outletY), vertexColorMat()));
     // Cue lights on a mast above the machine (visible against the sightscreen).
     this.lights = [];
     const colors = [0xff2a1a, 0xffb000, 0x22ff55];
-    const board = new THREE.Mesh(new THREE.BoxGeometry(0.98, 0.36, 0.04), new THREE.MeshBasicMaterial({ color: 0x0b0d10 }));
-    board.position.set(0, outletY + 0.62, -0.34);
+    const by = outletY + 0.9;
+    const board = new THREE.Mesh(boardGeometry(), new THREE.MeshLambertMaterial({ color: 0x15171b }));
+    board.position.set(0, by, -0.36);
     this.group.add(board);
+    const lens = new THREE.SphereGeometry(0.105, 14, 8, 0, Math.PI * 2, 0, Math.PI * 0.55);
+    lens.rotateX(Math.PI / 2);
     for (let i = 0; i < 3; i++) {
       const mat = new THREE.MeshBasicMaterial({ color: 0x222222 });
-      const l = new THREE.Mesh(new THREE.SphereGeometry(0.12, 12, 8), mat);
-      l.position.set(-0.31 + i * 0.31, outletY + 0.62, -0.3);
+      const l = new THREE.Mesh(lens, mat);
+      l.position.set(-0.31 + i * 0.31, by, -0.335);
       l.userData.on = colors[i];
       this.group.add(l);
       this.lights.push(l);
@@ -392,41 +364,105 @@ export class MachineView {
   setCue(stage) {
     for (let i = 0; i < 3; i++) {
       const l = this.lights[i];
-      l.material.color.setHex(stage === i + 1 ? l.userData.on : 0x222222);
+      l.material.color.setHex(stage === i + 1 ? l.userData.on : 0x26282c);
     }
   }
   setVisible(v) { this.group.visible = v; }
 }
 
+// The light board: a rounded case with a hood over each lamp.
+function boardGeometry() {
+  const parts = [new THREE.BoxGeometry(1.0, 0.34, 0.06)];
+  for (let i = 0; i < 3; i++) {
+    const hood = new THREE.CylinderGeometry(0.135, 0.135, 0.09, 14, 1, true, -Math.PI * 0.55, Math.PI * 1.1);
+    hood.rotateX(Math.PI / 2); hood.translate(-0.31 + i * 0.31, 0, 0.06);
+    parts.push(hood.toNonIndexed());
+  }
+  parts[0] = parts[0].toNonIndexed();
+  for (const g of parts) { g.deleteAttribute('uv'); }
+  return mergeGeometries(parts, false);
+}
+
 // ---------------------------------------------------------------- Markers
+// A floor target: a coloured ring with a dark outline and a centre dot, drawn
+// in one textured quad (crisp and mipmapped at any distance).
+const _ringTex = new Map();
+function ringMarkerTexture(color, dotColor) {
+  const key = color + ':' + dotColor;
+  if (_ringTex.has(key)) return _ringTex.get(key);
+  const S = 256, c = document.createElement('canvas'); c.width = c.height = S;
+  const g = c.getContext('2d'), m = S / 2;
+  const css = (h) => '#' + new THREE.Color(h).getHexString();
+  g.fillStyle = 'rgba(255,255,255,0.08)'; g.beginPath(); g.arc(m, m, m * 0.72, 0, Math.PI * 2); g.fill();
+  g.lineWidth = m * 0.34; g.strokeStyle = 'rgba(10,14,20,0.55)'; g.beginPath(); g.arc(m, m, m * 0.84, 0, Math.PI * 2); g.stroke();
+  g.lineWidth = m * 0.22; g.strokeStyle = css(color); g.beginPath(); g.arc(m, m, m * 0.84, 0, Math.PI * 2); g.stroke();
+  g.lineWidth = m * 0.03; g.strokeStyle = 'rgba(255,255,255,0.7)'; g.beginPath(); g.arc(m, m, m * 0.9, 0, Math.PI * 2); g.stroke();
+  g.fillStyle = 'rgba(10,14,20,0.55)'; g.beginPath(); g.arc(m, m, m * 0.24, 0, Math.PI * 2); g.fill();
+  g.fillStyle = css(dotColor); g.beginPath(); g.arc(m, m, m * 0.17, 0, Math.PI * 2); g.fill();
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
+  _ringTex.set(key, t);
+  return t;
+}
 export function buildRingMarker(color = 0xffe14d, radius = 0.22, dotColor = color) {
   const g = new THREE.Group();
-  const ring = new THREE.Mesh(new THREE.RingGeometry(radius * 0.72, radius, 40),
-    new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.95, depthWrite: false }));
-  ring.rotation.x = -Math.PI / 2;
-  ring.position.y = 0.01;
-  const dot = new THREE.Mesh(new THREE.CircleGeometry(radius * 0.18, 16),
-    new THREE.MeshBasicMaterial({ color: dotColor, transparent: true, opacity: 0.95, depthWrite: false }));
-  dot.rotation.x = -Math.PI / 2;
-  dot.position.y = 0.011;
-  g.add(ring, dot);
+  const q = new THREE.Mesh(new THREE.PlaneGeometry(radius * 2.2, radius * 2.2),
+    new THREE.MeshBasicMaterial({ map: ringMarkerTexture(color, dotColor), transparent: true, depthWrite: false, toneMapped: false }));
+  q.rotation.x = -Math.PI / 2;
+  q.position.y = 0.01;
+  q.renderOrder = 2;
+  g.add(q);
   g.renderOrder = 2;
   return g;
 }
 
-// Small dust-puff mark showing where the last ball pitched.
+// Where the last ball pitched: a scuffed oval along the ball's line (pressed
+// darker in the middle, a ring of disturbed dust round it). Lasts ~6 s.
+let _scuffTex = null;
+function scuffTexture() {
+  if (_scuffTex) return _scuffTex;
+  const S = 128, c = document.createElement('canvas'); c.width = c.height = S;
+  const g = c.getContext('2d');
+  let seed = 5; const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+  // (the canvas is stretched to 0.15 x 0.25 m: circles drawn here are ovals along the ball's line)
+  // a halo of disturbed dust, thrown forward (toward the bottom of the canvas = +z)
+  const halo = g.createRadialGradient(64, 70, 8, 64, 70, 60);
+  halo.addColorStop(0, 'rgba(150,122,80,0.55)'); halo.addColorStop(0.55, 'rgba(160,132,90,0.28)'); halo.addColorStop(1, 'rgba(160,132,90,0)');
+  g.fillStyle = halo; g.fillRect(0, 0, S, S);
+  for (let i = 0; i < 140; i++) {
+    const a = (rnd() - 0.5) * 1.4, d = 26 + rnd() * 36;
+    g.fillStyle = `rgba(${rnd() < 0.5 ? '120,95,60' : '240,228,196'},${0.25 + rnd() * 0.35})`;
+    g.fillRect(64 + Math.sin(a) * d - 1, 60 + Math.cos(a) * d - 1, 1.5 + rnd() * 2, 1.5 + rnd() * 2);
+  }
+  // the pressed, darker scuff where the ball hit, and its seam's line across it
+  const core = g.createRadialGradient(64, 56, 3, 64, 56, 34);
+  core.addColorStop(0, 'rgba(88,66,38,0.95)'); core.addColorStop(0.55, 'rgba(104,80,48,0.8)'); core.addColorStop(1, 'rgba(110,86,52,0)');
+  g.fillStyle = core; g.beginPath(); g.arc(64, 56, 34, 0, Math.PI * 2); g.fill();
+  g.strokeStyle = 'rgba(52,38,20,0.6)'; g.lineWidth = 2.5; g.beginPath(); g.moveTo(44, 52); g.lineTo(84, 60); g.stroke();
+  _scuffTex = new THREE.CanvasTexture(c); _scuffTex.colorSpace = THREE.SRGBColorSpace; _scuffTex.anisotropy = 4;
+  return _scuffTex;
+}
 export class PitchMark {
   constructor(scene) {
-    this.mesh = new THREE.Mesh(new THREE.CircleGeometry(0.06, 12),
-      new THREE.MeshBasicMaterial({ color: 0x6e5532, transparent: true, opacity: 0.0, depthWrite: false }));
-    this.mesh.rotation.x = -Math.PI / 2;
+    const geo = new THREE.PlaneGeometry(0.15, 0.25);
+    geo.rotateX(-Math.PI / 2);                   // (the dust thrown toward +z: turned to the ball's line in show())
+    this.mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ map: scuffTexture(), transparent: true, opacity: 0, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 }));
     this.mesh.renderOrder = 2;
+    this.mesh.visible = false;
     scene.add(this.mesh);
     this.age = 99;
   }
-  show(pos) { this.mesh.position.set(pos.x, 0.009, pos.z); this.age = 0; }
+  // vel: the ball's velocity off the pitch (optional: straight down the pitch otherwise).
+  show(pos, vel = null) {
+    this.mesh.position.set(pos.x, 0.009, pos.z);
+    const vx = vel ? vel.x : 0, vz = vel ? vel.z : 1;
+    this.mesh.rotation.y = Math.atan2(vx, vz);
+    this.age = 0;
+    this.mesh.visible = true;
+  }
   update(dt) {
     this.age += dt;
-    this.mesh.material.opacity = this.age < 6 ? 0.8 * (1 - this.age / 6) : 0;
+    const a = this.age < 6 ? Math.min(1, this.age * 12) * (this.age < 4 ? 1 : 1 - (this.age - 4) / 2) : 0;
+    this.mesh.material.opacity = a * 0.9;
+    this.mesh.visible = a > 0.01;
   }
 }

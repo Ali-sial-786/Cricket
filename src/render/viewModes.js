@@ -4,6 +4,7 @@
 //   PlayerBowlerActor     a body for you when you bowl (arms follow the controllers)
 //   NearCull              hides any body (or bat) that would be inside your head
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { Actor } from './actors.js';
 import { plantFeet, heelFor, clamp, mix } from './anim.js';
 
@@ -14,12 +15,19 @@ import { plantFeet, heelFor, clamp, mix } from './anim.js';
 export function buildHelmetGrille() {
   const g = new THREE.Group();
   g.name = 'helmetGrille';
-  // Titanium grille: smooth round bars, lit, with a soft highlight.
-  const steel = new THREE.MeshPhongMaterial({ color: 0x5d646d, specular: 0xe8eef5, shininess: 70 });
-  const weld = new THREE.MeshPhongMaterial({ color: 0x3b4048, specular: 0x9aa4ae, shininess: 40 });
+  // Titanium grille: smooth round bars, lit, with a soft highlight; welds a shade darker.
+  const steel = new THREE.MeshPhongMaterial({ color: 0x5d646d, specular: 0xe8eef5, shininess: 70, vertexColors: true });
   // Shell: glossy navy outside, dark padded lining inside.
   const shell = new THREE.MeshPhongMaterial({ color: 0x172d63, specular: 0x5a6f9e, shininess: 55, side: THREE.DoubleSide });
   const lining = new THREE.MeshLambertMaterial({ map: liningTexture(), color: 0xffffff, side: THREE.DoubleSide });
+  // Parts are collected per material and merged: three draws for the whole helmet.
+  const S = [], SH = [], LI = [];
+  const put = (list, geo, pos = [0, 0, 0], rotY = 0, tint = 1) => {
+    geo.rotateY(rotY); geo.translate(...pos);
+    const g2 = geo.index ? geo.toNonIndexed() : geo;
+    if (list === S) { const n = g2.attributes.position.count; g2.setAttribute('color', new THREE.BufferAttribute(new Float32Array(n * 3).fill(tint), 3)); }
+    list.push(g2);
+  };
   const R = 0.12;                                    // grille radius around the face
   const arc = 2.0;                                   // radians of wrap
   // Torus arcs start on +X and turn toward +Z once laid flat; this yaw puts
@@ -27,47 +35,31 @@ export function buildHelmetGrille() {
   const AHEAD = arc / 2 + Math.PI / 2;
   const levels = [[-0.042, R], [-0.074, R + 0.004], [-0.106, R + 0.008]];
   for (const [y, r] of levels) {
-    const t = new THREE.TorusGeometry(r, 0.0028, 10, 72, arc);
+    const t = new THREE.TorusGeometry(r, 0.0028, 8, 64, arc);
     t.rotateX(Math.PI / 2);
-    t.rotateY(AHEAD);
-    const m = new THREE.Mesh(t, steel);
-    m.position.y = y;
-    g.add(m);
+    put(S, t, [0, y, 0], AHEAD);
   }
   // Vertical bars, and a small weld where each crosses a horizontal one.
   for (const a of [0, -0.6, 0.6]) {
     const r = R + 0.004;
-    const m = new THREE.Mesh(new THREE.CylinderGeometry(0.0028, 0.0028, 0.072, 10), steel);
-    m.position.set(Math.sin(a) * r, -0.075, -Math.cos(a) * r);
-    g.add(m);
-    for (const [y, rr] of levels) {
-      const w = new THREE.Mesh(new THREE.SphereGeometry(0.0042, 10, 8), weld);
-      w.position.set(Math.sin(a) * rr, y, -Math.cos(a) * rr);
-      g.add(w);
-    }
+    put(S, new THREE.CylinderGeometry(0.0028, 0.0028, 0.072, 8), [Math.sin(a) * r, -0.075, -Math.cos(a) * r]);
+    for (const [y, rr] of levels) put(S, new THREE.SphereGeometry(0.0042, 8, 6), [Math.sin(a) * rr, y, -Math.cos(a) * rr], 0, 0.62);
   }
   // The grille's side mounts where it bolts to the shell (at the edge of vision).
   for (const sx of [-1, 1]) {
     const a = sx * (arc / 2 - 0.05);
-    const m = new THREE.Mesh(new THREE.BoxGeometry(0.006, 0.07, 0.012), shell);
-    m.position.set(Math.sin(a) * (R + 0.004), -0.07, -Math.cos(a) * (R + 0.004));
-    m.rotation.y = -a;
-    g.add(m);
+    put(SH, new THREE.BoxGeometry(0.006, 0.07, 0.012), [Math.sin(a) * (R + 0.004), -0.07, -Math.cos(a) * (R + 0.004)], -a);
   }
   // Peak: smooth shell edge, the brim, and the padded lining just above the eyes.
-  const rim = new THREE.CylinderGeometry(R + 0.01, R + 0.012, 0.016, 64, 1, true, Math.PI - 1.15, 2.3);
-  const rimM = new THREE.Mesh(rim, shell);
-  rimM.position.y = 0.1;
-  g.add(rimM);
-  const pad = new THREE.CylinderGeometry(R - 0.002, R - 0.002, 0.022, 64, 1, true, Math.PI - 1.1, 2.2);
-  const padM = new THREE.Mesh(pad, lining);
-  padM.position.y = 0.088;
-  g.add(padM);
+  put(SH, new THREE.CylinderGeometry(R + 0.01, R + 0.012, 0.016, 64, 1, true, Math.PI - 1.15, 2.3), [0, 0.1, 0]);
+  put(LI, new THREE.CylinderGeometry(R - 0.002, R - 0.002, 0.022, 64, 1, true, Math.PI - 1.1, 2.2), [0, 0.088, 0]);
   const brim = new THREE.RingGeometry(R + 0.008, R + 0.034, 64, 1, Math.PI + Math.PI / 2 - 0.95, 1.9);
   brim.rotateX(-Math.PI / 2 + 0.2);
-  const brimM = new THREE.Mesh(brim, shell);
-  brimM.position.y = 0.094;
-  g.add(brimM);
+  put(SH, brim, [0, 0.094, 0]);
+  const clean = (list, keep) => list.map((x) => { for (const k of Object.keys(x.attributes)) if (!keep.includes(k)) x.deleteAttribute(k); return x; });
+  g.add(new THREE.Mesh(mergeGeometries(clean(S, ['position', 'normal', 'color'])), steel));
+  g.add(new THREE.Mesh(mergeGeometries(clean(SH, ['position', 'normal'])), shell));
+  g.add(new THREE.Mesh(mergeGeometries(clean(LI, ['position', 'normal', 'uv'])), lining));
   g.traverse((o) => { if (o.isMesh) { o.renderOrder = 10; o.frustumCulled = false; } });
   g.visible = false;
   return g;

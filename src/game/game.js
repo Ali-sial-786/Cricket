@@ -8,7 +8,7 @@ import { PhysicsWorld, InterpolatedBatProvider } from '../physics/world.js';
 import { SwingLoad } from '../physics/swingLoad.js';
 import { PITCH } from '../physics/pitch.js';
 import { buildEnvironment } from '../render/env.js';
-import { buildBatMesh, BallView, StumpsView, MachineView, PitchMark, buildRingMarker } from '../render/objects.js';
+import { buildBatMesh, addBatMark, BallView, StumpsView, MachineView, PitchMark, buildRingMarker } from '../render/objects.js';
 import { toV3, toQ } from '../render/util.js';
 import { InputManager } from '../xr/input.js';
 import { UI } from '../ui/ui.js';
@@ -1037,10 +1037,12 @@ export class Game {
     else if (e.type === 'wicket') this.replay.mark('wicket', e.t);
     if (e.type === 'bounce') {
       if (e.speedIn > 1.5) s.bounce(e.speedIn, e.surface);
-      if (e.speedIn > 3) this.particles.dust(e.pos, e.speedIn, e.surface !== 'pitch');
-      if (!e.batted && e.surface === 'pitch' && e.index === 1) this.pitchMark.show(e.pos);
+      if (e.speedIn > 3) this.particles.dust(e.pos, e.speedIn, e.surface !== 'pitch', this.world.ball.vel);
+      if (!e.batted && e.surface === 'pitch' && e.index === 1) this.pitchMark.show(e.pos, this.world.ball.vel);
     } else if (e.type === 'bat') {
       this.sample(e.isEdge ? 'bat_edge' : e.quality > 0.55 ? 'bat_sweet' : 'bat_block', { gain: Math.min(1, 0.45 + (e.speedIn + e.batSpeed) / 70) }) || s.batCrack(e.quality, e.speedIn + e.batSpeed, e.isEdge);
+      this.particles.contact(e.pos, e.quality, e.isEdge);
+      if (e.batId === 'player') addBatMark(this.batMesh, e.local, e.quality);      // (a cherry on the face)
       if (e.batId === 'player') {
         const H = CONFIG.haptics;
         const R = this.input.right;
@@ -1094,6 +1096,7 @@ export class Game {
       this.catchMarker.lookAt(this.input.headPose.p.x, this.input.headPose.p.y, this.input.headPose.p.z);
     }
     // Particles (point size needs the per-eye half height).
+    this.particles.pollContacts(this.contacts);     // (dust where the bat's toe hits the turf)
     this.particles.update(pdtFx(paused, dt), this.input.xr ? 900 : this.renderer.getDrawingBufferSize(_dbs).y / 2);
     // People.
     const lookBall = b.active ? _look.set(b.pos.x, b.pos.y, b.pos.z) : (this.ballOverride ? _look.set(this.ballOverride.pos.x, this.ballOverride.pos.y, this.ballOverride.pos.z) : null);

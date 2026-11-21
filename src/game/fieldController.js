@@ -575,6 +575,7 @@ export class FieldController {
     // (ready and crouched while the ball is on its way: not once the keeper has taken it or it has beaten him)
     const ready = this.delivering && !L.keeperHold && !L.keeperMissed;
     g.fieldView.update(dt, states, { t, ball: ballPos, delivering: ready, cam: g.input.headPose.p, others });
+    g.particles.pollDives(states, t);                    // (grass flecks where a fielder dives)
 
     // Stumps broken by a glove: they fly when the hand gets there.
     if (this.pendingBreak && t >= this.pendingBreak.t) {

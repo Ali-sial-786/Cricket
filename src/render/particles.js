@@ -1,9 +1,18 @@
-// One pooled particle system (single draw call): bounce dust, grass flecks,
-// boundary fireworks, stumps splinters. Soft round points with per-particle
-// colour, alpha and size; works in XR (size scales with projection).
+// One pooled particle system (single draw call): pitch dust puffs and grit,
+// grass flecks, a dust ring where the bat's toe hits the turf, the flash and
+// ring of a sweet bat contact, bail sparkle and splinters, boundary fireworks.
+// Point sprites with per-particle colour, alpha, size and kind:
+//   0 soft puff · 1 hard fleck · 2 ring · 3 sparkle (additive)
+// Premultiplied blending lets the additive sparkles share the draw with the
+// alpha-blended dust. Works in XR (size scales with the projection). Nothing
+// is uploaded while no particle is alive.
 import * as THREE from 'three';
 
-const N = 420;
+const N = 512;
+const PUFF = 0, FLECK = 1, RING = 2, SPARK = 3;
+// The pitch's dust and soil (sRGB, written straight to the framebuffer).
+const PITCH_DUST = [0xefe3c4, 0xe4d3ab, 0xf6eedb], PITCH_GRIT = [0x7d6544, 0x5e4a30, 0x9c8158];
+const GRASS = [0x2f6a22, 0xa8c46a, 0xc9d98c, 0x6d5a3a];
 
 export class Particles {
   constructor(scene) {
@@ -11,6 +20,7 @@ export class Particles {
     this.col = new Float32Array(N * 3);
     this.alpha = new Float32Array(N);
     this.size = new Float32Array(N);
+    this.kind = new Float32Array(N);
     this.vel = new Float32Array(N * 3);
     this.life = new Float32Array(N);
     this.age = new Float32Array(N).fill(1e9);
@@ -18,68 +28,142 @@ export class Particles {
     this.grav = new Float32Array(N);
     this.size0 = new Float32Array(N);
     this.grow = new Float32Array(N);
+    this.alpha0 = new Float32Array(N);
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(this.pos, 3).setUsage(THREE.DynamicDrawUsage));
     g.setAttribute('color', new THREE.BufferAttribute(this.col, 3).setUsage(THREE.DynamicDrawUsage));
     g.setAttribute('alpha', new THREE.BufferAttribute(this.alpha, 1).setUsage(THREE.DynamicDrawUsage));
     g.setAttribute('size', new THREE.BufferAttribute(this.size, 1).setUsage(THREE.DynamicDrawUsage));
+    g.setAttribute('kind', new THREE.BufferAttribute(this.kind, 1).setUsage(THREE.DynamicDrawUsage));
     this.geo = g;
     this.mat = new THREE.ShaderMaterial({
       uniforms: { uHalfH: { value: 500 } },
       vertexShader: `
-        attribute float alpha; attribute float size; attribute vec3 color;
-        varying float vA; varying vec3 vC;
+        attribute float alpha; attribute float size; attribute vec3 color; attribute float kind;
+        varying float vA; varying vec3 vC; varying float vK;
         uniform float uHalfH;
         void main() {
-          vA = alpha; vC = color;
+          vA = alpha; vC = color; vK = kind;
           vec4 mv = modelViewMatrix * vec4(position, 1.0);
           gl_Position = projectionMatrix * mv;
           gl_PointSize = alpha > 0.001 ? size * projectionMatrix[1][1] * uHalfH / max(0.1, -mv.z) : 0.0;
         }`,
       fragmentShader: `
-        varying float vA; varying vec3 vC;
+        varying float vA; varying vec3 vC; varying float vK;
         void main() {
           vec2 d = gl_PointCoord - 0.5;
-          float r = length(d);
-          float a = vA * (1.0 - smoothstep(0.25, 0.5, r));
-          if (a < 0.01) discard;
-          gl_FragColor = vec4(vC, a);
+          float r = length(d) * 2.0;
+          float a;
+          if (vK < 0.5) { float q = max(0.0, 1.0 - r * r); a = q * q; }                       // soft puff
+          else if (vK < 1.5) a = 1.0 - smoothstep(0.55, 1.0, r);                              // fleck
+          else if (vK < 2.5) { float e = (r - 0.8) / 0.13; a = exp(-e * e); }                 // ring
+          else {                                                                              // sparkle: core + cross
+            vec2 ad = abs(d);
+            a = (1.0 - smoothstep(0.0, 0.32, r)) + 0.8 * (1.0 - smoothstep(0.0, 0.07, min(ad.x, ad.y))) * (1.0 - smoothstep(0.2, 1.0, r));
+          }
+          a *= vA;
+          if (a < 0.004) discard;
+          float add = step(2.5, vK);
+          gl_FragColor = vec4(vC * a, a * (1.0 - add));
         }`,
       transparent: true, depthWrite: false,
+      blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcAlphaFactor,
+      blendSrcAlpha: THREE.OneFactor, blendDstAlpha: THREE.OneMinusSrcAlphaFactor,
     });
     this.points = new THREE.Points(g, this.mat);
     this.points.frustumCulled = false;
     this.points.renderOrder = 3;
+    this.points.visible = false;
     scene.add(this.points);
     this.next = 0;
     this.live = 0;
+    this._log = null; this._logN = 0;
+    this._dived = new WeakSet();
   }
 
-  spawn(x, y, z, vx, vy, vz, { color = 0xffffff, life = 1, size = 0.1, grow = 0, drag = 1, grav = 9.81, alpha = 1 } = {}) {
+  spawn(x, y, z, vx, vy, vz, { color = 0xffffff, life = 1, size = 0.1, grow = 0, drag = 1, grav = 9.81, alpha = 1, kind = PUFF } = {}) {
     const i = this.next;
     this.next = (this.next + 1) % N;
     this.pos[i * 3] = x; this.pos[i * 3 + 1] = y; this.pos[i * 3 + 2] = z;
     this.vel[i * 3] = vx; this.vel[i * 3 + 1] = vy; this.vel[i * 3 + 2] = vz;
-    _c.setHex(color);
+    _c.setHex(color, THREE.LinearSRGBColorSpace);           // (the hex as written: the shader outputs it unconverted)
     this.col[i * 3] = _c.r; this.col[i * 3 + 1] = _c.g; this.col[i * 3 + 2] = _c.b;
     this.life[i] = life; this.age[i] = 0; this.size0[i] = size; this.grow[i] = grow;
-    this.drag[i] = drag; this.grav[i] = grav; this.alpha[i] = alpha;
-    this.size[i] = size;
+    this.drag[i] = drag; this.grav[i] = grav; this.alpha[i] = this.alpha0[i] = alpha;
+    this.size[i] = size; this.kind[i] = kind;
+    this.live = N;                                          // (recounted next update)
+    this.points.visible = true;
+    this.geo.attributes.color.needsUpdate = true; this.geo.attributes.kind.needsUpdate = true;
   }
 
-  dust(p, speed, outfield = false) {
-    const n = outfield ? 7 : 10;
-    const k = Math.min(1, speed / 30);
-    for (let i = 0; i < n; i++) {
-      const a = Math.random() * Math.PI * 2, s = (0.4 + Math.random() * 1.2) * (0.5 + k);
-      if (outfield) {
-        this.spawn(p.x, 0.03, p.z, Math.cos(a) * s, 1 + Math.random() * 2 * k, Math.sin(a) * s,
-          { color: Math.random() < 0.5 ? 0x4f8f35 : 0x7cbf5a, life: 0.5, size: 0.025, drag: 2, grav: 9.8 });
-      } else {
-        this.spawn(p.x, 0.04, p.z, Math.cos(a) * s * 0.6, 0.3 + Math.random() * 0.8 * k, Math.sin(a) * s * 0.6,
-          { color: 0xb59a6a, life: 0.7 + Math.random() * 0.4, size: 0.06 + 0.08 * k, grow: 0.25, drag: 3, grav: 0.4, alpha: 0.55 });
+  // The ball landing: on the pitch a soft puff of dust drifting along the ball's
+  // line and grit thrown forward; on the grass a spray of grass flecks.
+  // vel (optional): the ball's velocity off the ground.
+  dust(p, speed, outfield = false, vel = null) {
+    const k = Math.min(1, speed / 30), R = Math.random;
+    let fx = 0, fz = 1;
+    if (vel) { const h = Math.hypot(vel.x, vel.z); if (h > 0.5) { fx = vel.x / h; fz = vel.z / h; } }
+    if (outfield) {
+      for (let i = 0; i < 9; i++) {
+        const a = R() * Math.PI * 2, s = (0.4 + R() * 1.2) * (0.5 + k);
+        this.spawn(p.x, 0.03, p.z, Math.cos(a) * s + fx * s, 1 + R() * 2 * k, Math.sin(a) * s + fz * s,
+          { color: pick(GRASS), life: 0.55 + R() * 0.2, size: 0.02 + R() * 0.016, drag: 2, grav: 9.8, kind: FLECK });
       }
+      return;
     }
+    for (let i = 0; i < 6; i++) {
+      const a = R() * Math.PI * 2, s = (0.15 + R() * 0.5) * (0.5 + k);
+      this.spawn(p.x + Math.cos(a) * 0.02, 0.03 + R() * 0.03, p.z + Math.sin(a) * 0.02,
+        Math.cos(a) * s + fx * (0.4 + R() * 0.9) * k, 0.15 + R() * 0.45 * k, Math.sin(a) * s + fz * (0.4 + R() * 0.9) * k,
+        { color: pick(PITCH_DUST), life: 0.9 + R() * 0.7, size: 0.09 + 0.09 * k, grow: 0.35, drag: 2.6, grav: -0.05, alpha: 0.5 + 0.2 * k, kind: PUFF });
+    }
+    for (let i = 0; i < 10; i++) {
+      const a = (R() - 0.5) * 1.6, s = (1 + R() * 2.4) * (0.4 + k);
+      const sx = Math.sin(a), cz = Math.cos(a);
+      this.spawn(p.x, 0.02, p.z, (fx * cz - fz * sx) * s, 0.6 + R() * 1.8 * k, (fz * cz + fx * sx) * s,
+        { color: pick(PITCH_GRIT), life: 0.35 + R() * 0.3, size: 0.009 + R() * 0.008, drag: 1.5, grav: 9.8, kind: FLECK });
+    }
+  }
+
+  // The toe of the bat banged into the turf: a low ring of dust running out.
+  toeRing(p, speed = 2) {
+    const R = Math.random, k = Math.min(1, speed / 3);
+    for (let i = 0; i < 12; i++) {
+      const a = (i / 12) * Math.PI * 2 + R() * 0.4, s = 0.35 + R() * 0.35 + k * 0.4;
+      this.spawn(p.x + Math.cos(a) * 0.03, 0.02, p.z + Math.sin(a) * 0.03, Math.cos(a) * s, 0.05 + R() * 0.15, Math.sin(a) * s,
+        { color: pick(PITCH_DUST), life: 0.6 + R() * 0.4, size: 0.05 + R() * 0.03, grow: 0.3, drag: 3.5, grav: 0, alpha: 0.4 + 0.2 * k, kind: PUFF });
+    }
+    for (let i = 0; i < 5; i++) {
+      const a = R() * Math.PI * 2;
+      this.spawn(p.x, 0.02, p.z, Math.cos(a) * 0.8, 0.6 + R() * 0.8, Math.sin(a) * 0.8, { color: pick(PITCH_GRIT), life: 0.3, size: 0.006, drag: 1, grav: 9.8, kind: FLECK });
+    }
+  }
+
+  // A diving fielder (or batter) hitting the grass: flecks and a little dust along his line.
+  flecks(p, dirX = 0, dirZ = 0) {
+    const R = Math.random;
+    for (let i = 0; i < 16; i++) {
+      const a = R() * Math.PI * 2, s = 0.5 + R() * 1.4;
+      this.spawn(p.x + (R() - 0.5) * 0.4, 0.05, p.z + (R() - 0.5) * 0.4, Math.cos(a) * s * 0.6 + dirX * s, 0.8 + R() * 1.6, Math.sin(a) * s * 0.6 + dirZ * s,
+        { color: pick(GRASS), life: 0.6 + R() * 0.3, size: 0.02 + R() * 0.016, drag: 2.2, grav: 9.8, kind: FLECK });
+    }
+    for (let i = 0; i < 4; i++) {
+      this.spawn(p.x + (R() - 0.5) * 0.5, 0.06, p.z + (R() - 0.5) * 0.5, dirX * 0.6, 0.2, dirZ * 0.6,
+        { color: 0xd9dcc0, life: 0.8, size: 0.14, grow: 0.3, drag: 2.5, grav: 0, alpha: 0.3, kind: PUFF });
+    }
+  }
+
+  // Bat on ball: a quick flash at the point of contact and, from the middle of
+  // the bat, a faint ring opening out (the sweeter the hit, the brighter).
+  contact(p, quality = 0.5, edge = false) {
+    if (!p) return;
+    const q = Math.max(0, Math.min(1, quality)), R = Math.random;
+    if (edge) {
+      for (let i = 0; i < 4; i++) { const a = R() * Math.PI * 2; this.spawn(p.x, p.y, p.z, Math.cos(a) * 0.8, R() * 0.8, Math.sin(a) * 0.8, { color: 0xf0e2c0, life: 0.25, size: 0.008, drag: 2, grav: 4, kind: FLECK }); }
+      return;
+    }
+    this.spawn(p.x, p.y, p.z, 0, 0, 0, { color: 0xfff1d0, life: 0.09 + 0.05 * q, size: 0.04 + 0.08 * q, grow: 0.2, drag: 0, grav: 0, alpha: 0.25 + 0.4 * q, kind: SPARK });
+    if (q > 0.5) this.spawn(p.x, p.y, p.z, 0, 0, 0, { color: 0xffffff, life: 0.22, size: 0.08, grow: 1.2, drag: 0, grav: 0, alpha: 0.4 * (q - 0.3), kind: RING });
   }
 
   fireworks(p) {
@@ -91,24 +175,61 @@ export class Particles {
         const u = Math.random() * 2 - 1, th = Math.random() * Math.PI * 2, r = Math.sqrt(1 - u * u);
         const s = 6 + Math.random() * 4;
         this.spawn(cx, cy, cz, r * Math.cos(th) * s, u * s, r * Math.sin(th) * s,
-          { color: col, life: 1.3 + Math.random() * 0.6, size: 1.1, drag: 1.4, grav: 3, alpha: 1 });
+          { color: col, life: 1.3 + Math.random() * 0.6, size: 0.9, drag: 1.4, grav: 3, alpha: 1, kind: i % 4 ? FLECK : SPARK });
       }
     }
   }
 
+  // The wicket broken: chips off the stumps, sparkle where the bails were, dust at the base.
   splinters(p) {
-    for (let i = 0; i < 14; i++) {
-      const a = Math.random() * Math.PI * 2;
-      this.spawn(p.x, 0.5 + Math.random() * 0.25, p.z, Math.cos(a) * 1.5, 1 + Math.random() * 2, Math.sin(a) * 1.5 + 1.5,
-        { color: 0xf1e6c8, life: 0.8, size: 0.03, drag: 1, grav: 9.8 });
+    const R = Math.random, dz = p.z < -10 ? -1 : 1;
+    for (let i = 0; i < 12; i++) {
+      const a = R() * Math.PI * 2;
+      this.spawn(p.x + (R() - 0.5) * 0.2, 0.5 + R() * 0.25, p.z, Math.cos(a) * 1.5, 1 + R() * 2, Math.sin(a) * 1.5 + 1.5 * dz,
+        { color: 0xf1ead8, life: 0.8, size: 0.012 + R() * 0.01, drag: 1, grav: 9.8, kind: FLECK });
+    }
+    for (let i = 0; i < 9; i++) {
+      this.spawn(p.x + (R() - 0.5) * 0.24, 0.71 + R() * 0.04, p.z, (R() - 0.5) * 0.6, 0.2 + R() * 0.6, (R() - 0.2) * 0.8 * dz,
+        { color: i % 3 ? 0xfff1c4 : 0xff6a4a, life: 0.25 + R() * 0.3, size: 0.03 + R() * 0.04, drag: 2, grav: 0.5, alpha: 0.9, kind: SPARK });
+    }
+    for (let i = 0; i < 5; i++) {
+      const a = R() * Math.PI * 2;
+      this.spawn(p.x + (R() - 0.5) * 0.25, 0.03, p.z, Math.cos(a) * 0.3, 0.1, Math.sin(a) * 0.3 + 0.3 * dz,
+        { color: pick(PITCH_DUST), life: 0.9, size: 0.08, grow: 0.3, drag: 2.5, grav: 0, alpha: 0.25, kind: PUFF });
+    }
+  }
+
+  // The contact log's bat-toe ground strikes (edgeTrack.js) since the last call.
+  pollContacts(log) {
+    const ev = log && log.events;
+    if (!ev) return;
+    if (ev !== this._log) { this._log = ev; this._logN = 0; }
+    for (; this._logN < ev.length; this._logN++) { const e = ev[this._logN]; if (e.type === 'ground' && e.pos) this.toeRing(e.pos, e.speed); }
+  }
+
+  // Fielders' dives (fielding.js states): flecks as each one lands, once a dive.
+  pollDives(states, t) {
+    if (!states) return;
+    for (const s of states) {
+      const a = s.action;
+      if (!a || a.type !== 'catch' || !a.dive || s.hidden || this._dived.has(a)) continue;
+      const ta = t - a.t0;
+      if (ta < 0.32 || ta > 1) continue;
+      this._dived.add(a);
+      const d = a.dir || { x: 0, z: 0 }, l = (a.lunge || 0.5) * 0.8;
+      const x = s.x + d.x * l, z = s.z + d.z * l;
+      if (Math.abs(x) < 1.5 && z < 1.5 && z > -21.6) this.toeRing({ x, z }, 3);     // on the pitch: dust
+      else this.flecks({ x, z }, d.x, d.z);
     }
   }
 
   update(dt, halfH) {
     this.mat.uniforms.uHalfH.value = halfH;
-    if (dt <= 0) return;
+    if (dt <= 0 || this.live === 0) return;
+    let live = 0;
     for (let i = 0; i < N; i++) {
       if (this.age[i] >= this.life[i]) { if (this.alpha[i] !== 0) this.alpha[i] = 0; continue; }
+      live++;
       this.age[i] += dt;
       const k = this.age[i] / this.life[i];
       const d = Math.max(0, 1 - this.drag[i] * dt);
@@ -117,9 +238,14 @@ export class Particles {
       this.pos[i * 3 + 1] = Math.max(0.01, this.pos[i * 3 + 1] + this.vel[i * 3 + 1] * dt);
       this.pos[i * 3 + 2] += this.vel[i * 3 + 2] * dt;
       this.size[i] = this.size0[i] * (1 + this.grow[i] * k * 4);
-      this.alpha[i] = k >= 1 ? 0 : (this.alpha[i] > 0 ? Math.min(this.alpha[i], 1 - k * k) : 0);
+      // puffs fade in and out softly; the rest hold, then go
+      const kd = this.kind[i];
+      this.alpha[i] = k >= 1 ? 0 : this.alpha0[i] * (kd === PUFF ? Math.min(1, k * 8) * (1 - k) * (1 - k) * 1.3 : kd === RING ? 1 - k : 1 - k * k);
     }
-    for (const a of ['position', 'alpha', 'size', 'color']) this.geo.attributes[a].needsUpdate = true;
+    this.live = live;
+    if (!live) this.points.visible = false;
+    for (const a of ['position', 'alpha', 'size']) this.geo.attributes[a].needsUpdate = true;
   }
 }
 const _c = new THREE.Color();
+const pick = (a) => a[(Math.random() * a.length) | 0];
