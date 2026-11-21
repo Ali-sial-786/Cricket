@@ -420,13 +420,14 @@ export function buildEnvironment(scene) {
   // ---------------------------------------------------------- big screen
   const screenPos = new THREE.Vector3();
   {
-    const a = -2.08, rr = R0 + 9;
-    screenPos.set(Math.sin(a) * rr, standTop + 6, CZ + Math.cos(a) * rr);
+    // (high enough that the stand's roof edge clears its face, seen from the crease)
+    const a = -2.08, rr = R0 + 9, sy = standTop + 12;
+    screenPos.set(Math.sin(a) * rr, sy, CZ + Math.cos(a) * rr);
     const frame = new THREE.Mesh(new THREE.BoxGeometry(26, 11, 1.2), new THREE.MeshLambertMaterial({ color: 0x1b1f26 }));
     frame.position.copy(screenPos).add(new THREE.Vector3(Math.sin(a), 0, Math.cos(a)).multiplyScalar(0.8));
     frame.lookAt(0, screenPos.y - 4, CZ);
-    const legs = new THREE.Mesh(new THREE.BoxGeometry(1, standTop + 6, 1), new THREE.MeshLambertMaterial({ color: 0x5d636b }));
-    legs.position.set(screenPos.x * 1.04, (standTop + 6) / 2, CZ + (screenPos.z - CZ) * 1.04);
+    const legs = new THREE.Mesh(new THREE.BoxGeometry(1, sy, 1), new THREE.MeshLambertMaterial({ color: 0x5d636b }));
+    legs.position.set(screenPos.x * 1.04, sy / 2, CZ + (screenPos.z - CZ) * 1.04);
     stadium.add(frame, legs);
   }
 
