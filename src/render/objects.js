@@ -236,8 +236,8 @@ export class StumpsView {
         // the bail over the stump that was hit goes highest; both fly away from the ball's side
         const near = (i === 3 && stumpIndex <= 1) || (i === 4 && stumpIndex >= 1);
         const side = i === 3 ? -1 : 1;
-        p.vel.set(side * (0.6 + R() * 1.6) + (R() - 0.5), (near ? 3.2 : 2.2) + R() * 2.4 + sp * 0.07, dirZ * (1.6 + sp * 0.17 + R()));
-        p.ang.set((R() < 0.5 ? -1 : 1) * (22 + R() * 22), (R() - 0.5) * 18, (R() - 0.5) * 18);
+        p.vel.set(side * (0.3 + R() * 0.9) + (R() - 0.5) * 0.6, (near ? 1.6 : 1.0) + R() * 1.2 + sp * 0.1, dirZ * (0.6 + sp * 0.16 + R() * 0.6));
+        p.ang.set((R() < 0.5 ? -1 : 1) * (14 + R() * 10 + sp * 0.5), (R() - 0.5) * (6 + sp * 0.3), (R() - 0.5) * (6 + sp * 0.3));
         p.flying = true;
       } else {
         const hit = i === stumpIndex;
@@ -249,7 +249,7 @@ export class StumpsView {
           // lean back on a spring: the hit stump a long way (it stays there), the others jolted
           const toward = hit ? 1 : 0.25 + 0.15 * R();
           p.tilt = { axis: new THREE.Vector3(dirZ, 0, (R() - 0.5) * (hit ? 0.5 : 0.8)).normalize(), angle: 0,
-            w: (hit ? 5 + sp * 0.28 : 1.2 + sp * 0.06) * toward, target: hit ? Math.min(1.25, 0.5 + sp * 0.025) : 0.02 + 0.06 * R(), k: hit ? 40 : 160, c: hit ? 7 : 6 };
+            w: (hit ? 3 + sp * 0.2 : 1.2 + sp * 0.06) * toward, target: hit ? Math.min(1.1, 0.35 + sp * 0.025) : 0.02 + 0.06 * R(), k: hit ? 45 : 160, c: hit ? 12 : 6 };
         }
       }
     }

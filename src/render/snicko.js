@@ -75,16 +75,28 @@ function rr(g, x, y, w, h, r) {
   g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath();
 }
 
+// The game's ball (white, a dark stitched seam: ballModel.js), with a soft dark
+// rim so it stays clear against the willow.
 function drawBall(g, x, y, r, alpha = 1) {
   g.save();
   g.globalAlpha = alpha;
+  g.fillStyle = 'rgba(0,0,0,0.45)';
+  g.beginPath(); g.arc(x, y, r * 1.07, 0, Math.PI * 2); g.fill();
   const gr = g.createRadialGradient(x - r * 0.35, y - r * 0.35, r * 0.1, x, y, r);
-  gr.addColorStop(0, '#ff8a7a'); gr.addColorStop(0.55, '#c81e24'); gr.addColorStop(1, '#6e0c10');
+  gr.addColorStop(0, '#ffffff'); gr.addColorStop(0.55, '#ebe6da'); gr.addColorStop(1, '#a9a395');
   g.fillStyle = gr;
   g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill();
   if (alpha > 0.9) {
-    g.strokeStyle = 'rgba(255,240,220,0.75)'; g.lineWidth = Math.max(1, r * 0.08);
+    g.strokeStyle = 'rgba(40,44,50,0.85)'; g.lineWidth = Math.max(1, r * 0.09);
     g.beginPath(); g.ellipse(x, y, r * 0.92, r * 0.3, -0.5, 0, Math.PI * 2); g.stroke();
+    // stitch ticks along the near half of the seam
+    g.lineWidth = Math.max(0.8, r * 0.05);
+    for (let i = 1; i < 12; i++) {
+      const a = Math.PI * (i / 12), c = Math.cos(-0.5), sn = Math.sin(-0.5);
+      const ex = r * 0.92 * Math.cos(a), ey = r * 0.3 * Math.sin(a);
+      const px = x + ex * c - ey * sn, py = y + ex * sn + ey * c;
+      g.beginPath(); g.moveTo(px - r * 0.05, py - r * 0.09); g.lineTo(px + r * 0.05, py + r * 0.09); g.stroke();
+    }
   }
   g.restore();
 }
