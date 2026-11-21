@@ -320,7 +320,7 @@ export class Replay {
     const bm = g.ballView.mesh;
     lerpTo(B, a, b, k, bm.position, bm.quaternion); bm.scale.setScalar(B[a + 7]);
     g.ballView.setVisible(B[a + 8] > 0.5);
-    if (g.ballView.shadow) g.ballView.shadow.position.set(bm.position.x, 0.005, bm.position.z);
+    g.ballView.placeShadow?.(bm.position);
     // the hit ball's trail grows again with the replayed ball (from nothing if the replay went back)
     if (t < (this.trailT ?? -Infinity)) g.ballView.clearTrail?.();
     this.trailT = t;

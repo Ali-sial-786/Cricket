@@ -346,7 +346,7 @@ export class Humanoid {
     this.setNumber(team === 'umpire' ? 0 : 1 + Math.floor(rnd(3) * 98));
     this.setTeam(team);
     // Contact shadow: a slot in the shared instanced shadow mesh.
-    this.shadowSlot = ShadowPool.alloc();
+    this.shadowSlot = ShadowPool.alloc(this);
     Humanoid.all.push(this);
   }
 
@@ -602,42 +602,10 @@ export class Humanoid {
   }
 }
 
-// All actor contact shadows in one InstancedMesh (one draw call).
-export const ShadowPool = {
-  mesh: null, n: 0, max: 24,
-  init(scene) {
-    if (this.mesh) return;
-    const g = new THREE.PlaneGeometry(0.84, 0.84);
-    g.rotateX(-Math.PI / 2);
-    this.mesh = new THREE.InstancedMesh(g, _shadowMat, this.max);
-    this.mesh.count = this.max;
-    this.mesh.frustumCulled = false;
-    this.mesh.renderOrder = 1;
-    const m = new THREE.Matrix4().makeScale(0, 0, 0);
-    for (let i = 0; i < this.max; i++) this.mesh.setMatrixAt(i, m);
-    scene.add(this.mesh);
-  },
-  alloc() { return this.n < this.max ? this.n++ : -1; },
-  set(slot, x, z, visible, scale = 1) {
-    if (!this.mesh || slot < 0) return;
-    _sm.makeScale(visible ? scale : 0, 1, visible ? scale : 0).setPosition(x, 0.012, z);
-    this.mesh.setMatrixAt(slot, _sm);
-    this.mesh.instanceMatrix.needsUpdate = true;
-  },
-};
-const _sm = new THREE.Matrix4();
-const _shadowMat = (() => {
-  const c = document.createElement('canvas');
-  c.width = c.height = 64;
-  const g = c.getContext('2d');
-  const grd = g.createRadialGradient(32, 32, 0, 32, 32, 32);
-  grd.addColorStop(0, 'rgba(0,0,0,0.45)');
-  grd.addColorStop(1, 'rgba(0,0,0,0)');
-  g.fillStyle = grd;
-  g.fillRect(0, 0, 64, 64);
-  const t = new THREE.CanvasTexture(c);
-  return new THREE.MeshBasicMaterial({ map: t, transparent: true, depthWrite: false });
-})();
+// All actor shadows (sun shadows shaped by the bones + foot contact): one
+// instanced draw, render/shadows.js.
+import { ShadowPool } from './shadows.js';
+export { ShadowPool };
 
 // Aim a bone's -Y axis along a world direction.
 function aimBone(bone, dirWorld) {

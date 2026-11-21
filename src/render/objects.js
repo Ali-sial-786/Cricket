@@ -3,12 +3,13 @@
 import * as THREE from 'three';
 import { CONFIG } from '../config.js';
 import { PITCH, STUMP_X } from '../physics/pitch.js';
-import { vertexColorMat, radialTexture, toV3 } from './util.js';
+import { vertexColorMat, toV3 } from './util.js';
 import { buildBatMesh, addBatMark } from './batModel.js';
 import { ballGeometry, ballMaterial } from './ballModel.js';
 import { stumpGeometry, bailGeometry, socketMesh, wicketTextures, BAIL_LEN, BAIL_R } from './wicketModel.js';
 import { machineGeometry } from './machineModel.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { ballShadowMesh, placeBallShadow } from './shadows.js';
 
 // ---------------------------------------------------------------- Bat
 // The bat (yours and the AI striker's) is built in batModel.js: the physics
@@ -25,12 +26,8 @@ export class BallView {
     this.mesh.name = 'ball';
     scene.add(this.mesh);
 
-    this.shadow = new THREE.Mesh(
-      new THREE.PlaneGeometry(1, 1),
-      new THREE.MeshBasicMaterial({ map: radialTexture(64, 'rgba(0,0,0,0.6)'), transparent: true, depthWrite: false }),
-    );
-    this.shadow.rotation.x = -Math.PI / 2;
-    this.shadow.renderOrder = 1;
+    // Its sun shadow (render/shadows.js): down the sun's rays, so it leaves the ball as it climbs.
+    this.shadow = ballShadowMesh();
     scene.add(this.shadow);
 
     // Trail for hit balls: the whole flight from the bat (BallTrail).
@@ -72,14 +69,11 @@ export class BallView {
         this.mesh.quaternion.premultiply(_q);
       }
     }
-    const h = Math.max(0, pos.y - CONFIG.ball.radius);
-    const s = 0.11 + h * 0.06;
-    this.shadow.scale.set(s, s, s);
-    this.shadow.position.set(pos.x, 0.008, pos.z);
-    this.shadow.material.opacity = Math.max(0.15, 1 - h * 0.12);
+    this.placeShadow(pos);
 
     if (showTrail && this.trailEnabled) this.trail.add(pos);
   }
+  placeShadow(pos) { placeBallShadow(this.shadow, pos, CONFIG.ball.radius); }
   clearTrail() { this.trail.clear(); }
   // 0 new .. 1 very old: the rough half's scuffing and loss of shine.
   setWear(k) { this.mesh.material.userData.wear.value = Math.max(0, Math.min(1, k)); }
