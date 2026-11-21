@@ -399,7 +399,7 @@ export class BattingSession {
       this.lastSide = side;
       g.umpires.place(false, side);
       if (this.innings) g.nonStrikerView.setSide(side);
-      if (this.bowlerFig && this.bowlerFig.setMark) this.bowlerFig.setMark(delivery.releasePos, settings.runup);
+      if (this.bowlerFig && this.bowlerFig.setMark) this.bowlerFig.setMark(delivery.releasePos, settings.bowlerType === 'legspin' ? 'leg' : settings.runup);     // (the wrist-spinner's own action)
       if (this.field) this.field.setSpinner(!!settings.spinner);      // (the keeper up to the stumps, or back)
     }
   }
@@ -453,7 +453,7 @@ export class BattingSession {
       this.cueStage = 0;
     } else {
       this.state = 'runup';
-      this.bowlerFig.startRunup(t, this.delivery.releasePos, settings.runup);
+      this.bowlerFig.startRunup(t, this.delivery.releasePos, settings.bowlerType === 'legspin' ? 'leg' : settings.runup);
       if (!settings.newBowler) g.say('runup');
     }
     // The delivery has started: nothing in the view until the ball has reached you

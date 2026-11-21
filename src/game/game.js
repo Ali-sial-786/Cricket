@@ -41,6 +41,7 @@ import { Runs } from './running.js';
 import { ShadowPool, Humanoid } from '../render/humanoid.js';
 import { FrameLog } from './frameLog.js';
 import { QuickSkip } from './quickSkip.js';
+import { noteCrowd } from '../render/gestures.js';
 
 export const BAT_HEAD = { z: -1.05, legOffset: -0.35 };      // head relative to guard (hand) x
 export const BOWL_HEAD = { x: 0.75, z: -19.6 };
@@ -339,6 +340,7 @@ export class Game {
   say(kind, ctx) { try { this.commentary.say(kind, ctx || {}); } catch { /* optional */ } }
   sample(name, opts) { try { return this.samples.play(name, opts); } catch { return false; } }
   crowdReact(kind, strength) {
+    noteCrowd(kind, this.simTime);              // (the players' body language: src/render/gestures.js)
     try { this.env.crowdReact?.(kind, strength, this.world.ball.pos); } catch { /* optional: the stands react even with the sound off */ }
     try { if (this.settings.sound) this.crowd.react(kind, strength); } catch { /* optional */ }
   }

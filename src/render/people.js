@@ -6,6 +6,7 @@ import { toV3, toQ } from './util.js';
 import { sstep, clamp } from './anim.js';
 import { CONFIG } from '../config.js';
 import { walkTask, stepWalk, fadeNearHead } from './crew.js';
+import { live } from './gestures.js';
 
 // The runner in your kit is not drawn close to your head (you are looking out
 // through his eyes as he sets off / comes home): he fades in as he leaves you
@@ -135,6 +136,7 @@ export class FieldView {
   setTeam(team) { for (const a of this.actors) a.h.setTeam(team); }
   // states from Fielding.states(); ctx = {t, ball (THREE.Vector3|null), delivering}
   update(dt, states, ctx) {
+    live.ball = ctx.ball || null;                // (the AI bowler watches it too)
     if (!this.visible) return;
     for (let i = 0; i < this.actors.length && i < states.length; i++) {
       const a = this.actors[i], s = states[i];

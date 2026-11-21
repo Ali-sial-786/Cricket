@@ -120,10 +120,10 @@ test('AI bowler: no joint jumps in one frame through a whole delivery, every run
   const { actors, scene } = await load();
   const A = new actors.BowlerActor(scene, { team: 'away', seed: 5, headgear: 'bare' });
   // (every kind, both sides of the wicket, and the stride at four different phases as he arrives)
-  for (const [kind, x] of [['long', 0.42], ['medium', 0.42], ['short', 0.42], ['long', -0.42], ['short', -0.42]]) for (const ph of [0, 1.6, 3.2, 4.8]) {
+  for (const [kind, x] of [['long', 0.42], ['medium', 0.42], ['short', 0.42], ['leg', 0.42], ['long', -0.42], ['short', -0.42]]) for (const ph of [0, 1.6, 3.2, 4.8]) {
     let t = 100;
     A.phase = ph; A.idleOff = 3;
-    A.startRunup(t, new THREE.Vector3(x, kind === 'short' ? 1.98 : 2.2, -18.75), kind);
+    A.startRunup(t, new THREE.Vector3(x, kind === 'short' || kind === 'leg' ? 1.98 : 2.2, -18.75), kind);
     const tr = A.run.tr, dt = 1 / 60;
     let prev = snap(A.h), worst = 0, at = 0, bone = '';
     while (t < tr + 1.2) {

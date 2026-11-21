@@ -23,6 +23,7 @@ import { CONFIG } from '../config.js';
 import { BatGeometry } from '../physics/bat.js';
 import { PITCH } from '../physics/pitch.js';
 import { steerAmong } from '../game/fielding.js';
+import { moodAt, reactionFor, idleGesture, envelope, poseArms, lookSteady, gestureStore, live, MOOD_DUR, IDLE_SLOT } from './gestures.js';
 
 const TAU = Math.PI * 2;
 const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3(), _d = new THREE.Vector3();
@@ -49,6 +50,8 @@ export class Actor {
     this.idleOff = Math.random() * 40;         // each figure's idle runs on its own clock
     this.foldArms = 0;                         // chance of standing with the arms folded (idle clip variant)
     this.poseKey = '';                         // which kind of pose: a change cross-fades (see smooth())
+    this.seed = (opts && opts.seed) || Math.floor(this.idleOff * 1000);
+    this._gs = gestureStore();                 // (gestures.js: arms under a gesture, the head's last turn)
     this.visible = true;
   }
   set visible(v) { if (v && !this._vis) this.cut(); this._vis = v; if (this.h) this.h.visible = v; }
@@ -56,7 +59,7 @@ export class Actor {
   // The figure was not being posed (hidden, or driven by something else): the
   // next pose stands on its own. Without this smooth() would cross-fade from
   // whatever he was doing when last seen (a dive, a throw) into the new pose.
-  cut() { this._from = null; this._raw = null; this._shown = null; this._key = undefined; }
+  cut() { this._from = null; this._raw = null; this._shown = null; this._key = undefined; if (this._gs) this._gs.nOk = false; }
   // Something else posed the figure up to now (a batting stance, another
   // figure it takes over from): the next smooth() cross-fades from this pose.
   handover() { this._raw = this.h.snapshot(this._raw || undefined); this._shown = this.h.snapshot(this._shown || undefined); this._key = '(handover)'; this._from = null; }
@@ -104,6 +107,42 @@ export class Actor {
     const a = fold(slot), b = fold(slot + 1);
     applyClip(h, a ? 'idle_fold_arms' : 'idle', T);
     if (a !== b && u > 0.88) applyClip(h, b ? 'idle_fold_arms' : 'idle', T, sstep(0.88, 1, u));
+    this.folded = a ? (b ? 1 : 1 - sstep(0.88, 1, u)) : b ? sstep(0.88, 1, u) : 0;     // (no other gesture over folded arms)
+  }
+  // Body language over the pose (gestures.js): how he reacts to what has just
+  // happened (a wicket, a boundary, a play-and-miss, an appeal), or, standing
+  // about with nothing happening, what he does with his hands. idleOK: he may
+  // gesture between balls. Returns the reaction's mood (or null) so the head
+  // can do its part (dejected: down; celebrating: not on the ball).
+  bodyLanguage(t, dt, idleOK, moving) {
+    const h = this.h, md = moodAt(t);
+    this.folded = this.folded || 0;
+    // (what he was doing with his hands gives way to a reaction, and comes back after it, over a few tenths)
+    this._idleK = clamp((this._idleK ?? 1) + (md ? -1 : 1) * dt / 0.4, 0, 1);
+    if (idleOK && this._idleK > 0.001) {
+      const T = t + this.idleOff * 1.7, slot = Math.floor(T / IDLE_SLOT), kind = idleGesture(this.seed, slot, this.keeper);
+      const w = kind ? envelope(T - slot * IDLE_SLOT, IDLE_SLOT, 0.7, 0.7) * (1 - this.folded) * (1 - sstep(0, 0.4, this.ready || 0)) * this._idleK : 0;
+      if (w > 0.001) poseArms(h, this.forward(_fwd), kind, w, T, this._gs);
+    }
+    this._moodW = 0; this._mood = null;
+    if (!md) return null;
+    let r = this._react;
+    if (!r || r.n !== md.n) r = this._react = Object.assign(reactionFor(md.mood, this.seed, md.n, Math.hypot(this.pos.x, this.pos.z - PITCH.battingStumpsZ)), { n: md.n });
+    const w = envelope(md.age - r.delay, MOOD_DUR[md.mood] - r.delay, 0.25, 0.5) * r.amt;
+    let kind = r.kind;
+    if (moving && kind === 'knees') kind = 'head';            // (nobody walks bent double)
+    if (w > 0.001 && kind) {
+      if (kind === 'arms' && clipsReady()) applyClip(h, 'cheer', t + this.idleOff, w, MASK_ALL & ~MASK_LEGS);
+      else poseArms(h, this.forward(_fwd), kind, w, t + this.idleOff, this._gs);
+    }
+    this._moodW = kind ? w : 0; this._mood = md.mood;
+    return md.mood;
+  }
+  // Eyes on the ball while it is live (at a neck's pace); a dejected man's head goes down.
+  watch(ball, dt, mood, amt = 0.9) {
+    const celebrating = mood === 'celebrate' && this._moodW > 0.2;
+    lookSteady(this.h, ball && !celebrating ? ball : null, amt, dt, this._gs);
+    if (mood === 'dejected' || mood === 'ooh') this.h.addRot('neck', (mood === 'dejected' ? 0.38 : 0.12) * this._moodW, 0, 0);
   }
   // Walk / jog / sprint for the current speed and stride phase (lean: extra
   // forward lean of the trunk). Falls back to the procedural cycle.
@@ -177,7 +216,7 @@ export class FielderActor extends Actor {
     this.ready += clamp(wantReady - this.ready, -dt * 3, dt * 4);
     // A dive carries the body off its spot (offX / offZ). When the dive is over
     // the body is not put back: what is left of the offset is walked off.
-    let offX = 0, offZ = 0, lunging = false;
+    let offX = 0, offZ = 0, lunging = false, gest = false, idleOK = false;
     h.reset();
     const act = s.action;
     const ta = act ? t - act.t0 : 0;
@@ -297,6 +336,7 @@ export class FielderActor extends Actor {
       this.plant(0.24, true);
       if (act.target && ta < 0.4) this.reachBoth(act.target, 1);
       else this.handsToChest();
+      gest = ta > 0.6;                                   // (ball in the gloves: he can appeal / celebrate with it)
     } else if (this.keeper && s.state === 'gather') {
       // Moving across with the line of the ball: low, on his toes, gloves
       // ready; as it arrives he comes up to its height (a ball at the chest is
@@ -315,6 +355,7 @@ export class FielderActor extends Actor {
       this.poseKey = 'move';
       this.locomote(t, this.keeper ? 0.05 : 0);
       this.apply();
+      gest = !act;
     } else if (clips && !this.keeper) {
       // Standing at his mark; as the bowler runs in, down into a low, wide set.
       this.poseKey = 'stand';
@@ -325,12 +366,14 @@ export class FielderActor extends Actor {
         for (const [b, x, z] of READY_TOP) { _e2.set(x, 0, z); _q.setFromEuler(_e2); h.bones[b].quaternion.slerp(_q, k); }
       }
       this.apply();
+      gest = !act; idleOK = !act && !s.await;
     } else {
       this.poseKey = 'stand';
       poseIdle(h, t + this.phase * 3, 1);
       if (this.ready > 0.01) poseReady(h, this.ready, this.keeper);
       this.apply();
       this.plant(this.keeper ? 0.24 : 0.15, true);
+      gest = !act; idleOK = !act && !s.await; this.folded = 0;
     }
     // Where the body is off its spot (a dive's or a stumping's lunge): it
     // gets there at a lunge's pace, never in one frame (the keeper's read of
@@ -343,8 +386,9 @@ export class FielderActor extends Actor {
       if (d <= st) { O.x = tx; O.z = tz; } else { O.x += ex / d * st; O.z += ez / d * st; }
       h.root.position.x += O.x - offX; h.root.position.z += O.z - offZ;
     }
-    // Eyes on the ball while it is live (skipped for distant fielders).
-    if (ctx.ball && !this.far) h.lookAt(ctx.ball, 0.9);
+    // Reacting to what has happened, or idling between balls; eyes on the ball while it is live.
+    const mood = gest ? this.bodyLanguage(t, dt, idleOK, this.speed > 0.25) : null;
+    this.watch(ctx.ball, dt, mood);
     if (!this.far) this.smooth(dt);
     h.syncShadow();
   }
@@ -469,7 +513,35 @@ const BOWL = {
     arm: { u0: -0.36, u1: 0.18, psi0: -2.6, pw: 1.4, w: 10.5, wd: 15, psiR: 0.12 },
     feet: [['R', -0.36, -0.15, -0.03, 0.02, -1.05], ['L', -0.16, 0.4, -0.08, 0.32, -0.25], ['R', 0.4, 0.75, 0.05, 0.28, 0.3]],
     ft: 0.75, post: 0.6, gaitAt: 0.5, decel: 1.2,
+    // the finger-spinner's wrist: cocked back, then the flick through the release (handR about x)
+    wrist: [[-0.62, 0], [-0.25, -0.35], [0, 0.35], [0.2, 0.45], [0.75, 0.1]],
   },
+};
+// The other actions, as changes to those two:
+//   medium — a seamer who hits the crease rather than leaping at it: a lower,
+//            shorter bound, the front arm not as high, less of a fall away.
+//   leg    — the wrist-spinner: more side-on and a bigger turn of the trunk
+//            through the ball, the bowling arm finishing well across, the
+//            wrist cocked right back and flicked through hard.
+BOWL.medium = {
+  ...BOWL.pace,
+  hipsY: [[-0.62, -0.04], [-0.5, 0.07], [-0.38, -0.04], [-0.14, -0.07], [0, -0.01], [0.16, -0.05], [0.32, -0.1], [0.55, -0.06], [0.9, -0.04]],
+  hipL: [[-0.62, -0.3], [-0.5, -0.8], [-0.38, -0.95], [-0.2, -0.55], [0, -0.35], [0.25, 0.1], [0.6, 0.3], [0.9, 0]],
+  kneeL: [[-0.62, 0.6], [-0.5, 1.05], [-0.38, 0.6], [-0.2, 0.06], [0.1, 0.1], [0.3, 0.35], [0.4, 0.8], [0.65, 0.85], [0.9, 0.3]],
+  shL: [[-0.62, -0.3], [-0.45, -2.35], [-0.2, -2.7], [0, -0.8], [0.3, 0.2], [0.9, 0.1]],
+  spine: [[-0.62, 0.1], [-0.38, -0.1], [-0.14, -0.02], [0, 0.2], [0.22, 0.66], [0.55, 0.38], [0.9, 0.12]],
+  roll: [[-0.62, 0], [-0.3, 0.04], [-0.1, -0.08], [0, -0.2], [0.2, -0.06], [0.5, 0]],
+  post: 0.5, decel: 1.3,
+};
+BOWL.leg = {
+  ...BOWL.spin,
+  hipsYaw: [[-0.62, 0], [-0.45, -0.9], [-0.2, -1.0], [0, -0.2], [0.25, 0.6], [0.5, 0.9], [0.75, 0.45]],
+  chest: [[-0.62, 0], [-0.45, -0.45], [-0.2, -0.42], [0, 0.32], [0.3, 0.6], [0.75, 0.2]],
+  spine: [[-0.62, 0.08], [-0.36, -0.06], [-0.15, 0.0], [0, 0.18], [0.22, 0.6], [0.5, 0.4], [0.75, 0.12]],
+  shRz: [[-0.62, 0.15], [-0.48, 0.0], [0.08, -0.05], [0.35, 0.85], [0.75, 0.15]],
+  elL: [[-0.62, -1.6], [-0.45, -0.25], [-0.15, -0.2], [0.05, -1.5], [0.4, -1.2], [0.75, -0.5]],
+  wrist: [[-0.62, 0], [-0.3, -0.75], [-0.08, -0.85], [0.04, 0.55], [0.2, 0.8], [0.75, 0.15]],
+  wristY: [[-0.62, 0], [-0.25, 0.5], [0, -0.6], [0.3, -0.4], [0.75, 0]],
 };
 const BALL_OFF = 0.06;                  // ball centre beyond the wrist joint (model units; see Actor.handPos)
 const _gaze = new THREE.Vector3(0, 0.7, 0);
@@ -495,9 +567,9 @@ export class BowlerActor extends Actor {
     const h = this.h;
     const keep = { snap: h.snapshot(), pos: this.pos.clone(), heading: this.heading, scale: h.root.scale.x, run: this.run, style: this.style, side: this.side,
       rp: h.root.position.clone(), rq: h.root.quaternion.clone() };
-    const st = this.style = kind === 'short' ? BOWL.spin : BOWL.pace;
-    const dur = { long: 2.7, medium: 2.3, short: 1.7 }[kind] || 2.7;
-    const vTop = { long: 6.4, medium: 5.2, short: 3.3 }[kind] || 6.4;
+    const st = this.style = kind === 'leg' ? BOWL.leg : kind === 'short' ? BOWL.spin : kind === 'medium' ? BOWL.medium : BOWL.pace;
+    const dur = { long: 2.7, medium: 2.3, short: 1.7, leg: 1.6 }[kind] || 2.7;
+    const vTop = { long: 6.4, medium: 5.2, short: 3.3, leg: 3.0 }[kind] || 6.4;
     const psiR = st.arm.psiR;
     // Measure the shoulder at the release pose with the root at the origin.
     this.run = null;
@@ -647,6 +719,7 @@ export class BowlerActor extends Actor {
     // Bowling arm (FK outside the IK window).
     h.rot('shoulderR', keys(B.shR, u), 0, keys(B.shRz, u));
     h.rot('elbowR', keys(B.elR, u), 0, 0);
+    if (B.wrist) h.rot('handR', keys(B.wrist, u), B.wristY ? keys(B.wristY, u) : 0, 0);
   }
 
   // How firmly some foot is planted at u (0 = none: between steps).
@@ -766,7 +839,7 @@ export class BowlerActor extends Actor {
           h.reset();
           // (Taller through the trunk than a sprinter: a bowler's approach is upright.)
           this.locomote(t, 0.08 * (1 - sstep(-1.2, -0.7, u)) - (clipsReady() ? 0.16 : 0));
-          if (st === BOWL.spin) {                    // ball cupped in both hands at the chest
+          if (st === BOWL.spin || st === BOWL.leg) {  // ball cupped in both hands at the chest
             h.rot('shoulderR', -0.55 + 0.12 * Math.sin(this.phase), 0, 0.12); h.rot('elbowR', -1.75, 0, 0);
             h.rot('shoulderL', -0.5 - 0.12 * Math.sin(this.phase), 0, -0.12); h.rot('elbowL', -1.65, 0, 0);
           } else {                                   // ball carried by the chest, the other arm pumping
@@ -803,7 +876,8 @@ export class BowlerActor extends Actor {
           this.liftFoot('L'); this.liftFoot('R');      // the landing / trailing / swinging leg
           this.bowlingArmIK(u);
         }
-        h.lookAt(_gaze, u < 0.3 ? 0.9 : 0.6);       // eyes on the target throughout
+        // eyes on the target through the delivery, then on the ball he has let go
+        lookSteady(h, u > 0.2 && live.ball ? live.ball : _gaze, u < 0.3 ? 0.9 : 0.75, dt, this._gs);
         this.smooth(dt, 0.18, u < -0.75 || u > 0.3);
         h.syncShadow();
         return released;
@@ -865,7 +939,15 @@ export class BowlerActor extends Actor {
     if (this.state === 'idle' && !clipsReady()) {
       this.footWorld(_a, 0.13, 0.03); this.footWorld(_b, -0.13, 0);
       plantFeet(h, _a, _b, this.forward(_c).multiplyScalar(0.6));
-    } else if (this.state === 'runoff') h.lookAt(_gaze, 0.6);
+    }
+    // After the ball: a wicket, a play-and-miss, a boundary, an appeal (gestures.js).
+    const mood = this.bodyLanguage(t, dt, false, this.speed > 0.25);
+    if (mood === 'appeal' || (mood === 'celebrate' && this.state === 'runoff')) {
+      // (running off away from the batter: he turns round to the umpire / the batter from the waist)
+      const want = Math.atan2(-this.pos.x, PITCH.battingStumpsZ - this.pos.z), d = clamp(angDiff(this.heading, want), -1.1, 1.1) * this._moodW;
+      h.addRot('spine', 0, d * 0.45, 0); h.addRot('chest', 0, d * 0.55, 0);
+    }
+    this.watch(live.ball || (this.state === 'runoff' ? _gaze : null), dt, mood, 0.75);
     this.smooth(dt);
     h.syncShadow();
     return false;
@@ -1865,7 +1947,7 @@ export class BatterActor extends Actor {
   }
 
   // Generic locomotion (running between the wickets / walking), carrying the bat.
-  updateMoving(dt, t, look = null, diving = false) {
+  updateMoving(dt, t, look = null, diving = false, sad = false) {
     const h = this.h;
     this.mode = 'run';
     this.gait(dt);
@@ -1874,6 +1956,7 @@ export class BatterActor extends Actor {
     else this.idle(t);
     this.poseKey = diving ? 'dive' : this.speed > 0.2 ? 'move' : 'stand';
     this.apply();
+    if (sad) { h.addRot('spine', 0.12, 0, 0); h.addRot('neck', 0.34, 0, 0); h.addRot('head', 0.16, 0, 0); }     // out: walking off, head down
     if (this.speed <= 0.2 && !clipsReady()) {
       this.footWorld(_a, 0.14, 0.04); this.footWorld(_b, -0.14, 0);
       plantFeet(h, _a, _b, this.forward(_c).multiplyScalar(0.6));
@@ -2151,6 +2234,9 @@ export class BatterActor extends Actor {
     h.ikArm('R', wrist, poleR);
     this.armBlend(dt);
     this.gripHandle();
+    // A boundary (or a let-off) for his side: a pump of the free fist, eyes up.
+    const md = moodAt(t);
+    if (md && md.mood === 'dejected') { this.forward(_fwd); poseArms(h, _fwd, 'fistL', envelope(md.age - 0.3, 2.2, 0.2, 0.5), t, this._gs); }
     this.noteArm();
     this._shown = h.snapshot(this._shown || undefined);     // (what is shown: the arm on the bat)
     h.syncShadow();

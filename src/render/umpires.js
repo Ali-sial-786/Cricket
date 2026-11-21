@@ -34,62 +34,84 @@ class UmpireActor extends Actor {
     if (walking) { this.gait(dt); this.locomote(now); } else this.idle(now);
     const s = this.sig;
     this.poseKey = walking ? 'move' : s ? s.type : 'idle';
-    let busyL = false, busyR = false;          // arms the current signal uses
-    if (s) {
-      const u = (now - s.t0) / s.dur;
-      if (u >= 1) this.sig = null;
-      else {
-        const k = sstep(0, 0.12, u) * (1 - sstep(0.85, 1, u));
-        const tt = now - s.t0;
-        busyR = s.type !== 'notout';
-        busyL = s.type === 'six' || s.type === 'wide' || s.type === 'review';
-        if (s.type === 'six') {
-          h.rot('shoulderL', -3.05 * k, 0, 0.12 * k); h.rot('shoulderR', -3.05 * k, 0, -0.12 * k);
-          h.rot('elbowL', -0.05, 0, 0); h.rot('elbowR', -0.05, 0, 0);
-        } else if (s.type === 'four') {
-          const w = Math.sin(tt * 7);
-          h.rot('shoulderR', -1.45 * k, 0, (-0.25 + 0.75 * w) * k, 'ZXY');
-          h.rot('elbowR', -0.1, 0, 0);
-        } else if (s.type === 'out') {
-          h.rot('shoulderR', -2.75 * k, 0, -0.1 * k);
-          h.rot('elbowR', -0.25 * k, 0, 0);
-        } else if (s.type === 'wide') {
-          h.rot('shoulderL', 0, 0, 1.5 * k); h.rot('shoulderR', 0, 0, -1.5 * k);
-          h.rot('elbowL', 0, 0, 0); h.rot('elbowR', 0, 0, 0);
-        } else if (s.type === 'notout') {
-          h.rot('head', 0, 0.45 * Math.sin(tt * 8) * k, 0);
-        } else if (s.type === 'review') {            // drawing the TV screen
-          const ph = keys([[0, 0], [0.5, 1], [1, 0]], (tt * 1.2) % 1);
-          h.rot('shoulderL', -1.5 * k, 0, (0.1 + 0.5 * ph) * k); h.rot('shoulderR', -1.5 * k, 0, -(0.1 + 0.5 * ph) * k);
-          h.rot('elbowL', -0.6 * k, 0, 0); h.rot('elbowR', -0.6 * k, 0, 0);
-        } else if (s.type === 'noball') {           // one arm held straight out
-          h.rot('shoulderR', 0, 0, -1.5 * k); h.rot('elbowR', 0, 0, 0);
-        } else if (s.type === 'freehit') {          // one hand circling above the head
-          h.rot('shoulderR', (-2.9 + 0.22 * Math.sin(tt * 9)) * k, 0, (-0.1 + 0.22 * Math.cos(tt * 9)) * k);
-          h.rot('elbowR', -0.15, 0, 0);
-        } else if (s.type === 'bye') {             // open hand raised above the head
-          h.rot('shoulderR', -3.0 * k, 0, -0.1);
-        } else if (s.type === 'legbye') {          // touching a raised knee
-          h.rot('hipR', -1.05 * k, 0, -0.05); h.rot('kneeR', 1.25 * k, 0, 0);
-          h.rot('spine', 0.25 * k, 0, 0);
-          h.rot('shoulderR', -0.55 * k, 0, -0.05); h.rot('elbowR', -0.2 * k, 0, 0);
-        }
-      }
-    }
     this.apply();
     if (!this.far) {
       this.footWorld(_a, 0.13, 0.02); this.footWorld(_b, -0.13, 0);
       // (With the idle clip the feet are already planted where it stands them.)
-      const legBye = s && s.type === 'legbye';
-      if (!clipsReady() && !walking) plantFeet(h, _a, legBye ? null : _b, this.forward(_c).multiplyScalar(0.6));
-      // Hands clasped behind the back (whichever hands the signal is not using); walking, the arms swing.
-      if ((!busyL || !busyR) && !walking) this.clasp(!busyL, !busyR);
+      if (!clipsReady() && !walking) plantFeet(h, _a, s && s.type === 'legbye' ? null : _b, this.forward(_c).multiplyScalar(0.6));
+      // Hands clasped behind the back; walking, the arms swing.
+      if (!walking) this.clasp(true, true);
+    }
+    // A signal goes up from wherever the arms are (clasped) and comes back down
+    // to them: the arms are posed for the signal in full and slerped in by k.
+    if (s) {
+      const u = (now - s.t0) / s.dur;
+      if (u >= 1) this.sig = null;
+      else this.pose(s, now - s.t0, u);
     }
     if (look && !(s && s.type === 'notout')) h.lookAt(look, 0.7);
     if (!this.far) this.smooth(dt);
     h.syncShadow();
   }
+  pose(s, tt, u) {
+    const h = this.h, B = h.bones, A = this._arm || (this._arm = ARMS.map(() => new THREE.Quaternion()));
+    // (a crisp lift with a hint of overshoot, a slower, softer return)
+    const k = sstep(0, 0.1, u) * (1 - sstep(0.82, 1, u)), up = Math.min(1, k * (1 + 0.08 * Math.sin(Math.PI * sstep(0.05, 0.16, u))));
+    ARMS.forEach((b, i) => A[i].copy(B[b].quaternion));
+    let arms = true;
+    if (s.type === 'six') {
+      h.rot('shoulderL', -3.05, 0, 0.12); h.rot('shoulderR', -3.05, 0, -0.12);
+      h.rot('elbowL', -0.05, 0, 0); h.rot('elbowR', -0.05, 0, 0); h.rot('handL', 0, 0, 0); h.rot('handR', 0, 0, 0);
+    } else if (s.type === 'four') {
+      // the arm waved to and fro across the chest, from his left to well out to his right
+      const w = Math.sin(Math.max(0, tt - 0.15) * 6.5);
+      h.rot('shoulderR', -1.45, 0, -0.35 + 0.95 * w, 'ZXY'); h.rot('elbowR', -0.15, 0, 0); h.rot('handR', 0, 0, 0);
+    } else if (s.type === 'out' || s.type === 'bye') {
+      // out: the forearm raised in front, finger up; bye: the open hand straight up over the head
+      if (s.type === 'out') { h.rot('shoulderR', -2.55, 0, -0.08); h.rot('elbowR', -0.45, 0, 0); h.rot('handR', 0.2, 0, 0); }
+      else { h.rot('shoulderR', -3.08, 0, -0.06); h.rot('elbowR', -0.03, 0, 0); h.rot('handR', 0, 0, 0); }
+    } else if (s.type === 'wide') {
+      h.rot('shoulderL', 0, 0, 1.52); h.rot('shoulderR', 0, 0, -1.52);
+      h.rot('elbowL', 0, 0, 0); h.rot('elbowR', 0, 0, 0); h.rot('handL', 0, 0, 0); h.rot('handR', 0, 0, 0);
+    } else if (s.type === 'noball') {           // one arm held straight out
+      h.rot('shoulderR', 0, 0, -1.52); h.rot('elbowR', 0, 0, 0); h.rot('handR', 0, 0, 0);
+    } else if (s.type === 'freehit') {          // one hand circling above the head
+      h.rot('shoulderR', -2.9 + 0.22 * Math.sin(tt * 9), 0, -0.1 + 0.22 * Math.cos(tt * 9));
+      h.rot('elbowR', -0.15, 0, 0);
+    } else if (s.type === 'review') {
+      // drawing the TV screen in the air: from together at the top, out, down and together again
+      this.screen(tt);
+    } else if (s.type === 'legbye') {           // touching a raised knee
+      h.rot('hipR', -1.3 * k, 0, -0.05); h.rot('kneeR', 1.45 * k, 0, 0);
+      h.addRot('spine', 0.3 * k, 0, 0);
+      h.update();
+      this.forward(_f);
+      h.worldPos('kneeR', _t).addScaledVector(_f, 0.06).add(_c.set(0, 0.07, 0));
+      h.ikArm('R', _t, h.worldPos('shoulderR', _b).addScaledVector(_f, -0.3).add(_c.set(0, -0.2, 0)));
+    } else if (s.type === 'notout') {
+      arms = false;
+      h.rot('head', 0, 0.45 * Math.sin(tt * 8) * k, 0);
+    }
+    if (arms) ARMS.forEach((b, i) => { _q.copy(B[b].quaternion); B[b].quaternion.copy(A[i]).slerp(_q, up); });
+  }
+  // The TV screen: both hands trace a rectangle (0.56 x 0.34 m) in front of the face.
+  screen(tt) {
+    const h = this.h;
+    h.update();
+    this.forward(_f);
+    _l.set(_f.z, 0, -_f.x);
+    const p = Math.min(1, Math.max(0, tt - 0.25) / 1.3);           // along the outline
+    const x = 0.04 + 0.24 * sstep(0, 0.3, p) * (1 - sstep(0.7, 1, p)), y = -0.34 * sstep(0.3, 0.7, p);
+    h.worldPos('neck', _t).addScaledVector(_f, 0.42).add(_c.set(0, 0.12 + y, 0));
+    for (const [side, sg] of [['L', 1], ['R', -1]]) {
+      _a.copy(_t).addScaledVector(_l, sg * x);
+      h.ikArm(side, _a, h.worldPos('shoulder' + side, _b).addScaledVector(_l, sg * 0.6).add(_c.set(0, -0.5, 0)));
+    }
+  }
 }
+
+const ARMS = ['shoulderL', 'elbowL', 'handL', 'shoulderR', 'elbowR', 'handR'];
+const _q = new THREE.Quaternion();
 
 export class UmpireView {
   constructor(scene) {
