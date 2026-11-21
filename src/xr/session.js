@@ -1,5 +1,16 @@
 // WebXR session management: VR (immersive-vr, local-floor) and MR
-// (immersive-ar passthrough), highest supported frame rate, fixed foveation.
+// (immersive-ar passthrough), the frame rate, fixed foveation and dynamic
+// viewport scaling, the levers the quality governor (render/quality.js,
+// render/perf.js) turns:
+//   foveation   XRProjectionLayer / XRWebGLLayer .fixedFoveation (three: xr.setFoveation): any frame, free.
+//   viewport    XRView.requestViewportScale: the part of each eye's buffer drawn this frame, which the
+//               compositor scales up. three r180 never calls it, so we ask on each view just before three
+//               reads its viewport (the binding's getViewSubImage / the layer's getViewport, wrapped).
+//               Where the browser does not have it, the request is skipped and the lever does nothing.
+//   framebuffer the eye buffers' size: fixed when the session starts (three: setFramebufferScaleFactor
+//               before setSession), so it is only the starting guess (from the level remembered for
+//               this headset, when there is no viewport scaling to do the job during play).
+//   rate        session.updateTargetFrameRate: the highest supported rate at or under the level's.
 import { toLocal, bestSpot } from './playArea.js';
 import { CONFIG } from '../config.js';
 
@@ -16,6 +27,13 @@ export class XRSessionManager {
     this.frameRate = null;
     this.rates = [];
     this.slowSeconds = 0;
+    this.maxRate = CONFIG.xr.maxFrameRate;     // the quality level's cap (setMaxRate)
+    this.fbScale = CONFIG.xr.framebufferScale; // for the next session (setFramebufferScale)
+    this.foveation = CONFIG.xr.foveation;
+    this.vpScale = 1;                          // requested viewport scale (setViewportScale)
+    this.vpSupported = typeof XRView !== 'undefined' && 'requestViewportScale' in XRView.prototype;
+    this.vpActive = false;                     // the request is wired into this session's views
+    this.autoRate = true;                      // checkPerformance may step the rate down (off while the governor runs)
     // three has finished its own teardown when it fires 'sessionend'.
     renderer.xr.addEventListener('sessionend', () => this._ended());
   }
@@ -42,11 +60,12 @@ export class XRSessionManager {
       this.mode = kind;
       const r = this.renderer;
       r.xr.setReferenceSpaceType('local-floor');
-      r.xr.setFoveation(CONFIG.xr.foveation);
-      r.xr.setFramebufferScaleFactor(CONFIG.xr.framebufferScale);
+      r.xr.setFoveation(this.foveation);
+      r.xr.setFramebufferScaleFactor(this.fbScale);
       if (kind === 'ar') r.setClearAlpha(0); else r.setClearAlpha(1);
       await r.xr.setSession(session);
-      r.xr.setFoveation(CONFIG.xr.foveation);
+      r.xr.setFoveation(this.foveation);
+      this.wireViewportScale();
       // System recenter (long-press Meta button) resets the reference space.
       const ref = r.xr.getReferenceSpace();
       if (ref && ref.addEventListener) ref.addEventListener('reset', () => { this.area = null; if (this.onReset) this.onReset(); });
@@ -70,15 +89,57 @@ export class XRSessionManager {
     }
   }
 
-  // Ask for the highest supported refresh rate (Quest 3S: 72/80/90/120).
+  // Ask for the highest supported refresh rate under the cap (Quest 3S: 72/80/90/120).
   applyFrameRate(session) {
     try {
       this.rates = session.supportedFrameRates ? Array.from(session.supportedFrameRates).sort((a, b) => b - a) : [];
-      const pick = this.rates.filter((r) => r <= CONFIG.xr.maxFrameRate)[0];
+      const cap = Math.min(this.maxRate, CONFIG.xr.maxFrameRate);
+      const pick = this.rates.filter((r) => r <= cap)[0] || this.rates[this.rates.length - 1];
       this.setRate(session, pick);
     } catch (e) {
       console.warn('Frame-rate selection unavailable', e);
     }
+  }
+
+  // ---- quality levers (render/perf.js). Each one only acts on a change.
+  setMaxRate(hz) {
+    this.maxRate = hz;
+    const s = this.session;
+    if (!s || !this.rates.length) return;
+    const cap = Math.min(hz, CONFIG.xr.maxFrameRate);
+    const pick = this.rates.filter((r) => r <= cap)[0] || this.rates[this.rates.length - 1];
+    if (pick !== this.frameRate) this.setRate(s, pick);
+  }
+  setFoveation(v) {
+    if (v === this.foveation) return;
+    this.foveation = v;
+    if (this.session) this.renderer.xr.setFoveation(v);
+  }
+  setFramebufferScale(v) { this.fbScale = v; }      // (the next session)
+  setViewportScale(v) { this.vpScale = Math.max(0.2, Math.min(1, v)); }
+
+  // Dynamic viewport scaling: three reads each view's viewport (XRWebGLBinding.getViewSubImage with
+  // a projection layer, XRWebGLLayer.getViewport without) every frame before our callback runs, and
+  // a view's scale has to be requested before that. So the two calls are wrapped on this session's
+  // binding / layer: request the scale on the view, then let three read it.
+  wireViewportScale() {
+    this.vpActive = false;
+    if (!this.vpSupported || !CONFIG.xr.dynamicViewport) return;
+    try {
+      const xr = this.renderer.xr, base = xr.getBaseLayer();
+      const ask = (view) => { if (view && view.requestViewportScale) view.requestViewportScale(this.vpScale); };
+      if (base && 'textureWidth' in base) {           // XRProjectionLayer: three draws through the binding
+        const b = xr.getBinding();
+        if (!b || b.__vpWrapped) { this.vpActive = !!b; return; }
+        const orig = b.getViewSubImage.bind(b);
+        b.getViewSubImage = (layer, view, eye) => { ask(view); return orig(layer, view, eye); };
+        b.__vpWrapped = true; this.vpActive = true;
+      } else if (base && base.getViewport) {          // XRWebGLLayer
+        const orig = base.getViewport.bind(base);
+        base.getViewport = (view) => { ask(view); return orig(view); };
+        this.vpActive = true;
+      }
+    } catch (e) { console.warn('Viewport scaling unavailable', e); this.vpActive = false; }
   }
 
   setRate(session, rate) {
@@ -92,10 +153,12 @@ export class XRSessionManager {
   }
 
   // Called once a second with the measured fps: if we can't hold the target
-  // for 4 s in a row, step down to the next supported rate (e.g. 120 -> 90).
+  // for 4 s in a row, step down to the next supported rate (e.g. 90 -> 72).
+  // Only with a quality level fixed in the settings: in Auto the governor
+  // (render/perf.js) owns the rate, with everything else.
   checkPerformance(fps) {
     const s = this.session;
-    if (!s || !this.frameRate || this.rates.length < 2) return;
+    if (!s || !this.frameRate || this.rates.length < 2 || !this.autoRate) return;
     if (s.visibilityState && s.visibilityState !== 'visible') { this.slowSeconds = 0; return; }
     if (fps < this.frameRate * 0.88) this.slowSeconds++;
     else this.slowSeconds = 0;

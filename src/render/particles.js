@@ -28,6 +28,7 @@ export class Particles {
     this.grav = new Float32Array(N);
     this.size0 = new Float32Array(N);
     this.grow = new Float32Array(N);
+    this.keep = 1;                     // share of spawned particles kept (quality.js)
     this.alpha0 = new Float32Array(N);
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(this.pos, 3).setUsage(THREE.DynamicDrawUsage));
@@ -82,6 +83,7 @@ export class Particles {
   }
 
   spawn(x, y, z, vx, vy, vz, { color = 0xffffff, life = 1, size = 0.1, grow = 0, drag = 1, grav = 9.81, alpha = 1, kind = PUFF } = {}) {
+    if (this.keep < 1 && Math.random() > this.keep) return;      // (quality.js: a share of them at low levels)
     const i = this.next;
     this.next = (this.next + 1) % N;
     this.pos[i * 3] = x; this.pos[i * 3 + 1] = y; this.pos[i * 3 + 2] = z;
@@ -244,7 +246,8 @@ export class Particles {
     }
     this.live = live;
     if (!live) this.points.visible = false;
-    for (const a of ['position', 'alpha', 'size']) this.geo.attributes[a].needsUpdate = true;
+    const A = this.geo.attributes;
+    A.position.needsUpdate = A.alpha.needsUpdate = A.size.needsUpdate = true;
   }
 }
 const _c = new THREE.Color();

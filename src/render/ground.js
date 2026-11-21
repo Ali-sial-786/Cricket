@@ -438,8 +438,11 @@ const SURFACE_VERT = /* glsl */`
     #include <fog_vertex>
   }`;
 
+// Quality hook (render/quality.js): 0 skips the detail texture on the turf and the pitch (one fetch a pixel fewer).
+export const GROUND_QUALITY = { uDetOn: { value: 1 } };
+
 const SURFACE_FRAG_HEAD = /* glsl */`
-  uniform sampler2D uMap; uniform sampler2D uDetail; uniform vec3 uIrr;
+  uniform sampler2D uMap; uniform sampler2D uDetail; uniform vec3 uIrr; uniform float uDetOn;
   varying vec3 vWorld; varying vec2 vUv; varying vec2 vDUv;
   #include <common>
   #include <fog_pars_fragment>
@@ -460,6 +463,7 @@ function surfaceMaterial(map, detail, x0, z0, w, l, extraUniforms, fragBody) {
       uMap: { value: map }, uDetail: { value: detail },
       uMapXf: { value: new THREE.Vector4(x0, z0, 1 / w, 1 / l) },
       uDetRot: { value: detailRot() },
+      uDetOn: GROUND_QUALITY.uDetOn,
       uIrr: { value: new THREE.Vector3(irr.r, irr.g, irr.b) },
       ...extraUniforms,
     },
@@ -475,7 +479,7 @@ const TURF_FRAG = /* glsl */`
   uniform float uCZ;
   void main() {
     vec3 m = texture2D(uMap, vUv).rgb;
-    float d = texture2D(uDetail, vDUv).r - 0.5;
+    float d = uDetOn > 0.5 ? texture2D(uDetail, vDUv).r - 0.5 : 0.0;
     vec3 vd = normalize(vWorld - cameraPosition);
     // Mowing stripes along the pitch, soft-edged, filtered against the pixel's
     // footprint (fading out where a pixel spans a stripe: no moire far away),
@@ -503,7 +507,7 @@ const PITCH_FRAG = /* glsl */`
   float band(float c, float h, float f) { return clamp((c + h) / f + 0.5, 0.0, 1.0) - clamp((c - h) / f + 0.5, 0.0, 1.0); }
   void main() {
     vec4 m = texture2D(uMap, vUv);
-    vec4 dt = texture2D(uDetail, vDUv);
+    vec4 dt = uDetOn > 0.5 ? texture2D(uDetail, vDUv) : vec4(0.5);
     float d = mix(dt.g, dt.r, m.a) - 0.5;
     vec3 alb = m.rgb * (1.0 + d * mix(vec3(0.55, 0.58, 0.62), vec3(0.62, 0.52, 0.30), m.a));
     // Creases, in the end's own frame: s runs from the stumps toward the middle.

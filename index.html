@@ -56,6 +56,9 @@
     .progress i { display: block; width: 35%; height: 100%; border-radius: 2px; background: linear-gradient(90deg, var(--primary), var(--accent)); animation: slide 1.1s ease-in-out infinite; }
     @keyframes slide { from { transform: translateX(-100%); } to { transform: translateX(300%); } }
     body:not(.loading) .progress { display: none; }
+    /* Real progress once main.js reports it (--p); a sheen keeps moving through a long step (compositor-driven). */
+    .progress.determinate i { position: relative; overflow: hidden; width: var(--p, 0%); animation: none; transition: width 0.25s ease-out; }
+    .progress.determinate i::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, rgba(255,255,255,0.35), transparent); animation: slide 1.1s ease-in-out infinite; }
     .note { display: none; margin: 0; padding: 10px 12px; border-radius: 10px; font-size: 13px; line-height: 1.45; color: var(--text2); background: rgba(255,255,255,0.05); border: 1px solid var(--line); }
     body.no-xr .note.no-xr-note { display: block; }
     h2 { margin: 4px 0 0; font-size: 12px; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text3); }
@@ -70,7 +73,7 @@
     footer { margin-top: auto; font-size: 11.5px; color: var(--text3); }
     body.in-xr #overlay { display: none; }
     @media (max-width: 380px) { .controls { grid-template-columns: 1fr; } }
-    @media (prefers-reduced-motion: reduce) { .progress i { animation: none; width: 100%; } }
+    @media (prefers-reduced-motion: reduce) { .progress i { animation: none; width: 100%; } .progress.determinate i { width: var(--p, 0%); } .progress.determinate i::after { animation: none; } }
   </style>
   <script type="importmap">
     {

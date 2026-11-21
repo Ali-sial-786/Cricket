@@ -11,6 +11,7 @@ import { LENGTH_PRESETS, LINE_PRESETS } from '../physics/bowlingMachine.js';
 import { chaseTarget } from '../game/scoring.js';
 import { CONFIG } from '../config.js';
 import { buildVisionChart } from './visionChart.js';
+import { QUALITY_NAMES } from '../render/quality.js';
 
 const fmt1 = (v) => (Math.round(v * 10) / 10).toFixed(1);
 const signed = (v, d = 2) => (v > 0 ? '+' : '') + v.toFixed(d);
@@ -21,6 +22,8 @@ const VIEW_NAMES = { eyes: 'your eyes', helmet: 'eyes + helmet grille', behind: 
 const REPLAYS = ['off', 'bowler'];
 const REPLAY_NAMES = { off: 'off', bowler: "after every ball" };
 const TURNS = ['smooth', 'snap', 'off'];
+// Graphics setting: 'auto' shows the level the governor is on now.
+const qualityName = (g, q) => (q === 'auto' || !q ? `Auto · ${g.perf ? g.perf.spec.name : 'Ultra'}` : q[0].toUpperCase() + q.slice(1));
 const DEG = Math.PI / 180;
 // Running controls: only while the ball is live.
 const RUN_HINTS = new Set(['RUN', 'ANOTHER', 'GO BACK', 'DIVE']);
@@ -565,6 +568,8 @@ export class UI {
           add('step', 'view', 'View', 'Where you see the game from', { value: VIEW_NAMES[s.view] || s.view, dec: () => g.actions.cycle('view', VIEWS, -1), inc: () => g.actions.cycle('view', VIEWS, 1), vw: 300 });
           add('tog', 'body', 'Own body', 'A faint body when you look down', { on: s.ownBody, fn: () => g.actions.toggle('ownBody') });
           add('cyc', 'turn', 'Right-stick turn', 'Smooth, snap, or off (turn for real)', { value: s.turn, fn: () => g.actions.cycle('turn', TURNS, 1) });
+          add('step', 'quality', 'Graphics', 'Auto keeps the frame rate; or fix a level', { value: qualityName(g, s.quality), dec: () => g.actions.cycle('quality', QUALITY_NAMES, -1), inc: () => g.actions.cycle('quality', QUALITY_NAMES, 1), vw: 300 });
+          add('tog', 'perfPanel', 'Performance panel', 'Frame rate and quality below your view', { on: s.debugFrames, fn: () => g.actions.toggle('debugFrames') });
         } else if (tab === 'audio') {
           add('cyc', 'sound', 'Sound', 'Crowd, bat and ball; the commentators', { value: !s.sound ? 'off' : s.commentary ? 'sound + commentary' : 'sound, no commentary', fn: () => g.actions.soundCycle() });
           add('step', 'hap', 'Haptics', 'Controller buzz on contact and catches', { value: `${Math.round(s.hapticsScale * 100)}%`, dec: () => g.actions.setting('hapticsScale', -0.25, 0, 1), inc: () => g.actions.setting('hapticsScale', 0.25, 0, 1) });

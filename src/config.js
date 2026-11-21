@@ -188,9 +188,12 @@ export const CONFIG = {
   },
 
   xr: {
-    maxFrameRate: 120,       // highest rate we will ask for (Quest 3S: 72/80/90/120)
-    foveation: 0.5,          // fixed foveation 0..1
-    framebufferScale: 1.0,
+    maxFrameRate: 90,        // highest rate we will ask for (Quest 3S: 72/80/90/120); each quality level has its own (render/quality.js)
+    foveation: 0.5,          // fixed foveation 0..1 (the top quality level's; the governor raises it)
+    framebufferScale: 1.0,   // (fixed per session: the remembered quality level picks the next session's)
+    dynamicViewport: true,   // let the governor scale the drawn viewport (XRView.requestViewportScale, where the browser has it)
+    // Quality governor (render/quality.js): drop when this share of frames is late for badS; climb after climbS clean.
+    governor: { dropPct: 8, badS: 0.5, climbS: 10, holdS: 2, benchmarkS: 8 },
     driftWarn: 0.6,          // m your head has wandered from where play was centred (between balls): "step back to your spot",
                              // so a few steps forward per ball never add up to walking into the Quest's own boundary
   },
