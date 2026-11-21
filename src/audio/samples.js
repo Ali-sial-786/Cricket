@@ -1,12 +1,16 @@
 // Recorded sound effects (assets/audio): the bat, the crowd, the stumps, the umpire's cues.
-// Lazily fetched and decoded through the Sfx AudioContext, cached, played into sfx.master.
-// Nothing here throws: a missing file, no AudioContext or sound off just returns false, so
-// callers can fall back to the synthesised effect:  samples.play('bat_sweet') || sfx.batCrack(...)
+// Fetched and decoded once through the Sfx AudioContext, cached, each played at its class's
+// reference loudness (mix.js normGain: the gains callers pass mean the same for every file) into
+// a group, a 3-D voice (pos) or any node (out), with a few ms of fade on the end so a clip cut
+// short never clicks. Nothing here throws: a missing file, no AudioContext or sound off just
+// returns false, so callers can fall back to the synthesised effect:
+//   samples.play('bat_sweet', { pos }) || sfx.batCrack(...)
 //
 //   const samples = new Samples(sfx);
 //   samples.preload();                    // after sfx.init() (a user gesture); resolves to the count loaded
-//   samples.play('roar_six', { gain: 0.8 });
-//   const bed = samples.loop('crowd_bed', { gain: 0.3 });  bed.setGain(0.15, 0.4);  bed.stop();
+//   samples.play('roar_six', { gain: 0.8, crowd: true });
+//   const bed = samples.loop('crowd_bed', { gain: 0.3, out, offset: 12, seamless: 1 });  bed.setGain(0.15, 0.4);  bed.stop();
+import { normGain } from './mix.js';
 
 const DIR = './assets/audio/';
 const OGG = ['bat_sweet_1', 'bat_sweet_2', 'bat_sweet_3', 'bat_edge_1', 'bat_edge_2', 'bat_block_1', 'bat_block_2',
@@ -40,6 +44,9 @@ export class Samples {
     const s = this.sfx;
     return s && s.ctx && s.master && s.ctx.state !== 'closed' ? s.ctx : null;
   }
+
+  /** Every name this bank knows (for the levels table and its test). */
+  static names() { return [...OGG, ...WAV, ...CROWD]; }
 
   /** The names a group stands for (or the name itself). */
   variants(name) {
@@ -87,45 +94,83 @@ export class Samples {
   }
 
   /**
-   * Play a sample once. gain: linear; rate: playback rate; when: seconds from now.
-   * Returns true when it started; false (and starts loading it) when it isn't decoded yet,
-   * is unknown / missing, or there's no sound.
+   * Play a sample once. gain: linear (x the clip's normalisation); rate: playback rate; when: s
+   * from now; out: a node to play into, else pos {x,y,z} (a 3-D voice; crowd: the stands'),
+   * else the group `bus` (fx | crowd | voice | ui); lowpass: Hz (a duller take); prio: the voice
+   * budget's (pool.js). Returns true when it started; false (and starts loading it) when it isn't
+   * decoded yet, is unknown / missing, there's no sound, or no voice to spare.
    */
-  play(name, { gain = 1, rate = 1, when = 0 } = {}) {
+  play(name, { gain = 1, rate = 1, when = 0, out = null, pos = null, crowd = false, bus = 'fx', lowpass = 0, prio = 1 } = {}) {
     try {
-      const c = this.ctx;
-      if (!c || this.sfx.enabled === false) return false;
+      const c = this.ctx, s = this.sfx;
+      if (!c || s.enabled === false) return false;
       const buf = this._pick(name);
       if (!buf) return false;
+      const len = buf.duration / Math.max(0.05, rate);
+      let dest = out;
+      if (!dest && s.bus) {
+        if (pos && s.at) { const a = s.at(pos, { crowd, dur: len + Math.max(0, when), prio }); dest = a.out; when += a.delay; }
+        else dest = crowd ? s.bus.crowd : s.bus[bus] || s.bus.fx;
+      }
+      dest = dest || s.master;
+      if (s.budget && !s.budget.admit(c.currentTime, Math.max(0, when) + len, prio)) return false;
       const src = c.createBufferSource();
       src.buffer = buf; src.playbackRate.value = rate;
-      const g = c.createGain(); g.gain.value = gain;
-      src.connect(g).connect(this.sfx.master);
-      src.start(c.currentTime + Math.max(0, when));
+      const g = c.createGain(), t = c.currentTime + Math.max(0, when), k = gain * normGain(this.last[name] || name);
+      g.gain.setValueAtTime(k, t);
+      g.gain.setValueAtTime(k, t + Math.max(0, len - 0.012));       // (a clip cut short: no click at its end)
+      g.gain.linearRampToValueAtTime(0, t + len);
+      if (lowpass) {
+        const f = c.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = lowpass; f.Q.value = 0.7;
+        src.connect(f).connect(g);
+      } else src.connect(g);
+      g.connect(dest);
+      src.start(t);
       return true;
     } catch { return false; }
+  }
+
+  // A loop that joins without a seam: the last `xf` s crossfaded (equal power) into the start.
+  _seamless(buf, xf) {
+    const c = this.ctx, n = Math.floor(xf * buf.sampleRate);
+    if (!c || n < 16 || buf.length < n * 4) return buf;
+    const len = buf.length - n, out = c.createBuffer(buf.numberOfChannels, len, buf.sampleRate);
+    for (let ch = 0; ch < buf.numberOfChannels; ch++) {
+      const a = buf.getChannelData(ch), b = out.getChannelData(ch);
+      b.set(a.subarray(0, len));
+      for (let i = 0; i < n; i++) { const u = i / n; b[i] = a[i] * Math.sqrt(u) + a[len + i] * Math.sqrt(1 - u); }
+    }
+    return out;
   }
 
   /**
    * Loop a sample (the crowd bed) until stopped; it starts once decoded. Always returns a handle:
    * setGain(g, tau = 0.3) glides the level, stop(fade = 0.2) ends it; handle.ok is false when
-   * there's no AudioContext or no such sample (the handle then does nothing).
+   * there's no AudioContext or no such sample (the handle then does nothing). out: the node it
+   * plays into (default the crowd group); offset: where in the clip it starts (s); rate;
+   * seamless: crossfade the loop's seam over this many seconds (the crossfaded copy is kept).
    */
-  loop(name, { gain = 1 } = {}) {
+  loop(name, { gain = 1, out = null, offset = 0, rate = 1, seamless = 0 } = {}) {
     const c = this.ctx, v = this.variants(name)[0];
     const h = { ok: false, setGain() {}, stop() {} };
     if (!c || !(v in this.files) || this.failed.has(v)) return h;
     try {
-      const g = c.createGain(); g.gain.value = gain; g.connect(this.sfx.master);
+      const k = normGain(v), s = this.sfx;
+      const g = c.createGain(); g.gain.value = gain * k; g.connect(out || (s.bus ? s.bus.crowd : s.master));
       let src = null, stopped = false;
       this._load(v).then((buf) => {
         if (!buf || stopped) return;
-        src = c.createBufferSource(); src.buffer = buf; src.loop = true;
-        src.connect(g); src.start();
+        if (seamless) {
+          const key = `${v}~${seamless}`;
+          if (!this.buffers.has(key)) this.buffers.set(key, this._seamless(buf, seamless));
+          buf = this.buffers.get(key);
+        }
+        src = c.createBufferSource(); src.buffer = buf; src.loop = true; src.playbackRate.value = rate;
+        src.connect(g); src.start(c.currentTime, offset % buf.duration);
       }).catch(() => {});
       h.ok = true;
       h.setGain = (to, tau = 0.3) => {
-        try { g.gain.cancelScheduledValues(c.currentTime); g.gain.setTargetAtTime(to, c.currentTime, Math.max(0.005, tau)); } catch { /* closed */ }
+        try { g.gain.cancelScheduledValues(c.currentTime); g.gain.setTargetAtTime(to * k, c.currentTime, Math.max(0.005, tau)); } catch { /* closed */ }
       };
       h.stop = (fade = 0.2) => {
         if (stopped) return;

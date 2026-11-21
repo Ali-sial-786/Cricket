@@ -37,6 +37,7 @@ export function defaultSettings() {
     ballBoost: true,               // draw the ball at a minimum angular size far away
     debugFrames: false,            // debug: the HUD footer counts long frames (window.__longFrames has them)
     sound: true,
+    volMaster: 1, volCrowd: 1, volEffects: 1, volCommentary: 1,   // the Audio tab's volumes (0..1, src/audio/mix.js)
     overs: 5,
     bowlerType: 'fast',            // your bowler: fast | medium | offspin | legspin
     contactAssist: 'normal',       // off | low | normal | high (see CONFIG.contactAssist)

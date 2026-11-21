@@ -567,6 +567,11 @@ export class UI {
           add('cyc', 'turn', 'Right-stick turn', 'Smooth, snap, or off (turn for real)', { value: s.turn, fn: () => g.actions.cycle('turn', TURNS, 1) });
         } else if (tab === 'audio') {
           add('cyc', 'sound', 'Sound', 'Crowd, bat and ball; the commentators', { value: !s.sound ? 'off' : s.commentary ? 'sound + commentary' : 'sound, no commentary', fn: () => g.actions.soundCycle() });
+          const vol = (k, id, label, desc) => add('step', id, label, desc, { value: `${Math.round((s[k] ?? 1) * 100)}%`, dec: () => g.actions.setting(k, -0.1, 0, 1), inc: () => g.actions.setting(k, 0.1, 0, 1) });
+          vol('volMaster', 'volM', 'Volume', 'Everything together');
+          vol('volCrowd', 'volC', 'Crowd', 'The stands: murmur, reactions, chants');
+          vol('volEffects', 'volE', 'Effects', 'Bat, ball, stumps, footsteps; the menu');
+          vol('volCommentary', 'volV', 'Commentary', 'The two commentators');
           add('step', 'hap', 'Haptics', 'Controller buzz on contact and catches', { value: `${Math.round(s.hapticsScale * 100)}%`, dec: () => g.actions.setting('hapticsScale', -0.25, 0, 1), inc: () => g.actions.setting('hapticsScale', 0.25, 0, 1) });
         }
         const avail = PH - 74 - y0, rh = Math.min(74, (avail - (rows.length - 1) * 10) / rows.length);
@@ -725,7 +730,7 @@ export class UI {
       this.dot.visible = true;
     } else this.dot.visible = false;
     if (this.menu.setHover(hit) && hit) {
-      this.game.sfx.ui();
+      this.game.sfx.ui('hover');
       input.pointerController()?.pulse(CONFIG.haptics.uiTickIntensity, 8);
     }
     this.hoverHit = hit;

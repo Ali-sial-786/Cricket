@@ -852,7 +852,7 @@ export class Commentary {
 
 // The default backend: clips fetched and decoded on first use through sfx.ctx (an LRU of decoded
 // buffers), each played BufferSource -> its own gain (for the fade-out) -> the voices' bus ->
-// sfx.master. Silent (and fetches nothing) while there's no AudioContext or sound is off.
+// the commentary group (sfx.bus.voice: in the middle of your head, like a broadcast). Silent (and fetches nothing) while there's no AudioContext or sound is off.
 class WebAudioVoices {
   constructor(sfx, baseUrl, cap) {
     this.sfx = sfx; this.base = baseUrl; this.cap = Math.max(8, cap | 0);
@@ -869,7 +869,7 @@ class WebAudioVoices {
 
   _out(c) {
     if (!this.bus || this.bus.context !== c) {
-      this.bus = c.createGain(); this.bus.gain.value = this.volume; this.bus.connect(this.sfx.master);
+      this.bus = c.createGain(); this.bus.gain.value = this.volume; this.bus.connect(this.sfx.bus ? this.sfx.bus.voice : this.sfx.master);   // (the commentary group, mix.js)
     }
     return this.bus;
   }

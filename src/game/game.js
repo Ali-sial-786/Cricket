@@ -33,6 +33,7 @@ import { FIELD } from './fielding.js';
 import { Particles } from '../render/particles.js';
 import { Samples } from '../audio/samples.js';
 import { Commentary } from '../audio/commentary.js';
+import { AudioDirector } from '../audio/director.js';
 import { DRSView } from '../render/drsView.js';
 import { ContactLog } from './edgeTrack.js';
 import { UmpireView } from '../render/umpires.js';
@@ -128,6 +129,7 @@ export class Game {
     this.commentary = new Commentary({ sfx: this.sfx, rng: () => this.rng() });
     this.commentary.load().catch((e) => console.warn('Commentary unavailable', e));
     this.commentary.setEnabled(this.settings.commentary && this.settings.sound);
+    this.audio = new AudioDirector(this);     // where every sound comes from (director.js)
     this.ui = new UI(this);
     this.timeScale = 1;              // current game-time scale (slow motion)
     this.timeScaleTarget = 1;
@@ -276,6 +278,7 @@ export class Game {
   saveSettings() {
     saveSettings(this.settings); this.applySettingsToConfig();
     if (this.commentary) this.commentary.setEnabled(this.settings.commentary && this.settings.sound);
+    if (this.audio) this.audio.applySettings(this.settings);
   }
 
   get diff() { return CONFIG.difficulty[this.settings.difficulty] || CONFIG.difficulty.medium; }
@@ -336,11 +339,14 @@ export class Game {
   hint(list, secs = 0.5) { this.ui.hints(list, secs); }
 
   // Short commentary / crowd helpers (never throw).
-  say(kind, ctx) { try { this.commentary.say(kind, ctx || {}); } catch { /* optional */ } }
-  sample(name, opts) { try { return this.samples.play(name, opts); } catch { return false; } }
+  say(kind, ctx) {
+    try { this.commentary.say(kind, ctx || {}); } catch { /* optional */ }
+    try { this.audio.cue(kind, ctx || {}); } catch { /* optional: the crowd's mood follows the match */ }
+  }
+  sample(name, opts) { try { return this.audio.sample(name, opts); } catch { return false; } }
   crowdReact(kind, strength) {
     try { this.env.crowdReact?.(kind, strength, this.world.ball.pos); } catch { /* optional: the stands react even with the sound off */ }
-    try { if (this.settings.sound) this.crowd.react(kind, strength); } catch { /* optional */ }
+    try { if (this.settings.sound) this.audio.react(kind, strength, this.world.ball.pos); } catch { /* optional */ }
   }
 
   get difficulty() { return this.settings.difficulty; }
@@ -880,14 +886,7 @@ export class Game {
     this.ui.update();
     this.env.update(dt, now);
     ShadowPool.update();                     // (after everything is posed: bats, stumps, the upload)
-    if (this.settings.sound && this.state === 'play') this.crowd.update(realDt);
-    // Recorded crowd bed (ducked under the commentary) once audio is unlocked.
-    if (!this.bed && this.sfx.ctx) {
-      this.samples.preload();
-      this.bed = this.samples.loop('crowd_bed', { gain: 0.22 });
-      if (this.bed.ok) this.sfx.setCrowdLevel(0);
-    }
-    if (this.bed && this.bed.ok) this.bed.setGain(!this.settings.sound ? 0 : this.commentary.speaking() ? 0.1 : 0.22, 0.4);
+    try { this.audio.update(realDt); } catch (err) { console.warn('audio', err); }   // the listener in your head, the crowd, what has no event of its own
     const cu = this.env.crowd.userData.uniforms;
     cu.uTime.value = now;
     cu.uCheer.value = Math.max(0, cu.uCheer.value - dt * 0.35);
@@ -1036,16 +1035,14 @@ export class Game {
   }
 
   onPhysicsEvent(e) {
-    const s = this.sfx;
+    try { this.audio.physics(e); } catch (err) { console.warn('audio', err); }   // (the bat, the pitch, the stumps, the boards: where they happen)
     if (e.type === 'launch') { this.replay.mark('release', e.t); this.replay.marks.playerBatting = !!(this.session && !this.session.isBowling); }
     else if (e.type === 'bat') this.replay.mark('hit', e.t);
     else if (e.type === 'wicket') this.replay.mark('wicket', e.t);
     if (e.type === 'bounce') {
-      if (e.speedIn > 1.5) s.bounce(e.speedIn, e.surface);
       if (e.speedIn > 3) this.particles.dust(e.pos, e.speedIn, e.surface !== 'pitch', this.world.ball.vel);
       if (!e.batted && e.surface === 'pitch' && e.index === 1) this.pitchMark.show(e.pos, this.world.ball.vel);
     } else if (e.type === 'bat') {
-      this.sample(e.isEdge ? 'bat_edge' : e.quality > 0.55 ? 'bat_sweet' : 'bat_block', { gain: Math.min(1, 0.45 + (e.speedIn + e.batSpeed) / 70) }) || s.batCrack(e.quality, e.speedIn + e.batSpeed, e.isEdge);
       this.particles.contact(e.pos, e.quality, e.isEdge);
       if (e.batId === 'player') addBatMark(this.batMesh, e.local, e.quality);      // (a cherry on the face)
       if (e.batId === 'player') {
@@ -1055,8 +1052,6 @@ export class Game {
         else R.pulse(H.contactMin + (H.contactMax - H.contactMin) * e.quality, H.durationMinMs + (H.durationMaxMs - H.durationMinMs) * e.quality);
       }
     } else if (e.type === 'wicket') {
-      this.sample('stumps') || s.stumps();
-      this.sample('bails', { gain: 0.7 });
       this.stumps[e.end].break({ x: 0, y: 0, z: (e.end === 'batting' ? 1 : -1) * e.speed }, e.stump);
       this.particles.splinters({ x: 0, z: e.end === 'batting' ? 0 : -20.12 });
     } else if (e.type === 'boundary' && e.onFull && e.batted) {
@@ -1200,7 +1195,7 @@ export class Game {
   }
 
   cheer(intensity) {
-    this.sfx.cheer(intensity);
+    this.audio.cheer(intensity);
     const cu = this.env.crowd.userData.uniforms;
     cu.uCheer.value = Math.min(1, intensity);
   }
