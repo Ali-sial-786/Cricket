@@ -6,6 +6,7 @@ import { PITCH, STUMP_X } from '../physics/pitch.js';
 import { BatGeometry } from '../physics/bat.js';
 import { part, merge, vertexColorMat, radialTexture, toV3, colorize } from './util.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { ballShadowMesh, placeBallShadow } from './shadows.js';
 
 // ---------------------------------------------------------------- Bat
 // Mesh origin = grip point; axes match the physics bat frame
@@ -82,12 +83,8 @@ export class BallView {
     this.mesh.name = 'ball';
     scene.add(this.mesh);
 
-    this.shadow = new THREE.Mesh(
-      new THREE.PlaneGeometry(1, 1),
-      new THREE.MeshBasicMaterial({ map: radialTexture(64, 'rgba(0,0,0,0.6)'), transparent: true, depthWrite: false }),
-    );
-    this.shadow.rotation.x = -Math.PI / 2;
-    this.shadow.renderOrder = 1;
+    // Its sun shadow (render/shadows.js): down the sun's rays, so it leaves the ball as it climbs.
+    this.shadow = ballShadowMesh();
     scene.add(this.shadow);
 
     // Trail for hit balls: the whole flight from the bat (BallTrail).
@@ -129,14 +126,11 @@ export class BallView {
         this.mesh.quaternion.premultiply(_q);
       }
     }
-    const h = Math.max(0, pos.y - CONFIG.ball.radius);
-    const s = 0.11 + h * 0.06;
-    this.shadow.scale.set(s, s, s);
-    this.shadow.position.set(pos.x, 0.008, pos.z);
-    this.shadow.material.opacity = Math.max(0.15, 1 - h * 0.12);
+    this.placeShadow(pos);
 
     if (showTrail && this.trailEnabled) this.trail.add(pos);
   }
+  placeShadow(pos) { placeBallShadow(this.shadow, pos, CONFIG.ball.radius); }
   clearTrail() { this.trail.clear(); }
   get trailOn() { return this.trail.count > 0; }
   // Each frame, after the ball has moved: the ribbon turned to face your eyes.

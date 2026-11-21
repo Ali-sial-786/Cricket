@@ -83,6 +83,7 @@ export class Game {
       batting: new StumpsView(this.env.pitchGroup, PITCH.battingStumpsZ),
       bowling: new StumpsView(this.env.pitchGroup, PITCH.bowlingStumpsZ),
     };
+    for (const s of Object.values(this.stumps)) for (const p of s.pieces) if (p.kind === 'stump') ShadowPool.track(p.mesh, 'stump');   // (sun shadows)
     this.machine = new MachineView(this.env.pitchGroup);
     this.pitchMark = new PitchMark(scene);
     this.aimMarker = buildRingMarker(0x1e8bff, 0.38, 0xffffff);   // blue, so it stands out on the pitch and the grass
@@ -875,6 +876,7 @@ export class Game {
     this.ui.updatePointer(this.input);
     this.ui.update();
     this.env.update(dt, now);
+    ShadowPool.update();                     // (after everything is posed: bats, stumps, the upload)
     if (this.settings.sound && this.state === 'play') this.crowd.update(realDt);
     // Recorded crowd bed (ducked under the commentary) once audio is unlocked.
     if (!this.bed && this.sfx.ctx) {

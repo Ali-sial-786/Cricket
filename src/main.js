@@ -15,9 +15,12 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.xr.enabled = true;
 renderer.xr.setReferenceSpaceType('local-floor');
-renderer.setClearColor(0x9fc4e8, 1);
-renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.05;
+renderer.setClearColor(0xcfdbe6, 1);       // (the sky's horizon haze, lighting.js HAZE_COLOR)
+// Neutral (Khronos PBR Neutral) keeps kit and turf hues true and rolls the
+// highlights off gently: whites (kit, pads, ball, creases) stay white without
+// clipping, where ACES pushed reds to orange and greens to yellow.
+renderer.toneMapping = THREE.NeutralToneMapping;
+renderer.toneMappingExposure = 1.0;
 container.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
