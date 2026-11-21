@@ -5,8 +5,8 @@
 //
 //   turf: a 2048^2 macro map over the whole ground (colour variation, the
 //     cross-cut, the square and its old strips, worn run-ups, the pale ring
-//     inside the rope, sprinkler heads and slit drains, and the stands' and
-//     floodlight towers' late-afternoon shadow, baked) + one tiling
+//     inside the rope, sprinkler heads and slit drains, and the late-afternoon
+//     shadow of the stands and floodlight towers as stadium.js builds them, baked) + one tiling
 //     blade-detail texture. The mowing stripes are drawn by the shader (no
 //     texture), filtered against the pixel's footprint, and shaded by view
 //     direction as real ones are: light looking down the mower's line, dark
@@ -20,6 +20,7 @@ import { PITCH } from '../physics/pitch.js';
 import { CONFIG } from '../config.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { flatIrradiance, shadeRatio, standShade, SHADOW_X, SHADOW_Z } from './lighting.js';
+import { SUN_BLOCKERS } from './stadium.js';
 
 const CZ = PITCH.centerZ;
 const MACRO_N = 2048, MACRO_S = 172;                 // texels, metres (the square the macro map covers, centred on the pitch)
@@ -257,19 +258,20 @@ function macroTexture() {
 }
 
 // The stands' and the floodlight towers' shadow over the macro map's square
-// (M x M, 0..1). Towers: as built in env.js (four at 45 deg, ~118 m out, a
-// 52 m pole and a lamp bank at 55 m).
+// (M x M, 0..1), from the bowl as stadium.js builds it (SUN_BLOCKERS): the
+// lattice masts as dappled tapering lines, their lamp heads as solid plates.
 function shadowMask(M) {
   const S = MACRO_S, out = new Float32Array(M * M);
-  const towers = [];
-  for (let i = 0; i < 4; i++) {
-    const a = Math.PI / 4 + (i * Math.PI) / 2, rr = 118.4;
-    const bx = Math.sin(a) * rr, bz = CZ + Math.cos(a) * rr;
-    const t = { bx, bz, tx: bx + 52 * SHADOW_X, tz: bz + 52 * SHADOW_Z, hx: bx + 55 * SHADOW_X, hz: bz + 55 * SHADOW_Z, wx: Math.cos(a), wz: -Math.sin(a) };
-    t.x0 = Math.min(bx, t.hx) - 8; t.x1 = Math.max(bx, t.hx) + 8; t.z0 = Math.min(bz, t.hz) - 8; t.z1 = Math.max(bz, t.hz) + 8;
-    towers.push(t);
-  }
-  const sdx = SHADOW_X / Math.hypot(SHADOW_X, SHADOW_Z), sdz = SHADOW_Z / Math.hypot(SHADOW_X, SHADOW_Z);
+  const P = (p) => [p[0] + p[1] * SHADOW_X, CZ + p[2] + p[1] * SHADOW_Z];     // a local point -> its shadow on the turf (world)
+  const towers = SUN_BLOCKERS.towers.map((tw) => {
+    const [bx, bz] = P([tw.cx, tw.y0, tw.cz]), [tx, tz] = P([tw.cx, tw.H, tw.cz]);
+    const quad = tw.head.map(P);
+    const xs = [bx, tx, ...quad.map((q) => q[0])], zs = [bz, tz, ...quad.map((q) => q[1])];
+    // Head edges as (point, inward normal): a convex quad, either winding.
+    const area = quad.reduce((acc, q, k) => { const n = quad[(k + 1) % 4]; return acc + q[0] * n[1] - n[0] * q[1]; }, 0), w = area > 0 ? 1 : -1;
+    const edges = quad.map((q, k) => { const n = quad[(k + 1) % 4], ex = n[0] - q[0], ez = n[1] - q[1], l = Math.hypot(ex, ez) || 1; return [q[0], q[1], (-ez / l) * w, (ex / l) * w]; });
+    return { bx, bz, tx, tz, h0: tw.half0, h1: tw.half1, edges, x0: Math.min(...xs) - 4, x1: Math.max(...xs) + 4, z0: Math.min(...zs) - 4, z1: Math.max(...zs) + 4 };
+  });
   for (let j = 0; j < M; j++) {
     const z = (j + 0.5) / M * S - S / 2 + CZ;
     for (let i = 0; i < M; i++) {
@@ -277,15 +279,15 @@ function shadowMask(M) {
       let s = standShade(x, z, CZ);
       for (const t of towers) {
         if (x < t.x0 || x > t.x1 || z < t.z0 || z > t.z1) continue;
-        // Pole: a tapering line from the base to the top's shadow.
+        // Mast: light through the lattice, so a broken, half-dark band.
         const ex = t.tx - t.bx, ez = t.tz - t.bz, L2 = ex * ex + ez * ez;
         const h = Math.min(1, Math.max(0, ((x - t.bx) * ex + (z - t.bz) * ez) / L2));
-        const d = Math.hypot(x - t.bx - ex * h, z - t.bz - ez * h), w = 0.75 - 0.45 * h;
-        s = Math.max(s, smooth(w + 0.35, w - 0.35, d) * 0.9);
-        // Lamp bank: a frame of lamps across the tower, stretched along the shadow, light getting through between rows.
-        const qx = x - t.hx, qz = z - t.hz, u = (qx * t.wx + qz * t.wz) / 5.5, v = (qx * sdx + qz * sdz) / 4.2;
-        const rows = 0.55 + 0.45 * Math.abs(Math.cos(v * 4.7)), box = smooth(1.08, 0.92, Math.max(Math.abs(u), Math.abs(v)));
-        s = Math.max(s, box * rows * 0.75);
+        const d = Math.hypot(x - t.bx - ex * h, z - t.bz - ez * h), w = t.h0 + (t.h1 - t.h0) * h;
+        s = Math.max(s, smooth(w + 0.3, w - 0.3, d) * (0.38 + 0.14 * Math.cos(h * 88)));
+        // Lamp head: the backing plate, solid; ~75 m up, so a soft (penumbra) edge.
+        let in_ = Infinity;
+        for (const [qx, qz, nx, nz] of t.edges) in_ = Math.min(in_, (x - qx) * nx + (z - qz) * nz);
+        s = Math.max(s, smooth(-0.9, 0.9, in_) * 0.72);
       }
       out[j * M + i] = s;
     }
