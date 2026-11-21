@@ -134,8 +134,11 @@ export function buildSky(parent, centreZ) {
         // Fair-weather cumulus bank toward the horizon; a clearer, deeper sky overhead.
         float dens = c1.r * fade * (1.0 - 0.85 * smoothstep(0.3, 0.75, h));
         float rim = sd * sd * sd * sd; rim *= rim;
-        // Thin edges are lit through; only the thick cores show the shaded side.
-        vec3 cc = mix(uCloudShade, uCloudLit, mix(0.92, c1.g, smoothstep(0.1, 0.7, c1.r))) + uSunHaze * rim * (1.0 - c1.r) * 0.9;
+        // Thin edges are lit through; only the thick cores show the shaded side,
+        // and not round the sun, where the glare through the haze fills them in.
+        float near = sd * sd * sd; near *= near;
+        float lk = mix(mix(0.92, c1.g, smoothstep(0.1, 0.7, c1.r)), 1.0, near * 0.85);
+        vec3 cc = mix(uCloudShade, uCloudLit, lk) + uSunHaze * rim * (1.0 - c1.r) * 0.9;
         cc = mix(cc, uHorizon, (1.0 - fade) * 0.5);
         sky = mix(sky, mix(uHorizon, uCloudLit, 0.6) * (0.92 + 0.12 * rim), c2.b * fade * 0.4);
         sky = mix(sky, cc, dens);
@@ -163,43 +166,68 @@ export function buildSky(parent, centreZ) {
   return { sky, skyline, update(t) { uniforms.uTime.value = t % 10000; } };
 }
 
-// Distant skyline, seen over the stands from up high: hazy rolling hills, a
-// blue-grey city with varied towers (a few setbacks, spires, masts), and a
-// darker treeline in front. Built in layers, nearer = darker and sharper.
+// Distant skyline (an open cylinder 330 m out, y -9..61 m; canvas x = the
+// angle round the ground from +z toward +x, as in stadium.js). Seen over the
+// roofs from up high and through the grass bank's gap (20-50 deg): layers of
+// hazy hills, a town in two clusters (behind the North End and the west side)
+// with varied silhouettes, sunlit faces and faint window rows, and a dense
+// treeline in front; the further, the paler (mixed toward the horizon haze).
 function skylineTexture() {
-  const W = 2048, H = 256, r = mulberry(77);
+  const W = 4096, H = 256, r = mulberry(77);
   const c = document.createElement('canvas'); c.width = W; c.height = H;
   const g = c.getContext('2d');
   g.clearRect(0, 0, W, H);
-  // Far hills.
-  g.fillStyle = 'rgb(168,184,200)';
-  g.beginPath(); g.moveTo(0, H);
-  for (let x = 0; x <= W; x += 16) g.lineTo(x, H - 70 - 26 * Math.sin(x * 0.004 + 1) - 14 * Math.sin(x * 0.011));
-  g.lineTo(W, H); g.fill();
-  // City: two depths of towers.
-  for (const [n, base, tint, max] of [[70, 168, 0, 100], [46, 150, -10, 120]]) {
-    for (let i = 0; i < n; i++) {
-      const x = r() * W, w = 12 + r() * 34, h = 30 + r() * max * (r() < 0.12 ? 1.5 : 1);
-      if ((x % 700) > 470) continue;                        // gaps: not a solid wall of city
-      const s = base + tint + r() * 16;
-      g.fillStyle = `rgb(${s - 6},${s + 4},${s + 18})`;
-      g.fillRect(x, H - h, w, h);
-      if (r() < 0.35) g.fillRect(x + w * 0.2, H - h - h * 0.15, w * 0.6, h * 0.15 + 1);   // setback
-      if (r() < 0.12) { g.fillRect(x + w / 2 - 1, H - h - 26, 2, 26); }                 // mast
-      g.fillStyle = 'rgba(255,255,255,0.10)'; g.fillRect(x, H - h, w * 0.35, h);         // sunlit side
+  const groundY = H - Math.round((9 / 70) * H);            // y = 0 on the canvas
+  const haze = [HAZE_COLOR.r, HAZE_COLOR.g, HAZE_COLOR.b].map((v) => Math.round(255 * Math.pow(v, 1 / 2.2)));
+  const hz = (c3, k) => `rgb(${c3.map((v, i) => Math.round(v + (haze[i] - v) * k)).join(',')})`;
+  const X = (deg) => (deg / 360) * W;
+  const wrap = (fn) => { fn(0); fn(-W); fn(W); };
+  // Hills: two ridgelines, the far one palest.
+  for (const [base, amp, k, col, f] of [[62, 30, 0.72, [96, 122, 132], 1], [44, 18, 0.55, [78, 108, 92], 2.3]]) {
+    g.fillStyle = hz(col, k);
+    g.beginPath(); g.moveTo(0, H);
+    for (let x = 0; x <= W; x += 8) g.lineTo(x, groundY - base - amp * (0.5 + 0.3 * Math.sin(x * 0.0021 * f + base) + 0.2 * Math.sin(x * 0.0063 * f + 1.7)));
+    g.lineTo(W, H); g.fill();
+  }
+  // Town: blocks and towers in clusters.
+  const building = (x, w, h, k, tone) => {
+    const top = groundY - h, base = [tone - 8, tone, tone + 12];
+    g.fillStyle = hz(base, k); g.fillRect(x, top, w, h);
+    g.fillStyle = hz(base.map((v) => v + 34), k); g.fillRect(x, top, w * 0.42, h);            // the sunlit face
+    g.fillStyle = `rgba(30,40,50,${0.10 * (1 - k)})`;
+    for (let y = top + 4; y < groundY - 3; y += 4) g.fillRect(x + 1, y, w - 2, 1);           // window rows
+    const roof = r();
+    if (roof < 0.25) { g.fillStyle = hz(base, k); g.fillRect(x + w * 0.2, top - h * 0.12, w * 0.6, h * 0.12 + 1); g.fillRect(x + w * 0.35, top - h * 0.2, w * 0.3, h * 0.08 + 1); }   // setbacks
+    else if (roof < 0.4) { g.fillStyle = hz(base, k); g.beginPath(); g.moveTo(x, top); g.lineTo(x + w, top); g.lineTo(x + w, top - w * 0.5); g.fill(); }   // a slanted crown
+    else if (roof < 0.55) { g.fillStyle = hz(base, k); g.fillRect(x + w / 2 - 1, top - 22, 2, 22); }                  // mast
+  };
+  for (const [a0, a1] of [[150, 215], [262, 305]]) wrap((o) => {
+    for (const [n, k, tone, hmax] of [[70, 0.62, 150, 70], [40, 0.5, 132, 120], [10, 0.45, 120, 165]]) {
+      for (let i = 0; i < n; i++) {
+        const t = r(), x = o + X(a0 + (a1 - a0) * t), mid = 1 - Math.abs(t - 0.5) * 1.6;      // taller in the middle of a cluster
+        building(x, 6 + r() * 16, 14 + r() * hmax * (0.35 + 0.65 * mid), k, tone + r() * 14);
+      }
     }
+  });
+  // Elsewhere, a few low roofs and a church spire among the trees (seen through the bank).
+  wrap((o) => {
+    for (let i = 0; i < 60; i++) { const x = o + r() * W; if ((x / W) * 360 % 360 > 150 && (x / W) * 360 % 360 < 305) continue; building(x, 8 + r() * 14, 8 + r() * 14, 0.5, 150); }
+    const sx = o + X(36);
+    g.fillStyle = hz([150, 146, 140], 0.45); g.fillRect(sx, groundY - 34, 7, 34);
+    g.beginPath(); g.moveTo(sx - 1, groundY - 34); g.lineTo(sx + 8, groundY - 34); g.lineTo(sx + 3.5, groundY - 62); g.fill();
+  });
+  // Treeline: overlapping crowns, darker low down, a few tall poplars.
+  for (let i = 0; i < 4200; i++) {
+    const x = r() * W, tall = r() < 0.06, tr = tall ? 4 + r() * 3 : 5 + r() * 9, y = groundY - (tall ? 18 + r() * 14 : 5 + r() * 14), v = r();
+    g.fillStyle = hz([46 + v * 30, 70 + v * 34, 48 + v * 20], 0.32);
+    g.beginPath();
+    if (tall) g.ellipse(x, y, tr * 0.6, tr * 2.6, 0, 0, Math.PI * 2); else g.arc(x, y, tr, 0, Math.PI * 2);
+    g.fill();
   }
-  // Treeline: rounded crowns, lighter tops.
-  for (let i = 0; i < 1500; i++) {
-    const x = r() * W, tr = 6 + r() * 14, y = H - 18 - r() * 22;
-    const v = r();
-    g.fillStyle = `rgb(${70 + v * 26},${92 + v * 26},${84 + v * 16})`;
-    g.beginPath(); g.arc(x, y, tr, 0, Math.PI * 2); g.fill();
-  }
-  g.fillStyle = 'rgb(66,86,78)'; g.fillRect(0, H - 22, W, 22);
+  g.fillStyle = hz([44, 66, 48], 0.32); g.fillRect(0, groundY - 8, W, H - groundY + 8);
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
   t.wrapS = THREE.RepeatWrapping;
-  t.anisotropy = 1;
+  t.anisotropy = 2;
   return t;
 }

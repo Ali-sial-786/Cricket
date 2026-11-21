@@ -374,6 +374,28 @@ function makeShade(sunDir) {
   };
 }
 
+// ------------------------------------------------------------------ for the turf
+// The plan as data for the shadow the stands and towers throw on the field
+// (lighting.js standShade, ground.js shadowMask), so the turf's baked shadow
+// always matches what is built here. Local frame (pitch centre at the
+// origin), angles in degrees from +z toward +x.
+const towerPlan = (ta) => {
+  const bank = inArc(ta, BANK[0], BANK[1]), A = ta * D, r = bank ? 106 : BOWL.outerR + 6.5, H = 50;
+  const head = new THREE.Object3D();
+  head.position.set(Math.sin(A) * (r - 1.2), H + 3.6, Math.cos(A) * (r - 1.2));
+  head.lookAt(0, 0, 0);
+  head.updateMatrixWorld(true);
+  const corner = (lx, ly) => new THREE.Vector3(lx, ly, -1.0).applyMatrix4(head.matrixWorld).toArray();
+  return { cx: Math.sin(A) * r, cz: Math.cos(A) * r, y0: bank ? 7.5 : 0, H, half0: 1.7, half1: 0.7, head: [corner(-6.1, -3.7), corner(6.1, -3.7), corner(6.1, 3.7), corner(-6.1, 3.7)] };
+};
+export const SUN_BLOCKERS = {
+  roof: ROOF,                                                   // lip (rF, yF) .. back (rB, yB)
+  roofed: (a) => roofed(((a % 360) + 360) % 360),               // is there a roof over this angle?
+  top: (a, r) => profileTop(typeAt(((a % 360) + 360) % 360), r),  // stand / bank / pavilion height at radius r (-1: nothing)
+  radii: [BOWL.wallR, L.r0 + 2, L.r0 + 6, lowEndR - 0.1, BOWL.fasciaR + 0.1, 101, 104, 107, BOWL.backR + 0.1, BOWL.outerR - 0.1],   // where to sample top()
+  towers: TOWERS.map(towerPlan),                                // lattice masts (base, height, half widths) and their lamp heads (4 corners)
+};
+
 // ------------------------------------------------------------------ build
 // root: the group to add to (positioned at the pitch centre).
 // lights: { hemi, dirs: [{ dir: Vector3 toward the light, color }] }
@@ -731,8 +753,7 @@ export function buildStadium(root, lights) {
   // ---------------------------------------------------------- floodlights
   // Lattice masts, a service platform and a banked head of 20 lamps tilted at the pitch.
   for (const ta of TOWERS) {
-    const A = ta * D, r = inArc(ta, BANK[0], BANK[1]) ? 106 : BOWL.outerR + 6.5, y0 = inArc(ta, BANK[0], BANK[1]) ? 7.5 : 0;
-    const cx = Math.sin(A) * r, cz = Math.cos(A) * r, H = 50, o = { tint: C.tower };
+    const A = ta * D, { cx, cz, y0, H } = towerPlan(ta), o = { tint: C.tower };
     const half = (y) => 1.7 - ((y - y0) / (H - y0)) * 1.0;
     const corner = (k, y) => { const h = half(y), ca = Math.cos(A), sa = Math.sin(A); const lx = k & 1 ? h : -h, lz = k & 2 ? h : -h; return [cx + lx * ca + lz * sa, y, cz - lx * sa + lz * ca]; };
     for (let k = 0; k < 4; k++) B.beam(corner(k, y0), corner(k, H), 0.3, o);

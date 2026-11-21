@@ -7,6 +7,7 @@
 // never in the eyeline down the pitch from either end. Warm key, cool sky
 // fill: lit kit reads warm, shade reads blue.
 import * as THREE from 'three';
+import { SUN_BLOCKERS } from './stadium.js';
 
 // Unit vector from the ground TOWARD the sun.
 export const SUN_DIR = new THREE.Vector3(-0.70, 0.588, 0.405).normalize();
@@ -53,29 +54,33 @@ export function shadeRatio(out = new THREE.Color()) {
 }
 
 // The stands' shadow on the outfield (0 = sunlit .. 1 = in shade), from the
-// stand outline in env.js: the side-stand roof lip (~29.6 m up at r 92, the
-// roofs cover |sin(azimuth)| > sin(0.42)) and the top of the upper tier
-// (~22 m at r 111) all round. A sun ray from the turf toward the sun is
-// blocked if it is still below an edge when it reaches that radius. Soft over
-// ~2 m (the edge is far away and the roof is not a knife edge). Used for the
-// baked turf shadow and to fade the sun shadows of figures standing in it.
-const ROOF_R = 92, ROOF_H = 29.6, TOP_R = 111.2, TOP_H = 22.1, ROOF_SIN = Math.sin(0.42);
+// bowl as stadium.js builds it (SUN_BLOCKERS): a sun ray from the turf is
+// blocked if it passes under a roof lip, or below the stand / bank / pavilion
+// profile at that angle. Soft over ~2 m (the edges are far away and not knife
+// edges) and over a degree at the ends of the roofs. Used for the baked turf
+// shadow and to fade the sun shadows of figures standing in it.
 const _hx = SUN_DIR.x / Math.hypot(SUN_DIR.x, SUN_DIR.z), _hz = SUN_DIR.z / Math.hypot(SUN_DIR.x, SUN_DIR.z);
 const TAN_E = SUN_DIR.y / Math.hypot(SUN_DIR.x, SUN_DIR.z);
+const DEG = 180 / Math.PI;
 export function standShade(x, z, centreZ) {
-  const px = x, pz = z - centreZ;
+  const px = x, pz = z - centreZ, B = SUN_BLOCKERS, Rf = B.roof;
   const b = px * _hx + pz * _hz, c = px * px + pz * pz;
   let s = 0;
-  // Roof lip.
-  let disc = b * b - (c - ROOF_R * ROOF_R);
-  if (disc > 0) {
-    const t = -b + Math.sqrt(disc);
-    const hx = px + _hx * t;
-    const roofed = smooth(ROOF_SIN - 0.03, ROOF_SIN + 0.03, Math.abs(hx) / ROOF_R);
-    s = Math.max(s, roofed * smooth(-1.6, 1.6, ROOF_H - t * TAN_E));
+  const hit = (R) => { const disc = b * b - (c - R * R); return disc > 0 ? -b + Math.sqrt(disc) : -1; };
+  // Roof lip: under it, the ray meets the roof or the closed back of the stand.
+  let t = hit(Rf.rF);
+  if (t > 0) {
+    const a = Math.atan2(px + _hx * t, pz + _hz * t) * DEG;
+    const roofed = (B.roofed(a - 0.6) + B.roofed(a) + B.roofed(a + 0.6)) / 3;
+    if (roofed > 0) s = roofed * smooth(-1.6, 1.6, Rf.yF - t * TAN_E);
   }
-  disc = b * b - (c - TOP_R * TOP_R);
-  if (disc > 0) s = Math.max(s, smooth(-1.6, 1.6, TOP_H - (-b + Math.sqrt(disc)) * TAN_E));
+  // The open profile: stands without a roof, the grass bank, the pavilion.
+  if (s > 0.999) return 1;
+  for (const R of B.radii) {
+    if ((t = hit(R)) <= 0 || t * TAN_E > Rf.yF + 1) continue;     // (already above anything the bowl has)
+    const top = B.top(Math.atan2(px + _hx * t, pz + _hz * t) * DEG, R);
+    if (top > 0) s = Math.max(s, smooth(-1.6, 1.6, top - t * TAN_E));
+  }
   return s;
 }
 function smooth(a, b, v) { const t = Math.min(1, Math.max(0, (v - a) / (b - a))); return t * t * (3 - 2 * t); }
