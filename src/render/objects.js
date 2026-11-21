@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { CONFIG } from '../config.js';
 import { PITCH, STUMP_X } from '../physics/pitch.js';
 import { BatGeometry } from '../physics/bat.js';
-import { part, merge, vertexColorMat, radialTexture, toV3, colorize } from './util.js';
+import { part, merge, vertexColorMat, toV3, colorize } from './util.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { ballShadowMesh, placeBallShadow } from './shadows.js';
 
