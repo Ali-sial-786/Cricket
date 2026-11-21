@@ -125,7 +125,7 @@ export class Game {
     this.sfx = new Sfx();
     this.sfx.setEnabled(this.settings.sound);
     this.samples = new Samples(this.sfx);
-    this.crowd = new CrowdAudio(this.sfx, this.samples, () => this.rng());
+    this.crowd = new CrowdAudio(this.sfx, this.samples);   // (its own dice: the sound must not change the game's)
     this.commentary = new Commentary({ sfx: this.sfx, rng: () => this.rng() });
     this.commentary.load().catch((e) => console.warn('Commentary unavailable', e));
     this.commentary.setEnabled(this.settings.commentary && this.settings.sound);
