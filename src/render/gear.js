@@ -198,7 +198,7 @@ export function buildGear(RIG, part, o, lod = 0) {
   if (o.headgear === 'helmet') helmet(P, part, hc, R, S, lod);
   else if (o.headgear === 'cap' || o.headgear === 'bare') cap(P, part, hc, R, S, lod);
   else if (o.headgear === 'hat') hat(P, part, hc, R, S, lod);
-  if (o.shades && RIG.face) shades(P, part, RIG, hc, S, lod);
+  if (o.shades && RIG.face && !lod) shades(P, part, RIG, hc, S, lod);     // (far: painted on, kitMaterial)
   if (o.gloves) for (const s of ['L', 'R']) (o.keeper ? keeperGlove : battingGlove)(P, part, s, S, lod, o.playerGrip);
   if (o.pads) for (const s of ['L', 'R']) pad(P, part, s, !!o.keeper, S, lod);
   return P;

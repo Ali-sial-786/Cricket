@@ -424,6 +424,7 @@ function kitMaterial(shared = null, depth = false) {
     uNum: { value: new THREE.Vector2(-1, -1) },        // back number: glyphs of the tens and units (-1 none)
     uName: { value: new Array(12).fill(-1) }, uNameLen: { value: 0 },
     uLod: { value: 0 },
+    uShades: { value: 0 },         // 1: sunglasses (geometry near, painted far)
     uBrim: { value: new THREE.Vector3(0, 0, 0) },
     uNoHead: { value: 0 },         // 1: the head and neck are not drawn (your own see-through body)
     uHeadBones: { value: new THREE.Vector2(RIG.index.neck, RIG.index.head) },
@@ -524,7 +525,7 @@ function kitMaterial(shared = null, depth = false) {
         uniform vec4 uFaceRect; uniform vec4 uFaceMisc; uniform vec4 uEye; uniform vec3 uKneeL; uniform vec3 uAnkleL; uniform vec4 uLegAxis;
         uniform vec4 uCrestAt; uniform vec4 uSponsorAt; uniform vec4 uMakerAt; uniform vec4 uNumberAt; uniform vec4 uCapAt;
         uniform vec4 uCrestUV; uniform vec4 uSponsorUV; uniform vec4 uMakerUV; uniform vec4 uGlyph;
-        uniform float uTeamIx; uniform vec2 uNum; uniform float uName[12]; uniform float uNameLen; uniform float uLod;
+        uniform float uTeamIx; uniform vec2 uNum; uniform float uName[12]; uniform float uNameLen; uniform float uLod; uniform float uShades;
         ${KIT_GLSL_COMMON}
         float gWrap = 0.25, gSpec = 0.04, gShin = 10.0, gKind = 0.0, gSSS = 0.0, gShade = 0.0;
         uniform vec3 uBrim;              // the shade of a cap's peak / hat's brim: edge y, how far below it falls, all round (1) or front only (0)
@@ -712,6 +713,9 @@ function kitMaterial(shared = null, depth = false) {
         c = mix(c, vec3(0.78, 0.76, 0.72), white);
         // forehead, nose and cheekbones are a little shinier
         gSpec *= 1.0 + 0.6 * smoothstep(0.03, 0.0, abs(vBind.y - uFaceMisc.y - 0.035)) * smoothstep(0.035, 0.0, abs(vBind.x));
+        // sunglasses on the distant model (which carries no glasses geometry): a dark band over the eyes
+        float sg = uShades * step(0.5, uLod) * step(abs(vBind.y - uEye.y - 0.0005), 0.0155) * step(abs(vBind.x), 0.088);
+        c = mix(c, vec3(0.025, 0.03, 0.04), sg); gSpec = mix(gSpec, 0.9, sg); gShin = mix(gShin, 60.0, sg); gSSS *= 1.0 - sg;
         // zinc cream on the nose
         float zn = length((vBind.xy - vec2(0.0, uFaceMisc.y + 0.008)) / vec2(0.017, 0.03));
         float zc = uLook2.w * smoothstep(1.0, 0.85, zn) * step(uFaceMisc.z - 0.01, vBind.z);
@@ -858,6 +862,7 @@ export class Humanoid {
     u.uLook.value.set(look.build, look.hairVol, look.sleeves, look.sweatband);
     u.uLook2.value.set(look.beard, look.stubble, look.hairCut, look.zinc);
     if (vary) scale *= look.scale;
+    u.uShades.value = this.opts.shades ? 1 : 0;
     { const sk = RIG.skull || { c: [0, 1.675, 0.058] }, cy = sk.c[1];   // (gear.js: the cap's front edge, the hat's base, the helmet's peak)
       if (headgear === 'cap' || headgear === 'bare') u.uBrim.value.set(cy + 0.028, 0.055, 0);
       else if (headgear === 'hat') u.uBrim.value.set(cy + 0.03, 0.085, 1);
@@ -944,7 +949,7 @@ export class Humanoid {
     for (const k of ['uSkin', 'uHair', 'uIris', 'uLook', 'uLook2']) u[k].value.copy(v[k].value);
     this.setNumber(o.number);
     this.setName(o.name);
-    if (this.opts.shades !== o.opts.shades) { this.opts.shades = o.opts.shades; this.mesh.geometry = geometryFor(this.opts, this.lod); }
+    if (this.opts.shades !== o.opts.shades) { this.opts.shades = o.opts.shades; u.uShades.value = v.uShades.value; this.mesh.geometry = geometryFor(this.opts, this.lod); }
   }
 
   // 0 = full detail, 1 = distant.
