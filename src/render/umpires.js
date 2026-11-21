@@ -13,7 +13,7 @@ const _t = new THREE.Vector3(), _f = new THREE.Vector3(), _l = new THREE.Vector3
 
 class UmpireActor extends Actor {
   constructor(scene, seed) {
-    super(scene, { team: 'umpire', headgear: 'hat', seed });
+    super(scene, { team: 'umpire', headgear: 'hat', seed, vary: true });
     this.sig = null;
   }
   signal(type, now, dur = 2.6) { this.sig = { type, t0: now, dur }; }

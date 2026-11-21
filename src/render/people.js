@@ -102,6 +102,7 @@ const _bq = new THREE.Quaternion();
 export class BowlerView {
   constructor(scene) {
     this.actor = new BowlerActor(scene, { team: 'away', seed: 5, headgear: 'bare' });
+    this.actor.h.lodNear = 21;         // (the man you face: full detail through his bound and delivery)
     this.fig = this.actor.h.root;      // for visibility toggling elsewhere
     this.show(false);
   }
@@ -125,6 +126,7 @@ export class FieldView {
       team: 'away', seed: 100 + i * 7, keeper: !!f.keeper,
       headgear: f.keeper ? 'cap' : f.bowler ? 'bare' : (i % 3 === 0 ? 'hat' : 'cap'),
       pads: !!f.keeper, gloves: !!f.keeper,
+      vary: !f.keeper && !f.bowler,          // (heights differ; not the keeper's or the bowler's, whose figures are matched elsewhere)
     }));
     for (let i = 0; i < field.length; i++) this.actors[i].place(field[i].x, field[i].z, Math.atan2(-field[i].x, -1 - field[i].z));
     this.show(false);

@@ -1,5 +1,6 @@
 // Cricket gear for the athlete figure: helmet (shell, peak, steel grille, ear
-// guards, chin strap), cap (six-panel crown, curved peak), wide-brim hat,
+// guards, chin strap, neck guard), cap (six-panel crown, curved peak), wide-brim hat,
+// wraparound sunglasses,
 // batting pads (vertical canes, knee roll, thigh flap, straps), batting gloves
 // (a closed fist of segmented finger rolls, thumb and palm round the handle,
 // with a cuff that bends with the wrist) and keeping gloves.
@@ -21,7 +22,9 @@
 //         the hand.
 import * as THREE from 'three';
 
-export const KIT = { shirt: 1, trim: 2, headgear: 3, trousers: 4, skin: 5, hair: 6, panel: 7 };
+export const KIT = { shirt: 1, trim: 2, headgear: 3, trousers: 4, skin: 5, hair: 6, panel: 7, shell: 34, trimGloss: 35, padShirt: 36 };
+// Materials for fixed colours (humanoid.js kitMaterial): steel / hard gloss, padding and leather, lenses.
+const STEEL_M = { m: 30 }, PAD_M = { m: 31 }, LENS_M = { m: 32 };
 const PALM = 0.075, HANDLE_R = 0.017;
 // The handle's angle across the palm (90 deg would be a hammer grip, straight across).
 export const GRIP_BETA = 62 * Math.PI / 180;
@@ -29,7 +32,7 @@ export function battingGripAngle(side, playerGrip) {
   if (!playerGrip) return GRIP_BETA;
   return (side === 'L' ? 45 : 55) * Math.PI / 180;
 }
-const WHITE = 0xf4f4f0, PAD_WHITE = 0xf2f2ee, LEATHER = 0xd8d1c0, STEEL = 0xaeb6bf, STRAP = 0x24272c, TAN = 0xc9b48e;
+const WHITE = 0xf5f3ee, PAD_WHITE = 0xf4f1e9, LEATHER = 0xd8d1c0, STEEL = 0xaeb6bf, STRAP = 0x24272c, TAN = 0xc9b48e;
 
 // ------------------------------------------------------------------ mesh builder
 // Vertices carry a reference point; every triangle is wound so that its
@@ -195,6 +198,7 @@ export function buildGear(RIG, part, o, lod = 0) {
   if (o.headgear === 'helmet') helmet(P, part, hc, R, S, lod);
   else if (o.headgear === 'cap' || o.headgear === 'bare') cap(P, part, hc, R, S, lod);
   else if (o.headgear === 'hat') hat(P, part, hc, R, S, lod);
+  if (o.shades && RIG.face && !lod) shades(P, part, RIG, hc, S, lod);     // (far: painted on, kitMaterial)
   if (o.gloves) for (const s of ['L', 'R']) (o.keeper ? keeperGlove : battingGlove)(P, part, s, S, lod, o.playerGrip);
   if (o.pads) for (const s of ['L', 'R']) pad(P, part, s, !!o.keeper, S, lod);
   return P;
@@ -206,7 +210,7 @@ function helmet(P, part, c, R, S, lod) {
   const edgeY = (phi) => { const f = (1 - Math.cos(phi)) / 2; return c[1] + 0.012 - 0.115 * Math.pow(f, 0.85); };
   // two raised ridges front-to-back, like a vented shell
   const rmod = lod ? null : (phi, th) => 1 + 0.012 * (Math.exp(-Math.pow((Math.sin(phi) - 0.33) / 0.05, 2)) + Math.exp(-Math.pow((Math.sin(phi) + 0.33) / 0.05, 2))) * sstep(0.15, 0.6, th);
-  part(P, shell(cc, A, edgeY, S(30, 12), S(10, 4), lod ? 0 : 0.011, rmod), 'head', KIT.headgear, [0, 0, 0], null, null, { ao: (x, y, z) => 0.8 + 0.2 * sstep(c[1] - 0.09, c[1] + 0.02, y) });
+  part(P, shell(cc, A, edgeY, S(30, 12), S(10, 4), lod ? 0 : 0.011, rmod), 'head', KIT.shell, [0, 0, 0], null, null, { ao: (x, y, z) => 0.8 + 0.2 * sstep(c[1] - 0.09, c[1] + 0.02, y) });
   // peak: from the front edge, out and a little down, drooping at the corners
   const y0 = edgeY(0);
   const peak = (u, v) => {
@@ -215,11 +219,11 @@ function helmet(P, part, c, R, S, lod) {
     const L = 0.058 * Math.pow(Math.cos(phi * 0.98), 0.7) + 0.008;
     return [base[0] + Math.sin(phi) * L * v, base[1] - (0.012 * v + 0.01 * Math.pow(u * 2 - 1, 2) * v), base[2] + Math.cos(phi) * L * v];
   };
-  part(P, slab(peak, S(16, 8), S(3, 2), 0.005, [0, 1, 0]), 'head', KIT.headgear, [0, 0, 0], null, null, { ao: 0.92 });
+  part(P, slab(peak, S(16, 8), S(3, 2), 0.005, [0, 1, 0]), 'head', KIT.shell, [0, 0, 0], null, null, { ao: 0.92 });
   // ear guards
   for (const sx of [-1, 1]) {
-    part(P, pillow([0.017, 0.05, 0.044], 0.62, S(12, 6), S(8, 4)), 'head', KIT.headgear, [c[0] + sx * (R[0] + 0.021), c[1] - 0.058, c[2] + 0.012], [0.12, 0, 0], null, { ao: 0.9 });
-    if (!lod) part(P, pillow([0.004, 0.012, 0.012], 0.8, 6, 4), 'head', KIT.trim, [c[0] + sx * (R[0] + 0.038), c[1] - 0.05, c[2] + 0.014]);
+    part(P, pillow([0.017, 0.05, 0.044], 0.62, S(12, 6), S(8, 4)), 'head', KIT.shell, [c[0] + sx * (R[0] + 0.021), c[1] - 0.058, c[2] + 0.012], [0.12, 0, 0], null, { ao: 0.9 });
+    if (!lod) part(P, pillow([0.004, 0.012, 0.012], 0.8, 6, 4), 'head', STEEL, [c[0] + sx * (R[0] + 0.038), c[1] - 0.05, c[2] + 0.014], null, null, STEEL_M);
   }
   // steel grille: bars on a cylinder in front of the face, ends into the ear guards
   const Rg = R[2] + 0.04, zc = c[2] - 0.004;
@@ -232,19 +236,67 @@ function helmet(P, part, c, R, S, lod) {
     return pts;
   };
   const bars = lod ? [-0.045, -0.12] : [-0.044, -0.077, -0.11, -0.143];
-  bars.forEach((dy, i) => part(P, tube(bar(dy, i === bars.length - 1 ? 0.012 : 0), 0.0042, lod ? 4 : 6, { caps: false }), 'head', STEEL));
+  bars.forEach((dy, i) => part(P, tube(bar(dy, i === bars.length - 1 ? 0.012 : 0), 0.0042, lod ? 4 : 6, { caps: false }), 'head', STEEL, [0, 0, 0], null, null, STEEL_M));
   if (!lod) {
     for (const phi of [-0.4, 0, 0.4]) {
       const pts = [];
       for (let k = 0; k <= 5; k++) { const dy = mix(-0.044, -0.143, k / 5), rin = k === 5 ? 0.012 : 0; pts.push([c[0] + Math.sin(phi) * (Rg - rin) * 0.86, c[1] + dy, zc + Math.cos(phi) * (Rg - rin)]); }
-      part(P, tube(pts, 0.0038, 5, { caps: false }), 'head', STEEL);
+      part(P, tube(pts, 0.0038, 5, { caps: false }), 'head', STEEL, [0, 0, 0], null, null, STEEL_M);
     }
     // the grille's mounting under the peak
-    part(P, tube(bar(-0.012), 0.0035, 5, { caps: false }), 'head', STEEL);
+    part(P, tube(bar(-0.012), 0.0035, 5, { caps: false }), 'head', STEEL, [0, 0, 0], null, null, STEEL_M);
     // chin strap
-    for (const sx of [-1, 1]) part(P, tube([[c[0] + sx * (R[0] + 0.004), c[1] - 0.09, c[2] + 0.0], [c[0] + sx * 0.06, c[1] - 0.15, c[2] + 0.06], [c[0], c[1] - 0.167, c[2] + 0.085]], 0.004, 4, { caps: false, ratio: 0.4 }), 'head', STRAP);
+    for (const sx of [-1, 1]) part(P, tube([[c[0] + sx * (R[0] + 0.004), c[1] - 0.09, c[2] + 0.0], [c[0] + sx * 0.06, c[1] - 0.15, c[2] + 0.06], [c[0], c[1] - 0.167, c[2] + 0.085]], 0.004, 4, { caps: false, ratio: 0.4 }), 'head', STRAP, [0, 0, 0], null, null, PAD_M);
+    // neck guard: a padded, shell-coloured flap hung behind the nape below the shell's edge
+    { const NG = new Builder(), o = [], n = [], top = edgeY(Math.PI) + 0.006, nu = 10;
+      for (const [y, k] of [[top, 0.98], [top - 0.026, 0.86], [top - 0.048, 0.78]]) {
+        const ro = [], ri = [];
+        for (let i = 0; i <= nu; i++) {
+          const phi = Math.PI + mix(-0.62, 0.62, i / nu), r = k * (A[0] + 0.004) * (1 - 0.06 * Math.pow((i / nu) * 2 - 1, 2));
+          const p = [c[0] + Math.sin(phi) * r, y, cc[2] + Math.cos(phi) * r * (A[2] / A[0])];
+          ro.push(NG.v(p, [c[0], y, cc[2]])); ri.push(NG.v([c[0] + (p[0] - c[0]) * 0.92, y, cc[2] + (p[2] - cc[2]) * 0.92], [c[0] + (p[0] - c[0]) * 3, y, cc[2] + (p[2] - cc[2]) * 3]));
+        }
+        o.push(ro); n.push(ri);
+      }
+      NG.grid(o); NG.grid(n);
+      const ra = o[2].map((id) => NG.v(NG.p.slice(id * 3, id * 3 + 3), [c[0], top + 1, cc[2]])), rb = n[2].map((id) => NG.v(NG.p.slice(id * 3, id * 3 + 3), [c[0], top + 1, cc[2]]));
+      NG.grid([ra, rb]);
+      part(P, NG.geo(), 'head', KIT.shell, [0, 0, 0], null, null, { ao: (x, y) => 0.7 + 0.3 * sstep(top - 0.05, top, y) }); }
     // badge on the front of the shell
-    part(P, pillow([0.026, 0.017, 0.004], 0.6, 10, 6), 'head', KIT.trim, [cc[0], cc[1] + A[1] * Math.cos(1.08), cc[2] + A[2] * Math.sin(1.08) + 0.0015], [-(Math.PI / 2 - 1.08), 0, 0]);
+    part(P, pillow([0.026, 0.026, 0.004], 0.6, 10, 6), 'head', KIT.shell, [cc[0], cc[1] + A[1] * Math.cos(1.08), cc[2] + A[2] * Math.sin(1.08) + 0.0015], [-(Math.PI / 2 - 1.08), 0, 0]);
+  }
+}
+
+// Wraparound sunglasses: a lens band on an elliptic cylinder clear of the brow
+// and nose bridge, a thin frame along its top, arms back over the ears.
+function shades(P, part, RIG, c, S, lod) {
+  const F = RIG.face, J = RIG.J.head;
+  const ey = F.eye[1] - J.y + 0.001, zc = c[2], rx = 0.104, rz = 0.122, tm = 0.95;
+  const at = (t, y, d = 0) => [(rx + d) * Math.sin(t), y, zc + (rz + d) * Math.cos(t)];
+  const top = (t) => ey + 0.0145 - 0.004 * Math.pow(Math.abs(t) / tm, 2);
+  const bot = (t) => ey - 0.0165 + 0.009 * Math.pow(Math.abs(t) / tm, 3) + 0.0085 * Math.exp(-Math.pow(t / 0.17, 2));
+  const nu = S(24, 10), nv = lod ? 1 : 3, B = new Builder(), out = [], inn = [];
+  for (let j = 0; j <= nv; j++) {
+    const ro = [], ri = [];
+    for (let i = 0; i <= nu; i++) {
+      const t = mix(-tm, tm, i / nu), y = mix(bot(t), top(t), j / nv);
+      ro.push(B.v(at(t, y), [0, y, zc])); ri.push(B.v(at(t, y, -0.0025), at(t, y, 0.05)));
+    }
+    out.push(ro); inn.push(ri);
+  }
+  B.grid(out); B.grid(inn);
+  const ra = [], rb = [];                         // rim: the outline, outer to inner
+  const loop = [...out[0].map((_, i) => [0, i]), ...out.map((_, j) => [j, nu]).slice(1), ...out[0].map((_, i) => [nv, nu - i]).slice(1), ...out.map((_, j) => [nv - j, 0]).slice(1)];
+  for (const [j, i] of loop) { const q = B.p.slice(out[j][i] * 3, out[j][i] * 3 + 3), r = B.p.slice(inn[j][i] * 3, inn[j][i] * 3 + 3); ra.push(B.v(q, [0, ey, zc])); rb.push(B.v(r, [0, ey, zc])); }
+  B.grid([ra, rb], true);
+  part(P, B.geo(), 'head', 0x1a2129, [0, 0, 0], null, null, LENS_M);
+  // frame along the top and the arms
+  const fr = [];
+  for (let i = 0; i <= 12; i++) { const t = mix(-tm - 0.04, tm + 0.04, i / 12); fr.push(at(t, top(t) + 0.0012, 0.001)); }
+  part(P, tube(fr, 0.0022, lod ? 3 : 5, { caps: true }), 'head', 0x15171b, [0, 0, 0], null, null, STEEL_M);
+  for (const sx of [-1, 1]) {
+    const e = at(sx * (tm + 0.04), top(tm) - 0.003, 0.001);
+    part(P, tube([e, [sx * 0.104, e[1] + 0.002, e[2] - 0.04], [sx * 0.102, e[1] - 0.004, e[2] - 0.085]], 0.0022, lod ? 3 : 4, { caps: true }), 'head', 0x15171b, [0, 0, 0], null, null, STEEL_M);
   }
 }
 
@@ -263,7 +315,7 @@ function cap(P, part, c, R, S, lod) {
     return [base[0] + Math.sin(phi) * L * v * 0.92, base[1] - L * v * 0.22 - 0.011 * s * s * v, base[2] + Math.cos(phi) * L * v];
   };
   part(P, slab(peak, S(16, 8), S(4, 2), 0.004, [0, 1, 0]), 'head', KIT.headgear, [0, 0, 0], null, null, { ao: 0.95 });
-  if (!lod) part(P, pillow([0.016, 0.012, 0.003], 0.6, 10, 6), 'head', KIT.trim, [cc[0], cc[1] + A[1] * Math.cos(1.02), cc[2] + A[2] * Math.sin(1.02) + 0.0012], [-(Math.PI / 2 - 1.02), 0, 0]);
+  if (!lod) part(P, pillow([0.02, 0.02, 0.003], 0.6, 10, 6), 'head', KIT.headgear, [cc[0], cc[1] + A[1] * Math.cos(1.02), cc[2] + A[2] * Math.sin(1.02) + 0.0012], [-(Math.PI / 2 - 1.02), 0, 0]);
 }
 
 function hat(P, part, c, R, S, lod) {
@@ -350,7 +402,7 @@ function pad(P, part, s, keeper, S, lod) {
     return innerSide * (1 - 0.22 * groove * (1 - sstep(1.0, 1.25, Math.abs(a))) * (1 - Math.exp(-Math.pow((y - 0.03) / 0.07, 2))))
       * (1 - 0.25 * Math.exp(-Math.pow((y + 0.03) / 0.015, 2)));
   };
-  part(P, geo, knee, PAD_WHITE, [0, 0, 0], null, null, { blend: keeper ? null : { to: hip, y0: 0.07, y1: 0.15 }, ao });
+  part(P, geo, knee, PAD_WHITE, [0, 0, 0], null, null, { blend: keeper ? null : { to: hip, y0: 0.07, y1: 0.15 }, ao, m: 31 });
   if (lod) return;
   // straps round the back of the leg, buckled on the outside
   const straps = keeper ? [-0.1, -0.31] : [0.15, -0.11, -0.32];
@@ -366,7 +418,7 @@ function pad(P, part, s, keeper, S, lod) {
     }
     part(P, tube(pts, 0.012, 4, { caps: false, ratio: 0.3, up: [0, 0, 1] }), knee, KIT.trim, [0, 0, 0], null, null, { blend: bl, ao: 0.85 });
     const ab = sx * W * 0.7, [rx, rz] = rin(ab, y), t = thick(ab, y);
-    part(P, pillow([0.011, 0.013, 0.0035], 0.4, 6, 4), knee, 0xc8ccd2, [Math.sin(ab) * (rx + t + 0.002), y, cz + Math.cos(ab) * (rz + t + 0.002)], [0, ab, 0], null, { blend: bl });
+    part(P, pillow([0.011, 0.013, 0.0035], 0.4, 6, 4), knee, 0xc8ccd2, [Math.sin(ab) * (rx + t + 0.002), y, cz + Math.cos(ab) * (rz + t + 0.002)], [0, ab, 0], null, { blend: bl, m: 30 });
   }
   // a team-coloured patch on the outside wing
   part(P, pillow([0.004, 0.035, 0.022], 0.5, 6, 4), knee, KIT.trim, [Math.sin(sx * 1.45) * 0.118, -0.12, cz + Math.cos(sx * 1.45) * 0.122], [0, sx * 1.45, 0]);
@@ -389,7 +441,7 @@ function battingGlove(P, part, s, S, lod, playerGrip) {
   const fpart = (geo, color, opts) => part(P, fist(geo), hand, color, [0, 0, 0], null, null, opts && { ...opts, ao: unturn(opts.ao) });
   if (lod && !playerGrip) {
     // distant: a padded fist
-    fpart(pillow([0.034, 0.03, 0.046], 0.55, 8, 6).translate(0, -0.07, 0.001), WHITE, { ao: 0.92 });
+    fpart(pillow([0.034, 0.03, 0.046], 0.55, 8, 6).translate(0, -0.07, 0.001), WHITE, { ao: 0.92, m: 31 });
   } else {
     for (const [fz, rf, R] of fingers) {
       // The top hand closes securely. The bottom hand cradles the handle
@@ -399,17 +451,17 @@ function battingGlove(P, part, s, S, lod, playerGrip) {
       if (playerGrip) joints = lod ? [[-0.3, end]] : [[-0.3, 1.06], [1.15, 2.10], [2.19, end]];
       for (const [b0, b1] of joints) {
         const pts = arc(sx, 0, -G, fz, R, b0, b1, lod ? 5 : 3);
-        fpart(tube(pts, rf * (b0 > 2 ? 0.93 : 1), lod ? 4 : 6, { caps: true, up: [0, 0, 1] }), WHITE, { ao: aoF(fz, rf) });
+        fpart(tube(pts, rf * (b0 > 2 ? 0.93 : 1), lod ? 4 : 6, { caps: true, up: [0, 0, 1] }), WHITE, { ao: aoF(fz, rf), m: 31 });
       }
     }
     // padded back of the hand, palm, team stripe
-    part(P, pillow([0.015, 0.043, 0.046], 0.45, 10, 6), hand, WHITE, [sx * 0.022, -0.037, 0.001], [0, 0, sx * 0.08], null, { ao: (x, y, z) => 0.85 + 0.15 * sstep(-0.07, -0.02, y) });
-    fpart(pillow([0.013, 0.036, 0.043], 0.5, 8, 6).translate(-sx * 0.017, -0.035, 0.0), LEATHER, { ao: 0.82 });
+    part(P, pillow([0.015, 0.043, 0.046], 0.45, 10, 6), hand, KIT.padShirt, [sx * 0.022, -0.037, 0.001], [0, 0, sx * 0.08], null, { m: 31, ao: (x, y, z) => 0.85 + 0.15 * sstep(-0.07, -0.02, y) });
+    fpart(pillow([0.013, 0.036, 0.043], 0.5, 8, 6).translate(-sx * 0.017, -0.035, 0.0), LEATHER, { ao: 0.82, m: 31 });
     // thumb: from the palm's index side round the palm side of the handle
-    fpart(tube([[-sx * 0.014, -0.018, 0.038], [-sx * 0.028, -0.045, 0.05], [-sx * 0.031, -0.07, 0.056]], [0.0145, 0.014, 0.0132], 7), WHITE, { ao: 0.92 });
+    fpart(tube([[-sx * 0.014, -0.018, 0.038], [-sx * 0.028, -0.045, 0.05], [-sx * 0.031, -0.07, 0.056]], [0.0145, 0.014, 0.0132], 7), WHITE, { ao: 0.92, m: 31 });
     const thumbBend = playerGrip ? [-sx * 0.028, -0.081, 0.064] : [-sx * 0.026, -0.086, 0.058];
     const thumbTip = playerGrip ? [-sx * 0.022, -0.086, 0.071] : [-sx * 0.016, -0.097, 0.058];
-    fpart(tube([[-sx * 0.031, -0.074, 0.0565], thumbBend, thumbTip], [0.0124, 0.012, 0.0112], 7), WHITE);
+    fpart(tube([[-sx * 0.031, -0.074, 0.0565], thumbBend, thumbTip], [0.0124, 0.012, 0.0112], 7), WHITE, PAD_M);
   }
   // cuff: over the wrist and up the forearm, bending with the wrist
   const cuffN = S(16, 8), Bc = new Builder(), rows = [];
@@ -428,7 +480,7 @@ function battingGlove(P, part, s, S, lod, playerGrip) {
     Bc.grid([r2b, r3], true);
   }
   const blend = { to: 'elbow' + s, y0: -0.004, y1: 0.05 };
-  part(P, Bc.geo(), hand, WHITE, [0, 0, 0], null, null, { blend, ao: (x, y, z) => 0.8 + 0.2 * sstep(-0.012, 0.01, y) });
+  part(P, Bc.geo(), hand, WHITE, [0, 0, 0], null, null, { m: 31, blend, ao: (x, y, z) => 0.8 + 0.2 * sstep(-0.012, 0.01, y) });
   // velcro strap (team colour) with its tab on the back
   const Bs = new Builder(), sr = [];
   for (const y of [0.018, 0.034]) { const r = []; for (let i = 0; i < cuffN; i++) { const a = (i / cuffN) * Math.PI * 2; r.push(Bs.v([Math.cos(a) * 0.0388, y, Math.sin(a) * 0.0478], [0, y, 0])); } sr.push(r); }
@@ -440,16 +492,16 @@ function battingGlove(P, part, s, S, lod, playerGrip) {
 // Keeping glove: a big open padded mitt, webbed thumb, long cuff.
 function keeperGlove(P, part, s, S, lod) {
   const hand = 'hand' + s, sx = s === 'L' ? 1 : -1;
-  part(P, pillow([0.027, 0.088, 0.056], 0.62, S(14, 8), S(12, 6)), hand, WHITE, [0, -0.108, 0.004], null, null, { ao: (x, y, z) => 0.85 + 0.15 * sstep(-0.2, -0.1, y) });
-  part(P, pillow([0.011, 0.072, 0.05], 0.55, S(10, 6), S(10, 5)), hand, TAN, [-sx * 0.02, -0.11, 0.004], null, null, { ao: 0.88 });
+  part(P, pillow([0.027, 0.088, 0.056], 0.62, S(14, 8), S(12, 6)), hand, WHITE, [0, -0.108, 0.004], null, null, { m: 31, ao: (x, y, z) => 0.85 + 0.15 * sstep(-0.2, -0.1, y) });
+  part(P, pillow([0.011, 0.072, 0.05], 0.55, S(10, 6), S(10, 5)), hand, TAN, [-sx * 0.02, -0.11, 0.004], null, null, { ao: 0.88, m: 31 });
   for (const fz of [-0.036, -0.012, 0.012, 0.036]) {
     if (lod) continue;
-    part(P, tube([[sx * 0.021, -0.062, fz], [sx * 0.021, -0.1, fz], [sx * 0.019, -0.128, fz]], 0.013, 7), hand, WHITE, [0, 0, 0], null, null, { ao: (x, y, z) => 1 - 0.3 * Math.pow(Math.min(1, Math.abs(z - fz) / 0.013), 2) });
-    part(P, tube([[sx * 0.017, -0.14, fz], [sx * 0.01, -0.172, fz], [sx * 0.0, -0.19, fz]], 0.0122, 7), hand, WHITE, [0, 0, 0], null, null, { ao: (x, y, z) => 1 - 0.3 * Math.pow(Math.min(1, Math.abs(z - fz) / 0.013), 2) });
+    part(P, tube([[sx * 0.021, -0.062, fz], [sx * 0.021, -0.1, fz], [sx * 0.019, -0.128, fz]], 0.013, 7), hand, WHITE, [0, 0, 0], null, null, { m: 31, ao: (x, y, z) => 1 - 0.3 * Math.pow(Math.min(1, Math.abs(z - fz) / 0.013), 2) });
+    part(P, tube([[sx * 0.017, -0.14, fz], [sx * 0.01, -0.172, fz], [sx * 0.0, -0.19, fz]], 0.0122, 7), hand, WHITE, [0, 0, 0], null, null, { m: 31, ao: (x, y, z) => 1 - 0.3 * Math.pow(Math.min(1, Math.abs(z - fz) / 0.013), 2) });
   }
   if (!lod) part(P, pillow([0.005, 0.04, 0.042], 0.5, 8, 6), hand, KIT.trim, [sx * 0.03, -0.05, 0.003]);
   const thumb = [[-sx * 0.008, -0.03, 0.052], [-sx * 0.016, -0.07, 0.074], [-sx * 0.02, -0.105, 0.088]];
-  part(P, tube(thumb, [0.0175, 0.0165, 0.015], lod ? 5 : 8), hand, WHITE, [0, 0, 0], null, null, { ao: 0.92 });
+  part(P, tube(thumb, [0.0175, 0.0165, 0.015], lod ? 5 : 8), hand, WHITE, [0, 0, 0], null, null, { m: 31, ao: 0.92 });
   if (!lod) {
     // webbing between thumb and forefinger (both faces)
     const Bw = new Builder(), w1 = [], w2 = [];
@@ -458,14 +510,14 @@ function keeperGlove(P, part, s, S, lod) {
     const v1 = [], v2 = [];
     for (let k = 0; k <= 4; k++) { const t = k / 4; const a = [mix(-sx * 0.012, -sx * 0.018, t), mix(-0.05, -0.1, t), mix(0.06, 0.08, t)], b = [0, mix(-0.06, -0.15, t), 0.05]; v1.push(Bw.v(a, [a[0] - sx, a[1], a[2]])); v2.push(Bw.v(b, [b[0] - sx, b[1], b[2]])); }
     Bw.grid([v1, v2]);
-    part(P, Bw.geo(), hand, TAN);
+    part(P, Bw.geo(), hand, TAN, [0, 0, 0], null, null, PAD_M);
   }
   // long cuff with a team band
   const cuffN = S(18, 8), Bc = new Builder(), rows = [];
   for (const [y, rx, rz] of [[-0.03, 0.04, 0.052], [0.02, 0.043, 0.054], [0.078, 0.046, 0.056]]) { const r = []; for (let i = 0; i < cuffN; i++) { const a = (i / cuffN) * Math.PI * 2; r.push(Bc.v([Math.cos(a) * rx, y, Math.sin(a) * rz], [0, y, 0])); } rows.push(r); }
   Bc.grid(rows, true);
   const blend = { to: 'elbow' + s, y0: -0.01, y1: 0.05 };
-  part(P, Bc.geo(), hand, WHITE, [0, 0, 0], null, null, { blend, ao: 0.9 });
+  part(P, Bc.geo(), hand, WHITE, [0, 0, 0], null, null, { m: 31, blend, ao: 0.9 });
   const Bs = new Builder(), sr = [];
   for (const y of [0.04, 0.066]) { const r = []; for (let i = 0; i < cuffN; i++) { const a = (i / cuffN) * Math.PI * 2; r.push(Bs.v([Math.cos(a) * 0.0475, y, Math.sin(a) * 0.0575], [0, y, 0])); } sr.push(r); }
   Bs.grid(sr, true);
