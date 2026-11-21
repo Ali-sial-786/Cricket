@@ -79,7 +79,7 @@ export class AudioDirector {
       case 'whoosh': return this.release();
       case 'gloves': case 'catch': {
         const sp = this.g.world.ball ? Math.hypot(this.g.world.ball.vel.x, this.g.world.ball.vel.y, this.g.world.ball.vel.z) : 20;
-        S.play(name, { gain: gain * 0.8, pos: B, rate: rr(), prio: 2 });
+        S.play(name, { gain: gain * 0.5, pos: B, rate: rr(), prio: 2 });
         s.gloves(B, sp);
         return true;
       }
@@ -135,7 +135,7 @@ export class AudioDirector {
       case 'bat': {
         const kind = batKind(e), speed = e.speedIn + (e.batSpeed || 0);
         const name = kind === 'sweet' ? 'bat_sweet' : kind === 'edge' ? 'bat_edge' : 'bat_block';
-        const gain = clamp(0.45 + speed / 70, 0.4, 1) * (kind === 'sweet' ? 1 : kind === 'edge' ? 0.7 : 0.85);
+        const gain = clamp(0.45 + speed / 70, 0.4, 1) * ({ sweet: 1, edge: 0.6, toe: 0.75, mistimed: 0.7, block: 0.55, handle: 0.6 }[kind]);
         const rate = (kind === 'toe' ? 0.84 : kind === 'mistimed' ? 0.93 : kind === 'handle' ? 0.8 : 1) * rr();
         const ok = S.play(name, { gain, rate, pos: e.pos, prio: 2, lowpass: kind === 'mistimed' || kind === 'toe' || kind === 'handle' ? 2200 : 0 });
         if (ok) s.batLayer(kind, e.quality, speed, e.pos); else s.batCrack(e.quality, speed, e.isEdge, e.pos);
@@ -184,7 +184,7 @@ export class AudioDirector {
       if (d < bd) { bd = d; best = a; }
     }
     if (!best) return;
-    this.sfx.voice({ pos: { x: best.pos.x, y: 1.6, z: best.pos.z }, f0: 135 + Math.random() * 40, glide: 0.85, vowels: ['a', 'i'], dur: 0.32, gain: 0.16, breath: 0.25, prio: 1 });
+    this.sfx.voice({ pos: { x: best.pos.x, y: 1.6, z: best.pos.z }, f0: 135 + Math.random() * 40, glide: 0.85, vowels: ['a', 'i'], dur: 0.32, gain: 0.6, breath: 0.25, prio: 1 });
   }
 
   // ------------------------------------------------------------ every frame
@@ -265,9 +265,9 @@ export class AudioDirector {
         // (a walk is heard only close by; running, from further off)
         if (f.vy < -0.25 && vy > -0.05 && p.y < 0.25 && this.t - f.t > 0.18 && (st.speed > 2.2 || (st.speed > 0.5 && far < 9))) {
           f.t = this.t;
-          let w = clamp(0.3 + st.speed / 6, 0.3, 1.2) * (a === bow ? 1 : 0.6);
+          let w = clamp(0.3 + st.speed / 6, 0.3, 1.2) * (a === bow ? 1.4 : 0.6);
           const run = a === bow && a.run;
-          if (run && Math.abs(g.simTime - run.tr) < 0.3) w = 1.7;      // the front foot at the crease
+          if (run && Math.abs(g.simTime - run.tr) < 0.3) w = 2;        // the front foot at the crease
           this.sfx.footstep({ x: p.x, y: 0.03, z: p.z }, surfaceAt(p.x, p.z) === 'pitch' ? 'pitch' : 'turf', w);
         }
         f.y = p.y; f.vy = vy;

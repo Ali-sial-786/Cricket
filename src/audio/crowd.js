@@ -253,17 +253,17 @@ export class CrowdAudio {
   crowdClap(g, out) {
     const s = this.sfx;
     for (let i = 0; i < 3; i++) {
-      s.noise(0.05 + this.rng() * 0.03, { out, freq: 1300 + this.rng() * 900, q: 0.9, gain: g * 0.1, when: this.rng() * 0.035, prio: 0 });
+      s.noise(0.05 + this.rng() * 0.03, { out, freq: 1300 + this.rng() * 900, q: 0.9, gain: g * 0.25, when: this.rng() * 0.035, prio: 0 });
     }
-    s.noise(0.09, { out, type: 'lowpass', freq: 900, q: 0.5, gain: g * 0.05, when: 0.01, prio: 0 });
+    s.noise(0.09, { out, type: 'lowpass', freq: 900, q: 0.5, gain: g * 0.12, when: 0.01, prio: 0 });
   }
 
   clap(g) { this.sfx.noise(0.03, { pos: stand(this.rng() * TAU, 50 + this.rng() * 15), crowd: true, freq: 1800 + this.rng() * 1500, q: 1.6, gain: g, prio: 0 }); }
 
   drum(g, out) {
     const s = this.sfx;
-    s.tone(66, 0.32, { out, gain: g * 0.55, attack: 0.004, slide: 0.6, prio: 0 });
-    s.noise(0.06, { out, type: 'lowpass', freq: 380, q: 0.6, gain: g * 0.25, prio: 0 });
+    s.tone(66, 0.32, { out, gain: g * 0.9, attack: 0.004, slide: 0.6, prio: 0 });
+    s.noise(0.06, { out, type: 'lowpass', freq: 380, q: 0.6, gain: g * 0.4, prio: 0 });
   }
 
   // A two-finger whistle from the stands (sometimes the rising "wheee-oo").
@@ -284,7 +284,7 @@ export class CrowdAudio {
     const s = this.sfx, c = this.ctx;
     if (!c) return;
     const out = s.at(stand(BLOCK + (this.rng() - 0.5), 64, 11), { crowd: true, dur: 1.6, prio: 0 }).out;
-    const f = 310 + this.rng() * 90, g = 0.025 + this.rng() * 0.015;
+    const f = 310 + this.rng() * 90, g = 0.05 + this.rng() * 0.03;
     [[0, 0.16], [0.24, 0.16], [0.48, 0.55]].forEach(([w, d]) => {
       s.tone(f, d, { out, type: 'sawtooth', gain: g, attack: 0.02, when: w, prio: 0 });
       s.tone(f * 1.26, d, { out, type: 'sawtooth', gain: g * 0.6, attack: 0.02, when: w, prio: 0 });
@@ -296,15 +296,15 @@ export class CrowdAudio {
     const r = this.rng, calls = [['e', 'i'], ['o', 'i'], ['a', 'i'], ['uh', 'o'], ['e', 'o']];
     const female = r() < 0.3;
     this.sfx.voice({ pos: stand(r() * TAU, 40 + r() * 20, 6), crowd: true, f0: female ? 230 + r() * 50 : 130 + r() * 60, glide: 0.8 + r() * 0.15,
-      vowels: calls[Math.floor(r() * calls.length)], dur: 0.25 + r() * 0.3, gain: 0.04 + r() * 0.03, breath: 0.3, prio: 0 });
+      vowels: calls[Math.floor(r() * calls.length)], dur: 0.25 + r() * 0.3, gain: 0.15 + r() * 0.1, breath: 0.3, prio: 0 });
   }
 
   // A vendor calling his wares: a two-note sing-song, faint, a long way round the ground.
   vendor() {
     const r = this.rng, pos = stand(r() * TAU, 50, 7), f = 150 + r() * 30;
     const out = this.sfx.at(pos, { crowd: true, dur: 1.4, prio: 0 }).out;
-    this.sfx.voice({ out, f0: f, glide: 0.98, vowels: ['o', 'a'], dur: 0.35, gain: 0.03, breath: 0.2, prio: 0 });
-    this.sfx.voice({ out, f0: f * 0.84, glide: 0.9, vowels: ['e', 'i'], dur: 0.5, gain: 0.03, breath: 0.2, when: 0.45, prio: 0 });
+    this.sfx.voice({ out, f0: f, glide: 0.98, vowels: ['o', 'a'], dur: 0.35, gain: 0.11, breath: 0.2, prio: 0 });
+    this.sfx.voice({ out, f0: f * 0.84, glide: 0.9, vowels: ['e', 'i'], dur: 0.5, gain: 0.11, breath: 0.2, when: 0.45, prio: 0 });
   }
 
   // Applause rippling round a stand (someone's nice bit of fielding, a return to the dressing room).

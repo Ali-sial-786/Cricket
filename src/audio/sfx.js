@@ -330,7 +330,7 @@ export class Sfx {
   // The boundary boards: a hollow knock and a rattle.
   boards(pos = null, speed = 10) {
     if (!this.ok) return;
-    const a = this.at(pos, { dur: 0.4, prio: 1 }), o = { out: a.out, when: a.delay }, g = clamp(0.3 + speed / 30, 0.3, 1);
+    const a = this.at(pos, { dur: 0.4, prio: 1 }), o = { out: a.out, when: a.delay }, g = 1.5 * clamp(0.3 + speed / 30, 0.3, 1);
     this.tone(rnd(65, 80), 0.16, { ...o, gain: 0.5 * g, slide: 0.8 });
     this.noise(0.14, { ...o, freq: 450, q: 2.5, gain: 0.45 * g });
     this.noise(0.05, { ...o, freq: 1800, q: 3, gain: 0.14 * g, when: o.when + 0.02 });
@@ -342,13 +342,13 @@ export class Sfx {
     if (!this.ok) return;
     const a = this.at(pos, { dur: 0.12, prio: 0 }), o = { out: a.out, when: a.delay, prio: 0 }, w = clamp(weight, 0.1, 2);
     if (surface === 'pitch') {
-      this.noise(0.03, { ...o, freq: rnd(950, 1250), q: 0.9, gain: 0.22 * w });
-      this.tone(rnd(85, 100), 0.035, { ...o, gain: 0.16 * w, slide: 0.7 });
+      this.noise(0.03, { ...o, freq: rnd(950, 1250), q: 0.9, gain: 0.45 * w });
+      this.tone(rnd(85, 100), 0.035, { ...o, gain: 0.32 * w, slide: 0.7 });
     } else {
-      this.noise(0.06, { ...o, type: 'lowpass', freq: rnd(230, 300), q: 0.7, gain: 0.3 * w });
-      if (w > 0.8) this.noise(0.035, { ...o, type: 'highpass', freq: 3000, gain: 0.04 * w, attack: 0.005 });   // the grass
+      this.noise(0.06, { ...o, type: 'lowpass', freq: rnd(230, 300), q: 0.7, gain: 0.6 * w });
+      if (w > 0.8) this.noise(0.035, { ...o, type: 'highpass', freq: 3000, gain: 0.07 * w, attack: 0.005 });   // the grass
     }
-    if (w > 1.2) this.tone(rnd(60, 70), 0.06, { ...o, gain: 0.15 * w, slide: 0.7, prio: 1 });           // the front foot landing
+    if (w > 1.2) this.tone(rnd(60, 70), 0.06, { ...o, gain: 0.3 * w, slide: 0.7, prio: 1 });           // the front foot landing
   }
 
   // A body on the turf (a dive).
@@ -364,18 +364,18 @@ export class Sfx {
   batTap(pos = null, speed = 1) {
     if (!this.ok) return;
     const a = this.at(pos, { dur: 0.08, prio: 0 }), o = { out: a.out, when: a.delay, prio: 0 }, g = clamp(0.3 + speed / 3, 0.3, 1);
-    this.noise(0.015, { ...o, freq: 1200, q: 1.2, gain: 0.18 * g });
-    this.tone(rnd(560, 640), 0.02, { ...o, type: 'triangle', gain: 0.06 * g });
+    this.noise(0.015, { ...o, freq: 1200, q: 1.2, gain: 0.36 * g });
+    this.tone(rnd(560, 640), 0.02, { ...o, type: 'triangle', gain: 0.12 * g });
   }
 
   // The bowler's effort at the release: a short voiced "uh!" with a breath.
   grunt(pos = null, effort = 1) {
-    this.voice({ pos, f0: rnd(100, 128), glide: 0.75, vowels: ['uh'], dur: rnd(0.12, 0.2), gain: 0.22 * clamp(effort, 0.3, 1.2), breath: 0.6, attack: 0.012, prio: 1 });
+    this.voice({ pos, f0: rnd(100, 128), glide: 0.75, vowels: ['uh'], dur: rnd(0.12, 0.2), gain: 0.6 * clamp(effort, 0.3, 1.2), breath: 0.6, attack: 0.012, prio: 1 });
   }
 
   // The arm coming over (and your own when you bowl): air past your ear.
   whoosh(speed = 20, pos = null) {
-    this.noise(0.12, { pos, freq: 700, q: 0.8, gain: Math.min(0.2, speed / 150), attack: 0.04, sweep: 2.2, prio: 0 });
+    this.noise(0.12, { pos, freq: 700, q: 0.8, gain: Math.min(0.35, speed / 80), attack: 0.04, sweep: 2.2, prio: 0 });
   }
 
   // The bowling machine: wheels humming while it is set, a thunk as it fires.
@@ -438,9 +438,9 @@ export class Sfx {
   // The menu: a soft tick as the pointer moves onto a button, a click when you press it.
   ui(kind = 'click') {
     if (kind === 'hover') { this.tone(rnd(2350, 2450), 0.012, { bus: 'ui', gain: 0.06, prio: 0 }); return; }
-    this.tone(1480, 0.022, { bus: 'ui', gain: 0.22, prio: 1 });
-    this.noise(0.006, { bus: 'ui', freq: 3200, q: 1.5, gain: 0.12, prio: 1 });
-    this.tone(740, 0.03, { bus: 'ui', gain: 0.06, when: 0.004, prio: 1 });
+    this.tone(1480, 0.022, { bus: 'ui', gain: 0.35, prio: 1 });
+    this.noise(0.006, { bus: 'ui', freq: 3200, q: 1.5, gain: 0.2, prio: 1 });
+    this.tone(740, 0.03, { bus: 'ui', gain: 0.1, when: 0.004, prio: 1 });
   }
 
   // An FM bell (the stings' melody): carrier at freq, modulator at 3.5x, its index dying away.
