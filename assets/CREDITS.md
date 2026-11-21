@@ -11,6 +11,13 @@
   re-encoded here to 24 kHz Ogg Vorbis.
 - `assets/audio/crowd/` — crowd reactions copied from Courtside's `assets/audio/crowd` (cuts of CC0 and public-domain
   recordings; provenance per clip in `assets/audio/crowd/manifest.json`).
+- Synthesised sound (no files): everything `src/audio/sfx.js` and `src/audio/crowd.js` make at runtime with the Web
+  Audio API is original to this game: the impact layers under the recorded bat, the pitch and outfield bounces, the
+  keeper's gloves, pads / body / helmet, stumps and bails, the boundary boards, the ball rolling, footsteps, the
+  bowler's grunt and the stands' shouts and vendor (formant voices), the bowling machine, the terrace chants, drum,
+  horn and whistles, the crowd's roar layer, the menu ticks, the review heartbeat and the menu / result stings (the
+  melodies are original). The recorded crowd bed's loop seam is crossfaded at load (`src/audio/samples.js`); the
+  clips' levels are measured by `tools/audio_levels.py` into `src/audio/levels.js`.
 - `assets/anim/clips.*` — animation clips from Quaternius' *Universal Animation Library* (CC0-1.0,
   https://quaternius.com), as carried by the Universal Base Character in Courtside's
   `assets/basketball/spocco/characters/sportsmate.glb`; retargeted onto the game's 17-bone rig by
