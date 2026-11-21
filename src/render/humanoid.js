@@ -278,7 +278,7 @@ function refinePart(p, lod) {
   if (p.name === 'HairCap') hairEdge(g);
   if (p.name === 'Details_Hair') for (let v = 0; v < C.count; v++) C.setX(v, 1);
   // (the build kept vertices whose normals differ by a little split, so the skin showed creases: weld them)
-  if (lod > 0) weldNormals(g, 0.5, true, 1);
+  if (lod > 0) weldNormals(g, 0.3, true, 3);
   else if (p.name === 'Athlete_Body' || p.name === 'Details_Mouth') weldNormals(g, 0.5, false, 1);
 }
 const pkey = (P, v) => `${Math.round(P.getX(v) * 1e4)},${Math.round(P.getY(v) * 1e4)},${Math.round(P.getZ(v) * 1e4)}`;
