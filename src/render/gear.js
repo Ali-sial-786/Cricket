@@ -246,6 +246,21 @@ function helmet(P, part, c, R, S, lod) {
     part(P, tube(bar(-0.012), 0.0035, 5, { caps: false }), 'head', STEEL, [0, 0, 0], null, null, STEEL_M);
     // chin strap
     for (const sx of [-1, 1]) part(P, tube([[c[0] + sx * (R[0] + 0.004), c[1] - 0.09, c[2] + 0.0], [c[0] + sx * 0.06, c[1] - 0.15, c[2] + 0.06], [c[0], c[1] - 0.167, c[2] + 0.085]], 0.004, 4, { caps: false, ratio: 0.4 }), 'head', STRAP, [0, 0, 0], null, null, PAD_M);
+    // neck guard: a padded, shell-coloured flap hung behind the nape below the shell's edge
+    { const NG = new Builder(), o = [], n = [], top = edgeY(Math.PI) + 0.006, nu = 10;
+      for (const [y, k] of [[top, 0.98], [top - 0.026, 0.86], [top - 0.048, 0.78]]) {
+        const ro = [], ri = [];
+        for (let i = 0; i <= nu; i++) {
+          const phi = Math.PI + mix(-0.62, 0.62, i / nu), r = k * (A[0] + 0.004) * (1 - 0.06 * Math.pow((i / nu) * 2 - 1, 2));
+          const p = [c[0] + Math.sin(phi) * r, y, cc[2] + Math.cos(phi) * r * (A[2] / A[0])];
+          ro.push(NG.v(p, [c[0], y, cc[2]])); ri.push(NG.v([c[0] + (p[0] - c[0]) * 0.92, y, cc[2] + (p[2] - cc[2]) * 0.92], [c[0] + (p[0] - c[0]) * 3, y, cc[2] + (p[2] - cc[2]) * 3]));
+        }
+        o.push(ro); n.push(ri);
+      }
+      NG.grid(o); NG.grid(n);
+      const ra = o[2].map((id) => NG.v(NG.p.slice(id * 3, id * 3 + 3), [c[0], top + 1, cc[2]])), rb = n[2].map((id) => NG.v(NG.p.slice(id * 3, id * 3 + 3), [c[0], top + 1, cc[2]]));
+      NG.grid([ra, rb]);
+      part(P, NG.geo(), 'head', KIT.shell, [0, 0, 0], null, null, { ao: (x, y) => 0.7 + 0.3 * sstep(top - 0.05, top, y) }); }
     // badge on the front of the shell
     part(P, pillow([0.026, 0.026, 0.004], 0.6, 10, 6), 'head', KIT.shell, [cc[0], cc[1] + A[1] * Math.cos(1.08), cc[2] + A[2] * Math.sin(1.08) + 0.0015], [-(Math.PI / 2 - 1.08), 0, 0]);
   }

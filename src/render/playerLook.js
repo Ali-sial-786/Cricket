@@ -58,7 +58,7 @@ export function lookFor(seed, team, role = 'player') {
     build: (r() - 0.35) * 0.012,                     // m of girth added to the cloth and arms (-4 .. +8 mm)
     hairVol: r() * 0.006,                            // m: hair standing off the scalp below the cap
     hairCut: 0.35 + r() * 0.65,                      // 0.35 cropped .. 1 full
-    beard: beardRoll < 0.18 ? 0.55 + r() * 0.45 : beardRoll < 0.3 ? 0.25 : 0,   // full beard / goatee / none
+    beard: beardRoll < 0.16 ? 0.5 + r() * 0.5 : beardRoll < 0.24 ? 0.22 : 0,    // a beard (short .. full) / goatee / none
     stubble: r() * 0.7,
     sleeves: role === 'umpire' ? 1 : role === 'player' && r() < 0.22 ? 1 : 0,
     sweatband: role === 'player' && r() < 0.3 ? 1 : 0,
@@ -269,23 +269,16 @@ function paintFace(F) {
       shade += 0.05 * Math.exp(-sq(ell(ax, y, ex + 0.008, ey - 0.024, 0.02, 0.014)));
       // --- beard field: jaw, chin, moustache; the centre of a beard first (goatee), cheeks last
       {
-        const jaw = ss(ny - 0.012, my - 0.004, y) * ss(cy - 0.03, cy + 0.004, y);               // below the cheeks, down to (under) the chin
+        const jaw = ss(ny - 0.012, my - 0.004, y) * ss(cy - 0.012, cy + 0.004, y);              // below the cheeks, down to the chin
         const cheekLine = ss(ny - 0.02, ny - 0.002, y + 0.0 * ax) * ss(0.075, 0.05, ax);
         const tache = Math.exp(-sq((y - (my + 0.0095)) / 0.0042)) * ss(mw + 0.012, mw - 0.004, ax) * ss(ny - 0.002, ny - 0.008, y);
-        const goatee = Math.exp(-sq(ax / 0.022)) * ss(my - 0.003, my - 0.012, y) * ss(cy - 0.035, cy, y);
+        const goatee = Math.exp(-sq(ax / (0.016 + 0.4 * Math.max(0, my - 0.01 - y)))) * ss(my - 0.003, my - 0.012, y) * ss(cy - 0.01, cy + 0.008, y);
         const full = Math.max(jaw * ss(0.11, 0.06, ax), cheekLine * 0.6) * (1 - 0.6 * lips) * (1 - ss(0.6, 1, lips));
         beard = Math.max(0.55 * full, 0.95 * goatee, 0.85 * tache);
         beard *= 1 - ss(0.7, 0.95, lips);
         if (Math.abs(y - my) < 0.0035 && ax < mw) beard *= 0.2;      // not across the lips
       }
       shade = 0.5 + shade;
-      if (globalThis.__FACE_GRID) {                       // (calibration: 5 mm grid, 1 cm darker, landmarks)
-        const gx = Math.abs(((x + 1) % 0.005) - 0.0025) < 0.00025, gy = Math.abs(((y + 1) % 0.005) - 0.0025) < 0.00035;
-        const cx = Math.abs(((x + 1) % 0.01) - 0.005) < 0.0003, cyy = Math.abs(((y + 1) % 0.01) - 0.005) < 0.0004;
-        shade = 0.5; liner = (gx || gy) ? 0.35 : 0; if (cx || cyy) liner = 0.8; lips = 0; beard = 0; white = 0;
-        if (Math.abs(ax - ex) < 0.001 || Math.abs(y - ey) < 0.0006) white = 1;
-        if (Math.abs(y - my) < 0.0006 || Math.abs(y - ny) < 0.0006 || Math.abs(y - by) < 0.0006) { white = 1; liner = 0; }
-      }
       const k = (j * N + i) * 4;
       data[k] = Math.round(sat(shade) * 255);
       data[k + 1] = Math.round(sat(beard) * 255);
@@ -296,11 +289,8 @@ function paintFace(F) {
   return data;
 }
 
-let TEX = null, FACE_F = null;
-// (calibration only: repaint the face map, e.g. with globalThis.__FACE_GRID set)
-export function repaintFace() { if (TEX) { TEX.face.image.data.set(paintFace(FACE_F)); TEX.face.needsUpdate = true; } }
+let TEX = null;
 export function lookTextures(F) {
-  FACE_F = F;
   if (TEX) return TEX;
   const face = new THREE.DataTexture(paintFace(F), FACE_N, FACE_N, THREE.RGBAFormat, THREE.UnsignedByteType);
   face.colorSpace = THREE.NoColorSpace;

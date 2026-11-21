@@ -423,6 +423,7 @@ function kitMaterial(shared = null, depth = false) {
     uNum: { value: new THREE.Vector2(-1, -1) },        // back number: glyphs of the tens and units (-1 none)
     uName: { value: new Array(12).fill(-1) }, uNameLen: { value: 0 },
     uLod: { value: 0 },
+    uBrim: { value: new THREE.Vector3(0, 0, 0) },
     uNoHead: { value: 0 },         // 1: the head and neck are not drawn (your own see-through body)
     uHeadBones: { value: new THREE.Vector2(RIG.index.neck, RIG.index.head) },
     uLegBones: { value: new THREE.Vector2(Math.min(RIG.index.hipL, RIG.index.hipR), Math.max(RIG.index.ankleL, RIG.index.ankleR)) },
@@ -502,12 +503,12 @@ function kitMaterial(shared = null, depth = false) {
         else if (k > 23.5 && k < 24.5) mt = vec4(0.3, 0.7, 90.0, 4.0);
         else if (k < 25.5) { kc = uIris; mt = vec4(0.3, 0.7, 90.0, 4.0); }
         else if (k < 26.5) mt = vec4(0.2, 0.5, 60.0, 4.0);
-        else if (k > 29.5 && k < 30.5) mt = vec4(0.0, 1.0, 70.0, 2.0);
+        else if (k > 29.5 && k < 30.5) mt = vec4(0.0, 0.6, 70.0, 2.0);
         else if (k < 31.5) mt = vec4(0.3, 0.07, 14.0, 5.0);
         else if (k < 32.5) mt = vec4(0.0, 1.4, 140.0, 6.0);
         else if (k < 33.5) mt = vec4(0.15, 0.3, 36.0, 5.0);
-        else if (k < 34.5) { kc = uKit3; mt = vec4(0.1, 0.55, 55.0, 2.0); }
-        else if (k < 35.5) { kc = uKit2; mt = vec4(0.1, 0.45, 45.0, 2.0); }
+        else if (k < 34.5) { kc = uKit3; mt = vec4(0.1, 0.2, 60.0, 2.0); }
+        else if (k < 35.5) { kc = uKit2; mt = vec4(0.1, 0.25, 45.0, 2.0); }
         else if (k < 36.5) { kc = uKit1; mt = vec4(0.3, 0.07, 14.0, 5.0); }
         #ifdef USE_COLOR
           vColor.rgb = kc;
@@ -524,7 +525,8 @@ function kitMaterial(shared = null, depth = false) {
         uniform vec4 uCrestUV; uniform vec4 uSponsorUV; uniform vec4 uMakerUV; uniform vec4 uGlyph;
         uniform float uTeamIx; uniform vec2 uNum; uniform float uName[12]; uniform float uNameLen; uniform float uLod;
         ${KIT_GLSL_COMMON}
-        float gWrap = 0.25, gSpec = 0.04, gShin = 10.0, gKind = 0.0, gSSS = 0.0;
+        float gWrap = 0.25, gSpec = 0.04, gShin = 10.0, gKind = 0.0, gSSS = 0.0, gShade = 0.0;
+        uniform vec3 uBrim;              // the shade of a cap's peak / hat's brim: edge y, how far below it falls, all round (1) or front only (0)
         vec3 gBX, gBY;                     // screen derivatives of the bind position
         // a decal: r = centre, half size (bind metres), uvr = its atlas rect; flip: mirrored (read from behind)
         vec4 decalAt(vec2 p, vec4 r, vec4 uvr, float flip) {
@@ -550,14 +552,15 @@ function kitMaterial(shared = null, depth = false) {
         void RE_Direct_Kit( const in IncidentLight directLight, const in vec3 geometryPosition, const in vec3 geometryNormal, const in vec3 geometryViewDir, const in vec3 geometryClearcoatNormal, const in LambertMaterial material, inout ReflectedLight reflectedLight ) {
           float nl = dot( geometryNormal, directLight.direction );
           float w = gWrap;
+          float lit = 1.0 - gShade;
           vec3 irr = directLight.color * max( 0.0, ( nl + w ) / ( ( 1.0 + w ) * ( 1.0 + w ) ) );
           // skin: light scattered under the surface reddens the terminator
           irr += directLight.color * gSSS * vec3( 0.2, 0.06, 0.025 ) * max( 0.0, 1.0 - abs( nl * 2.2 - 0.25 ) );
-          reflectedLight.directDiffuse += irr * BRDF_Lambert( material.diffuseColor );
+          reflectedLight.directDiffuse += irr * lit * BRDF_Lambert( material.diffuseColor );
           vec3 H = normalize( directLight.direction + geometryViewDir );
           float nh = max( dot( geometryNormal, H ), 0.0 );
           float sp = gSpec * pow( nh, gShin ) * ( gShin + 8.0 ) * 0.04 * smoothstep( -0.05, 0.25, nl );
-          reflectedLight.directSpecular += directLight.color * sp;
+          reflectedLight.directSpecular += directLight.color * sp * lit;
         }
         void RE_IndirectDiffuse_Lambert( const in vec3 irradiance, const in vec3 geometryPosition, const in vec3 geometryNormal, const in vec3 geometryViewDir, const in vec3 geometryClearcoatNormal, const in LambertMaterial material, inout ReflectedLight reflectedLight ) {
           reflectedLight.indirectDiffuse += irradiance * BRDF_Lambert( material.diffuseColor );
@@ -580,6 +583,12 @@ function kitMaterial(shared = null, depth = false) {
   float kitH = 0.0;                           // procedural bump height (m)
   gBX = dFdx(vBind); gBY = dFdy(vBind);
   gWrap = vMat.x; gSpec = vMat.y; gShin = vMat.z; gKind = vMat.w;
+  if (vHeadW > 0.5 && uBrim.y > 0.0 && (gKind > 0.5 && gKind < 1.5 || gKind > 3.5 || gKind > 2.5 && gKind < 3.5 && vBind.y < uBrim.x)) {
+    // the peak / brim shades the face (the sun is high): eyes and brow in shadow, as on any sunny day
+    float front = mix(smoothstep(uSkull.z - 0.01, uSkull.z + 0.05, vBind.z), 1.0, uBrim.z);
+    float edge = uBrim.x - uBrim.y;
+    gShade = 0.82 * smoothstep(edge - 0.012, edge + 0.012, vBind.y) * front * step(vBind.y, uBrim.x + 0.01);
+  }
   #ifndef GHOST_DEPTH
   {
     float s = vSlot;
@@ -693,9 +702,9 @@ function kitMaterial(shared = null, depth = false) {
         float bf = f.g;
         float stub = uLook2.y * smoothstep(0.15, 0.55, bf);
         c = mix(c, c * 0.72 + uHair * 0.06, stub * 0.6);
-        float beard = smoothstep(1.0 - uLook2.x, 1.0 - uLook2.x + 0.1, bf) * step(0.01, uLook2.x);
+        float beard = smoothstep(1.0 - uLook2.x, 1.0 - uLook2.x + 0.22, bf) * step(0.01, uLook2.x);
         float strands = 0.8 + 0.2 * sin(vBind.x * 1900.0 + sin(vBind.y * 700.0) * 3.0) * (1.0 - smoothstep(0.0008, 0.0016, fw));
-        c = mix(c, uHair * strands, beard);
+        c = mix(c, mix(uHair, c * 0.45, 0.3) * strands, beard * 0.92);
         gSSS *= 1.0 - beard; gSpec = mix(gSpec, 0.1, beard); gShin = mix(gShin, 12.0, beard);
         kitH += beard * 0.00012 * sin(vBind.x * 1500.0 + vBind.y * 900.0) * (1.0 - smoothstep(0.0008, 0.0016, fw));
         c = mix(c, uHair * 0.35, liner * 0.92);
@@ -725,7 +734,7 @@ function kitMaterial(shared = null, depth = false) {
       // wide-open stare), a lash line on the upper lid, the white shaded under it
       vec2 e = vec2(abs(vBind.x) - uEye.x, vBind.y - uEye.y);
       float r = uEye.z, u = clamp(e.x / (r * 1.75), -1.0, 1.0);
-      float up = r * (0.6 - 0.38 * u * u) + 0.14 * r * u, lo = -r * (0.8 - 0.42 * u * u) + 0.1 * r * u;
+      float up = r * (0.5 - 0.34 * u * u) + 0.14 * r * u, lo = -r * (0.68 - 0.36 * u * u) + 0.1 * r * u;
       float px = max(fw, 0.0003);
       c *= vec3(0.94, 0.91, 0.87) * mix(1.0, 0.62, smoothstep(up - 0.0045, up, e.y)) * mix(1.0, 0.85, smoothstep(lo + 0.002, lo, e.y));
       float lid = max(smoothstep(up - px, up + px, e.y), smoothstep(lo + px, lo - px, e.y));
@@ -836,6 +845,10 @@ export class Humanoid {
     u.uLook.value.set(look.build, look.hairVol, look.sleeves, look.sweatband);
     u.uLook2.value.set(look.beard, look.stubble, look.hairCut, look.zinc);
     if (vary) scale *= look.scale;
+    { const sk = RIG.skull || { c: [0, 1.675, 0.058] }, cy = sk.c[1];   // (gear.js: the cap's front edge, the hat's base, the helmet's peak)
+      if (headgear === 'cap' || headgear === 'bare') u.uBrim.value.set(cy + 0.028, 0.055, 0);
+      else if (headgear === 'hat') u.uBrim.value.set(cy + 0.03, 0.085, 1);
+      else if (headgear === 'helmet') u.uBrim.value.set(cy + 0.01, 0.04, 0); }
     const bones = [];
     this.bones = {};
     for (const name of RIG.bones) {
@@ -875,13 +888,14 @@ export class Humanoid {
     Humanoid.all.push(this);
   }
 
-  // Pick the level of detail for every visible figure from the viewer's position.
+  // Pick the level of detail for every visible figure from the viewer's position
+  // (h.lodNear: a figure the player watches closely keeps full detail further out).
   static updateLods(viewer, nearDist = 13) {
     for (const h of Humanoid.all) {
       if (!h.root.visible) continue;
       const p = h.root.position;
       const d = Math.hypot(p.x - viewer.x, p.z - viewer.z);
-      h.setLod(d > nearDist * (h.lod === 0 ? 1.15 : 1) ? 1 : 0);
+      h.setLod(d > (h.lodNear || nearDist) * (h.lod === 0 ? 1.15 : 1) ? 1 : 0);
     }
   }
 
