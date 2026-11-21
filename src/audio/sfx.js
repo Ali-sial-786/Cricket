@@ -42,6 +42,7 @@ export class Sfx {
       lim.threshold.value = P.threshold; lim.knee.value = P.knee; lim.ratio.value = P.ratio; lim.attack.value = P.attack; lim.release.value = P.release;
       lim.connect(clip);
       this.master = c.createGain(); this.master.gain.value = this.enabled ? L.master : 0; this.master.connect(lim);
+      if (!this.enabled && this.realtime) c.suspend().catch(() => {});      // (sound off: the clock waits)
       const mk = (g, to) => { const n = c.createGain(); n.gain.value = g; n.connect(to); return n; };
       this.duck = mk(1, this.master);
       this.bus = { crowd: mk(L.crowd, this.duck), fx: mk(L.fx, this.master), voice: mk(L.voice, this.master), ui: mk(L.ui, this.master) };
@@ -89,9 +90,11 @@ export class Sfx {
 
   /** The crowd under the commentators: 1 = not ducked. */
   setDuck(x) {
-    if (!this.duck) return;
-    const g = this.duck.gain, up = x > g.value;
-    g.setTargetAtTime(x, this.ctx.currentTime, up ? MIX.duck.release / 3 : MIX.duck.attack / 3);
+    if (!this.duck || x === this._duckTo) return;        // (only on a change: no automation piling up every frame)
+    const g = this.duck.gain, up = x > (this._duckTo ?? 1), t = this.ctx.currentTime;
+    this._duckTo = x;
+    g.cancelScheduledValues(t); g.setValueAtTime(g.value, t);
+    g.setTargetAtTime(x, t, up ? MIX.duck.release / 3 : MIX.duck.attack / 3);
   }
 
   // A panner chain into `bus`: gain -> lowpass (the air) -> panner.
@@ -134,9 +137,17 @@ export class Sfx {
     if (!bus) return { out: null, delay: 0 };
     const flat = { out: crowd ? bus.crowd : bus.fx, delay: 0 };
     if (!pos) return flat;
-    const s = (crowd ? this.far : this.near).acquire(this.ctx.currentTime, dur, prio);
-    if (!s) return flat;
-    const v = s.node, d = this.dist(pos);
+    let v;
+    // The game's own impacts (bat, stumps, gloves, pads) get a panner of their own, made at their
+    // place: a pooled HRTF panner glides ~50 ms from its last direction, smearing a crack. (It goes
+    // when its sounds end; the voice budget caps how many there are.) The rest share the pools.
+    if (!crowd && prio >= 2) v = this.chain(bus.fx, MIX.hrtf ? 'HRTF' : 'equalpower', SPACE.rolloff);
+    else {
+      const s = (crowd ? this.far : this.near).acquire(this.ctx.currentTime, dur, prio, pos);
+      if (!s) return flat;
+      v = s.node;
+    }
+    const d = this.dist(pos);
     Sfx.place(v.p, pos.x, pos.y, pos.z);
     v.lp.frequency.value = crowd ? 20000 : airCutoff(d);
     return { out: v.g, delay: crowd ? 0 : travelDelay(d) };
@@ -227,7 +238,7 @@ export class Sfx {
   // kind: sweet | mistimed | edge | toe | block | handle. Layered under the recorded bat.
   batLayer(kind, quality, speed, pos) {
     if (!this.ok) return;
-    const a = this.at(pos, { dur: 0.35, prio: 2 }), o = { out: a.out, when: a.delay, prio: 2 }, L = 1.5 * clamp(0.35 + speed / 55, 0.35, 1);
+    const a = this.at(pos, { dur: 0.35, prio: 2 }), o = { out: a.out, when: a.delay, prio: 2 }, L = 0.9 * clamp(0.35 + speed / 55, 0.35, 1);
     if (kind === 'sweet') {
       this.tone(rnd(86, 100), 0.08, { ...o, gain: 0.5 * L * (0.5 + 0.5 * quality), slide: 0.55 });          // the thump you feel
       this.noise(0.012, { ...o, type: 'highpass', freq: 3600, q: 0.7, gain: 0.45 * L });                     // the bright transient
@@ -397,13 +408,15 @@ export class Sfx {
       const ng = c.createGain(); ng.gain.value = kind === 'machine' ? 0.08 : 0.5;
       n.connect(bp).connect(ng).connect(v.g); srcs.push(n);
       for (const s of srcs) s.start(c.currentTime, s === n ? Math.random() * 3 : undefined);
-      let gone = false;
+      let gone = false, lv = 0, fq = bp.frequency.value;
       h.set = (pos, level, freq = 0) => {
         if (gone) return;
         const t = c.currentTime;
+        level = clamp(level, 0, 1);
         if (pos) Sfx.place(v.p, pos.x, pos.y, pos.z);
-        v.g.gain.setTargetAtTime(clamp(level, 0, 1), t, 0.06);
-        if (freq) bp.frequency.setTargetAtTime(freq, t, 0.06);
+        // (called every frame: schedule only a real change)
+        if (Math.abs(level - lv) > 0.004) { lv = level; v.g.gain.cancelScheduledValues(t); v.g.gain.setTargetAtTime(level, t, 0.06); }
+        if (freq && Math.abs(freq - fq) > fq * 0.02) { fq = freq; bp.frequency.cancelScheduledValues(t); bp.frequency.setTargetAtTime(freq, t, 0.06); }
       };
       h.stop = () => {
         if (gone) return; gone = true;

@@ -131,12 +131,18 @@ export class CrowdAudio {
     this.tick -= dt;
     if (this.tick > 0) return;
     this.tick = 0.1;
-    const t = c.currentTime, cut = 1800 + 4800 * o.bright;
+    const t = c.currentTime, cut = 1800 + 4800 * o.bright, roar = ROAR_GAIN * o.roar * on;
+    // (only what changed: the params' automation must not pile up)
+    const near = (a, b) => Math.abs(a - b) <= Math.max(1e-4, Math.abs(b) * 0.01);
     for (const e of this.bed) {
-      e.loop.setGain(BED_GAIN * o.bed * e.wander * on, 0.08);
-      e.v.lp.frequency.setTargetAtTime(cut, t, 0.3);
+      const g = BED_GAIN * o.bed * e.wander * on;
+      if (!near(g, e.g ?? -1)) { e.g = g; e.loop.setGain(g, 0.08); }
+      if (!near(cut, e.cut ?? -1)) { e.cut = cut; e.v.lp.frequency.cancelScheduledValues(t); e.v.lp.frequency.setTargetAtTime(cut, t, 0.3); }
     }
-    for (const g of this.roar) g.gain.setTargetAtTime(ROAR_GAIN * o.roar * on, t, 0.15);
+    if (!near(roar, this.roarG ?? -1)) {
+      this.roarG = roar;
+      for (const g of this.roar) { g.gain.cancelScheduledValues(t); g.gain.setTargetAtTime(roar, t, 0.15); }
+    }
   }
 
   // ---------------------------------------------------------------- reactions

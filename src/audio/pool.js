@@ -5,23 +5,28 @@
 export class VoicePool {
   constructor(size, make = null) {
     this.slots = [];
-    for (let i = 0; i < size; i++) this.slots.push({ i, node: make ? make(i) : null, until: -Infinity, prio: 0 });
+    for (let i = 0; i < size; i++) this.slots.push({ i, node: make ? make(i) : null, until: -Infinity, prio: 0, x: 0, y: 0, z: 0 });   // (a panner starts at the origin)
   }
 
   /**
-   * A slot for a sound of `dur` s starting at `now`: a free one, else the one ending soonest
-   * whose sound matters no more than this one (it moves to the new place: better than silence
-   * for a loud event, and its sound is nearly over). null when every slot is busy with
-   * something more important.
+   * A slot for a sound of `dur` s starting at `now` at `pos`: of the free ones, the one last used
+   * nearest there (an HRTF panner glides ~50 ms to a new direction: a bat crack must not start on
+   * its way over from the pitch); none free, the one ending soonest whose sound matters no more
+   * than this one (better than silence for a loud event, and its sound is nearly over). null when
+   * every slot is busy with something more important.
    */
-  acquire(now, dur, prio = 1) {
-    let best = null;
+  acquire(now, dur, prio = 1, pos = null) {
+    let best = null, bd = Infinity, steal = null;
     for (const s of this.slots) {
-      if (s.until <= now) { best = s; break; }
-      if (s.prio <= prio && (!best || s.until < best.until)) best = s;
+      if (s.until <= now) {
+        const d = pos ? (s.x - pos.x) ** 2 + (s.y - pos.y) ** 2 + (s.z - pos.z) ** 2 : 0;
+        if (d < bd) { bd = d; best = s; if (!pos) break; }
+      } else if (s.prio <= prio && (!steal || s.until < steal.until)) steal = s;
     }
+    best = best || steal;
     if (!best) return null;
     best.until = now + dur; best.prio = prio;
+    if (pos) { best.x = pos.x; best.y = pos.y; best.z = pos.z; }
     return best;
   }
 

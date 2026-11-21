@@ -82,6 +82,11 @@ test('voice pool: free slots first, then the one ending soonest, never stealing 
   assert.equal(p.acquire(0.5, 1, 0), null, 'ambience does not take a slot from the game');
   assert.equal(p.acquire(1.6, 1, 0).i, 0, 'a slot whose sound is over is free');
   assert.equal(p.slots[0].node.id, 0);
+  // Free slots: the one last used nearest the new sound (no long glide of its HRTF).
+  const q = new VoicePool(3);
+  q.acquire(0, 0.1, 1, { x: 0, y: 1, z: 0 }); q.acquire(0, 0.1, 1, { x: 0, y: 0, z: -10 }); q.acquire(0, 0.1, 1, { x: 30, y: 0, z: -40 });
+  assert.equal(q.acquire(1, 0.1, 1, { x: 0.3, y: 0, z: -9 }).i, 1, 'the pitch slot for a bounce');
+  assert.equal(q.acquire(1, 0.1, 1, { x: 0.2, y: 1, z: -0.5 }).i, 0, 'the batter slot for the bat');
 });
 
 test('voice budget: caps one-shots, keeps room for the game, frees as sounds end', () => {

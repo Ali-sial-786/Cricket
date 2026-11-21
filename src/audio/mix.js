@@ -17,7 +17,7 @@ export const MIX = {
 };
 
 // The loudness (LUFS-ish, loudest 400 ms) a class is normalised to at gain 1.
-export const REF = { bed: -14, crowd: -14, bat: -14, impact: -18, voice: -14, ui: -19 };
+export const REF = { bed: -14, crowd: -14, bat: -20.5, impact: -19, voice: -14, ui: -19 };
 const CLASS = [[/^crowd_bed$/, 'bed'], [/^(crowd_|applause|cheer_|roar_)/, 'crowd'], [/^bat_/, 'bat'],
   [/^(appeal|howzat)$/, 'voice'], [/^(stumps|bails|gloves|pad|catch|footstep)/, 'impact']];
 export function classOf(name) { for (const [re, c] of CLASS) if (re.test(name)) return c; return 'ui'; }
