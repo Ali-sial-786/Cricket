@@ -104,15 +104,16 @@ export class Replay {
     // Your bat: not when a runner in your kit has taken over (he carries his own;
     // yours would stand on its own at the crease where you are).
     o = put(B, o, g.batMesh.position, g.batMesh.quaternion); B[o++] = g.batMesh.visible && g.batReplayVisible !== false ? 1 : 0;
-    for (const h of this.humans) {
-      const r = h.root;
+    // (indexed loops: ~500 bones a frame, and no iterator garbage when this is not optimised)
+    for (let k = 0; k < this.humans.length; k++) {
+      const h = this.humans[k], r = h.root, bl = h.boneList;
       B[o++] = (h.replayVisible ?? r.visible) ? 1 : 0;
       o = put(B, o, r.position, r.quaternion); B[o++] = r.scale.x;
       const hp2 = h.bones.hips.position; B[o++] = hp2.x; B[o++] = hp2.y; B[o++] = hp2.z;
-      for (const b of h.boneList) { const q = b.quaternion; B[o++] = q.x; B[o++] = q.y; B[o++] = q.z; B[o++] = q.w; }
+      for (let i = 0; i < bl.length; i++) { const q = bl[i].quaternion; B[o++] = q.x; B[o++] = q.y; B[o++] = q.z; B[o++] = q.w; }
     }
-    for (const x of this.extras) { o = put(B, o, x.position, x.quaternion); B[o++] = x.visible ? 1 : 0; }
-    for (const m of this.pieces) o = put(B, o, m.position, m.quaternion);
+    for (let k = 0; k < this.extras.length; k++) { const x = this.extras[k]; o = put(B, o, x.position, x.quaternion); B[o++] = x.visible ? 1 : 0; }
+    for (let k = 0; k < this.pieces.length; k++) { const m = this.pieces[k]; o = put(B, o, m.position, m.quaternion); }
     this.putArms(slot, this.armK >= 0 ? g.playerBody.armsNow() : null);
   }
   putArms(slot, a) { this.arms[slot * 2] = a ? a[0] : 1; this.arms[slot * 2 + 1] = a ? a[1] : 1; }

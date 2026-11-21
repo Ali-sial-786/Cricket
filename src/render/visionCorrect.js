@@ -177,6 +177,8 @@ export class VisionCorrector {
   }
 
   configure(cfg) { Object.assign(this.cfg, cfg); this.kernelKey = ''; }
+  // Quality hook (render/quality.js): at most `steps` steps a frame, `region` x the corrected area's side.
+  setCap(steps = Infinity, region = 1) { this.cap = { steps, region }; }
 
   // One frame: the scene, corrected, to whatever the renderer was about to draw to (the headset's
   // buffer in VR, the canvas on a monitor).
@@ -195,7 +197,8 @@ export class VisionCorrector {
     const views = xv.length ? xv.map((c) => ({ vp: c.viewport, P: c.projectionMatrix.elements, Rw: rot(c), layer: cams.indexOf(c) + 1 }))
       : [{ vp: new THREE.Vector4(0, 0, W, H), P: camera.projectionMatrix.elements, Rw: rot(camera), layer: 0 }];
     const nv = views.length;
-    const R = Math.max(32, Math.round(this.cfg.region * Math.min(...views.map((v) => Math.min(v.vp.z, v.vp.w)))) & ~1);
+    const cap = this.cap || { steps: Infinity, region: 1 };
+    const R = Math.max(32, Math.round(this.cfg.region * cap.region * Math.min(...views.map((v) => Math.min(v.vp.z, v.vp.w)))) & ~1);
     this.ensureWork(R * nv, R);
     // each eye's square, centred where straight ahead lands (an off-centre lens frustum: -P[8], -P[9] in NDC)
     const O = views.map((v) => {
@@ -232,7 +235,7 @@ export class VisionCorrector {
       }
       this.pass(this.mInit, S1);
       let s = S1, sNext = S0;
-      for (let i = 0; i < this.cfg.steps; i++) {
+      for (let i = 0, n = Math.min(this.cfg.steps, cap.steps); i < n; i++) {
         this.mResid.uniforms.uS.value = s.texture; this.mResid.uniforms.uT.value = T.texture;
         this.pass(this.mResid, Rs);
         this.mUpdate.uniforms.uS.value = s.texture; this.mUpdate.uniforms.uRes.value = Rs.texture;

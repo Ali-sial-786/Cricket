@@ -25,7 +25,7 @@ const SHADE = new THREE.Vector3(Math.pow(_sr.r, 1 / 2.2), Math.pow(_sr.g, 1 / 2.
 
 function shadowMaterial() {
   return new THREE.ShaderMaterial({
-    uniforms: { uShade: { value: SHADE }, uY: { value: Y } },
+    uniforms: { uShade: { value: SHADE }, uY: { value: Y }, uDetail: { value: 2 } },
     transparent: true, depthWrite: false,
     blending: THREE.CustomBlending, blendEquation: THREE.AddEquation,
     blendSrc: THREE.ZeroFactor, blendDst: THREE.SrcColorFactor,      // dst * src: a multiply
@@ -52,15 +52,21 @@ function shadowMaterial() {
       varying vec4 vAnk; varying vec4 vKnee; varying vec4 vHip; varying vec4 vBody; varying vec4 vHead; varying vec4 vHand; varying vec4 vFoot; varying vec4 vRad; varying vec4 vMisc;
       varying vec2 vP;
       float seg(vec2 p, vec2 a, vec2 b) { vec2 pa = p - a, ba = b - a; return length(pa - ba * clamp(dot(pa, ba) / (dot(ba, ba) + 1e-6), 0.0, 1.0)); }
+      uniform float uDetail;    // quality.js: 2 every limb, 1 legs and trunk, 0 the contact blobs only
       void main() {
         vec2 p = vP;
+        float sun = 0.0;
+        if (uDetail > 0.5) {
         float sd = min(seg(p, vAnk.xy, vKnee.xy), seg(p, vAnk.zw, vKnee.zw));
         sd = min(sd, min(seg(p, vKnee.xy, vHip.xy), seg(p, vKnee.zw, vHip.zw))) - vRad.x;
         sd = min(sd, seg(p, vBody.xy, vBody.zw) - vRad.y);
+        if (uDetail > 1.5) {
         sd = min(sd, seg(p, vBody.zw, vHead.xy) - vRad.z);                 // head: neck..crown
         sd = min(sd, min(seg(p, vBody.zw, vHead.zw), seg(p, vBody.zw, vHand.xy)) - vRad.w);
+        }
         float aa = 0.03 + 0.7 * length(fwidth(p));                 // soft edge, never narrower than a pixel
-        float sun = smoothstep(aa, -aa, sd) * vMisc.x;
+        sun = smoothstep(aa, -aa, sd) * vMisc.x;
+        }
         // Contact: a tight dark blob under each foot (vMisc.z = its radius, vHand.zw = strengths).
         float r = max(vMisc.z, 1e-3);
         float c0 = 1.0 - min(length(p - vFoot.xy) / r, 1.0), c1 = 1.0 - min(length(p - vFoot.zw) / r, 1.0);
@@ -75,6 +81,13 @@ function shadowMaterial() {
 const _bc = CONFIG.bat, _sh = _bc.gripFromHandleTop - _bc.handleLength;
 const BAT = { a: new THREE.Vector3(0, _sh - _bc.bladeLength, 0), b: new THREE.Vector3(0, _sh, 0), c: new THREE.Vector3(0, _bc.gripFromHandleTop, 0), r: _bc.bladeWidth * 0.36, rArm: _bc.handleRadius };
 const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3(), _m = new THREE.Vector3();
+// A bone's shadow on the turf into d[o + k], d[o + k + 1]; returns the bone's height (+ lift).
+// (a plain function: a closure made per figure per frame was garbage)
+function P(d, o, bone, k, lift = 0) {
+  const e = bone.matrixWorld.elements, y = e[13] + lift;
+  d[o + k] = e[12] + y * SHADOW_X; d[o + k + 1] = e[14] + y * SHADOW_Z;
+  return y;
+}
 
 export const ShadowPool = {
   mesh: null, n: 0, max: 40, data: null, buf: null, owners: [], sticks: [], dirty: false, used: 0, scene: null, scanned: -1,
@@ -125,30 +138,25 @@ export const ShadowPool = {
     }
     const s = h.root.scale.x, B = h.bones;
     const fade = h.ghost ? 1 : h.fade ?? 1;
-    const P = (bone, k, lift = 0) => {                  // bone -> its shadow on the turf
-      const e = bone.matrixWorld.elements, y = e[13] + lift;
-      d[o + k] = e[12] + y * SHADOW_X; d[o + k + 1] = e[14] + y * SHADOW_Z;
-      return y;
-    };
-    const yl = P(B.ankleL, 0), yr = P(B.ankleR, 2);
-    P(B.kneeL, 4); P(B.kneeR, 6); P(B.hipL, 8); P(B.hipR, 10);
-    P(B.hips, 12); P(B.neck, 14);
+    const yl = P(d, o, B.ankleL, 0), yr = P(d, o, B.ankleR, 2);
+    P(d, o, B.kneeL, 4); P(d, o, B.kneeR, 6); P(d, o, B.hipL, 8); P(d, o, B.hipR, 10);
+    P(d, o, B.hips, 12); P(d, o, B.neck, 14);
     // Head: up to near the crown, on along the neck's line from the head joint.
     {
       const e = B.head.matrixWorld.elements, n = B.neck.matrixWorld.elements;
       let ux = e[12] - n[12], uy = e[13] - n[13], uz = e[14] - n[14];
-      const l = Math.hypot(ux, uy, uz) || 1, k = 0.15 * s / l;
+      const l = Math.sqrt(ux * ux + uy * uy + uz * uz) || 1, k = 0.15 * s / l;
       ux = e[12] + ux * k; uy = e[13] + uy * k; uz = e[14] + uz * k;
       d[o + 16] = ux + uy * SHADOW_X; d[o + 17] = uz + uy * SHADOW_Z;
     }
-    P(B.handL, 18); P(B.handR, 20);
+    P(d, o, B.handL, 18); P(d, o, B.handR, 20);
     // Contact strengths: full with the foot on the turf, gone 30 cm up.
     const sole = SOLE * s;
     d[o + 22] = 1 - Math.min(1, Math.max(0, (yl - sole) / (0.3 * s)));
     d[o + 23] = 1 - Math.min(1, Math.max(0, (yr - sole) / (0.3 * s)));
     // Contact blobs: under the ball of each foot (the ankle's forward axis).
-    for (const [bone, k] of [[B.ankleL, 24], [B.ankleR, 26]]) {
-      const e = bone.matrixWorld.elements, fl = Math.hypot(e[8], e[10]) || 1;
+    for (let f = 0; f < 2; f++) {
+      const e = (f ? B.ankleR : B.ankleL).matrixWorld.elements, fl = Math.sqrt(e[8] * e[8] + e[10] * e[10]) || 1, k = 24 + f * 2;
       d[o + k] = e[12] + (e[8] / fl) * 0.06 * s; d[o + k + 1] = e[14] + (e[10] / fl) * 0.06 * s;
     }
     d[o + 28] = 0.068 * s; d[o + 29] = 0.15 * s; d[o + 30] = 0.095 * s; d[o + 31] = 0.042 * s;
@@ -159,6 +167,8 @@ export const ShadowPool = {
     d[o + 34] = 0.17 * s;
     d[o + 35] = 0;
   },
+  // Quality hook (render/quality.js): 2 every limb's shadow, 1 legs and trunk, 0 the contact blobs only.
+  setDetail(level) { if (this.mesh) this.mesh.material.uniforms.uDetail.value = level; },
   // Once a frame, after everything is posed: the sticks, and the upload.
   update() {
     if (!this.mesh) return;

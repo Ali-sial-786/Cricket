@@ -43,6 +43,7 @@ import { ShadowPool, Humanoid } from '../render/humanoid.js';
 import { FrameLog } from './frameLog.js';
 import { QuickSkip } from './quickSkip.js';
 import { noteCrowd } from '../render/gestures.js';
+import { PerfControl } from '../render/perf.js';
 
 export const BAT_HEAD = { z: -1.05, legOffset: -0.35 };      // head relative to guard (hand) x
 export const BOWL_HEAD = { x: 0.75, z: -19.6 };
@@ -50,7 +51,9 @@ export const BOWL_HEAD = { x: 0.75, z: -19.6 };
 const DIFFS = ['easy', 'medium', 'hard'];
 
 export class Game {
-  constructor({ renderer, scene, camera, rig, dom }) {
+  // env: a prebuilt environment (main.js builds it as its own loading step); deferPrewarm: main.js
+  // warms up asynchronously behind the loading bar (render/warmup.js) and sets `ready` when done.
+  constructor({ renderer, scene, camera, rig, dom, env = null, deferPrewarm = false }) {
     this.renderer = renderer;
     this.scene = scene;
     this.camera = camera;
@@ -66,7 +69,7 @@ export class Game {
     this.calibration = cal ? new Quat(cal.offset.x, cal.offset.y, cal.offset.z, cal.offset.w).normalize() : null;
     this.calib = { step: 'capture' };
 
-    this.env = buildEnvironment(scene);
+    this.env = env || buildEnvironment(scene);
     ShadowPool.init(scene);
     this.world = new PhysicsWorld(CONFIG, (Date.now() & 0xffff) + 7);
     this.playerBatProvider = new InterpolatedBatProvider();
@@ -186,17 +189,22 @@ export class Game {
     this.ui.setHud({ title: 'Crease VR', sub: 'Choose a mode from the menu', footer: this.footerText() });
     this.ui.setBoard(['CREASE VR', 'Welcome', 'Nets · Run Chase · Bowl an Over · Match']);
     this.ui.openMenu('main');
-    this.prewarm();
+    this.ready = !deferPrewarm;      // loaded and warmed up (main.js): the headset can be entered
+    if (!deferPrewarm) this.prewarm();
+    this.perf = new PerfControl(this);   // frame stats, the quality governor, the perf panel (render/perf.js)
     // Long frames (src/game/frameLog.js), sampled by the animation loop (main.js): window.__longFrames.
     this.frameLog = new FrameLog();
     if (typeof window !== 'undefined') { window.__longFrames = this.frameLog.entries; window.__frameLog = this.frameLog; }
   }
 
-  // The animation loop's measure of one frame (main.js): ms spent in frame() + render().
-  sampleFrame(now, work) {
+  // The animation loop's measure of one frame (main.js): ms spent in frame() + render() (upd, rend: each).
+  sampleFrame(now, work, upd = work, rend = 0) {
     const i = this.renderer && this.renderer.info;
     if (!i) return;
-    this.frameLog.sample(now, work, { programs: i.programs ? i.programs.length : 0, textures: i.memory.textures, geometries: i.memory.geometries }, () => this.frameContext());
+    const fi = this._fi || (this._fi = { programs: 0, textures: 0, geometries: 0 }), ctx = this._fctx || (this._fctx = () => this.frameContext());
+    fi.programs = i.programs ? i.programs.length : 0; fi.textures = i.memory.textures; fi.geometries = i.memory.geometries;
+    this.frameLog.sample(now, work, fi, ctx);
+    if (this.perf) this.perf.sample(now, upd, rend);
     // (debug setting: the count on the HUD footer, between balls)
     if (this.settings.debugFrames && this.frameLog.count !== this._longShown && this.ui) {
       this._longShown = this.frameLog.count;
@@ -698,6 +706,7 @@ export class Game {
   // ------------------------------------------------------------- XR hooks
   onXRStart(mode) {
     this.xrMode = mode;
+    if (this.perf) this.perf.onXRStart();
     this.roomForward = null;              // taken from where you look at the first recenter
     this.sfx.init();
     this.mr = mode === 'ar';
@@ -735,6 +744,7 @@ export class Game {
 
   onXREnd() {
     this.xrMode = null;
+    if (this.perf) this.perf.onXREnd();
     this.mr = false;
     this.input.mode = 'desktop';
     this.pendingRecenter = null;

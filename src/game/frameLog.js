@@ -15,7 +15,8 @@ export class FrameLog {
     this.entries = [];
     this.count = 0;              // long frames seen so far (not only those still in the ring)
     this.lastAt = null;          // timestamp of the frame before (ms)
-    this.prev = null;            // resource counts after the frame before
+    this.prev = { programs: 0, textures: 0, geometries: 0 };   // resource counts after the frame before
+    this.hasPrev = false;
   }
 
   // now: this frame's timestamp (ms, the animation loop's / XR frame's time);
@@ -25,14 +26,16 @@ export class FrameLog {
   sample(now, work, info, ctx = null) {
     const gap = this.lastAt == null ? 0 : now - this.lastAt;
     this.lastAt = now;
-    const p = this.prev;
-    this.prev = { programs: info.programs, textures: info.textures, geometries: info.geometries };
-    const fresh = p ? { programs: info.programs - p.programs, textures: info.textures - p.textures, geometries: info.geometries - p.geometries } : null;
-    const first = !!fresh && (fresh.programs > 0 || fresh.textures > 0 || fresh.geometries > 0);
+    // (no garbage on an ordinary frame: the counts go into one reused object)
+    const p = this.prev, had = this.hasPrev;
+    const dp = info.programs - p.programs, dt = info.textures - p.textures, dg = info.geometries - p.geometries;
+    p.programs = info.programs; p.textures = info.textures; p.geometries = info.geometries; this.hasPrev = true;
+    const first = had && (dp > 0 || dt > 0 || dg > 0);
+    const fresh = first ? { programs: dp, textures: dt, geometries: dg } : null;
     const long = work > this.limit || gap > this.limit;
     if (!long && !first) return null;
     if (long) this.count++;
-    const e = { at: +now.toFixed(1), work: +work.toFixed(1), gap: +gap.toFixed(1), long, fresh: first ? fresh : null, ...(ctx ? ctx() : {}) };
+    const e = { at: +now.toFixed(1), work: +work.toFixed(1), gap: +gap.toFixed(1), long, fresh, ...(ctx ? ctx() : {}) };
     this.entries.push(e);
     if (this.entries.length > this.cap) this.entries.shift();
     return e;

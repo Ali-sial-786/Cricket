@@ -266,6 +266,7 @@ const VERT = /* glsl */`
   #include <common>
   #include <fog_pars_vertex>
   uniform float uTime, uCheer, uWave, uWaveOn;
+  uniform float uAnim;    // 0: no idle life or sway (quality.js, a low level); they still react to play
   uniform vec4 uEvt;      // start time, origin angle, spread (rad/s), duration
   uniform vec4 uMode;     // home, away, neutral: mode + share joining in (fraction); w: unused
   uniform vec2 uWind;     // flag direction (xz, unit)
@@ -287,6 +288,7 @@ const VERT = /* glsl */`
     // ---- what this fan is doing
     float pose = stander > 0.5 ? 5.0 : idlePose, lift = 0.0, flagUp = 0.0;
     float clap = step(0.5, fract(t * 3.3 + ph));
+    if (uAnim > 0.5) {
     // Idle life: now and then (own period) stand up, clap, change position, wave.
     float per = 15.0 + rnd * 28.0, cyc = t / per + rnd2 * 9.0, ci = floor(cyc);
     float act = h1(ci * 12.9898 + rnd * 78.233);
@@ -296,6 +298,7 @@ const VERT = /* glsl */`
       else if (act < 0.72) pose = pose > 4.5 ? 5.0 : 1.0 - idlePose;
       else if (act < 0.8) { pose = 6.0; flagUp = 1.0; }
       else if (act < 0.86) flagUp = 1.0;
+    }
     }
     // The event: each team its own mode; it reaches you after travelling round from where it started.
     float m = team < 0.5 ? uMode.z : (team < 1.5 ? uMode.x : uMode.y);
@@ -328,7 +331,7 @@ const VERT = /* glsl */`
     vec3 right = vec3(n2.y, 0.0, -n2.x);
     float col = body, row = pose;
     vec3 p = seat.xyz;
-    float sway = sin(t * 0.8 + ph) * 0.018 + sin(t * 2.3 + ph * 3.0) * 0.006;
+    float sway = uAnim * (sin(t * 0.8 + ph) * 0.018 + sin(t * 2.3 + ph * 3.0) * 0.006);
     if (kind < 0.5) {
       p += right * (cx * 0.425 + sway) * scale;
       p.y += (cy * 1.7 + standing * 0.4) * scale + lift + 0.006 * sin(t * 1.3 + ph);
@@ -416,7 +419,7 @@ export function buildCrowd(spots, { blocks, lights, maxCount = 26000, sectors = 
   const uniforms = {
     ...THREE.UniformsUtils.clone(THREE.UniformsLib.fog),
     map: { value: crowdAtlasData() },
-    uTime: { value: 0 }, uCheer: { value: 0 }, uWave: { value: 0 }, uWaveOn: { value: 0 },
+    uTime: { value: 0 }, uCheer: { value: 0 }, uWave: { value: 0 }, uWaveOn: { value: 0 }, uAnim: { value: 1 },
     uEvt: { value: new THREE.Vector4(-100, 0, 1, 0) }, uMode: { value: new THREE.Vector4(0, 0, 0, 0) },
     uWind: { value: new THREE.Vector2(wind[0], wind[1]).normalize() },
   };
@@ -462,6 +465,18 @@ export function buildCrowd(spots, { blocks, lights, maxCount = 26000, sectors = 
     const info = new Uint8Array(nv * 4), lit = new Uint8Array(nv * 4);
     const cA = [new Uint8Array(nv * 4), new Uint8Array(nv * 4), new Uint8Array(nv * 4), new Uint8Array(nv * 4)];
     const index = new Uint32Array(n * 6);
+    // Density (quality.js): the cards go into the index in four quarters, each
+    // spread through the whole sector (a hash of the seat; a flag with its
+    // owner; everyone who is not a fan in the first) and in seat order inside it, so drawing the first 1-3 quarters
+    // thins the crowd evenly instead of emptying a block.
+    const quarter = new Uint8Array(n), qn = [0, 0, 0, 0];
+    cards.forEach((s, ci) => {
+      const v = Math.sin(s.x * 12.9898 + s.z * 78.233 + s.y * 37.719) * 43758.5453;
+      const k = s.kind ?? KIND.FAN;     // (pole flags, photographers and stewards always stay)
+      quarter[ci] = k === KIND.FLAG ? quarter[ci - 1] : k !== KIND.FAN ? 0 : Math.floor((v - Math.floor(v)) * 4);
+      qn[quarter[ci]]++;
+    });
+    const qAt = [0, qn[0], qn[0] + qn[1], qn[0] + qn[1] + qn[2]], slot = qAt.slice();
     let prev = null;
     cards.forEach((s, ci) => {
       const kind = s.kind ?? KIND.FAN;
@@ -520,7 +535,7 @@ export function buildCrowd(spots, { blocks, lights, maxCount = 26000, sectors = 
         for (let k = 0; k < 4; k++) { cA[k][v * 4] = cols[k][0]; cA[k][v * 4 + 1] = cols[k][1]; cA[k][v * 4 + 2] = cols[k][2]; }
         cA[0][v * 4 + 3] = 0; cA[1][v * 4 + 3] = idle; cA[2][v * 4 + 3] = Math.round(ph * 255); cA[3][v * 4 + 3] = 0;
       }
-      const i6 = ci * 6, i4 = ci * 4;
+      const i6 = slot[quarter[ci]]++ * 6, i4 = ci * 4;
       index[i6] = i4; index[i6 + 1] = i4 + 1; index[i6 + 2] = i4 + 2; index[i6 + 3] = i4 + 2; index[i6 + 4] = i4 + 1; index[i6 + 5] = i4 + 3;
     });
     total += list.length;
@@ -535,11 +550,18 @@ export function buildCrowd(spots, { blocks, lights, maxCount = 26000, sectors = 
     geo.boundingSphere.radius += 6;               // cards rise, flags fly
     const mesh = new THREE.Mesh(geo, mat);
     mesh.name = 'crowd-sector';
+    mesh.userData.quarters = [qAt[1] * 6, qAt[2] * 6, qAt[3] * 6, n * 6];   // index counts drawing 1..4 quarters
     group.add(mesh);
   }
   group.userData.uniforms = uniforms;
   group.userData.count = total;
   group.userData.react = (kind, strength = 1, angle = null) => react(uniforms, kind, strength, angle, rand);
+  // Quality hook (render/quality.js): share of the crowd drawn (whole quarters) and whether it moves.
+  group.userData.setQuality = (density = 1, anim = true) => {
+    const q = Math.max(1, Math.min(4, Math.round(density * 4)));
+    for (const m of group.children) if (m.userData.quarters) m.geometry.setDrawRange(0, q === 4 ? Infinity : m.userData.quarters[q - 1]);
+    uniforms.uAnim.value = anim ? 1 : 0;
+  };
   return group;
 }
 

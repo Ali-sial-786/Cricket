@@ -475,6 +475,7 @@ function sharedUniforms() {
     uCrestAt: V4(0.088, 1.352, 0.03, 0.03), uSponsorAt: V4(0, 1.252, 0.105, 0.028), uMakerAt: V4(-0.088, 1.367, 0.017, 0.0085),
     uNumberAt: V4(0, 1.262, 0.094, 0.07), uCapAt: V4(0, sk.c[1] + 0.062, 0.021, 0.021),
     uGlyph: { value: ATLAS.glyph.clone() }, uMakerUV: { value: ATLAS.maker.clone() },
+    uDetail: { value: 1 },        // quality.js: 0 skips the cloth's procedural folds and their bump (every figure)
   };
   return SHARED;
 }
@@ -614,7 +615,7 @@ function kitMaterial(shared = null, depth = false) {
         uniform vec4 uFaceRect; uniform vec4 uFaceMisc; uniform vec4 uEye; uniform vec3 uKneeL; uniform vec3 uAnkleL; uniform vec4 uLegAxis;
         uniform vec4 uCrestAt; uniform vec4 uSponsorAt; uniform vec4 uMakerAt; uniform vec4 uNumberAt; uniform vec4 uCapAt;
         uniform vec4 uCrestUV; uniform vec4 uSponsorUV; uniform vec4 uMakerUV; uniform vec4 uGlyph;
-        uniform float uTeamIx; uniform vec2 uNum; uniform float uName[12]; uniform float uNameLen; uniform float uLod; uniform float uShades;
+        uniform float uTeamIx; uniform vec2 uNum; uniform float uName[12]; uniform float uNameLen; uniform float uLod; uniform float uShades; uniform float uDetail;
         ${KIT_GLSL_COMMON}
         float gWrap = 0.25, gSpec = 0.04, gShin = 10.0, gKind = 0.0, gSSS = 0.0, gShade = 0.0;
         uniform vec3 uBrim;              // the shade of a cap's peak / hat's brim: edge y, how far below it falls, all round (1) or front only (0)
@@ -693,12 +694,14 @@ function kitMaterial(shared = null, depth = false) {
       vec2 cp = vec2(vBind.x + vBind.z, vBind.y);
       if (s > 3.5 && s < 4.5) {
         // trousers: a twill and folds at the knee, the hem's break and the crotch
+        if (uDetail > 0.5) {
         kitH += wv * 0.00005 * sin((cp.x + cp.y) * 2400.0);
         float ax = abs(vBind.x);
         float wob = sin(vBind.x * 53.0 + vBind.z * 41.0) * 1.6 + sin(vBind.x * 23.0 - vBind.z * 67.0);
         kitH += 0.0011 * sin(vBind.y * 150.0 + wob) * exp(-pow((vBind.y - 0.5) / 0.055, 2.0));
         kitH += 0.0012 * sin(vBind.y * 190.0 + wob * 1.3) * exp(-pow((vBind.y - 0.17) / 0.045, 2.0));
         kitH += 0.0009 * sin(vBind.y * 110.0 - ax * 140.0 + wob * 0.5) * exp(-pow((vBind.y - 0.8) / 0.06, 2.0)) * smoothstep(0.02, 0.07, ax);
+        }
         // the side stripe (trousers.js: colour.g = the angle round the leg, .b its radius)
         float sw = 0.0088 / (6.2832 * max(vTro.y, 0.03));
         float sd = abs(vTro.x - 0.5);
@@ -709,12 +712,14 @@ function kitMaterial(shared = null, depth = false) {
         c *= 1.0 - 0.35 * smoothstep(0.0025, 0.0, pk) * step(0.92, vBind.y) * step(vBind.y, 1.04) * step(0.02, vBind.z) * (1.0 - smoothstep(0.0, 0.004, fw * 0.6));
       } else if (shirt || s > 1.5 && s < 2.5) {
         // shirt: a pique knit; folds from the armpits, round the waist and in the sleeves
+        if (uDetail > 0.5) {
         kitH += wv * 0.00007 * sin(cp.x * 2600.0) * sin(cp.y * 2600.0);
         vec2 ap = vec2(abs(vBind.x) - 0.17, vBind.y - 1.3);
         float an = atan(ap.y, ap.x);
         kitH += 0.0011 * sin(an * 9.0) * exp(-dot(ap, ap) / 0.004) * step(0.0, -ap.x + 0.04) * smoothstep(0.012, 0.04, length(ap));
         kitH += 0.0013 * sin(vBind.y * 150.0 + vBind.x * 25.0) * exp(-pow((vBind.y - 1.12) / 0.045, 2.0));
         kitH += 0.0009 * sin(vBind.y * 210.0 - abs(vBind.x) * 90.0) * smoothstep(0.2, 0.26, abs(vBind.x));
+        }
         if (s > 6.5 && s < 7.5) {
           // the yoke panel: sublimated pinstripes
           float st = abs(fract((abs(vBind.x) * 0.7 + vBind.y) * 90.0) - 0.5);
@@ -885,7 +890,7 @@ function kitMaterial(shared = null, depth = false) {
   }
   #endif`)
       .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
-  {
+  if (uDetail > 0.5) {
     // bump from the procedural height (screen-space derivatives: no tangents needed)
     vec3 dpx = dFdx(-vViewPosition), dpy = dFdy(-vViewPosition);
     float dhx = dFdx(kitH), dhy = dFdy(kitH);
@@ -1006,12 +1011,13 @@ export class Humanoid {
 
   // Pick the level of detail for every visible figure from the viewer's position
   // (h.lodNear: a figure the player watches closely keeps full detail further out).
-  static updateLods(viewer, nearDist = 13) {
+  // (Humanoid.lodNear: the quality level's near distance, render/quality.js; a figure's own lodNear wins)
+  static updateLods(viewer, nearDist = Humanoid.lodNear) {
     if (SHARED) SHARED.uTime.value = (performance.now() / 1000) % 1000;
     for (const h of Humanoid.all) {
       if (!h.root.visible) continue;
-      const p = h.root.position;
-      const d = Math.hypot(p.x - viewer.x, p.z - viewer.z);
+      const p = h.root.position, dx = p.x - viewer.x, dz = p.z - viewer.z;
+      const d = Math.sqrt(dx * dx + dz * dz);
       h.setLod(d > (h.lodNear || nearDist) * (h.lod === 0 ? 1.15 : 1) ? 1 : 0);
     }
   }
@@ -1135,7 +1141,10 @@ export class Humanoid {
   // Bones whose joint is higher above the ground than their hull reaches are skipped.
   lowest(only = null) {
     this.root.updateMatrixWorld(true);
-    const H = hullFor(geometryFor(this.opts, 0)), sc = this.root.scale.y;     // (the full-detail mesh, whatever LOD is drawn)
+    // (the full-detail mesh's hull, whatever LOD is drawn; looked up again only when the mesh changes:
+    // geometryFor builds a key string, garbage every frame for every figure)
+    if (this._hullGeo !== this.mesh.geometry) { this._hullGeo = this.mesh.geometry; this._hull = hullFor(geometryFor(this.opts, 0)); }
+    const H = this._hull, sc = this.root.scale.y;
     const M = this._mw;
     for (let b = 0; b < M.length; b++) M[b].multiplyMatrices(this.boneList[b].matrixWorld, RIG.inverses[b]);
     let low = Infinity;
@@ -1207,7 +1216,7 @@ export class Humanoid {
   }
 
   reset() {
-    for (const b of Object.values(this.bones)) b.quaternion.identity();
+    for (let i = 0, L = this.boneList; i < L.length; i++) L[i].quaternion.identity();     // (not Object.values: an array a figure a frame)
     this.bones.hips.position.copy(this.hipsRest);
   }
 
@@ -1343,3 +1352,4 @@ function setBoneWorld(bone, x, y, z) {
   bone.updateMatrixWorld(true);
 }
 Humanoid.all = [];
+Humanoid.lodNear = 13;          // m: full detail inside this (the quality level sets it; render/quality.js)
