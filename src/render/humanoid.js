@@ -14,6 +14,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { buildGear } from './gear.js';
 import { TEAMS, SKIN_TONES, HAIR, lookFor, lookTextures, ATLAS, glyphOf } from './playerLook.js';
+import { buildTrousers } from './trousers.js';
 
 const PARENT = {
   hips: null, spine: 'hips', chest: 'spine', neck: 'chest', head: 'neck',
@@ -41,21 +42,6 @@ export async function loadAthlete(base = './assets/models/') {
 
 function prepareRig(meta, bin) {
   const J = {}; for (const [k, v] of Object.entries(meta.joints)) J[k] = new THREE.Vector3(...v);
-  const down = new THREE.Vector3(0, -1, 0), d = new THREE.Vector3();
-  const bindQ = {}, canon = {};
-  for (const b of meta.bones) { bindQ[b] = new THREE.Quaternion(); canon[b] = J[b].clone(); }
-  const limb = (a, b2, c) => {
-    bindQ[a].setFromUnitVectors(down, d.subVectors(J[b2], J[a]).normalize());
-    bindQ[b2].setFromUnitVectors(down, d.subVectors(J[c], J[b2]).normalize());
-    canon[b2].copy(canon[a]).add(new THREE.Vector3(0, -J[a].distanceTo(J[b2]), 0));
-    canon[c].copy(canon[b2]).add(new THREE.Vector3(0, -J[b2].distanceTo(J[c]), 0));
-  };
-  for (const s of ['L', 'R']) {
-    limb('shoulder' + s, 'elbow' + s, 'hand' + s);
-    bindQ['hand' + s].copy(bindQ['elbow' + s]);
-    limb('hip' + s, 'knee' + s, 'ankle' + s);            // feet keep their bind (flat) orientation
-  }
-  const inverses = meta.bones.map((b) => new THREE.Matrix4().compose(J[b], bindQ[b], new THREE.Vector3(1, 1, 1)).invert());
   const lods = meta.lods.map((lod) => lod.parts.map((p) => {
     const g = new THREE.BufferGeometry();
     const nk = new Int8Array(bin, p.nrmKit, p.vCount * 4), cb = new Uint8Array(bin, p.col, p.vCount * 4), wb = new Uint8Array(bin, p.weights, p.vCount * 4);
@@ -78,7 +64,25 @@ function prepareRig(meta, bin) {
     g.setIndex(new THREE.BufferAttribute(new Uint16Array(bin.slice(p.idx, p.idx + p.iCount * 2)), 1));
     return { name: p.name, optional: !!p.optional, geo: g };
   }));
+  // Proportions (bind space, joints and skin together, before the skeleton is set up from them).
+  athleteBuild(lods, J, meta);
   adultFace(lods, meta);
+  fitClothes(lods, J, meta);
+  const down = new THREE.Vector3(0, -1, 0), d = new THREE.Vector3();
+  const bindQ = {}, canon = {};
+  for (const b of meta.bones) { bindQ[b] = new THREE.Quaternion(); canon[b] = J[b].clone(); }
+  const limb = (a, b2, c) => {
+    bindQ[a].setFromUnitVectors(down, d.subVectors(J[b2], J[a]).normalize());
+    bindQ[b2].setFromUnitVectors(down, d.subVectors(J[c], J[b2]).normalize());
+    canon[b2].copy(canon[a]).add(new THREE.Vector3(0, -J[a].distanceTo(J[b2]), 0));
+    canon[c].copy(canon[b2]).add(new THREE.Vector3(0, -J[b2].distanceTo(J[c]), 0));
+  };
+  for (const s of ['L', 'R']) {
+    limb('shoulder' + s, 'elbow' + s, 'hand' + s);
+    bindQ['hand' + s].copy(bindQ['elbow' + s]);
+    limb('hip' + s, 'knee' + s, 'ankle' + s);            // feet keep their bind (flat) orientation
+  }
+  const inverses = meta.bones.map((b) => new THREE.Matrix4().compose(J[b], bindQ[b], new THREE.Vector3(1, 1, 1)).invert());
   // The shoe soles: how far below the ankle joint the lowest sole vertex is
   // (the feet keep their bind orientation, so this holds in the canonical
   // pose too), and so how high the soles sit above the root in the canonical
@@ -114,13 +118,80 @@ function prepareRig(meta, bin) {
   return { sole, toe, floor, bones: meta.bones, index: Object.fromEntries(meta.bones.map((b, i) => [b, i])), J, canon, bindQ, inverses, lods, headCentre: new THREE.Vector3(...meta.headCentre), headSize: new THREE.Vector3(...(meta.headSize || [0.1, 0.14, 0.125])), skull: meta.skull, face, geoCache: new Map() };
 }
 
+// An athlete's proportions from the source's cartoon ones (bind space, before
+// the skeleton is built):
+//  * broader shoulders: the deltoids and the shirt over them pushed out by up
+//    to 1.8 cm a side, by each vertex's upper-arm weight, fading out down the
+//    upper arm (the forearms, hands and the gloves on them are not moved);
+//  * a smaller head (0.9 about the head joint, by each vertex's head weight):
+//    about 1/7.5 of the height instead of 1/6.7. The landmarks gear is fitted
+//    to (skull, head centre, chin, eyes) are scaled with it.
+// No joint moves and no bone changes length: the clips, IK, foot plants and
+// your own body (its head, gloves on the bat, legs and pads) are as before.
+const SHOULDER_OUT = 0.018, HEAD_K = 0.9;
+function athleteBuild(lods, J, meta) {
+  const B = meta.bones, ih = B.indexOf('head'), isL = B.indexOf('shoulderL'), isR = B.indexOf('shoulderR');
+  const Jh = J.head.clone(), ss = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+  for (const L of lods) for (const p of L) {
+    const P = p.geo.attributes.position, SI = p.geo.attributes.skinIndex, SW = p.geo.attributes.skinWeight;
+    for (let v = 0; v < P.count; v++) {
+      let wl = 0, wr = 0, wh = 0;
+      for (let k = 0; k < 4; k++) {
+        const b = SI.getComponent(v, k), w = SW.getComponent(v, k);
+        if (b === isL) wl += w; else if (b === isR) wr += w; else if (b === ih) wh += w;
+      }
+      let x = P.getX(v), y = P.getY(v), z = P.getZ(v);
+      // (along the upper arm: full at the shoulder, none by the elbow)
+      const sd = x > 0 ? J.shoulderL : J.shoulderR, ed = x > 0 ? J.elbowL : J.elbowR;
+      const t = ((x - sd.x) * (ed.x - sd.x) + (y - sd.y) * (ed.y - sd.y)) / ((ed.x - sd.x) ** 2 + (ed.y - sd.y) ** 2);
+      x += SHOULDER_OUT * (wl - wr) * (1 - ss(0.25, 0.85, t));
+      if (wh > 0) { const k = 1 - (1 - HEAD_K) * wh; x = Jh.x + (x - Jh.x) * k; y = Jh.y + (y - Jh.y) * k; z = Jh.z + (z - Jh.z) * k; }
+      P.setXYZ(v, x, y, z);
+    }
+  }
+  const hs = (q) => [Jh.x + (q[0] - Jh.x) * HEAD_K, Jh.y + (q[1] - Jh.y) * HEAD_K, Jh.z + (q[2] - Jh.z) * HEAD_K];
+  if (meta.skull) meta.skull = { c: hs(meta.skull.c), r: meta.skull.r.map((r) => r * HEAD_K) };
+  if (meta.headCentre) meta.headCentre = hs(meta.headCentre);
+  if (meta.headSize) meta.headSize = meta.headSize.map((r) => r * HEAD_K);
+  for (const k of ['eyeY', 'chinY', 'headTop']) if (meta[k]) meta[k] = Jh.y + (meta[k] - Jh.y) * HEAD_K;
+}
+
+// Clothes that fit: the trousers rebuilt (trousers.js), the shirt taken in
+// at the waist (a fitted cut that still hangs over the trousers' waistband).
+function fitClothes(lods, J, meta) {
+  lods.forEach((L, lod) => L.forEach((p) => {
+    if (p.name === 'Trousers') { p.geo = buildTrousers(J, meta.bones, lod); weldNormals(p.geo, 0.5, true, 1); }
+    if (p.name === 'Athlete_Body') {
+      // (the source's thigh skin left inside the shorts would poke through the fitted trousers)
+      const P = p.geo.attributes.position, I = p.geo.index.array, keep = [];
+      const hidden = (v) => P.getY(v) < 0.99 && Math.abs(P.getX(v)) < 0.3;
+      for (let t = 0; t < I.length; t += 3) if (!(hidden(I[t]) && hidden(I[t + 1]) && hidden(I[t + 2]))) keep.push(I[t], I[t + 1], I[t + 2]);
+      p.geo.setIndex(keep);
+    }
+    if (p.name !== 'Performance_Polo') return;
+    const P = p.geo.attributes.position, SI = p.geo.attributes.skinIndex, SW = p.geo.attributes.skinWeight, B = meta.bones;
+    const arms = ['shoulderL', 'elbowL', 'shoulderR', 'elbowR'].map((n) => B.indexOf(n));
+    const ss = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+    for (let v = 0; v < P.count; v++) {
+      const y = P.getY(v);
+      if (y > 1.34) continue;
+      let wa = 0;
+      for (let k = 0; k < 4; k++) if (arms.includes(SI.getComponent(v, k))) wa += SW.getComponent(v, k);
+      const f = 1 - (0.075 * ss(1.34, 1.17, y) - 0.015 * ss(1.14, 1.08, y)) * (1 - wa);
+      P.setX(v, P.getX(v) * f); P.setZ(v, 0.052 + (P.getZ(v) - 0.052) * f);
+    }
+  }));
+}
+
 // The source face is a friendly cartoon's: round cheeks, a short chin, huge
 // irises. In bind space, before anything else reads the mesh: the cheeks and
 // jaw slimmed, the chin longer and a touch forward, the irises smaller (the
 // eye white shows round them), the neck a little thicker above the collar.
 function adultFace(lods, meta) {
   const ss = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
-  const eyeY = meta.eyeY || 1.655, chinY = meta.chinY || 1.52, mouthY = 1.5805;
+  const eyeY = meta.eyeY || 1.655, chinY = meta.chinY || 1.52;
+  let mouthY = 1.5805;
+  { const m = lods[0].find((p) => p.name === 'Details_Mouth'); if (m) { const P = m.geo.attributes.position; let y = 0; for (let v = 0; v < P.count; v++) y += P.getY(v); mouthY = y / P.count; } }
   const irisC = [0, 0];
   { const ir = lods[0].find((p) => p.name === 'Details_Iris'), P = ir ? ir.geo.attributes.position : null; let n = 0;
     if (P) for (let v = 0; v < P.count; v++) if (P.getX(v) > 0) { irisC[0] += P.getX(v); irisC[1] += P.getY(v); n++; }
@@ -135,19 +206,31 @@ function adultFace(lods, meta) {
       continue;
     }
     if (p.name !== 'Athlete_Body' && p.name !== 'Details_Mouth') continue;
+    const noseY = mouthY + 0.42 * (eyeY - mouthY), g = (t) => Math.exp(-t * t);
     for (let v = 0; v < P.count; v++) {
       let x = P.getX(v), y = P.getY(v), z = P.getZ(v);
-      if (y < 1.44 || y > eyeY) continue;
-      const front = ss(-0.01, 0.07, z), face = ss(eyeY - 0.004, eyeY - 0.035, y) * ss(1.495, 1.53, y);
-      x *= 1 - 0.065 * face * front;
-      const chin = ss(mouthY + 0.004, chinY - 0.004, y) * front * ss(1.485, 1.515, y);
-      y -= 0.0075 * chin; z += 0.0035 * chin;
+      if (y < 1.44 || y > eyeY + 0.05) continue;
+      const ax = Math.abs(x), front = ss(-0.01, 0.07, z);
+      // cheeks slimmer (the cartoon's round cheek); the jaw keeps its width and squares at the angle
+      const cheek = ss(eyeY - 0.004, eyeY - 0.03, y) * ss(mouthY - 0.01, mouthY + 0.012, y) * front;
+      const lower = ss(eyeY - 0.004, eyeY - 0.03, y) * ss(chinY - 0.02, chinY + 0.01, y) * front;
+      x *= 1 - 0.02 * cheek - 0.025 * lower;
+      // flatter cheeks in front, a squarer jaw angle further back (an adult man's lower face, not a child's)
+      x *= 1 - 0.075 * g((y - mouthY - 0.008) / 0.026) * ss(0.07, 0.12, z);
+      x *= 1 + 0.06 * ss(chinY - 0.01, chinY + 0.015, y) * ss(mouthY + 0.012, mouthY - 0.006, y) * g((z - 0.03) / 0.035);
+      // the chin longer, a touch forward and broader at its point
+      const chin = ss(mouthY + 0.004, chinY - 0.004, y) * front * ss(chinY - 0.035, chinY - 0.005, y);
+      y -= 0.011 * chin; z += 0.005 * chin; x *= 1 + 0.12 * chin * ss(0.035, 0, ax);
       // the mouth: the cartoon's is very wide
-      const mw = Math.exp(-Math.pow((y - mouthY) / 0.013, 2)) * ss(0.065, 0.035, Math.abs(x)) * ss(0.1, 0.13, z);
+      const mw = g((y - mouthY) / 0.013) * ss(0.065, 0.035, ax) * ss(0.1, 0.13, z);
       x *= 1 - 0.12 * mw;
+      // a brow ridge over the eyes, a real bridge to the nose, a slightly larger nose
+      z += 0.0045 * g((y - eyeY - 0.024) / 0.011) * ss(0.065, 0.04, ax) * ss(0.11, 0.15, z);
+      z += 0.005 * g(ax / 0.009) * ss(noseY - 0.005, noseY + 0.01, y) * ss(eyeY + 0.015, eyeY - 0.002, y) * ss(0.13, 0.16, z);
+      z += 0.003 * g(Math.hypot(ax / 0.014, (y - noseY - 0.004) / 0.012)) * ss(0.14, 0.165, z);
       // neck: a little thicker between the collar and the jaw
-      const neck = ss(1.455, 1.485, y) * ss(1.54, 1.51, y) * (1 - face);
-      x *= 1 + 0.05 * neck;
+      const neck = ss(1.455, 1.485, y) * ss(1.54, 1.51, y) * (1 - cheek);
+      x *= 1 + 0.03 * neck;
       P.setXYZ(v, x, y, z);
     }
   }
@@ -195,7 +278,7 @@ function refinePart(p, lod) {
   if (p.name === 'HairCap') hairEdge(g);
   if (p.name === 'Details_Hair') for (let v = 0; v < C.count; v++) C.setX(v, 1);
   // (the build kept vertices whose normals differ by a little split, so the skin showed creases: weld them)
-  if (lod > 0) weldNormals(g, 0.5, true, 1);
+  if (lod > 0) weldNormals(g, 0.3, true, 3);
   else if (p.name === 'Athlete_Body' || p.name === 'Details_Mouth') weldNormals(g, 0.5, false, 1);
 }
 const pkey = (P, v) => `${Math.round(P.getX(v) * 1e4)},${Math.round(P.getY(v) * 1e4)},${Math.round(P.getZ(v) * 1e4)}`;
@@ -387,6 +470,7 @@ function sharedUniforms() {
     uShoulderL: { value: J.shoulderL.clone() }, uShoulderR: { value: J.shoulderR.clone() },
     uArmL: arm('L'), uArmR: arm('R'),
     uSkull: V4(sk.c[0], sk.c[1], sk.c[2], sk.r[1]),
+    uTime: { value: 0 },           // s (Humanoid.updateLods): breathing, blinks
     // decals: centre x, y and half sizes (bind metres)
     uCrestAt: V4(0.088, 1.352, 0.03, 0.03), uSponsorAt: V4(0, 1.252, 0.105, 0.028), uMakerAt: V4(-0.088, 1.367, 0.017, 0.0085),
     uNumberAt: V4(0, 1.262, 0.094, 0.07), uCapAt: V4(0, sk.c[1] + 0.062, 0.021, 0.021),
@@ -399,8 +483,8 @@ const KIT_GLSL_COMMON = /* glsl */`
   uniform vec4 uLook;       // build (m), hair volume (m), long sleeves, sweatband
   uniform vec4 uLook2;      // beard, stubble, hair cut, zinc
   uniform vec4 uArmL; uniform vec4 uArmR; uniform vec3 uShoulderL; uniform vec3 uShoulderR;
-  uniform vec4 uSkull;
-  varying vec3 vBind; varying float vArmW;
+  uniform vec4 uSkull; uniform float uTime; uniform float uSeed;
+  varying vec3 vBind; varying float vArmW; varying vec2 vTro;
   flat varying float vSlot; flat varying vec4 vMat;
   // position along the arm (0 shoulder .. 1 wrist) of a bind-space point, and its distance off the arm's line
   vec2 armAt(vec3 p) {
@@ -424,6 +508,7 @@ function kitMaterial(shared = null, depth = false) {
     uNum: { value: new THREE.Vector2(-1, -1) },        // back number: glyphs of the tens and units (-1 none)
     uName: { value: new Array(12).fill(-1) }, uNameLen: { value: 0 },
     uLod: { value: 0 },
+    uSeed: { value: 0 },           // 0..1, this figure's own clock for blinks and breaths
     uShades: { value: 0 },         // 1: sunglasses (geometry near, painted far)
     uBrim: { value: new THREE.Vector3(0, 0, 0) },
     uNoHead: { value: 0 },         // 1: the head and neck are not drawn (your own see-through body)
@@ -473,7 +558,7 @@ function kitMaterial(shared = null, depth = false) {
         #endif
         vArmW = upperW + foreW;
         vBind = position;
-        vHairE = color.r;
+        vHairE = color.r; vTro = color.gb;
         // colour and material per slot. vMat: wrap, specular, shininess, kind
         // (kind 0 cloth, 1 skin, 2 hard gloss, 3 hair, 4 eye, 5 padding / leather, 6 lens)
         vec3 kc = vec3(1.0);
@@ -488,7 +573,7 @@ function kitMaterial(shared = null, depth = false) {
         else if (k < 3.5) kc = uKit3;
         else if (k < 4.5) { kc = uKit4; push = uLook.x * 0.45 * vSeg.x; }
         else if (k < 5.5) {
-          kc = uSkin; mt = vec4(0.5, 0.13, 14.0, 1.0);
+          kc = uSkin; mt = vec4(0.45, 0.07, 9.0, 1.0);
           vec2 at = armAt(position);
           float arm = step(0.5, vArmW) * step(at.x, 0.97);
           push = uLook.x * 0.5 * upperW + arm * (uLook.z * 0.0035 * step(0.1, at.x) + uLook.w * 0.003 * step(0.82, at.x) * step(at.x, 0.95));
@@ -501,22 +586,26 @@ function kitMaterial(shared = null, depth = false) {
           push = uLook.y * smoothstep(0.0, 0.6, color.r) * smoothstep(rimY, rimY - 0.025, position.y);
         }
         else if (k < 7.5) { kc = uPanel; push = uLook.x * (trunkW + 0.6 * upperW); }
-        else if (k < 8.5) { kc = uSkin * vec3(0.8, 0.62, 0.6); mt = vec4(0.45, 0.32, 30.0, 1.0); }
+        else if (k < 8.5) { kc = uSkin * vec3(0.82, 0.66, 0.64); mt = vec4(0.45, 0.12, 16.0, 1.0); }
         else if (k > 23.5 && k < 24.5) mt = vec4(0.3, 0.7, 90.0, 4.0);
         else if (k < 25.5) { kc = uIris; mt = vec4(0.3, 0.7, 90.0, 4.0); }
         else if (k < 26.5) mt = vec4(0.2, 0.5, 60.0, 4.0);
         else if (k > 29.5 && k < 30.5) mt = vec4(0.0, 0.6, 70.0, 2.0);
-        else if (k < 31.5) mt = vec4(0.3, 0.07, 14.0, 5.0);
+        else if (k < 31.5) mt = vec4(0.12, 0.06, 12.0, 5.0);
         else if (k < 32.5) mt = vec4(0.0, 1.4, 140.0, 6.0);
         else if (k < 33.5) mt = vec4(0.15, 0.3, 36.0, 5.0);
-        else if (k < 34.5) { kc = uKit3; mt = vec4(0.1, 0.2, 60.0, 2.0); }
+        else if (k < 34.5) { kc = uKit3; mt = vec4(0.1, 0.09, 170.0, 2.0); }
         else if (k < 35.5) { kc = uKit2; mt = vec4(0.1, 0.25, 45.0, 2.0); }
         else if (k < 36.5) { kc = mix(vec3(0.9), uKit1, 0.6); mt = vec4(0.3, 0.07, 14.0, 5.0); }
         #ifdef USE_COLOR
           vColor.rgb = kc;
         #endif
         vSlot = k; vMat = mt;`)
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\n        transformed += objectNormal * push;');
+      .replace('#include <begin_vertex>', `#include <begin_vertex>
+        // breathing: the chest and upper back rise and fall a few millimetres
+        float br = sin(uTime * (1.45 + 0.4 * uSeed) + uSeed * 40.0);
+        push += 0.0022 * br * trunkW * smoothstep(1.12, 1.3, position.y) * smoothstep(1.47, 1.38, position.y) * step(k, 7.5);
+        transformed += objectNormal * push;`);
     sh.fragmentShader = sh.fragmentShader
       .replace('#include <common>', `#include <common>
         uniform float uNoHead; uniform float uTrunkAlpha; uniform vec4 uGhost; uniform float uGhostEdge; uniform float uGhostHands;
@@ -589,7 +678,7 @@ function kitMaterial(shared = null, depth = false) {
     // the peak / brim shades the face (the sun is high): eyes and brow in shadow, as on any sunny day
     float front = mix(smoothstep(uSkull.z - 0.01, uSkull.z + 0.05, vBind.z), 1.0, uBrim.z);
     float edge = uBrim.x - uBrim.y;
-    gShade = 0.82 * smoothstep(edge - 0.012, edge + 0.012, vBind.y) * front * step(vBind.y, uBrim.x + 0.01);
+    gShade = 0.62 * smoothstep(edge - 0.012, edge + 0.012, vBind.y) * front * step(vBind.y, uBrim.x + 0.01);
   }
   #ifndef GHOST_DEPTH
   {
@@ -610,6 +699,11 @@ function kitMaterial(shared = null, depth = false) {
         kitH += 0.0011 * sin(vBind.y * 150.0 + wob) * exp(-pow((vBind.y - 0.5) / 0.055, 2.0));
         kitH += 0.0012 * sin(vBind.y * 190.0 + wob * 1.3) * exp(-pow((vBind.y - 0.17) / 0.045, 2.0));
         kitH += 0.0009 * sin(vBind.y * 110.0 - ax * 140.0 + wob * 0.5) * exp(-pow((vBind.y - 0.8) / 0.06, 2.0)) * smoothstep(0.02, 0.07, ax);
+        // the side stripe (trousers.js: colour.g = the angle round the leg, .b its radius)
+        float sw = 0.0088 / (6.2832 * max(vTro.y, 0.03));
+        float sd = abs(vTro.x - 0.5);
+        float sfw = max(fwidth(vTro.x), 1e-4);
+        c = mix(c, uKit2, smoothstep(sw + sfw, sw - sfw, sd) * step(vBind.y, 1.06));
         // pocket seam and its shadow
         float pk = abs(abs(vBind.x) - (0.135 - (vBind.y - 0.98) * 0.35));
         c *= 1.0 - 0.35 * smoothstep(0.0025, 0.0, pk) * step(0.92, vBind.y) * step(vBind.y, 1.04) * step(0.02, vBind.z) * (1.0 - smoothstep(0.0, 0.004, fw * 0.6));
@@ -699,7 +793,7 @@ function kitMaterial(shared = null, depth = false) {
         float liner = clamp(1.0 - 2.0 * f.b, 0.0, 1.0), white = clamp(2.0 * f.b - 1.0, 0.0, 1.0) * step(0.5, uLod);
         float lip = f.a * step(4.5, s);
         c = mix(c, c * vec3(0.78, 0.6, 0.62) + vec3(0.012, 0.0, 0.0), lip * (1.0 - step(7.5, s)));
-        gSpec += lip * 0.15; gShin = mix(gShin, 34.0, lip);
+        gSpec += lip * 0.05; gShin = mix(gShin, 18.0, lip);
         // beard: stubble shadow, then hair where the beard reaches
         float bf = f.g;
         float stub = uLook2.y * smoothstep(0.15, 0.55, bf);
@@ -740,6 +834,9 @@ function kitMaterial(shared = null, depth = false) {
       vec2 e = vec2(abs(vBind.x) - uEye.x, vBind.y - uEye.y);
       float r = uEye.z, u = clamp(e.x / (r * 1.75), -1.0, 1.0);
       float up = r * (0.5 - 0.34 * u * u) + 0.14 * r * u, lo = -r * (0.68 - 0.36 * u * u) + 0.1 * r * u;
+      // a blink every few seconds (each man on his own clock): the upper lid comes down for ~0.15 s
+      float bp = fract(uTime / (3.7 + 1.9 * uSeed) + uSeed * 7.3);
+      up = mix(up, lo + 0.0006, smoothstep(0.0, 0.012, bp) * (1.0 - smoothstep(0.022, 0.04, bp)));
       float px = max(fw, 0.0003);
       c *= vec3(0.94, 0.91, 0.87) * mix(1.0, 0.62, smoothstep(up - 0.0045, up, e.y)) * mix(1.0, 0.85, smoothstep(lo + 0.002, lo, e.y));
       float lid = max(smoothstep(up - px, up + px, e.y), smoothstep(lo + px, lo - px, e.y));
@@ -776,8 +873,8 @@ function kitMaterial(shared = null, depth = false) {
         float fade = 1.0 - smoothstep(0.0012, 0.0024, fw);
         float inPad = smoothstep(0.4, 0.65, vSeg.y) * smoothstep(uLegAxis.w + 0.25, uLegAxis.w + 0.2, vBind.y);
         kitH += 0.0016 * pow(ph, 0.6) * front * (1.0 - roll) * inPad;
-        float seam = smoothstep(0.05, 0.0, ph) * front * (1.0 - roll) + exp(-pow((ky + 0.03) / 0.0025, 2.0)) * front + exp(-pow((ky - 0.105) / 0.0025, 2.0)) * front;
-        c *= 1.0 - 0.22 * clamp(seam, 0.0, 1.0) * fade;
+        float seam = smoothstep(0.05, 0.0, ph) * front * (1.0 - roll) + (exp(-pow((ky + 0.016) / 0.003, 2.0)) + exp(-pow((ky - 0.041) / 0.003, 2.0)) + exp(-pow((ky - 0.096) / 0.003, 2.0))) * front;
+        c *= 1.0 - 0.28 * clamp(seam, 0.0, 1.0) * mix(0.5, 1.0, fade);
         c *= vec3(1.0, 0.99, 0.965);
       }
     } else if (gKind > 1.5 && gKind < 2.5) {
@@ -862,6 +959,7 @@ export class Humanoid {
     u.uLook.value.set(look.build, look.hairVol, look.sleeves, look.sweatband);
     u.uLook2.value.set(look.beard, look.stubble, look.hairCut, look.zinc);
     if (vary) scale *= look.scale;
+    u.uSeed.value = rnd(9);
     u.uShades.value = this.opts.shades ? 1 : 0;
     { const sk = RIG.skull || { c: [0, 1.675, 0.058] }, cy = sk.c[1];   // (gear.js: the cap's front edge, the hat's base, the helmet's peak)
       if (headgear === 'cap' || headgear === 'bare') u.uBrim.value.set(cy + 0.028, 0.055, 0);
@@ -909,6 +1007,7 @@ export class Humanoid {
   // Pick the level of detail for every visible figure from the viewer's position
   // (h.lodNear: a figure the player watches closely keeps full detail further out).
   static updateLods(viewer, nearDist = 13) {
+    if (SHARED) SHARED.uTime.value = (performance.now() / 1000) % 1000;
     for (const h of Humanoid.all) {
       if (!h.root.visible) continue;
       const p = h.root.position;
