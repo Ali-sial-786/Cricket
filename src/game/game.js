@@ -338,7 +338,10 @@ export class Game {
   // Short commentary / crowd helpers (never throw).
   say(kind, ctx) { try { this.commentary.say(kind, ctx || {}); } catch { /* optional */ } }
   sample(name, opts) { try { return this.samples.play(name, opts); } catch { return false; } }
-  crowdReact(kind, strength) { try { if (this.settings.sound) this.crowd.react(kind, strength); } catch { /* optional */ } }
+  crowdReact(kind, strength) {
+    try { this.env.crowdReact?.(kind, strength, this.world.ball.pos); } catch { /* optional: the stands react even with the sound off */ }
+    try { if (this.settings.sound) this.crowd.react(kind, strength); } catch { /* optional */ }
+  }
 
   get difficulty() { return this.settings.difficulty; }
 
