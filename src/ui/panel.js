@@ -8,7 +8,9 @@
 // logged once with console.warn and kept in `UI_OVERFLOW` (window.__uiOverflow).
 import * as THREE from 'three';
 
-export const FONT = (weight, px) => `${weight} ${Math.round(px)}px system-ui, sans-serif`;
+import { C, font, rr, surface, shadow, vgrad, hgrad, drawIcon, chip } from './theme.js';
+
+export const FONT = font;
 export const UI_OVERFLOW = [];
 if (typeof window !== 'undefined') window.__uiOverflow = UI_OVERFLOW;
 const _seen = new Set();
@@ -108,8 +110,10 @@ export class CanvasPanel {
       if (x >= w.x && x <= w.x + w.w && y >= w.y && y <= w.y + w.h) {
         let partName = 'main';
         if (w.type === 'stepper') {
-          if (x < w.x + w.h * 1.1) partName = 'dec';
-          else if (x > w.x + w.w - w.h * 1.1) partName = 'inc';
+          // (a little wider than drawn: easy to hit with the laser)
+          const p = stepParts(w);
+          if (x >= p.dec - 8 && x <= p.dec + p.b + 8) partName = 'dec';
+          else if (x >= p.inc - 8) partName = 'inc';
           else partName = 'mid';
         }
         return { widget: w, part: partName };
@@ -133,15 +137,10 @@ export class CanvasPanel {
 
   draw() {
     const g = this.ctx, W = this.W, H = this.H;
+    // A full reset, not clearRect: some canvas backends (seen with software
+    // GL) left the last sting's pixels under a translucent card.
     g.clearRect(0, 0, W, H);
-    if (this.bg) {
-      g.fillStyle = this.bg;
-      roundRect(g, 4, 4, W - 8, H - 8, 28);
-      g.fill();
-      g.strokeStyle = 'rgba(255,255,255,0.18)';
-      g.lineWidth = 3;
-      g.stroke();
-    }
+    if (this.bg) drawPanelBg(g, W, H, this.bg, this.title ? this.H * 0.15 : 0);
     // Debug check: any text drawn past the panel's edge is reported.
     const fill = g.fillText, name = this.mesh.name;
     g.fillText = function (text, x, y, maxWidth) {
@@ -153,11 +152,11 @@ export class CanvasPanel {
     };
     try {
       if (this.title) {
-        g.fillStyle = '#ffd34d';
+        g.fillStyle = C.accent;
         g.textAlign = 'center';
         g.textBaseline = 'middle';
         // Leave room for a corner button (Settings: Back).
-        fillFitCentered(g, this.title, W / 2, H * 0.08, W - 2 * (this.titleInset || 40), 700, H * 0.075, name);
+        fillFitCentered(g, this.title, W / 2, H * 0.08, W - 2 * (this.titleInset || 40), 800, H * 0.075, name);
       }
       for (const w of this.widgets) this.drawWidget(g, w);
     } finally {
@@ -165,8 +164,13 @@ export class CanvasPanel {
     }
   }
 
+  // Pressed look for a moment after a click (the UI releases it).
+  press(key) { this.pressed = key; this.dirty = true; }
+  release() { if (this.pressed) { this.pressed = null; this.dirty = true; } }
+
   drawWidget(g, w) {
     const hov = (p) => this.hover === `${w.id}:${p}`;
+    const prs = (p) => this.pressed === `${w.id}:${p}`;
     g.textBaseline = 'middle';
     if (w.type === 'custom') { g.save(); w.draw(g); g.restore(); return; }
     if (w.type === 'label') {
@@ -174,59 +178,171 @@ export class CanvasPanel {
       const room = align === 'left' ? this.W - M - w.x : align === 'right' ? w.x - M : 2 * Math.min(w.x - M, this.W - M - w.x);
       const maxW = Math.min(w.maxW || Infinity, room);
       const maxH = Math.min(w.maxH || Infinity, this.H - PAD_Y - (w.y - size / 2));
-      const r = fitText(g, w.text, { maxW, maxH, size, min: w.min || Math.min(size, 16), weight: w.bold ? 700 : 500, wrap: !!w.wrap });
+      const r = fitText(g, w.text, { maxW, maxH, size, min: w.min || Math.min(size, 16), weight: w.weight || (w.bold ? 700 : 500), wrap: !!w.wrap });
       if (!r.fits) reportOverflow(this.mesh.name, w.text, r.width, maxW);
       g.fillStyle = w.color || '#e8eef5';
       g.textAlign = align;
       r.lines.forEach((ln, i) => g.fillText(ln, w.x, w.y + i * r.lh));
       return;
     }
-    if (w.type === 'button' || w.type === 'toggle') {
-      const active = w.active;
-      g.fillStyle = w.disabled ? 'rgba(80,80,80,0.5)' : hov('main') ? '#3d8bfd' : active ? '#2e7d32' : 'rgba(255,255,255,0.12)';
-      roundRect(g, w.x, w.y, w.w, w.h, 16);
-      g.fill();
-      if (active) { g.strokeStyle = '#7dff8a'; g.lineWidth = 4; g.stroke(); }
-      if (!w.text) return;
-      g.fillStyle = w.disabled ? '#999' : '#ffffff';
-      fillFitCentered(g, w.text, w.x + w.w / 2, w.y + w.h / 2 + 1, w.w - 24, 600, w.size || Math.round(w.h * 0.42), this.mesh.name);
+    if (w.type === 'button' || w.type === 'toggle') { this.drawButton(g, w, w.disabled ? 'disabled' : prs('main') ? 'pressed' : hov('main') ? 'hover' : 'idle'); return; }
+    if (w.type === 'stepper') this.drawStepper(g, w, hov, prs);
+  }
+
+  // A button in one of its states: idle / hover (the laser's focus: blue,
+  // ringed) / pressed / disabled, each also 'active' (on, selected) or not.
+  // Variants: default (raised), 'primary' (green call to action), 'card'
+  // (icon, title, one line), 'tab', 'danger'. A `value` makes it a setting
+  // row (label left, value right); a toggle is a row with a switch.
+  drawButton(g, w, state) {
+    const { x, y, h } = w, ww = w.w, v = w.variant || 'default', on = !!w.active;
+    const r = w.radius ?? (v === 'tab' ? h * 0.5 : Math.min(18, h * 0.3));
+    const hover = state === 'hover', pressed = state === 'pressed', dis = state === 'disabled';
+    const oy = pressed ? 2 : 0;
+    g.save();
+    if (dis) g.globalAlpha = 0.42;
+    // Fill.
+    let top, bot, border = C.line;
+    if (hover || pressed) { top = pressed ? C.focusLo : '#4a97ff'; bot = pressed ? '#174ba8' : C.focusLo; border = C.focusHi; }
+    else if (v === 'primary' || (on && v !== 'tab' && w.type !== 'toggle' && w.value == null)) { top = '#25cc87'; bot = C.primaryLo; border = on ? C.primaryHi : 'rgba(255,255,255,0.18)'; }
+    else if (v === 'danger') { top = '#3a1f2b'; bot = '#2a1520'; border = 'rgba(255,77,94,0.45)'; }
+    else if (v === 'tab') { top = on ? '#24395e' : 'rgba(255,255,255,0.05)'; bot = on ? '#1c2d4b' : 'rgba(255,255,255,0.03)'; border = on ? 'rgba(255,201,60,0.6)' : 'rgba(255,255,255,0.08)'; }
+    else { top = v === 'card' ? '#1f3152' : C.raised2; bot = v === 'card' ? '#15233b' : C.raised; }
+    if (hover) shadow(g, () => { rr(g, x - 3, y - 3 + oy, ww + 6, h + 6, r + 3); g.fillStyle = C.focus; g.fill(); }, 22, 0, 'rgba(61,139,255,0.8)');
+    surface(g, x, y + oy, ww, h, r, { top, bottom: bot, border, lift: !pressed && !dis && v !== 'tab' });
+    if (hover) { rr(g, x - 4, y - 4 + oy, ww + 8, h + 8, r + 4); g.strokeStyle = C.focusHi; g.lineWidth = 3; g.stroke(); }
+    const lit = hover || pressed;
+    const fg = lit ? '#ffffff' : C.text, fg2 = lit ? 'rgba(255,255,255,0.86)' : C.text3;
+    const N = this.mesh.name, cy = y + h / 2 + oy;
+    if (v === 'card') {
+      // Icon in a disc top-left (a tag top-right), the title, a line under it.
+      const pad = Math.round(h * 0.13), ic = Math.min(h * 0.32, 46);
+      const ix = x + pad + ic * 0.55, iy = y + pad + ic * 0.5 + oy;
+      g.beginPath(); g.arc(ix, iy, ic * 0.55, 0, Math.PI * 2);
+      g.fillStyle = lit ? 'rgba(255,255,255,0.2)' : on ? 'rgba(63,227,156,0.18)' : 'rgba(255,201,60,0.14)'; g.fill();
+      if (w.icon) drawIcon(g, w.icon, ix, iy, ic * 0.7, lit ? '#fff' : on ? C.primaryHi : C.accent);
+      if (w.tag) chip(g, w.tag, x + ww - pad, y + pad + oy, 28, { bg: lit ? 'rgba(255,255,255,0.22)' : 'rgba(63,227,156,0.2)', fg: lit ? '#fff' : C.primaryHi, px: 16, align: 'right' });
+      const ts = w.size || Math.round(h * 0.21), ss = w.subSize || 23;
+      const ty = y + h - pad - ss * 1.15 - ts * 0.55 + oy;
+      g.textAlign = 'left'; g.fillStyle = fg;
+      fillFit(g, w.text, x + pad, ty, ww - 2 * pad, 800, ts, 18, N);
+      if (w.sub) { g.fillStyle = fg2; fillFit(g, w.sub, x + pad, y + h - pad - ss * 0.5 + oy, ww - 2 * pad, 500, ss, 16, N); }
+      g.restore();
       return;
     }
-    if (w.type === 'stepper') {
-      const bw = w.h * 1.1;
-      g.fillStyle = 'rgba(255,255,255,0.08)';
-      roundRect(g, w.x, w.y, w.w, w.h, 14);
-      g.fill();
-      for (const [p, x, t] of [['dec', w.x, '−'], ['inc', w.x + w.w - bw, '+']]) {
-        g.fillStyle = hov(p) ? '#3d8bfd' : 'rgba(255,255,255,0.16)';
-        roundRect(g, x, w.y, bw, w.h, 14);
-        g.fill();
-        g.fillStyle = '#fff';
-        g.font = `700 ${Math.round(w.h * 0.6)}px system-ui, sans-serif`;
-        g.textAlign = 'center';
-        g.fillText(t, x + bw / 2, w.y + w.h / 2 + 2);
+    if (w.type === 'toggle' || w.value != null) {
+      // Setting row: label on the left, the switch / value on the right.
+      const pad = 22;
+      let right = x + ww - pad;
+      if (w.type === 'toggle') {
+        const sh = Math.round(h * 0.5), sw = Math.round(sh * 1.8), sx = right - sw, sy = cy - sh / 2;
+        rr(g, sx, sy, sw, sh, sh / 2);
+        g.fillStyle = on ? C.primary : 'rgba(255,255,255,0.16)'; g.fill();
+        g.strokeStyle = on ? C.primaryHi : 'rgba(255,255,255,0.25)'; g.lineWidth = 2; g.stroke();
+        g.beginPath(); g.arc(on ? sx + sw - sh / 2 : sx + sh / 2, cy, sh / 2 - 4, 0, Math.PI * 2);
+        g.fillStyle = '#ffffff'; g.fill();
+        g.fillStyle = on ? (lit ? '#fff' : C.primaryHi) : fg2; g.textAlign = 'right';
+        fillFit(g, on ? 'ON' : 'OFF', sx - 14, cy + 1, 70, 800, Math.round(h * 0.36), 16, N);
+        right = sx - 14 - g.measureText(on ? 'ON' : 'OFF').width - 18;
+      } else {
+        drawIcon(g, 'next', right - 10, cy, 22, lit ? '#fff' : C.text3);
+        g.textAlign = 'right'; g.fillStyle = lit ? '#fff' : C.accentHi;
+        const vw = Math.min(ww * 0.55, ww - 200);
+        const sz = fillFit(g, String(w.value), right - 28, cy + 1, vw, 800, w.size || Math.round(h * 0.4), 16, N);
+        g.font = font(800, sz);
+        right = right - 28 - Math.min(vw, g.measureText(String(w.value)).width) - 18;
       }
-      // Fit label + value into the space between the − and + buttons.
-      const avail = w.w - 2 * bw - 40;
-      let k = 1;
-      for (let i = 0; i < 8; i++) {
-        g.font = `500 ${Math.round(w.h * 0.34 * k)}px system-ui, sans-serif`;
-        const lw = g.measureText(w.label).width;
-        g.font = `700 ${Math.round(w.h * 0.38 * k)}px system-ui, sans-serif`;
-        const vw = g.measureText(w.value).width;
-        if (lw + vw + 14 <= avail) break;
-        k *= 0.9;
-      }
-      g.fillStyle = '#c9d6e3';
-      g.font = `500 ${Math.round(w.h * 0.34 * k)}px system-ui, sans-serif`;
-      g.textAlign = 'left';
-      g.fillText(w.label, w.x + bw + 16, w.y + w.h / 2);
-      g.fillStyle = '#ffffff';
-      g.font = `700 ${Math.round(w.h * 0.38 * k)}px system-ui, sans-serif`;
-      g.textAlign = 'right';
-      g.fillText(w.value, w.x + w.w - bw - 16, w.y + w.h / 2);
+      if (w.icon) { drawIcon(g, w.icon, x + pad + 14, cy, 28, lit ? '#fff' : C.text2); }
+      const lx = x + pad + (w.icon ? 42 : 0);
+      rowLabel(g, w, lx, cy, Math.max(40, right - lx), lit, N);
+      g.restore();
+      return;
     }
+    // Plain / primary / tab button: optional icon before the text, centred together.
+    if (!w.text) { g.restore(); return; }
+    const size = w.size || Math.round(h * 0.42);
+    const weight = v === 'tab' ? (on ? 800 : 600) : 700;
+    const icS = w.icon ? Math.round(Math.min(h * 0.5, size * 1.25)) : 0, gapI = w.icon ? Math.round(size * 0.4) : 0;
+    const r2 = fitText(g, w.text, { maxW: ww - 24 - icS - gapI, size, min: Math.min(size, 12), weight });
+    if (!r2.fits) reportOverflow(N, w.text, r2.width, ww - 24 - icS - gapI);
+    const tw = Math.min(r2.width, ww - 24 - icS - gapI), x0 = x + ww / 2 - (tw + icS + gapI) / 2;
+    const col = v === 'tab' ? (lit ? '#fff' : on ? C.accentHi : C.text2) : fg;
+    if (w.icon) drawIcon(g, w.icon, x0 + icS / 2, cy, icS, v === 'tab' && on && !lit ? C.accent : col);
+    g.fillStyle = col; g.textAlign = 'left';
+    g.font = font(weight, r2.size);
+    g.fillText(w.text, x0 + icS + gapI, cy + 1);
+    if (v === 'tab' && on) { g.fillStyle = C.accent; rr(g, x + ww * 0.3, y + h - 5 + oy, ww * 0.4, 4, 2); g.fill(); }
+    g.restore();
   }
+
+  // A stepper row: the label on the left; − value + on the right.
+  drawStepper(g, w, hov, prs) {
+    const { x, y, h } = w, N = this.mesh.name, p = stepParts(w);
+    surface(g, x, y, w.w, h, Math.min(18, h * 0.3), { top: C.raised2, bottom: C.raised, lift: true });
+    const cy = y + h / 2;
+    for (const [part, bx, t] of [['dec', p.dec, '−'], ['inc', p.inc, '+']]) {
+      const hv = hov(part), pr = prs(part);
+      g.save();
+      if (hv) shadow(g, () => { rr(g, bx - 2, p.by - 2, p.b + 4, p.b + 4, p.b * 0.3); g.fillStyle = C.focus; g.fill(); }, 18, 0, 'rgba(61,139,255,0.8)');
+      rr(g, bx, p.by + (pr ? 2 : 0), p.b, p.b, p.b * 0.28);
+      g.fillStyle = hv || pr ? vgrad(g, p.by, p.by + p.b, pr ? C.focusLo : '#4a97ff', C.focusLo) : 'rgba(255,255,255,0.1)';
+      g.fill();
+      g.strokeStyle = hv ? C.focusHi : 'rgba(255,255,255,0.14)'; g.lineWidth = hv ? 3 : 2; g.stroke();
+      g.fillStyle = '#fff'; g.textAlign = 'center';
+      g.font = font(700, Math.round(p.b * 0.66));
+      g.fillText(t, bx + p.b / 2, cy + 2 + (pr ? 2 : 0));
+      g.restore();
+    }
+    const lit = hov('mid');
+    g.textAlign = 'center'; g.fillStyle = lit ? C.focusHi : C.accentHi;
+    fillFit(g, String(w.value), p.dec + p.b + p.vw / 2, cy + 1, p.vw - 12, 800, w.size || Math.round(h * 0.4), 14, N);
+    const lx = x + 22 + (w.icon ? 42 : 0);
+    if (w.icon) drawIcon(g, w.icon, x + 36, cy, 28, C.text2);
+    rowLabel(g, w, lx, cy, p.dec - lx - 12, lit, N);
+  }
+}
+
+// A setting row's label, with its one-line description under it if it has one.
+function rowLabel(g, w, x, cy, maxW, lit, N) {
+  const h = w.h, text = w.label || w.text || '';
+  g.textAlign = 'left';
+  if (!w.sub) { g.fillStyle = lit ? '#fff' : C.text; fillFit(g, text, x, cy + 1, maxW, 700, w.labelSize || Math.round(h * 0.4), 14, N); return; }
+  g.fillStyle = lit ? '#fff' : C.text;
+  fillFit(g, text, x, cy - h * 0.16, maxW, 700, w.labelSize || Math.min(28, Math.round(h * 0.38)), 14, N);
+  g.fillStyle = lit ? 'rgba(255,255,255,0.85)' : C.text3;
+  fillFit(g, w.sub, x, cy + h * 0.23, maxW, 500, Math.min(20, Math.round(h * 0.28)), 13, N);
+}
+
+// Where a stepper's − / + sit (drawn and hit-tested the same way): the
+// value between them, the cluster at the row's right end.
+export function stepParts(w) {
+  const b = Math.round(w.h - 12), by = w.y + 6;
+  const inc = w.x + w.w - 6 - b;
+  const vw = w.vw || Math.max(110, Math.min(260, w.w * 0.36));
+  const dec = inc - vw - b;
+  return { b, by, inc, dec, vw };
+}
+
+// The panel's backing card: the panel colour, a soft top-down sheen, a
+// border, a brand stripe along the top; with a title, a header band.
+export function drawPanelBg(g, W, H, bg, band = 0) {
+  const R = 28;
+  rr(g, 4, 4, W - 8, H - 8, R);
+  g.fillStyle = bg; g.fill();
+  g.save();
+  rr(g, 4, 4, W - 8, H - 8, R); g.clip();
+  g.fillStyle = vgrad(g, 0, H * 0.55, 'rgba(120,160,220,0.10)', 'rgba(120,160,220,0)');
+  g.fillRect(0, 0, W, H);
+  if (band) {
+    g.fillStyle = vgrad(g, 0, band, 'rgba(255,255,255,0.08)', 'rgba(255,255,255,0.03)');
+    g.fillRect(0, 0, W, band);
+    g.fillStyle = 'rgba(255,255,255,0.10)'; g.fillRect(0, band, W, 2);
+  }
+  g.fillStyle = hgrad(g, 0, W, C.primary, C.accent);
+  g.fillRect(0, 4, W, 5);
+  g.restore();
+  rr(g, 4, 4, W - 8, H - 8, R);
+  g.strokeStyle = 'rgba(255,255,255,0.2)'; g.lineWidth = 2.5; g.stroke();
 }
 
 const PAD = 22;            // text keeps this far from the panel's sides
@@ -237,15 +353,7 @@ function fillFitCentered(g, text, x, y, maxW, weight, size, name) {
   fillFit(g, text, x, y, maxW, weight, size, Math.min(size, 12), name);
 }
 
-export function roundRect(g, x, y, w, h, r) {
-  g.beginPath();
-  g.moveTo(x + r, y);
-  g.arcTo(x + w, y, x + w, y + h, r);
-  g.arcTo(x + w, y + h, x, y + h, r);
-  g.arcTo(x, y + h, x, y, r);
-  g.arcTo(x, y, x + w, y, r);
-  g.closePath();
-}
+export const roundRect = rr;
 
 // Grid layout helper: returns widget rects in rows/cols within a region.
 export function grid(panel, { top = 0.16, bottom = 0.04, left = 0.05, right = 0.05, cols = 2, rows = 5, gap = 16 }) {

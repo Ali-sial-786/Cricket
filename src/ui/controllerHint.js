@@ -5,8 +5,9 @@
 //          'stickX' | 'stickY' | 'click', label: 'RUN', sub: 'press X', key: 'Space' }
 // (On the left controller 'a' / 'b' are drawn as X / Y.)
 import { fillFit } from './panel.js';
+import { font } from './theme.js';
 
-const LIT = '#ffd34d', LIT_GLOW = 'rgba(255,211,77,0.55)';
+const LIT = '#ffc93c', LIT_GLOW = 'rgba(255,211,77,0.55)';
 const BODY = '#232a33', EDGE = '#8a96a3', DIM = '#46505c', TXT = '#e8eef5';
 
 function rr(g, x, y, w, h, r) {
@@ -89,13 +90,13 @@ export function drawController(g, cx, cy, s, hand, button) {
     g.beginPath(); g.arc(bx, by, s * 0.062, 0, Math.PI * 2); g.fill();
     glow(g, false);
     g.fillStyle = on(b) ? '#1a1a1a' : '#c9d3dd';
-    g.font = `800 ${Math.round(s * 0.075)}px system-ui, sans-serif`;
+    g.font = font(800, s * 0.075);
     g.textAlign = 'center'; g.textBaseline = 'middle';
     g.fillText(names[b], bx, by + s * 0.004);
   }
   // Which hand.
   g.fillStyle = '#7f8fa0';
-  g.font = `700 ${Math.round(s * 0.065)}px system-ui, sans-serif`;
+  g.font = font(700, s * 0.065);
   g.textAlign = 'center';
   g.fillText(L ? 'LEFT' : 'RIGHT', 0, s * 0.3);
   g.restore();
@@ -111,26 +112,37 @@ export function drawKey(g, cx, cy, s, key) {
   g.fill();
   glow(g, false);
   g.fillStyle = '#1a1a1a';
-  g.font = `800 ${Math.round(s * 0.15)}px system-ui, sans-serif`;
+  g.font = font(800, s * 0.15);
   g.textAlign = 'center'; g.textBaseline = 'middle';
   g.fillText(key, cx, cy + s * 0.01);
   g.restore();
 }
 
-// One card: picture on top, action and button underneath.
+// One card: picture on top, action and button underneath (the panels' look:
+// a dark raised card, a gold rule along the top).
 export function drawHintCard(g, x, y, w, h, hint, desktop) {
   g.save();
-  g.fillStyle = 'rgba(10,15,24,0.78)';
+  g.save();
+  g.shadowColor = 'rgba(0,0,0,0.45)'; g.shadowBlur = 14; g.shadowOffsetY = 4;
   rr(g, x, y, w, h, 22);
-  g.fill();
-  g.strokeStyle = 'rgba(255,211,77,0.55)'; g.lineWidth = 3;
+  g.fillStyle = '#0b1220'; g.fill();     // (opaque: a shadowed translucent fill picked up stale pixels in some canvas backends)
+  g.restore();
+  g.save();
+  rr(g, x, y, w, h, 22); g.clip();
+  const gr = g.createLinearGradient(0, y, 0, y + h);
+  gr.addColorStop(0, 'rgba(120,160,220,0.16)'); gr.addColorStop(0.6, 'rgba(120,160,220,0)');
+  g.fillStyle = gr; g.fillRect(x, y, w, h);
+  g.fillStyle = LIT; g.fillRect(x, y, w, 6);
+  g.restore();
+  rr(g, x, y, w, h, 22);
+  g.strokeStyle = 'rgba(255,255,255,0.2)'; g.lineWidth = 2.5;
   g.stroke();
   const pic = h * 0.64;
   if (desktop && hint.key) drawKey(g, x + w / 2, y + pic * 0.55, pic, hint.key);
   else drawController(g, x + w / 2, y + pic * 0.52, pic * 1.12, hint.hand || 'R', hint.button);
   g.fillStyle = TXT; g.textAlign = 'center'; g.textBaseline = 'middle';
-  fillFit(g, hint.label, x + w / 2, y + h * 0.77, w - 20, 800, h * 0.13, 14, 'hints');
-  g.fillStyle = '#9fb2c4';
+  fillFit(g, hint.label, x + w / 2, y + h * 0.77, w - 20, 900, h * 0.13, 14, 'hints');
+  g.fillStyle = '#a9b8ca';
   fillFit(g, desktop && hint.key ? `key ${hint.key}` : hint.sub || '', x + w / 2, y + h * 0.9, w - 20, 600, h * 0.08, 12, 'hints');
   g.restore();
 }

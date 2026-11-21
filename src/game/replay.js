@@ -23,6 +23,7 @@
 //     view comes in from dark (ViewFade) when it puts you there and when it
 //     puts you back, as it does whenever the game moves you.
 import * as THREE from 'three';
+import { font, rr } from '../ui/theme.js';
 import { Humanoid } from '../render/humanoid.js';
 import { computeRigFacing, headForward } from './calibration.js';
 import { Vec3 } from '../physics/math.js';
@@ -548,14 +549,23 @@ function buildLabel() {
   return m;
 }
 function setLabel(m, title, sub) {
+  // The broadcast replay tag: the word on a red slash, the skip control under it.
   const { canvas: c, tex } = m.userData, x = c.getContext('2d');
-  x.clearRect(0, 0, c.width, c.height);
-  x.fillStyle = 'rgba(8,14,24,0.55)';
-  const r = 18, W = c.width, H = c.height;
-  x.beginPath(); x.moveTo(r, 0); x.arcTo(W, 0, W, H, r); x.arcTo(W, H, 0, H, r); x.arcTo(0, H, 0, 0, r); x.arcTo(0, 0, W, 0, r); x.closePath(); x.fill();
-  x.fillStyle = '#7fd3ff'; x.font = 'bold 40px sans-serif'; x.textBaseline = 'middle';
-  x.fillText(title, 22, 34);
-  x.fillStyle = 'rgba(232,238,245,0.8)'; x.font = '28px sans-serif';
-  x.fillText(sub, 22, 72);
+  const W = c.width, H = c.height;
+  x.clearRect(0, 0, W, H);
+  x.fillStyle = 'rgba(8,14,26,0.66)';
+  rr(x, 0, 0, W, H, 18); x.fill();
+  x.font = font(900, 38);
+  const tw = x.measureText(title).width + 64;
+  x.save(); rr(x, 0, 0, W, H, 18); x.clip();
+  x.beginPath(); x.moveTo(0, 0); x.lineTo(tw + 14, 0); x.lineTo(tw, 52); x.lineTo(0, 52); x.closePath();
+  const gr = x.createLinearGradient(0, 0, tw, 0); gr.addColorStop(0, '#a30f26'); gr.addColorStop(1, '#ef2b45');
+  x.fillStyle = gr; x.fill();
+  x.restore();
+  x.fillStyle = '#ffffff'; x.beginPath(); x.arc(24, 27, 7, 0, Math.PI * 2); x.fill();     // the "live" dot
+  x.textBaseline = 'middle'; x.textAlign = 'left';
+  x.fillText(title, 40, 28);
+  x.fillStyle = 'rgba(232,238,245,0.88)'; x.font = font(600, 28);
+  x.fillText(sub, 18, 74);
   tex.needsUpdate = true;
 }
