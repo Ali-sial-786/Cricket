@@ -99,7 +99,7 @@ export class CrowdMood {
     }
     if (this.reviewing) { bed *= 0.55; roar *= 0.3; hush = Math.max(hush, 0.7); }
     roar = Math.max(roar, this.swell);
-    if (this.practice) { bed *= 0.45; roar *= 0.4; }
+    if (this.practice) { bed *= 0.3; roar *= 0.2; }        // (a training day: a few hundred in, scattered)
     if (this.menu) { bed *= 0.6; roar *= 0.2; }
     const o = this.out;
     // The hush comes fast (a held breath), the release of it slower; a swell rises in 0.2 s.
@@ -107,7 +107,7 @@ export class CrowdMood {
     o.bed += (bed - o.bed) * (1 - Math.exp(-dt / tb));
     o.roar += (roar - o.roar) * (1 - Math.exp(-dt / tr));
     o.bright = clamp(0.35 + 0.5 * o.roar + 0.15 * this.excite, 0, 1);
-    o.detail = (0.6 + this.excite) * (this.practice ? 0.3 : 1) * (this.menu ? 0.5 : 1);
+    o.detail = (0.6 + this.excite) * (this.practice ? 0.18 : 1) * (this.menu ? 0.5 : 1);
     o.hush += (hush - o.hush) * (1 - Math.exp(-dt / 0.2));
     return o;
   }

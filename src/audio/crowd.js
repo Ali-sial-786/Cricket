@@ -170,9 +170,9 @@ export class CrowdAudio {
     if (kind === 'skied' && now - this.lastReact < 0.8) return;
     this.mood.react(kind, strength);
     if (this.present && this.ctx) {
-      const az = azimuthOf(ballPos);
-      for (const [name, gain, when, place, chance] of L) if (chance == null || this.rng() < chance) this._layer(name, gain, when, place, az, strength);
-      const ch = CHANT_AFTER[kind];
+      const az = azimuthOf(ballPos), sparse = this.mood.practice;      // (the nets: a few hundred in, no chants)
+      for (const [name, gain, when, place, chance] of L) if (chance == null || this.rng() < chance) this._layer(name, sparse ? gain * 0.2 : gain, when, place, az, strength);
+      const ch = !sparse && CHANT_AFTER[kind];
       if (ch && (kind !== 'four' || this.rng() < 0.5)) this.startChant(ch + 2 + this.rng() * 3, kind);
     }
     this.lastReact = now;
