@@ -870,6 +870,7 @@ export class BattingSession {
     }
     if (this.noBall && this.innings) { outcome.noBall = true; if (!outcome.wicket && !outcome.boundary) big = `No-ball${outcome.runs ? ` + ${outcome.runs}` : ''}`; }
     else if (this.wide && !this.hit && !outcome.wicket && this.innings) { outcome.wide = true; big = outcome.runs ? `Wide + ${outcome.runs}` : 'Wide'; g.umpires.signal('wide', now); }
+    if (g.replay && g.replay.note) g.replay.note(res, outcome);     // (what happened decides the ball's replay: replayDirector.js)
 
     // Umpires, crowd, commentary.
     if (outcome.boundary) {

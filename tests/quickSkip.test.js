@@ -44,7 +44,7 @@ test('a decision is pending during an appeal, a review, the third umpire, or whe
 
 test('the fade goes down to dark from where it is, stays dark, and cut() brings the view back in', () => {
   const f = Object.create(ViewFade.prototype);
-  Object.assign(f, { mesh: { visible: false, material: { opacity: 0 }, position: { copy() {} }, quaternion: { copy() {} } }, left: 0, sec: 1, outSec: 0, outT: 0 });
+  Object.assign(f, { mesh: { visible: false, material: { uniforms: { uOpacity: { value: 0 } } } }, left: 0, sec: 1, outSec: 0, outT: 0 });
   const eye = { p: {}, q: {} };
   f.fadeOut(0.25);
   assert.equal(f.level, 0);

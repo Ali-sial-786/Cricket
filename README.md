@@ -185,19 +185,24 @@ view also faces forward by itself before each ball, on recenter, catches and rep
   picture looks over-sharpened. Tune it by eye on the chart beside the menu (*Fine tune*, *Pupil*; *Showing*
   flips with / without). It costs GPU time: lower *Area* or *Quality* if the frame rate drops. Prescription
   lens inserts remain the way to see sharply.
-* **Settings → Replays** (*after every ball* / *off*): every ball that is bowled — a leave, a dot ball, a hit, a
-  boundary, a wicket, a run-out, a reviewed ball, the balls you bowl — gets its replay, once, at real speed: one
-  camera high behind the bowler's arm watches the last strides, the release and the ball's flight, then turns to
-  the ball and closes in on it (to about 15 m: the keeper taking it, the fielder picking it up and his throw, the
-  catch) until a second after it is dead. One continuous move: no cuts, no second angle. After an appeal, a DRS
-  review or the third umpire, the replay comes after the verdict; asking for the next ball (X) during a result only
-  cuts the wait short, the replay still shows the whole of the play. In the headset you are moved through it (level,
-  gently, the edges of the view dimmed while it moves), and the play is where you face when you bat, wherever you
-  happened to be looking when it started. A small *REPLAY* label shows for the first 1.5 s. Your **off-hand
-  trigger** (the hand without the bat or the ball: the left one) skips it at any moment and goes straight on to the
-  next ball (see *Skip to the next ball* above); that press does nothing else; no other button stops it, and the
-  menu only pauses it. A catch, a stumping or a run-out is shown for 2 s after
-  the ball is dead (other balls 1 s).
+* **Settings → Replays** (*highlights* / *every ball* / *off*): by default the balls worth seeing again get a
+  replay, cut like a broadcast: wickets, fours and sixes, and close calls (a run-out or stumping that went the
+  batter's way, a dropped catch, an edge past the stumps, a ball that just missed them, an lbw shout, a direct hit,
+  a diving stop, overthrows). Leaves, dots and singles do not (*every ball* gives them a short one, 2.5 s at most).
+  The angle comes from what happened: high behind the bowler's arm for the run-up, down the line of the stumps
+  (7 m in front of the batter, at eye height) for a bowled, an lbw, a near miss or an edge, side-on at the
+  popping crease for a run-out or a stumping (frozen for a moment as the stumps break), and a tracking spot picked
+  from the ball's own flight for boundaries and catches (the ball kept near the middle of the view; a six shows the
+  arc, the landing in the stands and the crowd going up; a catch ends close on the fielder). Real speed for the
+  build-up, slow motion through the key moment (a small *SLOW MOTION* tag). At most 6 s for a wicket, 5 s for a
+  boundary or a close call. Each angle is a fixed spot that turns to follow the ball; between angles the view dips
+  to dark and back, as it does whenever the game moves you. After an appeal, a DRS review or the third umpire, the
+  replay comes after the verdict; the result banner comes back once the replay is over. In the headset the play is
+  where you face when you bat, wherever you happened to be looking when it started. A small *REPLAY* label shows
+  for the first 1.5 s. Your **off-hand trigger** (the hand without the bat or the ball: the left one) skips it at
+  any moment and goes straight on to the next ball (see *Skip to the next ball* above); that press does nothing
+  else; no other button stops it, and the menu only pauses it. **Right B** between balls (`X` on a monitor) shows
+  the last ball again, whatever the setting.
 * **The HUD panel** (beside the pitch, between balls only) shows the last ball's result, the delivery and your shot
   (exit speed, launch angle above the horizontal and where the ball went, e.g. "41° · fine leg", bat speed, how
   full the backlift was when the swing reports it, sweet spot, carry). It is cleared when the next ball starts and in a new game; during an appeal it reads *Appeal…*, then
@@ -233,6 +238,7 @@ Open the page in any WebGL2 browser without a headset. The page starts on the me
 | `Esc` or `M` | Menu (click buttons with the mouse) | Menu |
 | `C` / `T` | Cycle cameras / toggle ball trail | |
 | `Space` / `Enter` during a replay | Skip it | Skip it |
+| `X` between balls | Watch the last ball again | Watch the last ball again (after the appeal window) |
 | `N` once the ball is dead | Skip to the next ball (as the left trigger) | Skip to your next ball |
 
 `window.__game` exposes the game object in the console, for example `__game.world.ball`,

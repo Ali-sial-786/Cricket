@@ -182,12 +182,16 @@ Bowl a few overs in **Bowl an Over** or a **Match** and watch the batter from yo
 - [ ] **Settings → View → behind the player:** bat a few balls and bowl a few.
   - **Report:** whether the camera position works (`view.behindBatting` / `behindBowling`), whether you can still
     time the ball, and whether your player copies you believably.
-- [ ] **Replays:** bat and bowl a few balls each, including a big hit, a ball driven straight back, a wicket and a
-      run-out. Every ball should get a replay: one camera high behind the bowler that follows the ball after the
-      shot, no cuts.
-  - **Report:** any sickness from the moving camera (it turns at most 75°/s, moves at most 6 m/s, dims the edges),
-    whether it loses the ball, whether the **left (off-hand) trigger** skips it at once and does nothing else (it
-    must not start your run-up), and whether any other button stops it (none should; the menu pauses it).
+- [ ] **Replays:** bat and bowl a few balls each, including a leave, a single, a four, a six, a catch, a bowled
+      and a run-out. With *highlights* (the default) the leave and the single get no replay; the others do, cut
+      from angles that suit them (behind the arm, down the stumps' line, side-on at the crease, a tracking spot),
+      with slow motion through the key moment. Right B between balls shows the last ball again.
+  - **Report:** above all, comfort: any sickness from the cuts (the view dips to dark and back) or from the view
+    turning to follow the ball on tracking shots (at most 60°/s, edges dimmed while it turns); whether you can see
+    the story (the ball near the middle of the view, the catch, the stumps breaking, the foot and the line, the six
+    landing and the crowd); whether any angle puts you somewhere odd (too high, inside someone, too close to the
+    ball); whether the **left (off-hand) trigger** skips it at once and does nothing else (it must not start your
+    run-up), and whether any other button stops it (none should; the menu pauses it).
 - [ ] **Text during the run-up:** batting in nets, a chase and a match, and bowling: from the moment the bowler sets
       off (the machine's countdown, your own run-up) until the ball reaches the batter there should be nothing in
       your view. A new bowler's name / FREE HIT should show just before, and the last result between balls.

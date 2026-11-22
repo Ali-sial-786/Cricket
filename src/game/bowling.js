@@ -785,6 +785,7 @@ export class BowlingSession {
     }
     if (this.noBall) { outcome.noBall = true; if (!outcome.wicket && !outcome.boundary) big = `No-ball${outcome.runs ? ` + ${outcome.runs}` : ''}`; }
     else if (this.wide && !this.hit && !outcome.wicket) { outcome.wide = true; big = outcome.runs ? `Wide + ${outcome.runs}` : 'Wide'; color = '#ffb347'; g.umpires.signal('wide', now); }
+    if (g.replay && g.replay.note) g.replay.note(res, outcome);     // (what happened decides the ball's replay: replayDirector.js)
     if (outcome.boundary) {
       g.umpires.signal(outcome.boundary === 6 ? 'six' : 'four', now);
       g.crowdReact('boundaryAgainst');
