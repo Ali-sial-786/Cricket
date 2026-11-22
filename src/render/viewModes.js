@@ -92,21 +92,23 @@ export class PlayerBowlerActor extends Actor {
     super(scene, { team: 'home', seed: 9, headgear: 'bare' });
     this.visible = false;
     this.prev = null;
-    // Through your own eyes the ghost body's arms are all but invisible, so the
-    // ball you hold gets a hand of its own: a faint see-through hand (and wrist)
-    // in the controller's grip space, fingers round the ball.
+    // Through your own eyes the ball you hold is in a hand of its own: a solid
+    // hand in the controller's grip space, fingers along the seam and the
+    // thumb under the ball, its wrist meeting your figure's forearm (whose own
+    // bare hand is not drawn meanwhile: Humanoid uHideHand).
     this.hand = buildHeldHand();
     scene.add(this.hand);
   }
-  // pose: {p, q} grip pose in the world (null hides it); alpha: 0..1 (x the hand's own faintness);
+  // pose: {p, q} grip pose in the world (null hides it); alpha: 0..1 (below ~0.5 the hand is not drawn);
   // dz: m to add along the pitch (the run-up moved the rig after the controllers were read).
   showHand(pose, alpha = 1, dz = 0) {
-    const m = this.hand;
-    m.visible = !!pose && alpha > 0.02;
+    const m = this.hand, u = this.h.material.userData.uniforms;
+    m.visible = !!pose && alpha > 0.5;
+    u.uHideHand.value = m.visible && this.h.ghost ? this.h.boneList.indexOf(this.h.bones.handR) : -1;
     if (!m.visible) return;
     m.position.set(pose.p.x, pose.p.y, pose.p.z + dz);
     m.quaternion.set(pose.q.x, pose.q.y, pose.q.z, pose.q.w);
-    m.userData.mat.opacity = HAND_ALPHA * Math.min(1, alpha);
+    m.userData.mat.color.copy(u.uSkin.value);
   }
   // head: {p, q} world; hands: world positions (or null); t: seconds.
   update(dt, t, head, right, left, look) {
@@ -153,34 +155,58 @@ export class PlayerBowlerActor extends Actor {
 }
 
 // Grip space (WebXR): x right, y up, -z out along the controller. The ball
-// sits at CONFIG.bowling.ballHoldOffset = (0, -0.02, -0.06): palm behind it,
-// two fingers over the top along the seam, the thumb underneath.
-const HAND_ALPHA = 0.4;
+// sits at CONFIG.bowling.ballHoldOffset = (0, -0.02, -0.06): the palm behind
+// it, index and middle fingers over the top along the seam, the ring and
+// little fingers curled at the side, the thumb underneath.
 const HAND_MIN_Y = 0.09;           // wrist above the turf with the hand flat on it (model units)
 function buildHeldHand() {
-  const mat = new THREE.MeshLambertMaterial({ color: 0xc89a7a, transparent: true, opacity: HAND_ALPHA, depthWrite: false });
-  const g = new THREE.Group();
-  g.name = 'heldHand';
-  g.userData.mat = mat;
-  const add = (geo, pos, rot = [0, 0, 0]) => {
-    const m = new THREE.Mesh(geo, mat);
-    m.position.set(...pos); m.rotation.set(...rot);
-    m.renderOrder = 12;                      // after the floating panels (they are further away)
-    g.add(m);
+  const mat = new THREE.MeshLambertMaterial({ color: 0xc89a7a });
+  const C = new THREE.Vector3(0, -0.02, -0.06), RB = 0.036;
+  const parts = [];
+  // a finger: an arc round the ball at x, from angle a0 to a1 (0 = behind the ball, PI/2 = on top), tapering
+  const finger = (x, a0, a1, r0, r1, lift = 0.0095) => {
+    const pts = [];
+    for (let k = 0; k <= 8; k++) {
+      const a = a0 + (a1 - a0) * k / 8, R = RB + lift;
+      pts.push(new THREE.Vector3(C.x + x, C.y + Math.sin(a) * R, C.z + Math.cos(a) * R));
+    }
+    const curve = new THREE.CatmullRomCurve3(pts);
+    const g = new THREE.TubeGeometry(curve, 12, (r0 + r1) / 2, 8, false);
+    // taper along the finger
+    const P = g.attributes.position, N = g.attributes.normal;
+    for (let i = 0; i < P.count; i++) {
+      const seg = Math.floor(i / 9) / 12, c = curve.getPointAt(Math.min(1, seg)), rr = r0 + (r1 - r0) * seg;
+      const d = new THREE.Vector3(P.getX(i), P.getY(i), P.getZ(i)).sub(c), l = d.length() || 1;
+      d.multiplyScalar(rr / l).add(c); P.setXYZ(i, d.x, d.y, d.z);
+    }
+    g.computeVertexNormals();
+    parts.push(g);
+    const tip = new THREE.SphereGeometry(r1, 8, 6); const e = curve.getPointAt(1); tip.translate(e.x, e.y, e.z); parts.push(tip);
+    void N;
   };
-  // Palm and the back of the hand, behind and above the ball.
-  add(new THREE.CapsuleGeometry(0.016, 0.05, 4, 10).scale(1, 1, 2.3).rotateZ(Math.PI / 2), [0, 0.014, -0.012], [0.35, 0, 0]);
-  // Fingers over the ball: index and middle along the seam, ring and little to the side.
-  const finger = (x, len, tilt) => add(new THREE.CapsuleGeometry(0.0085, len, 3, 8), [x, 0.012, -0.062], [Math.PI / 2 - tilt, 0, 0]);
-  finger(-0.011, 0.05, 0.55); finger(0.011, 0.05, 0.55);
-  finger(-0.031, 0.036, 0.9); finger(0.031, 0.03, 0.9);
-  // Thumb under the ball.
-  add(new THREE.CapsuleGeometry(0.009, 0.035, 3, 8), [0.012, -0.052, -0.05], [Math.PI / 2 + 0.3, 0.3, 0]);
-  // Just the wrist (a forearm would reach back toward your face).
-  add(new THREE.CylinderGeometry(0.024, 0.027, 0.05, 10), [0, 0.005, 0.055], [Math.PI / 2, 0, 0]);
-  g.traverse((o) => { if (o.isMesh) o.frustumCulled = false; });
-  g.visible = false;
-  return g;
+  finger(-0.011, 0.55, 2.35, 0.0095, 0.0078);       // index
+  finger(0.0105, 0.55, 2.45, 0.0098, 0.008);        // middle
+  finger(0.029, 0.6, 1.95, 0.009, 0.0074, 0.008);   // ring
+  finger(0.045, 0.7, 1.55, 0.0078, 0.0066, 0.004);  // little
+  // the palm and the back of the hand, behind and above the ball
+  const palm = new THREE.SphereGeometry(1, 14, 10);
+  palm.scale(0.043, 0.022, 0.042).rotateX(-0.75).translate(0.012, 0.012, -0.005);
+  parts.push(palm);
+  // the thumb, from the heel of the hand round under the ball
+  const th = new THREE.CatmullRomCurve3([new THREE.Vector3(-0.03, -0.005, 0.0), new THREE.Vector3(-0.038, -0.03, -0.035), new THREE.Vector3(-0.022, -0.058, -0.06), new THREE.Vector3(-0.004, -0.062, -0.075)]);
+  parts.push(new THREE.TubeGeometry(th, 10, 0.0105, 8, false));
+  const tt = new THREE.SphereGeometry(0.0098, 8, 6); tt.translate(-0.004, -0.062, -0.075); parts.push(tt);
+  // the wrist, back to where your figure's forearm takes over
+  const wr = new THREE.CylinderGeometry(0.025, 0.027, 0.075, 12, 1, true);
+  wr.rotateX(Math.PI / 2 - 0.35).translate(0.006, 0.02, 0.05);
+  parts.push(wr);
+  const geo = mergeGeometries(parts.map((g) => { const q = g.index ? g.toNonIndexed() : g; for (const k of Object.keys(q.attributes)) if (k !== 'position' && k !== 'normal') q.deleteAttribute(k); return q; }));
+  const m = new THREE.Mesh(geo, mat);
+  m.name = 'heldHand';
+  m.userData.mat = mat;
+  m.frustumCulled = false;
+  m.visible = false;
+  return m;
 }
 
 // ---------------------------------------------------------------- near cull

@@ -495,9 +495,9 @@ const KIT_GLSL_COMMON = /* glsl */`
     return vec2(t, length(d - a.xyz * t));
   }
 `;
-function kitMaterial(shared = null, depth = false) {
+function kitMaterial(shared = null) {
   const mat = new THREE.MeshLambertMaterial({ vertexColors: true });
-  if (depth) mat.defines = { GHOST_DEPTH: 1 };
+  mat.defines = {};
   const uniforms = shared || {
     ...sharedUniforms(),
     uKit1: { value: new THREE.Color(0x1f4fa8) }, uKit2: { value: new THREE.Color(0xf2c12e) }, uKit3: { value: new THREE.Color(0x14285a) },
@@ -519,11 +519,12 @@ function kitMaterial(shared = null, depth = false) {
     uTrunkBones: { value: new THREE.Vector4(RIG.index.spine, RIG.index.chest, RIG.index.shoulderL, RIG.index.shoulderR) },
     uArmBones: { value: new THREE.Vector2(RIG.index.elbowL, RIG.index.elbowR) },
     uGloved: { value: 0 },         // 1: bare hands are not drawn (they are inside gloves)
-    uTrunkAlpha: { value: 1 },     // opacity of everything above the legs (x the material's opacity)
+    uHideHand: { value: -1 },      // a hand bone whose bare hand is not drawn (your bowling hand: it has its own model, viewModes.js)
     // See-through body (setGhost): opacity of trunk+arms, thighs, shins (pads), feet (boots), and of the outline.
-    uGhost: { value: new THREE.Vector4(0, 0, 0, 0) },
-    uGhostEdge: { value: 0 },
-    uGhostHands: { value: 0 },     // the gloves (on your bat's handle)
+    // Your own body (setGhost, FP_BODY): where the ball is (xyz, w = 1 when it counts) and the bat's
+    // blade (from its shoulder to its toe), so the body steps aside from them in your view.
+    uFpBall: { value: new THREE.Vector4() },
+    uFpB0: { value: new THREE.Vector4() }, uFpB1: { value: new THREE.Vector3() },
     uLegIdx: { value: new THREE.Vector3(RIG.index.hipL, RIG.index.kneeL, RIG.index.ankleL) },
     uLegIdxR: { value: new THREE.Vector3(RIG.index.hipR, RIG.index.kneeR, RIG.index.ankleR) },
   };
@@ -532,11 +533,18 @@ function kitMaterial(shared = null, depth = false) {
     sh.vertexShader = sh.vertexShader
       .replace('#include <common>', `#include <common>
         attribute vec2 kit;
-        uniform vec2 uHeadBones; uniform vec2 uLegBones; uniform vec2 uHandBones; uniform float uGloved;
+        uniform vec2 uHeadBones; uniform vec2 uLegBones; uniform vec2 uHandBones; uniform float uGloved; uniform float uHideHand;
         uniform vec4 uTrunkBones; uniform vec2 uArmBones;
         uniform vec3 uLegIdx; uniform vec3 uLegIdxR;
         varying float vHeadW; varying float vLegW; varying vec3 vSeg; varying float vHandW; varying vec2 vKA; varying float vHairE;
+        #ifdef FP_BODY
+          varying vec3 vFpW; varying float vUpW;
+        #endif
         ${KIT_GLSL_COMMON}`)
+      .replace('#include <project_vertex>', `#include <project_vertex>
+        #ifdef FP_BODY
+          vFpW = (modelMatrix * vec4(transformed, 1.0)).xyz; vUpW = upperW;
+        #endif`)
       .replace('#include <color_vertex>', `#include <color_vertex>
         float k = kit.x;
         float trunkW = 0.0, upperW = 0.0, foreW = 0.0;
@@ -554,7 +562,7 @@ function kitMaterial(shared = null, depth = false) {
             if (abs(b - uTrunkBones.z) < 0.5 || abs(b - uTrunkBones.w) < 0.5) upperW += w;
             if (abs(b - uArmBones.x) < 0.5 || abs(b - uArmBones.y) < 0.5) foreW += w;
             // Skin on a gloved hand: fold it into the 'hidden' weight.
-            if (uGloved > 0.5 && kit.x > 4.5 && kit.x < 5.5 && (abs(b - uHandBones.x) < 0.5 || abs(b - uHandBones.y) < 0.5)) vHeadW += 2.0 * skinWeight[i];
+            if (kit.x > 4.5 && kit.x < 5.5 && ((uGloved > 0.5 && (abs(b - uHandBones.x) < 0.5 || abs(b - uHandBones.y) < 0.5)) || abs(b - uHideHand) < 0.5)) vHeadW += 2.0 * skinWeight[i];
           }
         #endif
         vArmW = upperW + foreW;
@@ -609,7 +617,10 @@ function kitMaterial(shared = null, depth = false) {
         transformed += objectNormal * push;`);
     sh.fragmentShader = sh.fragmentShader
       .replace('#include <common>', `#include <common>
-        uniform float uNoHead; uniform float uTrunkAlpha; uniform vec4 uGhost; uniform float uGhostEdge; uniform float uGhostHands;
+        uniform float uNoHead;
+        #ifdef FP_BODY
+          uniform vec4 uFpBall; uniform vec4 uFpB0; uniform vec3 uFpB1; varying vec3 vFpW; varying float vUpW;
+        #endif
         varying float vHeadW; varying float vLegW; varying vec3 vSeg; varying float vHandW; varying vec2 vKA; varying float vHairE;
         uniform sampler2D uFaceMap; uniform sampler2D uDecal;
         uniform vec4 uFaceRect; uniform vec4 uFaceMisc; uniform vec4 uEye; uniform vec3 uKneeL; uniform vec3 uAnkleL; uniform vec4 uLegAxis;
@@ -660,18 +671,46 @@ function kitMaterial(shared = null, depth = false) {
         #define RE_Direct RE_Direct_Kit
         #define RE_IndirectDiffuse RE_IndirectDiffuse_Lambert`)
       .replace('#include <color_fragment>', `#include <color_fragment>
-  diffuseColor.a *= mix(uTrunkAlpha, 1.0, clamp(vLegW, 0.0, 1.0));
-  if (uGhost.w > 0.0) {
-    vec3 sg = clamp(vSeg, 0.0, 1.0);
-    float hw = clamp(vHandW, 0.0, 1.0);
-    // (the gloves fade out close to your eyes: a bat brought up to your face is not hidden behind them)
-    float near = smoothstep(0.14, 0.32, length(vViewPosition));
-    diffuseColor.a = uGhost.x * clamp(1.0 - sg.x - sg.y - sg.z - hw, 0.0, 1.0) + uGhost.y * sg.x + uGhost.z * sg.y + uGhost.w * sg.z + uGhostHands * hw * near;
-    #ifdef GHOST_DEPTH
-      // (only the pads, boots and gloves: the faint trunk, arms and thighs never hide what is behind them)
-      if (sg.y + sg.z + hw < 0.5 || diffuseColor.a < 0.2) discard;
-    #endif
+  #ifdef FP_BODY
+  {
+    // Your own body is solid, but it never hides the ball or the bat's blade from your eyes, and
+    // nothing of it comes right up to them: a dithered hole in it, along your line of sight to the
+    // ball (a cone a little wider than the ball) and to the blade (the wedge from your eye along it),
+    // and a fade of anything within ~25 cm of the eye. A few dot products; no extra pass.
+    vec3 E = cameraPosition, d = vFpW - E;
+    float dl = length(d), cut = 1.0 - smoothstep(0.2, 0.24, dl);
+    vec3 D = d / max(dl, 1e-4);
+    // Looking down you see your legs, pads and boots, not the inside of a shirt: the trunk and
+    // upper arms dissolve where you look steeply down at them (past ~37 deg below the horizon),
+    // the seat and thighs only when you look almost straight down (where they would be seen
+    // end-on, from inside); what stays is your forearms and gloves, shins, pads and boots.
+    float lower = clamp(vSeg.y + vSeg.z + vArmW - vUpW + vHandW, 0.0, 1.0);
+    float trunk = clamp(1.0 - vSeg.x - lower, 0.0, 1.0);
+    cut = max(cut, smoothstep(0.42, 0.58, trunk) * smoothstep(0.6, 0.64, -D.y));
+    cut = max(cut, smoothstep(0.42, 0.58, 1.0 - lower) * smoothstep(0.8, 0.84, -D.y));
+    if (uFpBall.w > 0.5) {
+      vec3 b = uFpBall.xyz - E; float bl = length(b);
+      float c = dot(D, b / bl), ang = sqrt(max(0.0, 1.0 - c * c)) / max(c, 1e-3);   // tan of the angle off the ball
+      float rad = 0.075 / bl + 0.012;
+      cut = max(cut, (1.0 - smoothstep(rad, rad * 1.5, ang)) * step(dl, bl) * step(0.0, c));
+    }
+    if (uFpB0.w > 0.0) {
+      vec3 a0 = uFpB0.xyz - E, a1 = uFpB1 - E;
+      vec3 n = cross(a0, a1); float nl = length(n);
+      if (nl > 1e-6) {
+        n /= nl;
+        float side = abs(dot(D, n));
+        float between = step(0.0, dot(cross(a0, D), n)) * step(0.0, dot(cross(D, a1), n));
+        float far = min(length(a0), length(a1)), w = uFpB0.w / max(far, 0.2) + 0.01;
+        cut = max(cut, (1.0 - smoothstep(w, w * 1.6, side)) * between * step(dl, far) * (1.0 - clamp(vArmW + vHandW, 0.0, 1.0)));   // (not the arms and gloves holding it)
+      }
+    }
+    // (4x4 ordered dither: a clean screen-door edge, no blending, no sorting)
+    vec2 q = mod(floor(gl_FragCoord.xy), 4.0);
+    float bayer = (mod(q.x + q.y * 2.0, 4.0) * 4.0 + mod(q.y * 3.0 + q.x * 2.0, 4.0) + 0.5) / 16.0;
+    if (cut > bayer) discard;
   }
+  #endif
   float kitH = 0.0;                           // procedural bump height (m)
   gBX = dFdx(vBind); gBY = dFdy(vBind);
   gWrap = vMat.x; gSpec = vMat.y; gShin = vMat.z; gKind = vMat.w;
@@ -681,7 +720,6 @@ function kitMaterial(shared = null, depth = false) {
     float edge = uBrim.x - uBrim.y;
     gShade = 0.62 * smoothstep(edge - 0.012, edge + 0.012, vBind.y) * front * step(vBind.y, uBrim.x + 0.01);
   }
-  #ifndef GHOST_DEPTH
   {
     float s = vSlot;
     vec3 c = diffuseColor.rgb;
@@ -886,9 +924,11 @@ function kitMaterial(shared = null, depth = false) {
       // helmet shell / hard plastic: the crest on its front
       if (vHeadW > 0.5 && vBind.z > 0.1) { vec4 t = decalAt(vBind.xy, uCapAt, uCrestUV, 0.0); c = mix(c, t.rgb, t.a); gSpec *= 1.0 - 0.3 * t.a; }
     }
+    #ifdef FP_BODY
+      if (!gl_FrontFacing) { c *= 0.32; gSpec = 0.0; }     // (your own body is two-sided: the inside of a trouser leg or pad is dark lining, not a hole)
+    #endif
     diffuseColor.rgb = c;
-  }
-  #endif`)
+  }`)
       .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
   if (uDetail > 0.5) {
     // bump from the procedural height (screen-space derivatives: no tangents needed)
@@ -923,20 +963,11 @@ function kitMaterial(shared = null, depth = false) {
             float refl = gKind > 5.5 ? 0.55 : gKind > 4.5 ? 0.06 : gKind > 3.5 ? 0.1 : 0.22;
             totalEmissiveRadiance += env * ao * refl * mix(0.25, 1.0, fres) * (gKind > 1.5 && gKind < 2.5 ? gSpec : 1.0);
           }
-          if (uGhostEdge > 0.0) {
-            // see-through body: a dark, solid outline where the surface turns away (pads and boots most)
-            float e = smoothstep(0.35, 0.85, 1.0 - clamp(dot(geometryNormal, geometryViewDir), 0.0, 1.0));
-            float lw = clamp(vSeg.x * 0.35 + vSeg.y + vSeg.z, 0.0, 1.0);
-            diffuseColor.a = max(diffuseColor.a, e * uGhostEdge * mix(0.02, 1.0, lw));
-            reflectedLight.directDiffuse *= 1.0 - 0.75 * e * lw;
-            reflectedLight.indirectDiffuse *= 1.0 - 0.75 * e * lw;
-            reflectedLight.directSpecular *= 0.3;
-          }
         }`)
       .replace('vec3 outgoingLight = reflectedLight.directDiffuse + reflectedLight.indirectDiffuse + totalEmissiveRadiance;',
         'vec3 outgoingLight = reflectedLight.directDiffuse + reflectedLight.indirectDiffuse + reflectedLight.directSpecular + totalEmissiveRadiance;');
   };
-  mat.customProgramCacheKey = () => (depth ? 'cricket-kit-v10-depth' : 'cricket-kit-v10');
+  mat.customProgramCacheKey = () => 'cricket-kit-v11';
   mat.userData.uniforms = uniforms;
   return mat;
 }
@@ -1065,42 +1096,32 @@ export class Humanoid {
     this.material.userData.uniforms.uLod.value = lod;
   }
 
-  // See-through body: what you see of yourself when you look down. No head
-  // or neck; the trunk and arms very faint, so that you see through them to
-  // your legs and feet, which are clearly drawn to judge them against the
-  // crease: thighs half see-through, pads more solid, boots most, all with a
-  // dark outline; the gloves all but solid on your bat (fading out right in
-  // front of your eyes). legs: the pads' opacity (thighs a little less, boots more).
-  // Each part is drawn as one clean layer, the nearest surface only: a
-  // depth pre-pass (a twin of the mesh on the same skeleton that only writes
-  // depth, for everything but the faint trunk) goes just before it, so the
-  // back of a pad, the inside of a glove or the other leg behind never show
-  // through as layers of grey smoke.
-  setGhost(on, legs = 0.55, trunk = 0.035) {
+  // Your own body through your own eyes: SOLID (kit, pads, boots, gloves on
+  // the bat, forearms), only without the head and neck, in one opaque draw.
+  // It used to be a faint see-through body because solid legs hid the ball at
+  // your feet; now the body steps aside instead, only where it must: seeThrough()
+  // tells the shader where the ball and your bat's blade are, and the body has a
+  // dithered hole along your line of sight to them (and fades right at your eyes).
+  // (legs, trunk: kept for the callers; the body no longer has opacities)
+  setGhost(on) {
+    on = !!on;
     if (!!this.ghost === on) return;
     this.ghost = on;
     const m = this.material, u = m.userData.uniforms;
-    m.transparent = on; m.opacity = 1; m.depthWrite = !on; m.needsUpdate = true;
+    if (on) m.defines.FP_BODY = 1; else delete m.defines.FP_BODY;
+    m.side = on ? THREE.DoubleSide : THREE.FrontSide;
+    m.transparent = false; m.alphaHash = false; m.opacity = 1; m.depthWrite = true; m.needsUpdate = true;
     this.fade = 1;
     u.uNoHead.value = on ? 1 : 0;
-    u.uTrunkAlpha.value = 1;
-    u.uGhost.value.set(on ? trunk : 0, on ? legs * 0.7 : 0, on ? legs : 0, on ? Math.min(1, legs + 0.3) : 0);
-    u.uGhostEdge.value = on ? 0.9 : 0;
-    u.uGhostHands.value = on ? 0.92 : 0;
-    this.mesh.renderOrder = on ? 3 : 0;
-    if (on && !this.ghostDepth) {
-      const dm = kitMaterial(u, true);
-      dm.transparent = true; dm.colorWrite = false; dm.depthWrite = true;
-      const g = this.ghostDepth = new THREE.SkinnedMesh(this.mesh.geometry, dm);
-      g.bind(this.mesh.skeleton, this.mesh.bindMatrix);
-      g.position.copy(this.mesh.position);
-      g.boundingSphere = this.mesh.boundingSphere; g.frustumCulled = this.mesh.frustumCulled;
-      g.renderOrder = 2.9;
-      g.layers.mask = this.mesh.layers.mask;
-      g.onBeforeRender = () => { g.geometry = this.mesh.geometry; };      // (the level of detail drawn)
-      this.root.add(g);
-    }
-    if (this.ghostDepth) this.ghostDepth.visible = on;
+    if (!on) { u.uFpBall.value.w = 0; u.uFpB0.value.w = 0; }
+  }
+
+  // Where the ball (or null: none to keep in view) and the bat's blade (b0 shoulder, b1 toe, or
+  // null; halfWidth m) are this frame, for your own body to stay out of your line of sight to them.
+  seeThrough(ball, b0 = null, b1 = null, halfWidth = 0.06) {
+    const u = this.material.userData.uniforms;
+    if (ball) u.uFpBall.value.set(ball.x, ball.y, ball.z, 1); else u.uFpBall.value.w = 0;
+    if (b0 && b1) { u.uFpB0.value.set(b0.x, b0.y, b0.z, halfWidth); u.uFpB1.value.set(b1.x, b1.y, b1.z); } else u.uFpB0.value.w = 0;
   }
 
   // Fade the whole figure (and its bat) in or out: a = 0..1. Nobody appears
@@ -1111,10 +1132,12 @@ export class Humanoid {
     a = a < 0 ? 0 : a > 1 ? 1 : a;
     if (a === (this.fade ?? 1)) return;
     this.fade = a;
-    if (this.ghost) return;                       // (your see-through body has its own opacities)
+    if (this.ghost) return;                       // (your own body through your eyes is never faded)
+    // (dissolved, not see-through: a hashed cut-out, so a fading figure is never a translucent ghost
+    // with its far side showing through, and stays in the opaque pass)
     const m = this.material;
     const tr = a < 1;
-    if (m.transparent !== tr) { m.transparent = tr; m.needsUpdate = true; }
+    if (m.alphaHash !== tr) { m.alphaHash = tr; m.needsUpdate = true; }
     m.opacity = a;
     for (const x of this.extras || []) x.traverse((o) => {
       if (!o.isMesh) return;
