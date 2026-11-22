@@ -127,10 +127,11 @@ export function buildSky(parent, centreZ) {
         // Warm aureole round the sun, strongest low down.
         float aur = sd * sd; aur *= aur;
         sky = mix(sky, uSunHaze, aur * aur * (0.75 - 0.45 * h));
-        // Clouds on a flat layer, drawn finer overhead (x3.4 at the zenith, still monotonic out to the
-        // horizon): a plain flat layer is closest straight up, where its soft puffs were magnified into
-        // smeared swirls.
-        vec2 cp = d.xz / (h + 0.09) * (1.0 + 2.4 * h * h);
+        // Clouds on a flat layer, drawn finer overhead (x1.9 at the zenith): a plain flat layer is
+        // closest straight up, where its soft puffs were magnified into smeared swirls. (A slow,
+        // linear rise: it keeps the mapping near isotropic at every height, so nothing is drawn
+        // out into streaks on the way up; the layer's own foreshortening stays at the horizon.)
+        vec2 cp = d.xz / (h + 0.09) * (1.0 + 0.9 * h);
         float up = smoothstep(0.35, 0.85, h);
         vec4 c1 = texture2D(uClouds, cp * 0.15 + vec2(0.31, 0.17));
         vec4 c2 = texture2D(uClouds, cp * 0.07 + vec2(0.6, 0.2) + vec2(0.0011, 0.0005) * uTime);
