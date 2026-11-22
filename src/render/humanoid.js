@@ -281,7 +281,7 @@ function refinePart(p, lod) {
   if (p.name === 'Details_Hair') for (let v = 0; v < C.count; v++) C.setX(v, 1);
   // (the build kept vertices whose normals differ by a little split, so the skin showed creases: weld them)
   if (lod > 0) weldNormals(g, 0.3, true, 3);
-  else if (p.name === 'Athlete_Body' || p.name === 'Details_Mouth') weldNormals(g, 0.5, false, 1);
+  else if (p.name === 'Athlete_Body' || p.name === 'Details_Mouth') weldNormals(g, 0.5, false, 2);
   // (the shirt's painted panels split its vertices, and the simplifier left creases on the shoulders,
   // upper arms and collar: one smooth normal per place, then smoothed over its neighbours)
   else if (p.name === 'Performance_Polo' || p.name === 'Details_Shirt') weldNormals(g, 0.35, true, 2);
@@ -460,6 +460,11 @@ function hullFor(geo) {
 //  * Shape variation in the vertex shader: build (girth of cloth and arms),
 //    hair standing off the scalp below the headgear.
 // depth: the see-through body's depth pre-pass (setGhost), sharing `shared` (the figure's uniforms).
+// The elbow's place along a bind-space arm (as armAt measures it) and the arm's radius there.
+function armT(side) {
+  const J = RIG.J, sh = J['shoulder' + side], d = J['hand' + side].clone().sub(sh), L = d.length();
+  return new THREE.Vector2(J['elbow' + side].clone().sub(sh).dot(d) / (L * L), 0.04);
+}
 let SHARED = null;      // uniforms that are the same for every figure (textures, landmarks)
 function sharedUniforms() {
   if (SHARED) return SHARED;
@@ -530,6 +535,8 @@ function kitMaterial(shared = null) {
     // blade (from its shoulder to its toe), so the body steps aside from them in your view.
     uFpBall: { value: new THREE.Vector4() },
     uFpB0: { value: new THREE.Vector4() }, uFpB1: { value: new THREE.Vector3() },
+    uFpHip: { value: new THREE.Vector3((RIG.J.hipL.x + RIG.J.kneeL.x) / 2, 0.7, 0.025) },   // where your trousers close over each thigh (bind: leg line x, height, z)
+    uFpElbow: { value: armT('L') },   // where your upper arm closes: the elbow's place along the arm (armAt), and the arm's radius there
     uLegIdx: { value: new THREE.Vector3(RIG.index.hipL, RIG.index.kneeL, RIG.index.ankleL) },
     uLegIdxR: { value: new THREE.Vector3(RIG.index.hipR, RIG.index.kneeR, RIG.index.ankleR) },
   };
@@ -543,10 +550,50 @@ function kitMaterial(shared = null) {
         uniform vec3 uLegIdx; uniform vec3 uLegIdxR;
         varying float vHeadW; varying float vLegW; varying vec3 vSeg; varying float vHandW; varying vec2 vKA; varying float vHairE;
         #ifdef FP_BODY
-          varying vec3 vFpW; varying float vUpW;
+          varying vec3 vFpW; varying float vUpW; varying float vFpGone; uniform vec3 uFpHip; uniform vec2 uFpElbow;
         #endif
         ${KIT_GLSL_COMMON}`)
-      .replace('#include <project_vertex>', `#include <project_vertex>
+      .replace('#include <beginnormal_vertex>', `#include <beginnormal_vertex>
+        #ifdef FP_BODY
+          // Your own body ends in rounded closes (in bind space, so they ride with the pose): the
+          // trousers over each thigh (a dome above mid-thigh) and each arm at the elbow, upper arm
+          // and sleeve folded into it. Looking down you see legs and forearms, never into an open
+          // tube whose shirt has stepped aside, and nothing of it reaches up to your eyes.
+          float fpT = 0.0, fpA = 0.0; vec2 fpC = vec2(0.0), fpR = vec2(0.0); vec3 fpE = vec3(0.0), fpAx = vec3(0.0), fpO = vec3(0.0);
+          // (what is not drawn of the trunk and shoulders is flagged, and the fragment shader drops
+          // every triangle that touches it: no slivers from the elbows back to the chest)
+          // (the shirt is never a leg, however much thigh its hem follows)
+          bool fpShirt = k > 0.5 && k < 2.5 || k > 6.5 && k < 7.5 || k > 9.5 && k < 23.5;
+          // (and so does a vertex the arm does not mostly carry: the chest would skin it elsewhere)
+          bool fpGone = (k < 3.5 || k > 4.5) && (1.0 - vArmW - vHandW - (fpShirt ? 0.0 : clamp(vSeg.x + vSeg.y + vSeg.z, 0.0, 1.0)) > 0.5 || (upperW > 0.02 && vArmW < 0.85));
+          vFpGone = fpGone ? 1.0 : 0.0;
+          if (fpGone || vArmW - foreW > 0.02) {
+            bool fl = position.x > 0.0;
+            vec4 ax = fl ? uArmL : uArmR; vec3 sh = fl ? uShoulderL : uShoulderR;
+            fpAx = ax.xyz / ax.w;
+            float t = dot(position - sh, fpAx) / ax.w;
+            fpE = sh + ax.xyz * uFpElbow.x;
+            fpO = position - sh - ax.xyz * t;                       // off the arm's line
+            // (a quarter circle from the elbow back: radius cos, length sin, so the cap starts exactly
+            // where the arm is and closes over a few centimetres)
+            fpE = sh + ax.xyz * (uFpElbow.x + 0.02);
+            fpA = clamp((uFpElbow.x + 0.02 - t) / 0.2, 0.0, 1.0) * step(0.02, upperW);   // (all of it, chest-side verts too: those are not drawn, so no sliver reaches back to the chest)
+            if (fpGone) fpA = 0.0;
+            float th = fpA * 1.5708;
+            vec3 rd = fpO / max(length(fpO), 1e-4);
+            objectNormal = normalize(mix(objectNormal, rd * cos(th) - fpAx * sin(th), sin(th)));
+          }
+          if (k > 3.5 && k < 4.5) {
+            fpT = smoothstep(uFpHip.y, uFpHip.y + 0.12, position.y);
+            fpC = vec2((color.r > 0.5 ? 1.0 : -1.0) * uFpHip.x, uFpHip.z);     // (trousers.js: colour.r is the leg)
+            fpR = position.xz - fpC;
+            float fs = 1.0 - fpT;
+            vec2 rd = fpR / max(length(fpR), 1e-4);
+            objectNormal = normalize(mix(objectNormal, vec3(rd.x * fs, sqrt(max(0.0, 1.0 - fs * fs)), rd.y * fs), fpT));
+          }
+        #endif`)
+      .replace('#include <project_vertex>', `
+        #include <project_vertex>
         #ifdef FP_BODY
           vFpW = (modelMatrix * vec4(transformed, 1.0)).xyz; vUpW = upperW;
         #endif`)
@@ -619,12 +666,16 @@ function kitMaterial(shared = null) {
         // breathing: the chest and upper back rise and fall a few millimetres
         float br = sin(uTime * (1.45 + 0.4 * uSeed) + uSeed * 40.0);
         push += 0.0022 * br * trunkW * smoothstep(1.12, 1.3, position.y) * smoothstep(1.47, 1.38, position.y) * step(k, 7.5);
-        transformed += objectNormal * push;`);
+        transformed += objectNormal * push;
+        #ifdef FP_BODY
+          if (fpT > 0.0) { float fs = 1.0 - fpT; transformed.xz = fpC + fpR * fs; transformed.y = uFpHip.y + 0.06 * sqrt(max(0.0, 1.0 - fs * fs)); }
+          if (fpA > 0.0) { float th = fpA * 1.5708; transformed = fpE + fpO * cos(th) - fpAx * uFpElbow.y * sin(th); }
+        #endif`);
     sh.fragmentShader = sh.fragmentShader
       .replace('#include <common>', `#include <common>
         uniform float uNoHead;
         #ifdef FP_BODY
-          uniform vec4 uFpBall; uniform vec4 uFpB0; uniform vec3 uFpB1; varying vec3 vFpW; varying float vUpW;
+          uniform vec4 uFpBall; uniform vec4 uFpB0; uniform vec3 uFpB1; varying vec3 vFpW; varying float vUpW; varying float vFpGone;
         #endif
         varying float vHeadW; varying float vLegW; varying vec3 vSeg; varying float vHandW; varying vec2 vKA; varying float vHairE;
         uniform sampler2D uFaceMap; uniform sampler2D uDecal;
@@ -685,14 +736,15 @@ function kitMaterial(shared = null) {
     vec3 E = cameraPosition, d = vFpW - E;
     float dl = length(d), cut = 1.0 - smoothstep(0.2, 0.24, dl);
     vec3 D = d / max(dl, 1e-4);
-    // Looking down you see your legs, pads and boots, not the inside of a shirt: the trunk and
-    // upper arms dissolve where you look steeply down at them (past ~37 deg below the horizon),
-    // the seat and thighs only when you look almost straight down (where they would be seen
-    // end-on, from inside); what stays is your forearms and gloves, shins, pads and boots.
-    float lower = clamp(vSeg.y + vSeg.z + vArmW - vUpW + vHandW, 0.0, 1.0);
-    float trunk = clamp(1.0 - vSeg.x - lower, 0.0, 1.0);
-    cut = max(cut, smoothstep(0.42, 0.58, trunk) * smoothstep(0.6, 0.64, -D.y));
-    cut = max(cut, smoothstep(0.42, 0.58, 1.0 - lower) * smoothstep(0.8, 0.84, -D.y));
+    // Looking down you see your legs (closed over the thighs: the domes in the vertex shader),
+    // pads and boots, your forearms and gloves; never the inside of a shirt or a sleeve.
+    bool shirtS = vSlot > 0.5 && vSlot < 2.5 || vSlot > 6.5 && vSlot < 7.5 || vSlot > 9.5 && vSlot < 23.5;
+    float arm = clamp(vArmW + vHandW, 0.0, 1.0), leg = shirtS ? 0.0 : clamp(vSeg.x + vSeg.y + vSeg.z, 0.0, 1.0);
+    // (the trunk, shirt and upper arms are not drawn at all through your own eyes: a clean cut
+    // where the weights hand over to the forearms; the elbows are closed, see the vertex shader)
+    float trunk = clamp(1.0 - arm - leg, 0.0, 1.0) * step(0.5, abs(vSlot - 4.0));
+    if (trunk > 0.5) discard;
+    if (vFpGone > 0.002) discard;      // (any triangle touching a vertex that is not drawn: no fins)
     if (uFpBall.w > 0.5) {
       vec3 b = uFpBall.xyz - E; float bl = length(b);
       float c = dot(D, b / bl), ang = sqrt(max(0.0, 1.0 - c * c)) / max(c, 1e-3);   // tan of the angle off the ball
@@ -707,7 +759,7 @@ function kitMaterial(shared = null) {
         float side = abs(dot(D, n));
         float between = step(0.0, dot(cross(a0, D), n)) * step(0.0, dot(cross(D, a1), n));
         float far = min(length(a0), length(a1)), w = uFpB0.w / max(far, 0.2) + 0.01;
-        cut = max(cut, (1.0 - smoothstep(w, w * 1.6, side)) * between * step(dl, far) * (1.0 - clamp(vArmW + vHandW, 0.0, 1.0)));   // (not the arms and gloves holding it)
+        cut = max(cut, (1.0 - smoothstep(w * 0.8, w * 2.2, side)) * between * step(dl, far) * (1.0 - clamp(vArmW + vHandW, 0.0, 1.0)));   // (not the arms and gloves holding it)
       }
     }
     // (4x4 ordered dither: a clean screen-door edge, no blending, no sorting)

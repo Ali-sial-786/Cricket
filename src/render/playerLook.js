@@ -21,9 +21,9 @@ import * as THREE from 'three';
 // Kit slots: kit1 shirt, kit2 trim / lettering, kit3 headgear, kit4 trousers,
 // panel = shoulder yoke, sleeve pattern; band = cap / helmet stripe.
 export const TEAMS = {
-  home: { name: 'HARBOUR KESTRELS', crest: 0, sponsor: 0,
+  home: { name: 'HARBOUR KINGS', crest: 0, sponsor: 0,
     kit1: 0x1d4fb0, kit2: 0xf3c331, kit3: 0x10275e, kit4: 0x14306e, panel: 0x16408f },
-  away: { name: 'REDFIELD FOXES', crest: 1, sponsor: 1,
+  away: { name: 'SUMMIT STARS', crest: 1, sponsor: 1,
     kit1: 0xb5231d, kit2: 0xf6f3ea, kit3: 0x5a100d, kit4: 0x761611, panel: 0x8e1813 },
   umpire: { name: '', crest: 2, sponsor: -1,
     kit1: 0xf1eee4, kit2: 0x232838, kit3: 0xf2efe2, kit4: 0x272d3d, panel: 0xe6e2d6 },
@@ -109,45 +109,55 @@ function drawAtlas() {
     g.fillStyle = 'rgb(255,0,0)'; g.fillText(chars[i], 0, 0);
     g.restore();
   }
-  crestKestrel(g, ...CREST[0]);
-  crestFox(g, ...CREST[1]);
+  crestKings(g, ...CREST[0]);
+  crestStars(g, ...CREST[1]);
   crestUmpire(g, ...CREST[2]);
   maker(g, ...MAKER);
   sponsor(g, SPONSOR[0], 'VANTARO', '#ffffff', '#f3c331');
   sponsor(g, SPONSOR[1], 'ODELLA', '#ffffff', '#1a1a1a');
   return c;
 }
-// Harbour Kestrels: a gold-rimmed navy shield, a stooping kestrel's wings over waves.
-function crestKestrel(g, x, y, w, h) {
+// Harbour Kings (HK, the home side): a gold-rimmed navy shield, a gold crown over waves.
+function crestKings(g, x, y, w, h) {
   g.save(); g.translate(x + w / 2, y + h / 2); g.scale(w / 256, h / 256);
   const shield = () => { g.beginPath(); g.moveTo(-92, -104); g.lineTo(92, -104); g.lineTo(92, 10); g.quadraticCurveTo(88, 78, 0, 116); g.quadraticCurveTo(-88, 78, -92, 10); g.closePath(); };
   shield(); g.fillStyle = '#f3c331'; g.fill();
   g.save(); g.scale(0.86, 0.86); g.translate(0, -4); shield(); g.fillStyle = '#10275e'; g.fill(); g.restore();
   // waves
-  g.strokeStyle = '#3a78d6'; g.lineWidth = 9;
-  for (const yy of [48, 70]) { g.beginPath(); for (let k = -70; k <= 70; k += 4) g.lineTo(k, yy + 7 * Math.sin(k * 0.09)); g.stroke(); }
-  // the bird: body, two swept wings, tail
+  g.strokeStyle = '#3a78d6'; g.lineWidth = 9; g.lineCap = 'round';
+  for (const yy of [44, 66]) { g.beginPath(); for (let k = -66; k <= 66; k += 4) g.lineTo(k, yy + 7 * Math.sin(k * 0.09)); g.stroke(); }
+  // the crown: a band, five points with jewels, an arch of gold
   g.fillStyle = '#f3c331';
-  g.beginPath(); g.moveTo(0, -70); g.quadraticCurveTo(14, -40, 6, 10); g.lineTo(0, 30); g.lineTo(-6, 10); g.quadraticCurveTo(-14, -40, 0, -70); g.fill();
-  for (const sx of [-1, 1]) { g.beginPath(); g.moveTo(sx * 6, -36); g.quadraticCurveTo(sx * 50, -64, sx * 80, -40); g.quadraticCurveTo(sx * 48, -30, sx * 30, -6); g.quadraticCurveTo(sx * 18, -14, sx * 6, -14); g.fill(); }
+  g.beginPath(); g.moveTo(-58, 18); g.lineTo(58, 18); g.lineTo(54, -2); g.lineTo(-54, -2); g.closePath(); g.fill();
+  g.beginPath(); g.moveTo(-54, -2);
+  const pts = [[-62, -50], [-31, -16], [0, -62], [31, -16], [62, -50]];
+  g.lineTo(-62, -50); g.lineTo(-31, -16); g.lineTo(0, -62); g.lineTo(31, -16); g.lineTo(62, -50); g.lineTo(54, -2); g.closePath(); g.fill();
+  for (const [px, py] of pts.filter((_, i) => i % 2 === 0)) { g.beginPath(); g.arc(px, py - 6, 7, 0, Math.PI * 2); g.fill(); }
+  g.fillStyle = '#c0392b'; for (const px of [-30, 0, 30]) { g.beginPath(); g.arc(px, 8, 5, 0, Math.PI * 2); g.fill(); }
   g.fillStyle = '#ffffff'; g.font = '900 30px Arial, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
-  g.fillText('HK', 0, -88 + 4);
+  g.fillText('HK', 0, -84);
   g.restore();
 }
-// Redfield Foxes: a white roundel, a red fox's head in profile, a gold ring.
-function crestFox(g, x, y, w, h) {
+// Summit Stars (SS): a white roundel with a gold rim, a crimson mountain peak, a gold star over it.
+function crestStars(g, x, y, w, h) {
   g.save(); g.translate(x + w / 2, y + h / 2); g.scale(w / 256, h / 256);
   g.beginPath(); g.arc(0, 0, 112, 0, Math.PI * 2); g.fillStyle = '#e9c45a'; g.fill();
-  g.beginPath(); g.arc(0, 0, 100, 0, Math.PI * 2); g.fillStyle = '#f6f3ea'; g.fill();
-  g.beginPath(); g.arc(0, 0, 84, 0, Math.PI * 2); g.fillStyle = '#7a1410'; g.fill();
-  // fox head: ears, cheeks, snout
-  g.fillStyle = '#e8562a';
-  g.beginPath(); g.moveTo(-44, -10); g.lineTo(-40, -66); g.lineTo(-12, -30); g.lineTo(12, -30); g.lineTo(40, -66); g.lineTo(44, -10); g.quadraticCurveTo(46, 20, 0, 58); g.quadraticCurveTo(-46, 20, -44, -10); g.fill();
+  g.beginPath(); g.arc(0, 0, 100, 0, Math.PI * 2); g.fillStyle = '#9e1b16'; g.fill();
+  g.beginPath(); g.arc(0, 0, 86, 0, Math.PI * 2); g.fillStyle = '#f6f3ea'; g.fill();
+  // the peaks: a big one and a smaller one behind, snow on the summit
+  g.fillStyle = '#c2271f';
+  g.beginPath(); g.moveTo(-74, 46); g.lineTo(-30, -14); g.lineTo(-8, 12); g.lineTo(18, -38); g.lineTo(76, 46); g.closePath(); g.fill();
   g.fillStyle = '#f6f3ea';
-  for (const sx of [-1, 1]) { g.beginPath(); g.moveTo(sx * 44, -6); g.quadraticCurveTo(sx * 30, 26, 0, 58); g.quadraticCurveTo(sx * 14, 20, sx * 10, 6); g.closePath(); g.fill(); }
-  g.fillStyle = '#1a1a1a';
-  g.beginPath(); g.arc(0, 52, 7, 0, Math.PI * 2); g.fill();
-  for (const sx of [-1, 1]) { g.beginPath(); g.ellipse(sx * 18, -6, 6, 4, sx * 0.4, 0, Math.PI * 2); g.fill(); }
+  g.beginPath(); g.moveTo(18, -38); g.lineTo(32, -12); g.lineTo(22, -18); g.lineTo(12, -8); g.lineTo(6, -16); g.closePath(); g.fill();
+  // the star
+  g.fillStyle = '#e9b52f';
+  g.beginPath();
+  for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + i * Math.PI / 5, r = i % 2 ? 9 : 22; g.lineTo(-30 + Math.cos(a) * r, -50 + Math.sin(a) * r); }
+  g.closePath(); g.fill();
+  // SS on a crimson band under the peaks
+  g.fillStyle = '#9e1b16'; g.fillRect(-70, 46, 140, 26);
+  g.fillStyle = '#ffffff'; g.font = '900 24px Arial, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillText('SS', 0, 60);
   g.restore();
 }
 // The officials' badge (an invented cricket board's): navy shield, crossed stumps.
