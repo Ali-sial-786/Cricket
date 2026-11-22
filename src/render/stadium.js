@@ -14,6 +14,7 @@
 //     (behind the bowler, sightscreen wedge)                   ~241 big screen
 //     towers at 45, 135, 225, 315; roofs over the stands between them
 import * as THREE from 'three';
+import { buildFoliage } from './trees.js';
 import { CONFIG } from '../config.js';
 import { KIND } from './crowd.js';
 
@@ -407,7 +408,7 @@ export function buildStadium(root, lights) {
   const sunDir = lights.dirs[0] ? lights.dirs[0].dir.clone().normalize() : new THREE.Vector3(-0.45, 0.79, 0.34);
   const shadeAt = makeShade(sunDir);
   const B = new Builder(8, shadeAt);
-  const spots = [], blocks = new Map();
+  const spots = [], blocks = new Map(), treeSpecs = [];
   const lampHousing = new THREE.CylinderGeometry(0.66, 0.74, 0.6, 10, 1, true), lampFace = new THREE.CircleGeometry(0.62, 12), lampBack = new THREE.CircleGeometry(0.74, 10);
   const LAMP_AXIS = new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.PI / 2, 0, 0)), ONE = new THREE.Vector3(1, 1, 1);
   const LAMP_FLIP = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, Math.PI, 0)), glowAt = [];
@@ -428,7 +429,7 @@ export function buildStadium(root, lights) {
   const C = {
     concrete: T(0xb9b5ad), wall: T(0x24333f), seatLow: T(0x2f5266), seatUp: T(0x3b6276), seatAlt: T(0xc9ced4), cover: T(0x272d36),
     members: T(0x2f5a3c), fascia: T(0x18222d), roofUnder: T(0xbcc5d2), roofTop: T(0xdfe3e6), steel: T(0xe9ecee), dark: T(0x14181d),
-    grass: T(0x5e8f3e), cream: T(0xece3cf), green: T(0x3f6b55), white: T(0xf4f2ec), tower: T(0xa8afb6), tarp: T(0x3a4842),
+    grass: T(0x5e8f3e), cream: T(0xece3cf), green: T(0x3f6b55), white: T(0xf4f2ec), tower: T(0xa8afb6), tarp: T(0x47554e),
   };
 
   // A profile edge swept from a0 to a1 (degrees): (r0,y0) -> (r1,y1), uv band slice [f0, f1].
@@ -629,7 +630,7 @@ export function buildStadium(root, lights) {
     }
     prof.push([rEnd, yEnd + 0.35], [rEnd, yEnd]);
     const base = C.tarp, k = (f) => [base[0] * f, base[1] * f, base[2] * f];
-    const edge = k(0.6), mid = k(1.12), strap = k(0.42), sw = 0.11 / ((T0.r0 + rEnd) / 2) / D;
+    const edge = k(0.68), mid = k(1.14), strap = k(0.5), sw = 0.11 / ((T0.r0 + rEnd) / 2) / D;
     const am = (a0 + a1) / 2;
     for (let n = 1; n < prof.length; n++) {
       const [r0, y0] = prof[n - 1], [r1, y1] = prof[n];
@@ -731,41 +732,26 @@ export function buildStadium(root, lights) {
       }
     }
   }
-  // Trees at 90-130 m: a trunk with two limbs and a canopy of jittered lumps
-  // (broadleaf dome, a narrow poplar, a layered conifer), each vertex tinted
-  // darker low and inside the crown, lighter on the sun side and the top.
+  // Trees at 90-130 m (broadleaf, a narrow poplar, a conifer): the trunk, mostly hidden, and a dark
+  // core of a few lumps here; the crown itself is leaf-cluster cards over that core (trees.js),
+  // so the silhouette is irregular and soft instead of faceted. (The card tint is this tree's green
+  // relative to the leaf atlas's own: ~1, its hue and depth.)
   function tree(x, y, z, k, kind = 'broad') {
     const m = new THREE.Matrix4(), q = new THREE.Quaternion();
-    const greens = kind === 'conifer' ? [0x24432a, 0x2b4d30] : kind === 'poplar' ? [0x4b6f2e, 0x557a33] : [0x3a6a2c, 0x46772f, 0x335f2a, 0x527d34];
+    const greens = kind === 'conifer' ? [0x2c4a30, 0x33553a] : kind === 'poplar' ? [0x5a7a36, 0x63843c] : [0x4a7432, 0x557d36, 0x44703a, 0x5d8238];
     const base = new THREE.Color(greens[Math.floor(rand() * greens.length)]);
     const h = (kind === 'poplar' ? 12 : kind === 'conifer' ? 11 : 8.5) * k, crownR = (kind === 'poplar' ? 1.8 : kind === 'conifer' ? 2.6 : 3.8) * k;
-    const sunH = new THREE.Vector2(sunDir.x, sunDir.z).normalize();
-    const tintFn = (px, py, pz, nx, ny, nz) => {
-      const up = clamp((py - y - h * 0.3) / (h * 0.75), 0, 1), out = clamp(Math.hypot(px - x, pz - z) / crownR, 0, 1);
-      const side = 0.5 + 0.5 * (nx * sunH.x + nz * sunH.y);
-      const f = (0.55 + 0.3 * up + 0.2 * out) * (0.85 + 0.25 * side) * (0.9 + 0.2 * Math.max(0, ny));
-      return [base.r * f, base.g * f, base.b * f];
-    };
-    const trunkH = kind === 'conifer' ? h * 0.35 : h * 0.55;
-    B.geom(trunkGeo, m.compose(new THREE.Vector3(x, y + trunkH / 2, z), q, new THREE.Vector3(k * 0.9, trunkH / 4, k * 0.9)), { tint: T(0x4a3d30), sky: 0.8 });
-    if (kind === 'broad') for (const s2 of [-1, 1]) { const ang = rand() * Math.PI * 2; B.beam([x, y + trunkH * 0.7, z], [x + Math.cos(ang) * 1.6 * k * s2, y + trunkH * 1.15, z + Math.sin(ang) * 1.6 * k * s2], 0.22 * k, { tint: T(0x4a3d30), sky: 0.7 }); }
-    if (kind === 'conifer') {
-      for (let i = 0; i < 4; i++) {
-        const t = i / 4, rr = crownR * (1 - t * 0.7), hh = h * 0.34;
-        q.setFromEuler(new THREE.Euler((rand() - 0.5) * 0.08, rand() * 6.3, (rand() - 0.5) * 0.08));
-        B.geom(coneGeo, m.compose(new THREE.Vector3(x, y + h * (0.3 + t * 0.55) + hh / 2, z), q, new THREE.Vector3(rr, hh, rr)), { tintFn });
-      }
-      return;
-    }
-    // Lumps: a lower ring round the trunk top and a few higher, all a bit different.
-    const lumps = kind === 'poplar' ? [[0, 0.5, 0, 1.0], [0, 0.72, 0, 0.9], [0, 0.9, 0, 0.7]] :
-      [[0.55, 0.55, 0, 0.62], [-0.5, 0.58, 0.3, 0.6], [0.1, 0.56, -0.6, 0.58], [-0.15, 0.6, 0.6, 0.55], [0.2, 0.8, 0.1, 0.62], [-0.3, 0.86, -0.2, 0.5], [0.35, 0.74, 0.45, 0.45]];
-    for (const [lx, ly, lz, ls] of lumps) {
-      const sc = ls * crownR * (0.85 + rand() * 0.3);
+    const trunkH = kind === 'conifer' ? h * 0.3 : h * 0.5;
+    B.geom(trunkGeo, m.compose(new THREE.Vector3(x, y + trunkH / 2, z), q, new THREE.Vector3(k * 0.8, trunkH / 4, k * 0.8)), { tint: T(0x4a3d30), sky: 0.7 });
+    const dark = [base.r * 0.42, base.g * 0.42, base.b * 0.42];
+    const cores = kind === 'conifer' ? [[0, 0.4, 0, 0.55, 1.4], [0, 0.6, 0, 0.36, 1.4]] : kind === 'poplar' ? [[0, 0.58, 0, 0.42, 2.6]] : [[0, 0.64, 0, 0.7, 0.7], [0.3, 0.6, 0.2, 0.5, 0.65]];
+    for (const [lx, ly, lz, ls, sy] of cores) {
+      const sc = ls * crownR;
       q.setFromEuler(new THREE.Euler(rand() * 6.3, rand() * 6.3, 0));
-      const sy = kind === 'poplar' ? sc * 2.2 : sc * 0.82;
-      B.geom(lumpGeo[Math.floor(rand() * 3)], m.compose(new THREE.Vector3(x + lx * crownR, y + ly * h, z + lz * crownR), q, new THREE.Vector3(sc, sy, sc)), { tintFn });
+      B.geom(lumpGeo[Math.floor(rand() * 3)], m.compose(new THREE.Vector3(x + lx * crownR, y + ly * h, z + lz * crownR), q, new THREE.Vector3(sc, sc * sy, sc)), { tint: dark, sky: 0.6 });
     }
+    q.identity();
+    treeSpecs.push({ x, y, z, h, crownR, kind, tint: [base.r / 0.078, base.g / 0.188, base.b / 0.034].map((v) => clamp(v, 0.3, 1.6)), seed: 1 + Math.floor(rand() * 1e6) });
   }
 
   // ---------------------------------------------------------- roofs
@@ -1046,6 +1032,7 @@ export function buildStadium(root, lights) {
   const led = buildLed(ledR, ledH, (a) => wedge(a) ? 0 : 1, (a) => typeAt(a) === 'stand' && !wedge(a));
   group.add(led.mesh);
   group.add(buildGlow(glowAt));
+  if (treeSpecs.length) group.add(buildFoliage(treeSpecs, sunDir));
 
   root.add(group);
 

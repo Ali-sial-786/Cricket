@@ -12,7 +12,8 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 function mulberry(a) { return () => { a |= 0; a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
 
-// R = cumulus density, G = how sunlit (0.5 neutral), B = cirrus. Tileable.
+// R = cumulus density, G = how sunlit (0.5 neutral), B = cirrus, A = thickness (the density
+// blurred: deep in a cloud = its shadowed underside). Tileable.
 function cloudTexture() {
   const N = 1024, r = mulberry(4242);
   const mk = () => { const c = document.createElement('canvas'); c.width = c.height = N; const g = c.getContext('2d', { willReadFrequently: true }); g.fillStyle = '#000'; g.fillRect(0, 0, N, N); return g; };
@@ -23,44 +24,54 @@ function cloudTexture() {
       fn(px, py);
     }
   };
-  // Cumulus: clusters of puffs, dense cores, ragged edges, a few small fragments.
+  // Cumulus: each cloud a broad, flattened body of large soft puffs, billows on it with firmer
+  // (cauliflower) edges in a range of sizes, small turrets, and a fringe of faint wisps; clouds of
+  // very different sizes (a few big, many small) and loose fragments between them.
   const cu = mk();
   cu.globalCompositeOperation = 'lighter';
-  const puff = (x, y, rad, a) => wrapDraw(cu, x, y, rad, (px, py) => {
+  const puff = (x, y, rad, a, firm = 0.5) => wrapDraw(cu, x, y, rad, (px, py) => {
     const gr = cu.createRadialGradient(px, py, 0, px, py, rad);
-    gr.addColorStop(0, `rgba(255,0,0,${a})`); gr.addColorStop(0.5, `rgba(255,0,0,${a * 0.7})`); gr.addColorStop(1, 'rgba(255,0,0,0)');
+    gr.addColorStop(0, `rgba(255,0,0,${a})`); gr.addColorStop(firm, `rgba(255,0,0,${a * 0.75})`); gr.addColorStop(Math.min(0.97, firm + 0.3), `rgba(255,0,0,${a * 0.3})`); gr.addColorStop(1, 'rgba(255,0,0,0)');
     cu.fillStyle = gr; cu.beginPath(); cu.arc(px, py, rad, 0, Math.PI * 2); cu.fill();
   });
-  for (let c = 0; c < 15; c++) {
-    const cx = r() * N, cy = r() * N, size = 40 + r() * 80, n = 16 + Math.floor(r() * 22), stretch = 1 + r() * 0.9, rot = r() * Math.PI;
+  const wisp = (x, y, len, wid, rot, a) => wrapDraw(cu, x, y, len, (px, py) => {
+    cu.save(); cu.translate(px, py); cu.rotate(rot); cu.scale(1, wid / len);
+    const gr = cu.createRadialGradient(0, 0, 0, 0, 0, len);
+    gr.addColorStop(0, `rgba(255,0,0,${a})`); gr.addColorStop(1, 'rgba(255,0,0,0)');
+    cu.fillStyle = gr; cu.beginPath(); cu.arc(0, 0, len, 0, Math.PI * 2); cu.fill(); cu.restore();
+  });
+  for (let c = 0; c < 17; c++) {
+    const big = r(), size = 26 + big * big * 110, cx = r() * N, cy = r() * N, stretch = 1.2 + r() * 1.0, rot = r() * Math.PI;
+    const at = (d, a) => { const lx = Math.cos(a) * d * stretch, ly = Math.sin(a) * d; return [cx + lx * Math.cos(rot) - ly * Math.sin(rot), cy + lx * Math.sin(rot) + ly * Math.cos(rot)]; };
+    // the body
+    for (let i = 0; i < 6; i++) { const [x, y] = at(Math.sqrt(r()) * size * 0.7, r() * Math.PI * 2); puff(x, y, size * (0.6 + r() * 0.35), 0.2 + r() * 0.08, 0.35); }
+    // billows of mixed sizes, firmer edged
+    const n = 10 + Math.floor(size / 5);
     for (let i = 0; i < n; i++) {
-      const a = r() * Math.PI * 2, d = Math.sqrt(r()) * size * 1.3;
-      const lx = Math.cos(a) * d * stretch, ly = Math.sin(a) * d;
-      const x = cx + lx * Math.cos(rot) - ly * Math.sin(rot), y = cy + lx * Math.sin(rot) + ly * Math.cos(rot);
-      puff(x, y, size * (0.35 + r() * 0.55) * (1 - d / (size * 2.2)), 0.22 + r() * 0.2);
+      const d = Math.sqrt(r()) * size * 1.15, [x, y] = at(d, r() * Math.PI * 2);
+      puff(x, y, size * (0.22 + r() * r() * 0.5) * (1 - d / (size * 2.4)), 0.16 + r() * 0.14, 0.4);
     }
-    // Smaller turrets and wisps on the cluster: lumpier tops, ragged edges.
-    for (let i = 0; i < n; i++) {
-      const a = r() * Math.PI * 2, d = Math.sqrt(r()) * size * 1.5;
-      const lx = Math.cos(a) * d * stretch, ly = Math.sin(a) * d;
-      puff(cx + lx * Math.cos(rot) - ly * Math.sin(rot), cy + lx * Math.sin(rot) + ly * Math.cos(rot), size * (0.1 + r() * 0.2), 0.12 + r() * 0.12);
-    }
+    // the wispy fringe (the billows' own edges come from the noise below)
+    for (let i = 0; i < 14; i++) { const a = r() * Math.PI * 2, [x, y] = at(size * (1.0 + r() * 0.5), a); wisp(x, y, size * (0.2 + r() * 0.35), 2 + r() * 4, rot + a + (r() - 0.5) * 0.8, 0.06 + r() * 0.08); }
   }
-  for (let i = 0; i < 40; i++) puff(r() * N, r() * N, 8 + r() * 18, 0.2 + r() * 0.15);
-  // Cirrus: wispy brushed streaks, in blue on the same canvas ('lighter' adds per channel).
-  const ci = cu;
-  for (let s = 0; s < 18; s++) {
-    const cx = r() * N, cy = r() * N, rot = r() * Math.PI;
-    for (let i = 0; i < 30; i++) {
-      const x = cx + (r() - 0.5) * 180, y = cy + (r() - 0.5) * 90, len = 20 + r() * 60, wid = 1.5 + r() * 4;
-      wrapDraw(ci, x, y, len, (px, py) => {
-        ci.save(); ci.translate(px, py); ci.rotate(rot + (r() - 0.5) * 0.7); ci.scale(1, wid / len);
-        const gr = ci.createRadialGradient(0, 0, 0, 0, 0, len);
-        gr.addColorStop(0, `rgba(0,0,255,${0.07 + r() * 0.08})`); gr.addColorStop(1, 'rgba(0,0,255,0)');
-        ci.fillStyle = gr; ci.beginPath(); ci.arc(0, 0, len, 0, Math.PI * 2); ci.fill(); ci.restore();
+  for (let i = 0; i < 50; i++) puff(r() * N, r() * N, 8 + r() * r() * 26, 0.18 + r() * 0.16, 0.4);
+  // Cirrus: long, thin, slightly curved hair strands in families (mare's tails), in blue on the same
+  // canvas ('lighter' adds per channel).
+  cu.lineCap = 'round';
+  cu.filter = 'blur(2.5px)';                          // (soft hair, not scratches, once the layer magnifies it)
+  for (let s = 0; s < 16; s++) {
+    const cx = r() * N, cy = r() * N, rot = r() * Math.PI, bend = (r() - 0.5) * 0.8;
+    for (let i = 0; i < 26; i++) {
+      const x = cx + (r() - 0.5) * 220, y = cy + (r() - 0.5) * 110, len = 50 + r() * 150, a0 = rot + (r() - 0.5) * 0.25;
+      wrapDraw(cu, x, y, len, (px, py) => {
+        cu.strokeStyle = `rgba(0,0,255,${0.07 + r() * 0.1})`; cu.lineWidth = 2.5 + r() * 4;
+        cu.beginPath(); cu.moveTo(px - Math.cos(a0) * len / 2, py - Math.sin(a0) * len / 2);
+        cu.quadraticCurveTo(px + Math.cos(a0 + Math.PI / 2) * len * bend * 0.3, py + Math.sin(a0 + Math.PI / 2) * len * bend * 0.3, px + Math.cos(a0 + bend) * len / 2, py + Math.sin(a0 + bend) * len / 2);
+        cu.stroke();
       });
     }
   }
+  cu.filter = 'none';
   const a = cu.getImageData(0, 0, N, N).data;
   // Density with defined, slightly soft edges; shading = how much less cloud
   // there is toward the sun (the sunward rim is bright, the far side and the
@@ -68,12 +79,38 @@ function cloudTexture() {
   const sx = SUN_DIR.x / Math.hypot(SUN_DIR.x, SUN_DIR.z), sz = SUN_DIR.z / Math.hypot(SUN_DIR.x, SUN_DIR.z), off = 12;
   const ox = Math.round(sx * off), oy = Math.round(sz * off);
   const M = N - 1;
+  // thickness: the raw density box-blurred (radius 14, both ways, wrapping)
+  // The puffs only say where the clouds are; their billows and ragged, cauliflower edges are a
+  // tileable value-noise fBm (four octaves, 128..16 px) eating into that mask. (Built at half size
+  // and read back bilinearly: ~40 ms instead of ~150.)
+  const H = N / 2, fbm = new Float32Array(H * H);
+  for (let o = 0, amp = 0.5; o < 4; o++, amp *= 0.55) {
+    const P = 8 << o, cell = H / P, L = new Float32Array(P * P);
+    for (let i = 0; i < P * P; i++) L[i] = r();
+    for (let j = 0; j < H; j++) {
+      const fy = j / cell, y0 = Math.floor(fy), ty = fy - y0, sy = ty * ty * (3 - 2 * ty), r0 = (y0 % P) * P, r1 = ((y0 + 1) % P) * P;
+      for (let i = 0; i < H; i++) {
+        const fx = i / cell, x0 = Math.floor(fx), tx = fx - x0, sx2 = tx * tx * (3 - 2 * tx), c0 = x0 % P, c1 = (x0 + 1) % P;
+        const top = L[r0 + c0] + (L[r0 + c1] - L[r0 + c0]) * sx2, bot = L[r1 + c0] + (L[r1 + c1] - L[r1 + c0]) * sx2;
+        fbm[j * H + i] += (top + (bot - top) * sy) * amp;
+      }
+    }
+  }
+  const noiseAt = (i, j) => {
+    const x = i * 0.5, y = j * 0.5, x0 = Math.floor(x), y0 = Math.floor(y), tx = x - x0, ty = y - y0, x1 = (x0 + 1) % H, y1 = (y0 + 1) % H;
+    const t = fbm[y0 * H + x0] + (fbm[y0 * H + x1] - fbm[y0 * H + x0]) * tx, b = fbm[y1 * H + x0] + (fbm[y1 * H + x1] - fbm[y1 * H + x0]) * tx;
+    return t + (b - t) * ty;
+  };
+  const R = 14, raw = new Float32Array(N * N), tmp = new Float32Array(N * N), thick = new Float32Array(N * N);
+  for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) { const k = j * N + i, m = a[k * 4] / 255; raw[k] = Math.max(0, m * (0.6 + 1.8 * (noiseAt(i, j) - 0.45))); }
+  for (let j = 0; j < N; j++) { let sum = 0; for (let k = -R; k <= R; k++) sum += raw[j * N + (k & M)]; for (let i = 0; i < N; i++) { tmp[j * N + i] = sum / (2 * R + 1); sum += raw[j * N + ((i + R + 1) & M)] - raw[j * N + ((i - R) & M)]; } }
+  for (let i = 0; i < N; i++) { let sum = 0; for (let k = -R; k <= R; k++) sum += tmp[(k & M) * N + i]; for (let j = 0; j < N; j++) { thick[j * N + i] = sum / (2 * R + 1); sum += tmp[((j + R + 1) & M) * N + i] - tmp[((j - R) & M) * N + i]; } }
   const out = new Uint8Array(N * N * 4);
   for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
-    const o = (j * N + i) * 4, v = a[o] / 255, vs = a[((((j + oy) & M) * N) + ((i + ox) & M)) * 4] / 255;
+    const o = (j * N + i) * 4, v = raw[j * N + i], vs = raw[((j + oy) & M) * N + ((i + ox) & M)];
     const t = Math.min(1, Math.max(0, (v - 0.18) / 0.42)), dens = t * t * (3 - 2 * t);
     const lit = Math.min(1, Math.max(0, 0.74 + (v - vs) * 1.8 - Math.max(0, v - 0.55) * 0.6));
-    out[o] = dens * 255; out[o + 1] = lit * 255; out[o + 2] = Math.min(255, a[o + 2] * 1.6); out[o + 3] = 255;
+    out[o] = dens * 255; out[o + 1] = lit * 255; out[o + 2] = Math.min(255, a[o + 2] * 1.6); out[o + 3] = Math.min(255, thick[j * N + i] * 255 * 1.6);
   }
   const tex = new THREE.DataTexture(out, N, N, THREE.RGBAFormat, THREE.UnsignedByteType);
   tex.colorSpace = THREE.NoColorSpace;
@@ -141,12 +178,24 @@ export function buildSky(parent, centreZ) {
         // (the cirrus streaks in the same texel fray the cumulus edges a little overhead: wisps, not a blur)
         float e = c1.r - c1.b * 0.5 * up;
         float cr = mix(c1.r, smoothstep(0.1, 0.75, e), 0.15 + 0.3 * up);
+        // Which way the cloud's edge faces on screen (the density's screen gradient, free from the
+        // derivatives): where it thickens upward we are at its base - flatter, firmer and greyer, seen
+        // from below; where it thins upward, the billowed top catching the light.
+        float gx = dFdx(c1.r), gy = dFdy(c1.r);
+        float gdir = gy / (abs(gx) + abs(gy) + 0.004);
+        float base = smoothstep(0.15, 0.8, gdir) * (1.0 - up), top = smoothstep(0.15, 0.8, -gdir);
+        cr = mix(cr, smoothstep(0.28, 0.55, c1.r), base * 0.55);
         float dens = cr * fade * (1.0 - 0.86 * up);
         float rim = sd * sd * sd * sd; rim *= rim;
         // Thin edges are lit through; only the thick cores show the shaded side,
         // and not round the sun, where the glare through the haze fills them in.
         float near = sd * sd * sd; near *= near;
         float lk = mix(mix(0.92, c1.g, smoothstep(0.1, 0.7, c1.r)), 1.0, max(near * 0.85, up * 0.3));   // (low contrast overhead)
+        // Deep in a cloud is its shadowed underside: greyer, most of all low down where the clouds are
+        // seen side-on (their flat bases); the thin billow edges stay sunlit.
+        float under = smoothstep(0.32, 0.8, c1.a) * (1.0 - near * 0.8) * (0.55 + 0.45 * (1.0 - up));
+        lk *= 1.0 - 0.38 * under;
+        lk = clamp(lk - 0.16 * base + 0.1 * top * (1.0 - c1.r), 0.0, 1.0);
         vec3 cc = mix(uCloudShade, uCloudLit, lk) + uSunHaze * rim * (1.0 - c1.r) * 0.9;
         cc = mix(cc, uHorizon, (1.0 - fade) * 0.5);
         sky = mix(sky, mix(uHorizon, uCloudLit, 0.6) * (0.92 + 0.12 * rim), c2.b * fade * 0.4 * (1.0 - 0.6 * up));

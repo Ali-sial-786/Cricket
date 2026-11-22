@@ -27,7 +27,7 @@ const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const TAU = Math.PI * 2;
 const MID_Z = -10;                    // the middle of the pitch
 const BLOCK = 2.25;                   // the fans' block (azimuth round the middle: 0 = behind the batting end)
-const BED_GAIN = 0.25;                // each of the four emitters, at the class reference (mix.js)
+const BED_GAIN = 0.35;                // each of the four emitters, at the class reference (mix.js) (+3 dB: the bed between balls was -30..-34 dBFS, thin on Quest speakers)
 const ROAR_GAIN = 0.22;               // the excited layer at roar 1
 const EMITTERS = [0.6, 2.2, 3.75, 5.3];   // azimuths of the bed's emitters (round the bowl, not on the axes)
 
