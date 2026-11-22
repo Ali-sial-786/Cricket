@@ -242,9 +242,13 @@ export class UI {
     // Nothing floats in the view during a replay, or while a delivery is on its way
     // (what was up when it started is taken down for good).
     const quiet = this.quiet === 'clear';
-    if (quiet && !this._wasQuiet) { this.clearHints(); this.promptUntil = 0; this.drawPrompt(); }
+    if (quiet && !this._wasQuiet) { this.clearHints(); this.promptUntil = 0; this.promptText = ''; this.drawPrompt(); }
+    // A beat's strap is up (ceremony.js): one card at a time -- the message strip, the hints and
+    // the delivery card wait (their time does not run meanwhile) and come up after it.
+    const strap = !!(g.ceremony && g.ceremony.cardUp);
+    if (strap) { this.promptUntil += dt; this.promptAt += dt; this.hintUntil += dt; }
     this._wasQuiet = quiet;
-    const clear = replay || quiet;
+    const clear = replay || quiet || strap;
     const card = !!this.cardData && !this.menuOpen && !clear && g.state === 'play';
     // Running controls go as soon as the ball is dead (or a result is up).
     const live = !ses || ses.state === 'live';
@@ -346,7 +350,8 @@ export class UI {
       m.position.set(head.p.x + fwd.x * 1.1, Math.max(1.0, head.p.y - 0.04), head.p.z + fwd.z * 1.1);
       m.lookAt(head.p.x, m.position.y, head.p.z);
       // A compact card (the toss in the middle): smaller and low, below the captain's face, tipped toward you.
-      if (this.compact()) { m.position.y = Math.max(0.75, head.p.y - 0.42); m.lookAt(head.p.x, head.p.y, head.p.z); }
+      // (the toss in the middle: small, at waist height and nearer, under the captain -- never over him)
+      if (this.compact()) { m.position.set(head.p.x + fwd.x * 0.8, Math.max(0.65, head.p.y - 0.66), head.p.z + fwd.z * 0.8); m.lookAt(head.p.x, head.p.y, head.p.z); }
     } else {
       // Desktop: centre it in front of the camera.
       const cam = this.game.camera;
@@ -355,9 +360,9 @@ export class UI {
       const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(cam.getWorldQuaternion(new THREE.Quaternion()));
       m.position.copy(p).addScaledVector(fwd, 1.0);
       m.quaternion.copy(cam.getWorldQuaternion(new THREE.Quaternion()));
-      if (this.compact()) m.position.addScaledVector(new THREE.Vector3(0, 1, 0).applyQuaternion(m.quaternion), -0.2);
+      if (this.compact()) m.position.addScaledVector(new THREE.Vector3(0, 1, 0).applyQuaternion(m.quaternion), -0.3);
     }
-    m.scale.setScalar(this.compact() ? 0.62 : 1);
+    m.scale.setScalar(this.compact() ? 0.5 : 1);
   }
   compact() { return this.page === 'result' && !!(this.game.resultInfo && this.game.resultInfo.compact); }
 
