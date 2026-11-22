@@ -75,6 +75,7 @@ export class FieldController {
     if (this.game.crew) this.game.crew.ballDead(info);
     this.deadT = 0;
     if (info.wicket && this.huddleOn !== false) this.huddle();
+    else if (this.logic.outcome && this.logic.outcome.kind === 'boundary') this.logic.reactBoundary(this.game.simTime);
   }
   // A wicket (decided): the fielding side gets together round the catcher, the
   // man who broke the stumps, or the bowler (the AI's figure, or you: they
@@ -654,8 +655,12 @@ export class FieldController {
       }
       g.ballOverride = { pos: { x: _w.x, y: _w.y, z: _w.z } };
       g.ballView.setVisible(true);
-    } else if (!b.active) {
+      this.ownOverride = true;
+    } else if (!b.active && this.ownOverride) {
+      // (only its own: the bowler's hand holds the ball through his run-up (batting.js), which this
+      // used to drop every frame, leaving the ball drawn at the foot of the stumps)
       g.ballOverride = null;
+      this.ownOverride = false;
     }
 
   }

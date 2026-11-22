@@ -876,7 +876,7 @@ export class Game {
       if (this.playerBowler.showHand) this.playerBowler.showHand(null);
       if (this.session && this.session.field) this.crew.duringReplay(realDt);   // (a batter walking off / in keeps going)
       this.replay.placeOverlays(this.eye, realDt);
-      this.ballView.faceTrail(this.eye.p);
+      this.ballView.faceTrail(this.eye.p, realDt);
       this.ballFinder.hide();
       Humanoid.updateLods(this.eye.p);
       this.nearCull.update(this.eye.p, Humanoid.all, 0.6);
@@ -897,7 +897,7 @@ export class Game {
       this.applyView();
       this.updateEye();
       this.updateViews(sdt, paused);
-      this.ballView.faceTrail(this.eye.p);
+      this.ballView.faceTrail(this.eye.p, paused ? 0 : sdt);
       this.umpires.update(paused ? 0 : realDt, this.clock);
       if (this.session && this.state === 'play' && !paused) this.recordForReplay();
       this.replay.placeOverlays(this.eye, realDt);
@@ -909,11 +909,14 @@ export class Game {
     ShadowPool.update();                     // (after everything is posed: bats, stumps, the upload)
     try { this.audio.update(realDt); } catch (err) { console.warn('audio', err); }   // the listener in your head, the crowd, what has no event of its own
     const cu = this.env.crowd.userData.uniforms;
+    // The nets are a training day: a few people scattered round the stands, no cannons, no wave.
+    const nets = !!(this.session && (this.session.kind === 'nets' || this.session.kind === 'bowlnets'));
+    this.env.crowd.userData.setOccupancy?.(nets ? 0.1 : 1); this.particles.celebrations = !nets;
     cu.uTime.value = now;
     cu.uCheer.value = Math.max(0, cu.uCheer.value - dt * 0.35);
     // Now and then a Mexican wave goes round the ground.
     this.waveIn = (this.waveIn ?? 45) - dt;
-    if (this.waveIn <= 0 && !(this.waveLeft > 0) && this.state === 'play') {
+    if (this.waveIn <= 0 && !(this.waveLeft > 0) && this.state === 'play' && !nets) {
       this.waveLeft = 16; this.waveIn = 80 + this.rng() * 70;
       if (this.settings.sound) this.sample('crowd_whoa', { gain: 0.35 });
     }
@@ -957,12 +960,13 @@ export class Game {
       if (ses.field && ses.field.logic.caught) R.mark('caught', t);
       // The ball is dead once play leaves 'live' (to a review, or to its result).
       if (st === 'review' || st === 'settle') R.mark('dead', t);
+      R.observe(ses, t);                        // (the field's moments: a drop, a dive, a direct hit, overthrows)
     }
     // A review (the appeal, DRS, the third umpire) can outlast the tape: only
     // its first moments are recorded, so the ball is still there afterwards.
     if (!(st === 'review' && m.dead != null && t > m.dead + tailFor(m) + 0.2)) R.record(t);
-    // Every ball that was bowled gets its replay, after the result (and any review's verdict) is up.
-    if (st === 'settle' && this._prevSessState !== 'settle' && this.settings.replay !== 'off') R.schedule(t);
+    // The ball's replay, if what happened earns one (Settings -> Replays), after the result (and any review's verdict) is up.
+    if (st === 'settle' && this._prevSessState !== 'settle') R.schedule(t);
     this._prevSessState = st;
   }
 
@@ -1060,6 +1064,7 @@ export class Game {
     if (e.type === 'launch') { this.replay.mark('release', e.t); this.replay.marks.playerBatting = !!(this.session && !this.session.isBowling); }
     else if (e.type === 'bat') this.replay.mark('hit', e.t);
     else if (e.type === 'wicket') this.replay.mark('wicket', e.t);
+    this.replay.event(e);                       // (the ball's exact moments for slow motion; an edge, over the rope)
     if (e.type === 'bounce') {
       if (e.speedIn > 3) this.particles.dust(e.pos, e.speedIn, e.surface !== 'pitch', this.world.ball.vel);
       if (!e.batted && e.surface === 'pitch' && e.index === 1) this.pitchMark.show(e.pos, this.world.ball.vel);
@@ -1075,8 +1080,8 @@ export class Game {
     } else if (e.type === 'wicket') {
       this.stumps[e.end].break({ x: 0, y: 0, z: (e.end === 'batting' ? 1 : -1) * e.speed }, e.stump);
       this.particles.splinters({ x: 0, z: e.end === 'batting' ? 0 : -20.12 });
-    } else if (e.type === 'boundary' && e.onFull && e.batted) {
-      this.particles.fireworks(e.pos);
+    } else if (e.type === 'boundary' && e.batted) {
+      this.particles.celebrate(e.pos, !!e.onFull);         // (roof cannons: five for a six, two for a four)
     }
     if (this.session) this.session.onEvent(e);
   }
@@ -1155,7 +1160,8 @@ export class Game {
       // Through your own eyes you see a faint body below you (no head), so you
       // know where your feet are in the crease.
       const ghost = batting && this.input.xr && !behind && !this.viewOverride && !this.mr && this.settings.ownBody !== false;
-      this.playerBody.actor.h.setGhost(ghost, GHOST_LEGS);    // (pads and boots clear enough to read when you look down; one layer: the depth pre-pass)
+      this.playerBody.actor.h.setGhost(ghost, GHOST_LEGS);    // (solid; it steps aside from the ball and your blade: Humanoid.seeThrough)
+      if (ghost) { const G = this.batMesh.geometry.userData, M = this.batMesh.updateMatrixWorld() || this.batMesh.matrixWorld; this.playerBody.actor.h.seeThrough(this.ballView.mesh.visible ? this.ballView.mesh.position : null, _fpA.set(0, G.shY, 0).applyMatrix4(M), _fpB.set(0, G.toeY, 0).applyMatrix4(M)); }
       // (through your own eyes the faint body stays under you: it is where you stand)
       if (!ghost) this.playerBody.actor.h.setFade(1 - cover);
       this.playerBody.show((deskThird || ((behind || ghost) && batting)) && (ghost || cover < 0.98));
@@ -1278,6 +1284,7 @@ const _batPose = new Pose();
 const _swRef = { x: 0, y: 0, z: 0 }, _lin = new Vec3();
 const BAT_ABOVE_TURF = 0.01;       // m: the lowest corner of your bat's toe is kept this far up while the view is dropped
 const DROP_IN = 0.22, DROP_OUT = 0.3, DROP_FLOOR = 0.12;   // s the sweep's view drop takes down / back up; m your eyes may go under the kneeling height
+const _fpA = new THREE.Vector3(), _fpB = new THREE.Vector3();   // (your blade's shoulder and toe, for your own body to stay out of your view of it)
 const GHOST_LEGS = 0.72;          // opacity of your see-through pads when you look down (boots +0.3, thighs x0.7; Humanoid.setGhost)
 const _bd = new Vec3();
 const _eq = new THREE.Quaternion();

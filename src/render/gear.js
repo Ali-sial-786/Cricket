@@ -271,7 +271,9 @@ function helmet(P, part, c, R, S, lod) {
 // and nose bridge, a thin frame along its top, arms back over the ears.
 function shades(P, part, RIG, c, S, lod) {
   const F = RIG.face, J = RIG.J.head;
-  const ey = F.eye[1] - J.y + 0.001, zc = c[2], rx = 0.104, rz = 0.122, tm = 0.95;
+  // (fitted to this head: the lens sits ~2 cm in front of the eyes, clear of the brow and the nose, and wraps to the temples)
+  const R = RIG.skull ? RIG.skull.r : [0.086, 0.1, 0.11];
+  const ey = F.eye[1] - J.y + 0.001, zc = c[2], rz = F.front - J.z - zc + 0.02, rx = R[0] + 0.012, tm = 0.95;
   const at = (t, y, d = 0) => [(rx + d) * Math.sin(t), y, zc + (rz + d) * Math.cos(t)];
   const top = (t) => ey + 0.0145 - 0.004 * Math.pow(Math.abs(t) / tm, 2);
   const bot = (t) => ey - 0.0165 + 0.009 * Math.pow(Math.abs(t) / tm, 3) + 0.0085 * Math.exp(-Math.pow(t / 0.17, 2));
@@ -296,7 +298,7 @@ function shades(P, part, RIG, c, S, lod) {
   part(P, tube(fr, 0.0022, lod ? 3 : 5, { caps: true }), 'head', 0x15171b, [0, 0, 0], null, null, STEEL_M);
   for (const sx of [-1, 1]) {
     const e = at(sx * (tm + 0.04), top(tm) - 0.003, 0.001);
-    part(P, tube([e, [sx * 0.104, e[1] + 0.002, e[2] - 0.04], [sx * 0.102, e[1] - 0.004, e[2] - 0.085]], 0.0022, lod ? 3 : 4, { caps: true }), 'head', 0x15171b, [0, 0, 0], null, null, STEEL_M);
+    part(P, tube([e, [sx * (rx + 0.002), e[1] + 0.002, e[2] - 0.04], [sx * rx, e[1] - 0.004, e[2] - 0.085]], 0.0022, lod ? 3 : 4, { caps: true }), 'head', 0x15171b, [0, 0, 0], null, null, STEEL_M);
   }
 }
 
@@ -351,11 +353,11 @@ function hat(P, part, c, R, S, lod) {
 // the thigh, side wings wrap round the leg; straps go round the back.
 function pad(P, part, s, keeper, S, lod) {
   const knee = 'knee' + s, hip = 'hip' + s, sx = s === 'L' ? 1 : -1;
-  const W = keeper ? 1.5 : 1.85;                        // wrap half-angle (rad)
+  const W = keeper ? 1.5 : 1.75;                        // wrap half-angle (rad)
   const yt = (a) => mix(keeper ? 0.1 : 0.215, keeper ? 0.04 : 0.07, sstep(0.55, 1.45, Math.abs(a)));
   const yb = (a) => mix(keeper ? -0.425 : -0.445, -0.385, sstep(0.25, 1.6, Math.abs(a)));
   // (the inside hugs the fitted trousers, trousers.js: about 7 cm round the shin, 1 cm of lining)
-  const rin = (a, y) => { const k = 1 + (keeper ? 0 : 0.42 * sstep(0.06, 0.2, y)), w = sstep(0.6, 1.7, Math.abs(a)); return [mix(0.088, 0.077, w) * k, mix(0.092, 0.08, w) * k]; };
+  const rin = (a, y) => { const k = 1 + (keeper ? 0 : 0.14 * sstep(0.06, 0.2, y)), w = sstep(0.6, 1.7, Math.abs(a)), tuck = 1 - 0.24 * sstep(1.2, W, Math.abs(a)); return [mix(0.088, 0.077, w) * k * tuck, mix(0.092, 0.08, w) * k * tuck]; };   // (the wings tuck in round the calf)
   const cz = 0.008;
   const canes = (a, y) => {
     const front = 1 - sstep(1.0, 1.25, Math.abs(a));
@@ -367,12 +369,12 @@ function pad(P, part, s, keeper, S, lod) {
   };
   const thick = (a, y) => {
     const front = 1 - sstep(0.95, 1.9, Math.abs(a));
-    let t = 0.012 + (keeper ? 0.02 : 0.028) * front + canes(a, y);
+    let t = mix(0.012, 0.006, sstep(1.3, W, Math.abs(a))) + (keeper ? 0.02 : 0.028) * front + canes(a, y);   // (thin wing edges, not boards)
     // knee roll: two stacked rolls (one for a keeper's), and a raised edge down the outer wing
     const ca2 = Math.pow(Math.cos(clamp(a, -1.5, 1.5)), 2);
     const kr = keeper ? Math.exp(-Math.pow((y - 0.035) / 0.035, 2)) : Math.max(Math.exp(-Math.pow((y - 0.012) / 0.026, 2)), 0.9 * Math.exp(-Math.pow((y - 0.07) / 0.024, 2)));
     t += (keeper ? 0.016 : 0.024) * kr * ca2;
-    t += 0.006 * Math.exp(-Math.pow((Math.abs(a) - W + 0.22) / 0.1, 2)) * sstep(0.1, -0.05, y);
+    t += 0.006 * Math.exp(-Math.pow((Math.abs(a) - 1.2) / 0.1, 2)) * sstep(0.1, -0.05, y);    // a side bolster where the front turns into the wing
     t -= 0.006 * Math.exp(-Math.pow((y + 0.03) / 0.012, 2)) * front;     // groove under it
     t -= 0.005 * Math.exp(-Math.pow((y - 0.105) / 0.012, 2)) * front * (keeper ? 0 : 1);
     return t;
@@ -404,7 +406,7 @@ function pad(P, part, s, keeper, S, lod) {
     const a = Math.atan2(x, z - cz);
     const groove = 1 - canes(a, y) / (keeper ? 0.006 : 0.008);
     const r = Math.hypot(x, z - cz), rr = rin(a, y);
-    const innerSide = r < Math.max(rr[0], rr[1]) + 0.004 ? 0.55 : 1;
+    const innerSide = r < Math.max(rr[0], rr[1]) + 0.004 ? 0.3 : 1;
     return innerSide * (1 - 0.22 * groove * (1 - sstep(1.0, 1.25, Math.abs(a))) * (1 - Math.exp(-Math.pow((y - 0.03) / 0.07, 2))))
       * (1 - 0.25 * Math.exp(-Math.pow((y + 0.03) / 0.015, 2)));
   };
@@ -423,7 +425,7 @@ function pad(P, part, s, keeper, S, lod) {
       const rb = y > 0.1 ? 0.096 : 0.072, r = mix(rx + 0.004, rb, sstep(0, 0.3, back)), rzz = mix(rz + 0.004, rb, sstep(0, 0.3, back));
       pts.push([Math.sin(a) * r, y, cz + Math.cos(a) * rzz]);
     }
-    part(P, tube(pts, 0.012, 4, { caps: false, ratio: 0.3, up: [0, 0, 1] }), knee, KIT.trim, [0, 0, 0], null, null, { blend: bl, ao: 0.85 });
+    part(P, tube(pts, 0.012, 4, { caps: false, ratio: 0.3, up: [0, 0, 1] }), knee, STRAP, [0, 0, 0], null, null, { blend: bl, ao: 0.85, m: 31 });
     const ab = sx * W * 0.7, [rx, rz] = rin(ab, y), t = thick(ab, y);
     part(P, pillow([0.011, 0.013, 0.0035], 0.4, 6, 4), knee, 0xc8ccd2, [Math.sin(ab) * (rx + t + 0.002), y, cz + Math.cos(ab) * (rz + t + 0.002)], [0, ab, 0], null, { blend: bl, m: 30 });
   }
@@ -454,12 +456,16 @@ function battingGlove(P, part, s, S, lod, playerGrip) {
       // The top hand closes securely. The bottom hand cradles the handle
       // with a softer ring finger and little finger; leave the thumb web open.
       const end = playerGrip ? (s === 'L' ? 3.10 : mix(2.38, 2.98, sstep(-0.032, 0.033, fz))) : 3.85;
-      let joints = [[-0.3, 1.18], [1.3, 2.42], [2.54, end]];
-      if (playerGrip) joints = lod ? [[-0.3, end]] : [[-0.3, 1.06], [1.15, 2.10], [2.19, end]];
-      for (const [b0, b1] of joints) {
-        const pts = arc(sx, 0, -G, fz, R, b0, b1, lod ? 5 : 3);
-        fpart(tube(pts, rf * (b0 > 2 ? 0.93 : 1), lod ? 4 : 7, { caps: true, up: [0, 0, 1] }), WHITE, { ao: aoF(fz, rf), m: 31 });
-      }
+      // One padded finger, its three rolls as bulges with a stitched groove at each joint (one
+      // continuous surface: no gaps or end caps between them). Your own gloves, right in front of
+      // your eyes, get rounder sections.
+      const g1 = playerGrip ? 1.1 : 1.24, g2 = playerGrip ? 2.15 : 2.48, n = lod ? 6 : playerGrip ? 22 : 14;
+      const pts = arc(sx, 0, -G, fz, R, -0.3, end, n);
+      const radii = pts.map((_, k) => {
+        const b = mix(-0.3, end, k / n), groove = Math.max(Math.exp(-Math.pow((b - g1) / 0.07, 2)), Math.exp(-Math.pow((b - g2) / 0.07, 2)));
+        return rf * (b > g2 ? 0.93 : 1) * (1 - 0.16 * groove);
+      });
+      fpart(tube(pts, radii, lod ? 4 : playerGrip ? 10 : 7, { caps: true, up: [0, 0, 1] }), WHITE, { ao: aoF(fz, rf), m: 31 });
     }
     // padded back of the hand, palm, team stripe
     part(P, pillow([0.015, 0.043, 0.046], 0.45, 10, 6), hand, KIT.padShirt, [sx * 0.022, -0.037, 0.001], [0, 0, sx * 0.08], null, { m: 31, ao: (x, y, z) => 0.85 + 0.15 * sstep(-0.07, -0.02, y) });

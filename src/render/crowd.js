@@ -267,6 +267,7 @@ const VERT = /* glsl */`
   #include <fog_pars_vertex>
   uniform float uTime, uCheer, uWave, uWaveOn;
   uniform float uAnim;    // 0: no idle life or sway (quality.js, a low level); they still react to play
+  uniform float uOcc;     // share of the fans in today (setOccupancy: 1 a match, ~0.1 a training day in the nets)
   uniform vec4 uEvt;      // start time, origin angle, spread (rad/s), duration
   uniform vec4 uMode;     // home, away, neutral: mode + share joining in (fraction); w: unused
   uniform vec2 uWind;     // flag direction (xz, unit)
@@ -284,6 +285,10 @@ const VERT = /* glsl */`
     float stander = mod(idle, 2.0), idlePose = floor(idle / 2.0);
     float scale = aFace.z, ang = aFace.w;
     float t = uTime;
+    // Not in today: a fan (and his flag, which shares his rnd) is dropped; stewards, photographers and
+    // pole flags stay. (On top of the governor's density, which draws whole quarters.)
+    if (kind < 1.5 && rnd >= uOcc) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); vUv = vec2(0.0); vC0 = vec3(0.0); vC1 = vC0; vC2 = vC0; vC3 = vC0; vLight = vC0; return; }
+    float quiet = step(0.5, uOcc);    // a sparse crowd neither rises with the ball nor does the wave
 
     // ---- what this fan is doing
     float pose = stander > 0.5 ? 5.0 : idlePose, lift = 0.0, flagUp = 0.0;
@@ -316,9 +321,9 @@ const VERT = /* glsl */`
       else if (mode == 6.0) pose = 5.0;
     }
     // The ground rising with a big hit, and the Mexican wave.
-    if (team != 2.0 && rnd < uCheer * 1.15 - 0.08) { pose = 6.0 + step(0.8, fract(t * 1.9 + ph)); lift = uCheer * 0.15 * abs(sin(t * 6.0 + ph)); flagUp = 1.0; }
+    if (team != 2.0 && rnd < uCheer * quiet * 1.15 - 0.08) { pose = 6.0 + step(0.8, fract(t * 1.9 + ph)); lift = uCheer * 0.15 * abs(sin(t * 6.0 + ph)); flagUp = 1.0; }
     float dw = mod(ang - uWave + PI, PI2) - PI;
-    float wave = uWaveOn * exp(-dw * dw * 30.0);
+    float wave = uWaveOn * quiet * exp(-dw * dw * 30.0);
     if (wave > 0.3) { pose = 6.0; lift = wave * 0.28; flagUp = 1.0; }
     float standing = step(4.5, pose);
 
@@ -423,7 +428,7 @@ export function buildCrowd(spots, { blocks, lights, maxCount = 26000, sectors = 
   const uniforms = {
     ...THREE.UniformsUtils.clone(THREE.UniformsLib.fog),
     map: { value: crowdAtlasData() },
-    uTime: { value: 0 }, uCheer: { value: 0 }, uWave: { value: 0 }, uWaveOn: { value: 0 }, uAnim: { value: 1 },
+    uTime: { value: 0 }, uCheer: { value: 0 }, uWave: { value: 0 }, uWaveOn: { value: 0 }, uAnim: { value: 1 }, uOcc: { value: 1 },
     uEvt: { value: new THREE.Vector4(-100, 0, 1, 0) }, uMode: { value: new THREE.Vector4(0, 0, 0, 0) },
     uWind: { value: new THREE.Vector2(wind[0], wind[1]).normalize() },
   };
@@ -560,7 +565,9 @@ export function buildCrowd(spots, { blocks, lights, maxCount = 26000, sectors = 
   }
   group.userData.uniforms = uniforms;
   group.userData.count = total;
-  group.userData.react = (kind, strength = 1, angle = null) => react(uniforms, kind, strength, angle, rand);
+  group.userData.react = (kind, strength = 1, angle = null) => uniforms.uOcc.value >= 0.5 && react(uniforms, kind, strength, angle, rand);
+  // A training day (the nets): a share of the fans in, scattered, no reactions; 1 = a match crowd.
+  group.userData.setOccupancy = (k = 1) => { if (uniforms.uOcc.value !== k) uniforms.uOcc.value = k; };
   // Quality hook (render/quality.js): share of the crowd drawn (whole quarters) and whether it moves.
   group.userData.setQuality = (density = 1, anim = true) => {
     const q = Math.max(1, Math.min(4, Math.round(density * 4)));

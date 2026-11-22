@@ -371,6 +371,7 @@ export class FielderActor extends Actor {
       this.apply();
       this.plant(0.26 + 0.05 * Math.sin(this.phase), true);
       if (s.leap && t > s.leap.t - 0.22) this.reachBoth(_e.set(s.leap.x, clamp(s.leap.y, 0.15, 2.0), this.pos.z - 0.25), 1);
+      else this.glovesFront(clamp(this.kCrouch / 0.5, 0, 1));
     } else if (this.speed > 0.25) {
       this.poseKey = 'move';
       this.locomote(t, this.keeper ? 0.05 : 0);
@@ -394,6 +395,7 @@ export class FielderActor extends Actor {
       if (this.ready > 0.01) poseReady(h, this.ready, this.keeper);
       this.apply();
       this.plant(this.keeper ? 0.24 : 0.15, true);
+      if (this.keeper) this.glovesFront(sstep(0.1, 0.8, this.ready));
       gest = !act; idleOK = !act && !s.await; this.folded = 0;
     }
     // Where the body is off its spot (a dive's or a stumping's lunge): it
@@ -411,7 +413,7 @@ export class FielderActor extends Actor {
     const mood = gest ? this.bodyLanguage(t, dt, idleOK && !s.huddle, this.speed > 0.25) : null;
     // The wicket huddle (Fielding.celebrateWicket): high fives in the ring, arms up in the middle, a clap from the deep.
     this._hw = clamp((this._hw || 0) + (s.huddle && gest && this.speed < 0.8 ? 1 : -1) * dt / 0.35, 0, 1);
-    if (s.huddle) this._hkind = s.huddle === 2 ? 'clap' : s.huddle === 3 || this.seed % 3 === 0 ? 'arms' : 'highfive';
+    if (s.huddle) this._hkind = s.huddle === 4 ? (this.seed % 2 ? 'head' : 'hips') : s.huddle === 2 ? 'clap' : s.huddle === 3 || this.seed % 3 === 0 ? 'arms' : 'highfive';
     if (this._hw > 0.001 && this._hkind) poseArms(h, this.forward(_fwd), this._hkind, this._hw, t + this.idleOff, this._gs);
     this.watch(ctx.ball, dt, mood);
     this.smooth(dt);                 // (far ones too: a change of pose snapping in one frame shows even at 50 m)
@@ -437,10 +439,48 @@ export class FielderActor extends Actor {
   throwTail() { const c = clipInfo('throw'); return (c.dur - c.events.release) / THROW_FOLLOW; }
   // (Also far away: without the IK a crouch would put the feet through the turf.)
   plant(halfWidth, flat) {
+    const h = this.h, drop = h.hipsRest.y - h.bones.hips.position.y;
+    const deep = this.keeper ? clamp((drop - 0.06) / 0.3, 0, 1) : 0;
+    if (deep > 0.001) { this.keeperSquat(halfWidth, deep); return; }
     this.footWorld(_a, halfWidth, 0.03);
     this.footWorld(_b, -halfWidth, -0.01);
     plantFeet(this.h, _a, _b, this.forward(_c).multiplyScalar(0.6), heelFor(this.h));
     void flat;
+  }
+  // The wicketkeeper's crouch: down on his haunches, feet a little wider than
+  // the shoulders with the toes turned out, knees out over the toes (not
+  // forward onto the turf), up on the balls of the feet, hips back over the
+  // heels. deep: 0 (standing) .. 1 (full crouch).
+  keeperSquat(halfWidth, deep) {
+    const h = this.h, sc = h.root.scale.y;
+    h.bones.hips.position.z -= 0.09 * deep;
+    h.update();
+    this.forward(_fwd); _left.set(_fwd.z, 0, -_fwd.x);
+    const hw = halfWidth + 0.08 * deep, toe = 0.55 * deep, heel = Math.max(heelFor(h), 0.075 * deep);
+    const pitch = Math.asin(Math.min(0.9, heel / (h.toeLength || 0.2)));
+    h.root.getWorldQuaternion(_q2);
+    for (const [side, sg] of [['L', 1], ['R', -1]]) {
+      this.footWorld(_a, sg * hw, side === 'L' ? 0.02 : -0.02);
+      _a.y += (h.ankleHeight + heel) * sc;
+      h.worldPos('knee' + side, _c).addScaledVector(_fwd, 0.45).addScaledVector(_left, sg * 0.6 * deep);
+      h.ikLeg(side, _a, _c);
+    }
+    for (const [side, sg] of [['L', 1], ['R', -1]]) {
+      _q.copy(_q2).multiply(_kq.setFromAxisAngle(_up, sg * toe)).multiply(_kq2.setFromAxisAngle(_xAx, pitch));
+      h.setWorldQuat('ankle' + side, _q);
+    }
+  }
+  // The keeper's gloves together in front of him, low between his knees (w: how much).
+  glovesFront(w) {
+    if (w <= 0.001) return;
+    const h = this.h, Q = this._gs.q, B = h.bones;
+    ARMS6.forEach((n, i) => Q[i].copy(B[n].quaternion));
+    h.update();
+    this.forward(_fwd);
+    const hy = h.worldPos('hips', _c).y;
+    _e.copy(h.root.position).addScaledVector(_fwd, 0.42).setY(Math.max(0.3, hy - 0.05));
+    this.reachBoth(_e, 1);
+    if (w < 1) ARMS6.forEach((n, i) => { _q.copy(B[n].quaternion); B[n].quaternion.copy(Q[i]).slerp(_q, w); });
   }
   reachBoth(target, amt) {
     const h = this.h;
@@ -472,6 +512,7 @@ export class FielderActor extends Actor {
 // the stumps, so the ball in the glove (a hand's length below the wrist) clips the bails, not the stumps.
 const BAILS_SWEEP = 0.15;
 const ARMS6 = ['shoulderL', 'elbowL', 'handL', 'shoulderR', 'elbowR', 'handR'];
+const _kq = new THREE.Quaternion(), _kq2 = new THREE.Quaternion(), _xAx = new THREE.Vector3(1, 0, 0);
 // Lying in a dive: these rest on the turf (hands and boots are kept on top of it separately).
 const LIE_BONES = ['hips', 'spine', 'chest', 'neck', 'head', 'shoulderL', 'shoulderR'];
 const LIE_Y = 0.015;
@@ -2286,8 +2327,9 @@ export class BatterActor extends Actor {
     _q.setFromUnitVectors(_up, dir);
     if (opt && opt.twirl) _q.premultiply(_ql.setFromAxisAngle(dir, opt.twirl));       // (a twirl of the bat in the fingers)
     this.bat.quaternion.copy(_q);
-    // bat origin (grip point) sits 0.72 above the toe along the bat axis
-    this.bat.position.copy(toe).addScaledVector(dir, Math.min(0.72, handle.distanceTo(toe)));
+    // bat origin (grip point) is the bat's own grip-to-toe length above the toe along its axis
+    // (a shorter one put the toe in the turf and the bat beside his hand, not in it)
+    this.bat.position.copy(toe).addScaledVector(dir, -BAT_GEO.toeY);
     this.batSmooth(dt);
     // the wrist a palm up the handle from the grip point (as when he carries it)
     h.update();

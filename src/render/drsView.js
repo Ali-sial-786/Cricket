@@ -64,6 +64,8 @@ const EDGE_T = {
 };
 const BOARD_W = 2.2, SCREEN_W = 2.4, SCREEN_H = 1.35, SCREEN_GAP = 0.08;
 const PAST_STUMPS = 1.0;      // m a missing projection is drawn on past the stumps
+const NEAR_CLEAR = 4.5;       // m round the viewer's head the delivery is not drawn (the bowler's own release)
+const CORRIDOR = 0.14;        // the stump-to-stump strip: a hint on the pitch, not a painted stripe
 
 const SIDES = 8;
 const MAX_DELIVERY = 128;     // rings in the delivery tube
@@ -101,6 +103,10 @@ function makeTube(maxRings, material) {
   const attr = new THREE.BufferAttribute(pos, 3);
   attr.setUsage(THREE.DynamicDrawUsage);
   geom.setAttribute('position', attr);
+  // shaded round the tube (lit from above, darker under): it reads as a round tube, not a flat ribbon
+  const col = new Float32Array(maxRings * SIDES * 3);
+  for (let i = 0; i < maxRings * SIDES; i++) { const v = 0.62 + 0.38 * (0.5 + 0.5 * Math.sin(((i % SIDES) / SIDES) * Math.PI * 2)); col[i * 3] = col[i * 3 + 1] = col[i * 3 + 2] = v; }
+  geom.setAttribute('color', new THREE.BufferAttribute(col, 3));
   const idx = new Uint16Array((maxRings - 1) * SIDES * 6);
   let o = 0;
   for (let i = 0; i < maxRings - 1; i++) {
@@ -121,6 +127,21 @@ function makeTube(maxRings, material) {
     len: new Float32Array(maxRings),        // cumulative arc length
     max: maxRings, n: 0, total: 0, live: -1, seg: 0, s: -1,
   };
+}
+
+// The delivery seen from its own end (the bowler reviewing his own ball) starts NEAR_CLEAR m in
+// front of the viewer, not at his head: drops the points inside that, starting the polyline where it
+// leaves the sphere. Returns how many points went.
+function trimNear(pts, v, minD = NEAR_CLEAR) {
+  const d = (p) => Math.hypot(p.x - v.x, p.y - v.y, p.z - v.z);
+  if (pts.length < 2 || d(pts[0]) >= minD) return 0;
+  let k = 0;
+  while (k < pts.length - 2 && d(pts[k + 1]) < minD) k++;
+  const a = pts[k], b = pts[k + 1], da = d(a), db = d(b);
+  if (db < minD) return 0;                               // (all of it near: leave it)
+  const f = (minD - da) / Math.max(1e-6, db - da);
+  pts.splice(0, k + 1, { x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f, z: a.z + (b.z - a.z) * f });
+  return k;
 }
 
 // Lay the tube along pts[0..n-1] ({x,y,z}); nothing is shown until growTube.
@@ -281,8 +302,8 @@ export class DRSView {
     this._corridor.position.set(0, 0.012, (PITCH.battingStumpsZ + PITCH.bowlingStumpsZ) / 2);
 
     // Delivery (solid) and projection (pale, see-through) tubes.
-    this._delivery = makeTube(MAX_DELIVERY, basic(0xff3b4e));
-    this._projection = makeTube(MAX_PROJECTION, basic(0x8fd4ff, 0.62));
+    this._delivery = makeTube(MAX_DELIVERY, basic(0xff3b4e, 1, { vertexColors: true }));
+    this._projection = makeTube(MAX_PROJECTION, basic(0x8fd4ff, 0.62, { vertexColors: true }));
     add(this._delivery.mesh, 0, 'drs-delivery');
     add(this._projection.mesh, 6, 'drs-projection');
 
@@ -513,6 +534,7 @@ export class DRSView {
       }
     }
     pts.push(impact);
+    trimNear(pts, this._viewer);
     fillTube(this._delivery, pts, pts.length, R);
     this._pitchS = this._hasPitch ? arcAtZ(this._delivery, track.pitchPos.z) : -1;
 
@@ -625,7 +647,7 @@ export class DRSView {
       const m = CONFIG.machine;
       pts.push({ x: m.releaseX, y: m.releaseHeight, z: m.releaseZ });
     }
-    const pre = pts.length;
+    const pre = pts.length - trimNear(pts, this._viewer);
     for (const f of F) pts.push({ x: f.x, y: Math.max(R, f.y), z: f.z });
     if (pts.length < 2) pts.push({ x: 0, y: 0.5, z: PITCH.battingStumpsZ - 1 });
     fillTube(this._delivery, pts, pts.length, R);
@@ -814,7 +836,7 @@ export class DRSView {
   _animateLbw() {
     const T = LBW_T, t = this._t;
     const pulse = 1 + 0.08 * Math.sin(this._clock * 9);
-    this._corridor.material.opacity = 0.32 * clamp01(t / 0.8);
+    this._corridor.material.opacity = CORRIDOR * clamp01(t / 0.8);
 
     // The delivery, eased so it settles into the pad.
     const u = clamp01((t - this._tTrack) / T.toImpact);
@@ -839,7 +861,7 @@ export class DRSView {
   // tip goes with the camera frame being shown (on to the bat and past it).
   _animateCaught() {
     const t = this._t, d = this._delivery;
-    this._corridor.material.opacity = 0.32 * clamp01(t / 0.8);
+    this._corridor.material.opacity = CORRIDOR * clamp01(t / 0.8);
     const u = clamp01((t - 0.3) / (EDGE_T.start - 0.35));
     let s = this._cPreS * u * (2 - u);
     const tr = this._edge.trace;

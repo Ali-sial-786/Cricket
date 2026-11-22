@@ -94,3 +94,20 @@ test('the keeper sends the ball back through the slip: keeper -> slip -> bowler,
   assert.deepEqual(seen, ['held' + k, 'toRelay', 'held' + slip, 'toBowler', 'gone'], seen.join(' > '));
   assert.ok(doneAt < 6, `in the bowler's hand after ${doneAt.toFixed(1)} s`);
 });
+
+test('a six over long-on: the men near where it went over walk a few steps after it, then are back and set', () => {
+  const f = field(6);
+  const near = f.fielders.filter((p) => !p.bowler && !p.keeper).sort((a, b) => Math.hypot(b.home.x, b.home.z) - Math.hypot(a.home.x, a.home.z))[0];
+  const at = { x: near.home.x * 1.15, z: near.home.z * 1.15 + 1 };       // just past the deepest man
+  f.boundaryAt = at;
+  const start = { x: near.pos.x, z: near.pos.z };
+  assert.ok(f.reactBoundary(30) >= 1);
+  let far = 0, settledAt = null;
+  for (let k = 0; k < 60 * 12; k++) {
+    f.update(1 / 60, 30 + k / 60, null, null);
+    far = Math.max(far, Math.hypot(near.pos.x - start.x, near.pos.z - start.z));
+    if (settledAt == null && k > 30 && f.settled()) settledAt = k / 60;
+  }
+  assert.ok(far > 1 && far < 4.5, `${near.name} walked ${far.toFixed(1)} m after it`);
+  assert.ok(settledAt != null && settledAt < 8, `back and set after ${settledAt} s`);
+});

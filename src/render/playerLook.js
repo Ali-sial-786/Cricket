@@ -62,7 +62,7 @@ export function lookFor(seed, team, role = 'player') {
     stubble: r() * 0.7,
     sleeves: role === 'umpire' ? 1 : role === 'player' && r() < 0.22 ? 1 : 0,
     sweatband: role === 'player' && r() < 0.3 ? 1 : 0,
-    zinc: role === 'player' && r() < 0.12 ? 1 : 0,
+    zinc: role === 'player' && r() < 0.05 ? 1 : 0,
     shades: role === 'player' && r() < 0.2,
     scale: role === 'self' ? 1 : 0.955 + r() * 0.09, // height (only where the caller lets it vary)
     name: pick(NAMES),
@@ -274,8 +274,8 @@ function paintFace(F) {
       if (Math.abs(y - ey + 0.024) < 0.05) shade += 0.05 * Math.exp(-sq(ell(ax, y, ex + 0.008, ey - 0.024, 0.02, 0.014)));
       // --- beard field: jaw, chin, moustache; the centre of a beard first (goatee), cheeks last
       if (y < ny + 0.01 && y > cy - 0.02 && ax < 0.11) {
-        const jaw = ss(ny - 0.012, my - 0.004, y) * ss(cy - 0.012, cy + 0.004, y);              // below the cheeks, down to the chin
-        const cheekLine = ss(ny - 0.02, ny - 0.002, y + 0.0 * ax) * ss(0.075, 0.05, ax);
+        const jaw = ss(ny - 0.004, my - 0.014, y) * ss(cy - 0.014, cy + 0.006, y);              // below the cheeks (a soft upper edge), down to the chin
+        const cheekLine = ss(ny - 0.03, ny + 0.004, y) * ss(0.08, 0.05, ax) * ss(ny + 0.012, ny - 0.01, y);
         const tache = Math.exp(-sq((y - (my + 0.0095)) / 0.0042)) * ss(mw + 0.012, mw - 0.004, ax) * ss(ny - 0.002, ny - 0.008, y);
         const goatee = Math.exp(-sq(ax / (0.016 + 0.4 * Math.max(0, my - 0.01 - y)))) * ss(my - 0.003, my - 0.012, y) * ss(cy - 0.01, cy + 0.008, y);
         const full = Math.max(jaw * ss(0.11, 0.06, ax), cheekLine * 0.6) * (1 - 0.6 * lips) * (1 - ss(0.6, 1, lips));

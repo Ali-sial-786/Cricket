@@ -52,7 +52,7 @@ function shadowMaterial() {
       varying vec4 vAnk; varying vec4 vKnee; varying vec4 vHip; varying vec4 vBody; varying vec4 vHead; varying vec4 vHand; varying vec4 vFoot; varying vec4 vRad; varying vec4 vMisc;
       varying vec2 vP;
       float seg(vec2 p, vec2 a, vec2 b) { vec2 pa = p - a, ba = b - a; return length(pa - ba * clamp(dot(pa, ba) / (dot(ba, ba) + 1e-6), 0.0, 1.0)); }
-      uniform float uDetail;    // quality.js: 2 every limb, 1 legs and trunk, 0 the contact blobs only
+      uniform float uDetail;    // quality.js: 2 every limb, 1 legs and trunk, 0 one soft blob + the contact pools
       void main() {
         vec2 p = vP;
         float sun = 0.0;
@@ -66,12 +66,20 @@ function shadowMaterial() {
         }
         float aa = 0.03 + 0.7 * length(fwidth(p));                 // soft edge, never narrower than a pixel
         sun = smoothstep(aa, -aa, sd) * vMisc.x;
+        } else {
+          // the cheapest level: one soft capsule from between the feet to the hips' shadow, so a figure
+          // is still standing on the turf (not floating) when the limbs' shadows are off
+          float sd = seg(p, (vAnk.xy + vAnk.zw) * 0.5, vBody.xy) - max(vRad.x, vRad.y);
+          sun = smoothstep(0.14, -0.1, sd) * vMisc.x * 0.8;
         }
-        // Contact: a tight dark blob under each foot (vMisc.z = its radius, vHand.zw = strengths).
+        // Contact: a soft dark pool centred under each foot (vMisc.z = its radius, vHand.zw = strengths):
+        // smooth to its rim (no dark core), and cool grey rather than plain darker: on the pitch's clay a
+        // straight multiply read as a brown stain.
         float r = max(vMisc.z, 1e-3);
-        float c0 = 1.0 - min(length(p - vFoot.xy) / r, 1.0), c1 = 1.0 - min(length(p - vFoot.zw) / r, 1.0);
+        vec2 q0 = (p - vFoot.xy) / r, q1 = (p - vFoot.zw) / r;
+        float c0 = max(1.0 - dot(q0, q0), 0.0), c1 = max(1.0 - dot(q1, q1), 0.0);
         float ao = max(c0 * c0 * vHand.z, c1 * c1 * vHand.w) * vMisc.y;
-        gl_FragColor = vec4(mix(vec3(1.0), uShade, sun) * (1.0 - ao * 0.62), 1.0);
+        gl_FragColor = vec4(mix(vec3(1.0), uShade, sun) * mix(vec3(1.0), uShade * 0.6, ao * 0.85), 1.0);
       }`,
   });
 }
@@ -154,20 +162,20 @@ export const ShadowPool = {
     const sole = SOLE * s;
     d[o + 22] = 1 - Math.min(1, Math.max(0, (yl - sole) / (0.3 * s)));
     d[o + 23] = 1 - Math.min(1, Math.max(0, (yr - sole) / (0.3 * s)));
-    // Contact blobs: under the ball of each foot (the ankle's forward axis).
+    // Contact pools: under the middle of each foot (the ankle's forward axis).
     for (let f = 0; f < 2; f++) {
       const e = (f ? B.ankleR : B.ankleL).matrixWorld.elements, fl = Math.sqrt(e[8] * e[8] + e[10] * e[10]) || 1, k = 24 + f * 2;
-      d[o + k] = e[12] + (e[8] / fl) * 0.06 * s; d[o + k + 1] = e[14] + (e[10] / fl) * 0.06 * s;
+      d[o + k] = e[12] + (e[8] / fl) * 0.05 * s; d[o + k + 1] = e[14] + (e[10] / fl) * 0.05 * s;
     }
     d[o + 28] = 0.068 * s; d[o + 29] = 0.15 * s; d[o + 30] = 0.095 * s; d[o + 31] = 0.042 * s;
     // Opacity: faded figures fade theirs; in the stands' shade there is no sun to cast one.
     const e = B.hips.matrixWorld.elements;
     d[o + 32] = fade * (1 - standShade(e[12], e[14], PITCH.centerZ));
     d[o + 33] = fade;
-    d[o + 34] = 0.17 * s;
+    d[o + 34] = 0.15 * s;
     d[o + 35] = 0;
   },
-  // Quality hook (render/quality.js): 2 every limb's shadow, 1 legs and trunk, 0 the contact blobs only.
+  // Quality hook (render/quality.js): 2 every limb's shadow, 1 legs and trunk, 0 one soft blob a figure + the contact pools.
   setDetail(level) { if (this.mesh) this.mesh.material.uniforms.uDetail.value = level; },
   // Once a frame, after everything is posed: the sticks, and the upload.
   update() {

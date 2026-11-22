@@ -23,7 +23,7 @@
 //               initial guess, from the remembered level, uses it)
 //   hz          highest display rate asked for (capped by CONFIG.xr.maxFrameRate)
 //   crowd       share of spectators drawn (whole quarters, spread through the stands); crowdAnim: their motion
-//   shadows     2 sun shadows of every limb + contact blobs · 1 the same · 0 contact blobs only
+//   shadows     2 sun shadows of every limb + contact pools · 1 legs and trunk · 0 one soft blob a figure + contact pools
 //   detail      players' procedural cloth folds and bump (the decals, faces and lighting stay)
 //   lodNear     distance (m) inside which a player gets the full-detail mesh
 //   turf        the turf's / pitch's blade-and-clay detail texture

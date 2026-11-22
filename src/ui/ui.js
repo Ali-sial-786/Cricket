@@ -21,8 +21,8 @@ const signed = (v, d = 2) => (v > 0 ? '+' : '') + v.toFixed(d);
 const CONTACT = ['off', 'low', 'normal', 'high'];
 const VIEWS = ['eyes', 'helmet', 'behind'];
 const VIEW_NAMES = { eyes: 'your eyes', helmet: 'eyes + helmet grille', behind: 'behind the player' };
-const REPLAYS = ['off', 'bowler'];
-const REPLAY_NAMES = { off: 'off', bowler: "after every ball" };
+const REPLAYS = ['off', 'highlights', 'every'];
+const REPLAY_NAMES = { off: 'off', highlights: 'highlights', every: 'every ball', bowler: 'highlights' };
 const TURNS = ['smooth', 'snap', 'off'];
 // The result page's "change mode": the mode it offers after each.
 const NEXT_MODE = { chase: 'over', over: 'match', match: 'chase', nets: 'chase', bowlnets: 'over' };
@@ -39,18 +39,21 @@ const PRESS_SECS = 0.14;       // a clicked button looks pressed this long
 
 // Where the floating panels sit, as seen from your eyes: yaw (degrees, + to
 // the right of where you face), elevation (degrees, + up), distance (m).
-// Batting: off to the left of the line to the bowler, clear of the pitch, the
-// ball's path and the HUD (which is up and to the right); the prompt above the
-// control hints, both above the helmet grille's top bar (~19° down).
+// Batting: ~28° off to the left of your gaze and below the horizon line, clear
+// of the pitch, the ball's path and the HUD (which is up and to the right); the
+// prompt above the control hints, both above the helmet grille's top bar (~19° down).
 // Bowling: the delivery card low-left beside the run-up, the prompt and hints
 // low-right (the HUD is above them, beside the pitch).
 const LAYOUT = {
-  batting: { prompt: [-24, -2, 1.6], hints: [-24, -12.5, 1.45] },
-  bowling: { prompt: [22, -13, 1.5], hints: [22, -23, 1.4], card: [-25, -9, 1.15] },
+  batting: { prompt: [-28, -6, 1.6], hints: [-28, -15, 1.45] },
+  bowling: { prompt: [26, -14, 1.5], hints: [26, -24, 1.4], card: [-25, -9, 1.15] },
 };
-// The panels stay put while you look around them; they follow once you turn
-// more than this far from where they were put.
-const FOLLOW_CONE = 32;
+// The panels stay put while you look around them, and follow (sliding) once you
+// turn more than this far: they keep their place to the side of your gaze and
+// are never dragged into the middle of the view (following the ball after a
+// shot used to pull the RUN cards across it).
+const FOLLOW_CONE = 9, FOLLOW_IN = 3, CARD_CONE = 32;
+const LIVE_SCALE = 0.82;       // the cards shrink a little while the ball is in play
 
 // Settings, by tab: [tab id, label, icon].
 const SET_TABS = [['gameplay', 'Gameplay'], ['batting', 'Batting'], ['bowling', 'Bowling'], ['view', 'View & comfort'], ['audio', 'Audio'], ['vision', 'Vision']];
@@ -131,7 +134,7 @@ export class UI {
     this._pt = new THREE.Vector3(); this._pq = new THREE.Quaternion(); this._pf = new THREE.Vector3();
     this.clock = 0;
     this.hudOn = true;           // the HUD panel is wanted (a review board takes its place for a while)
-    this.anchorYaw = null;       // where the floating panels were put (see updatePrompt)
+    this.anchorYaw = null;       // where the floating panels were put (see updatePrompt): [left side, right side]
     this.pendingPick = null;     // bowler page: the bowler just picked, confirmed before it closes
     this.pressUntil = 0;
     this.prevInnings = null;     // a match's other innings, for the final scorecard
@@ -248,41 +251,52 @@ export class UI {
     const hints = this.hintList.length > 0 && this.clock < this.hintUntil && !this.menuOpen && !card && !clear && !(this.hintRunning && !live);
     const prompt = this.promptShown && !this.menuOpen && !clear;
     // Tag-along: put the panels where you face when they appear; keep them
-    // there while you look around, and drag them along past FOLLOW_CONE.
+    // there while you look around, and drag them along. A message on the left may
+    // drift FOLLOW_CONE further out as you look away from it, but only FOLLOW_IN
+    // toward the middle as you look its way (the mirror image on the right); the
+    // bowling card, read between balls, lets you turn CARD_CONE to look at it.
     const any = prompt || hints || card;
     if (!any) this.anchorYaw = null;
-    else if (this.anchorYaw == null) this.anchorYaw = yaw;
-    else {
-      const d = Math.atan2(Math.sin(yaw - this.anchorYaw), Math.cos(yaw - this.anchorYaw)), cone = FOLLOW_CONE * DEG;
-      if (Math.abs(d) > cone) this.anchorYaw += d - Math.sign(d) * cone;
+    else if (this.anchorYaw == null) this.anchorYaw = [yaw, yaw, yaw];
+    else for (let k = 0; k < 3; k++) {
+      const A = this.anchorYaw, d = Math.atan2(Math.sin(yaw - A[k]), Math.cos(yaw - A[k]));
+      const lo = (k === 2 ? -CARD_CONE : k ? -FOLLOW_CONE : -FOLLOW_IN) * DEG, hi = (k === 2 ? CARD_CONE : k ? FOLLOW_IN : FOLLOW_CONE) * DEG;
+      if (d < lo) A[k] += d - lo; else if (d > hi) A[k] += d - hi;
     }
     const L = LAYOUT[bowling ? 'bowling' : 'batting'];
-    const follow = (panel, show, at) => {
+    const follow = (panel, show, at, side = at[0] < 0 ? 0 : 1) => {
       const m = panel.mesh, wasShown = m.visible;
       m.visible = show;
       if (!show) return;
-      const [yd, el, dist] = at, a = this.anchorYaw + yd * DEG, c = Math.cos(el * DEG);
+      const [yd, el, dist] = at, a = this.anchorYaw[side] + yd * DEG, c = Math.cos(el * DEG);
       this._pt.set(eye.x + Math.sin(a) * c * dist, eye.y + Math.sin(el * DEG) * dist, eye.z - Math.cos(a) * c * dist);
-      if (!wasShown || m.position.distanceTo(this._pt) > 3) m.position.copy(this._pt);
-      else m.position.lerp(this._pt, Math.min(1, dt * 5));
+      // (it comes in with a short rise from a little below its place, and slides when it follows)
+      if (!wasShown || m.position.distanceTo(this._pt) > 3) { m.position.copy(this._pt); m.position.y -= 0.035 * dist; panel.shownAt = this.clock; }
+      else m.position.lerp(this._pt, Math.min(1, dt * 6));
       // Square on to your eyes (no roll): upright and easy to read.
       m.lookAt(eye.x, eye.y, eye.z);
       panel.update();
     };
     follow(this.promptPanel, prompt, L.prompt);
+    const small = ses && ses.state === 'live' ? LIVE_SCALE : 1;
     if (prompt) {
       // The sting comes in (a quick pop, transform only: no texture work) and
       // fades over its last moments; plain messages just fade in and out.
       const t = this.clock - this.promptAt, m = this.promptPanel.mesh;
-      const sc = this.promptKind === 'info' ? 1 : 0.8 + 0.2 * easeOutBack(Math.min(1, t / 0.26));
+      const sc = small * (this.promptKind === 'info' ? 1 : 0.8 + 0.2 * easeOutBack(Math.min(1, t / 0.26)));
       m.scale.set(sc, sc, 1);
-      m.material.opacity = Math.min(1, t / 0.1) * Math.min(1, Math.max(0, (this.promptUntil - this.clock) / 0.2));
+      m.material.opacity = Math.min(1, t / 0.18) * Math.min(1, Math.max(0, (this.promptUntil - this.clock) / 0.3));
     }
     // The card already shows the bowling controls: no hint row while it is up.
     follow(this.hintPanel, hints, L.hints);
+    if (hints) {
+      const m = this.hintPanel.mesh;
+      m.scale.set(small, small, 1);
+      m.material.opacity = Math.min(1, (this.clock - (this.hintPanel.shownAt ?? 0)) / 0.18) * Math.min(1, Math.max(0, (this.hintUntil - this.clock) / 0.3));
+    }
     // Low and to the left: from the bowler's mark the pitch (and the HUD) are to your right.
     // Upright: turned only about the vertical toward you, not tipped to face the eye, which reads as tilted.
-    follow(this.card, card, L.card || LAYOUT.bowling.card);
+    follow(this.card, card, L.card || LAYOUT.bowling.card, 2);
     if (card) this.card.mesh.rotation.set(0, Math.atan2(eye.x - this.card.mesh.position.x, eye.z - this.card.mesh.position.z), 0);
   }
 
@@ -487,7 +501,7 @@ export class UI {
           { hand: 'L', button: 'b', title: 'GO BACK', text: 'Y turns the batters back.' },
           { hand: 'L', button: 'trigger', title: 'DIVE', text: 'Hold the left trigger to dive for the line.' },
           { hand: 'R', button: 'a', title: 'REVIEW', text: 'Given out LBW? A sends it to the third umpire.' },
-          { icon: 'stumps', title: 'RUN OUT', text: 'A throw that beats you home is out. Close ones go to the third umpire.' },
+          { hand: 'R', button: 'b', title: 'LAST BALL AGAIN', text: 'Between balls, B shows the last ball again.' },
           { icon: 'ball', title: 'NO BALL', text: 'The next ball is a FREE HIT: you can only be run out off it.' },
         ]],
         ['Bowling', 'ball', [
@@ -607,9 +621,8 @@ export class UI {
           else if (r.kind === 'tog') tog(r.id, rect, r.label, r.on, r.fn, desc);
           else btn(r.id, rect, r.label, r.fn, { value: r.value, label: r.label, ...desc });
         });
-        const xrRate = g.xrManager && g.xrManager.frameRate ? `${g.xrManager.frameRate} Hz target` : 'no target';
-        const vel = g.input.xr ? (g.input.right.hasXRVel ? 'XR' : 'pose') : 'desktop';
-        label(PW / 2, PH - 52, `Frame ${Math.round(g.stats.fps)} Hz (${xrRate}) · controller velocity: ${vel} · v${g.version}`, { align: 'center', size: 19, color: C.text3 });
+        // (the frame rate and the controllers' velocity source are on the performance panel)
+        label(PW - M, PH - 24, `v${g.version}`, { align: 'right', size: 16, color: C.text3 });
         hint('Y / Esc: back to the game');
       } else {
         const v = s.vision, cw = (CW - 16) / 2, rh = 50, gap = 7;
@@ -854,7 +867,7 @@ export class UI {
     this.menu.update();
     // The HUD panel: between balls only (not while a delivery is on, not in a replay).
     const g = this.game, replay = !!(g.replay && g.replay.active);
-    this.hud.mesh.visible = this.hudOn && !this.quiet && !replay;
+    this.hud.mesh.visible = this.hudOn && !this.quiet && !replay && !this.menuOpen;   // (not behind a menu or the result card)
     this.hud.update();
     // The screen: a sting ends, a replay starts or ends: one redraw each.
     if (this.boardSting && this.clock >= this.boardSting.until) { this.boardSting = null; this.drawBoard(); }

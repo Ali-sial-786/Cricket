@@ -35,6 +35,34 @@ export class BatterView {
   show(v) { if (v && !this.shown && this.runnerOnly) this.actor.h.setFade(0); this.shown = v; this.actor.visible = v; if (!v) this.actor.h.replayVisible = false; }
   setTeam(team) { this.actor.h.setTeam(team); }
   obstacles(a) { return this.crew ? this.crew.obstacles(a) : NO_OBS; }
+  // The AI's swing is timed off his read of the ball. Misread badly, the bat
+  // would still be at the top of the backlift as the ball hits the stumps, the
+  // downswing coming afterwards. Drawn instead: the same swing slid in time so
+  // that it comes through just early or late (SWING_LEFT) as the ball arrives
+  // -- played and missed. Only the picture: the bat the physics sees is the
+  // AI's own (a swing that far out cannot touch the ball either way), and once
+  // the ball has hit anything (its run down the pitch reverses) the re-timing
+  // goes. The arrival is read off the ball itself, frame by frame.
+  swingTime(t, p, ball, dt) {
+    const W = this._warp || (this._warp = { t0: null, z: 0, tz: 0, ok: false, tArr: null, S: 0, off: false, fade: 1 });
+    if (W.t0 !== p.t0) { W.t0 = p.t0; W.ok = false; W.tArr = null; W.S = 0; W.off = false; W.fade = 1; }
+    const Tc = p.TcTo ?? p.Tc, zc = p.C ? p.C.z : -1.6;
+    if (ball && !W.off) {
+      if (W.ok && t > W.tz + 1e-4) {
+        const vz = (ball.z - W.z) / (t - W.tz);
+        if (vz < -1 && W.tArr != null) W.off = true;                        // (off the bat or the pad)
+        else if (vz > 5 && ball.z < zc && (W.tArr == null || t < W.tArr - 0.12)) W.tArr = t + (zc - ball.z) / vz;
+      }
+      W.z = ball.z; W.tz = t; W.ok = true;
+    }
+    let S = 0;
+    if (W.tArr != null) { const E = Tc - W.tArr; if (Math.abs(E) > SWING_FAR) S = clamp(E - Math.sign(E) * SWING_LEFT, -0.4, 0.4); }
+    W.S += clamp(S - W.S, -1.5 * dt, 1.5 * dt);
+    if (W.off) W.fade = Math.max(0, W.fade - dt / 0.25);
+    const tA = W.tArr ?? Tc, Tf = p.Tf || 0.2;
+    const w = sstep(p.t0 + 0.04, Math.max(p.t0 + 0.2, tA - 0.15), t) * (1 - sstep(Tc + Tf + 0.4, Tc + Tf + 1.1, t)) * W.fade;
+    return t + W.S * w;
+  }
   update(t, dt = 1 / 72, ball = null) {
     if (!this.shown) return;
     const a = this.actor;
@@ -127,17 +155,30 @@ export class BatterView {
       this.relaxed = false;
       this.blend = { snap: a.h.snapshot(), p: a.bat.position.clone(), q: a.bat.quaternion.clone(), t: 0 };
     }
-    this.ai.poseAt(t, this.pose);
+    const plan = this.ai.plan;
+    // (a swing that is going to miss by a long way is drawn re-timed: see swingTime)
+    const tr = plan && plan.shot.type !== 'leave' && plan.Tc != null && !(plan.adv > 0) ? this.swingTime(t, plan, ball, dt) : t;
+    this.ai.poseAt(tr, this.pose);
     toV3(_p, this.pose.p);
     toQ(_q, this.pose.q);
-    const plan = this.ai.plan;
+    // Waiting for the bowler: not a statue. Now and then a few taps of the bat
+    // behind his back foot (the bat turned about his hands), until the bowler
+    // gathers to bowl and he picks it up (AIBatter.setReady). Drawn only: the
+    // ball is nowhere near yet.
+    const ready = this.ai.tReady;
+    const wag = (!plan || t > plan.tPass + 1.5) ? 1 - (ready != null && t > ready - 0.4 ? sstep(ready - 0.4, ready - 0.1, t) : 0) : 0;
+    if (wag > 0.001) {
+      const T = t + 2.3, u = T % 3.4;
+      const a = u < 1.3 ? 0.13 * Math.max(0, Math.sin(u * Math.PI * 2.3)) * sstep(0, 0.15, u) * (1 - sstep(1.1, 1.3, u)) : 0;
+      if (a > 1e-4) { _ax.set(1, 0, 0); _q.premultiply(_wq.setFromAxisAngle(_ax, -a * wag)); }
+    }
     if (plan) { this._plan = this._plan || {}; Object.assign(this._plan, plan); this._plan.Tc = plan.TcTo ?? plan.Tc; }
     // He has just walked in: the bat comes round from where he carried it and
     // the body settles into the stance over a few tenths.
     const B = this.blend;
     let w = 1;
     if (B) { B.t += dt; w = sstep(0, 0.45, B.t); _p.lerpVectors(B.p, _p, w); _q.copy(B.q).slerp(toQ(_bq, this.pose.q), w); }
-    a.updateBatting(dt, _p, _q, { t, plan: plan ? this._plan : null, adv: this.ai.advanceAt(t), ball });
+    a.updateBatting(dt, _p, _q, { t: tr, plan: plan ? this._plan : null, adv: this.ai.advanceAt(tr), ball });
     if (B) {
       if (w >= 1) this.blend = null;
       else { a.h.blendFrom(B.snap, w); a.h.update(); a.h.clearFoot('L'); a.h.clearFoot('R'); a.h.syncShadow(); }
@@ -145,7 +186,10 @@ export class BatterView {
     this.wasBat = true;
   }
 }
-const _bq = new THREE.Quaternion(), _look2 = new THREE.Vector3();
+const _bq = new THREE.Quaternion(), _look2 = new THREE.Vector3(), _wq = new THREE.Quaternion();
+// Re-timing a swing that misses by a mile (BatterView.swingTime): only when the plan's contact
+// is more than SWING_FAR s from when the ball really gets there; it is then drawn SWING_LEFT s early / late.
+const SWING_FAR = 0.07, SWING_LEFT = 0.045;
 // The striker relaxing between balls: half turned toward the bowler's end; where he looks
 // (the bowler walking back, square leg, the off side, the pitch in front of him while he taps it).
 const RELAX_FACE = Math.PI / 2 + 0.55;
