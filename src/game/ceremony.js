@@ -56,6 +56,7 @@ const SKIP_OUT = 0.2, SKIP_IN = 0.35;
 // figures gone) · cast (the toss figures out) · card {card} · cardOff · board
 // {board} · sting {sting} · sound {name} · crowd {mood} · coin · call {fn: a
 // ctx function} · arrange (the field coming out) · celebrate · hurryIn.
+// wait {for, max}: the beat stands still while that is going on (at most max s).
 // if: a ctx flag the cue needs.
 export const BEATS = {
   // The first ball of a match / chase / over: the ground from the pavilion, the title.
@@ -106,17 +107,18 @@ export const BEATS = {
   // You are out (batting), after the replay: the fielding side's celebration in
   // view (cut round to it if it is behind you), the dismissal card, the
   // walk-off fade, the new batter's card, back at the crease.
-  wicket: { dur: 5.8, short: 3.0, hold: true, steps: [
+  wicket: { dur: 4.8, short: 3.0, hold: true, steps: [
     { t: 0, cue: 'fade', out: 0.25, scene: 1, if: 'behind' },
     { t: 0.27, cue: 'vantage', spot: 'huddle', scene: 1, if: 'behind' },
     { t: 0.3, cue: 'fade', in: 0.35, scene: 1, if: 'behind' },
-    { t: 1.3, ts: 0, cue: 'card', card: 'dismissal' },
-    { t: 1.3, ts: 0, cue: 'board', board: 'dismissal' },
-    { t: 3.5, cue: 'fade', out: 0.3, scene: 1 },
-    { t: 3.82, cue: 'clear', scene: 1 },
-    { t: 3.82, ts: 1.7, cue: 'card', card: 'newBatter' },
-    { t: 4.0, cue: 'fade', in: 0.45, scene: 1 },
-    { t: 5.6, ts: 2.9, cue: 'cardOff' },
+    { t: 1.0, ts: 0, cue: 'card', card: 'dismissal', el: -0.22 },   // (low: the huddle stays in view above it)
+    { t: 1.0, ts: 0, cue: 'board', board: 'dismissal' },
+    { t: 2.9, cue: 'wait', for: 'huddle', max: 2.0, scene: 1 },          // (never fade over the huddle: until it breaks up)
+    { t: 3.0, cue: 'fade', out: 0.3, scene: 1 },
+    { t: 3.32, cue: 'clear', scene: 1 },
+    { t: 3.32, ts: 1.7, cue: 'card', card: 'newBatter' },
+    { t: 3.5, cue: 'fade', in: 0.45, scene: 1 },
+    { t: 4.6, ts: 2.9, cue: 'cardOff' },
   ] },
   // You took a wicket (bowling): the batter's card, the new man (who comes from nearer: hurryIn).
   wicketTaken: { dur: 4.2, short: 3.2, hold: false, steps: [
@@ -199,12 +201,18 @@ export function playerOfMatch(innings, winner = null) {
 }
 
 // The next delivery waits while a holding beat plays: the session's first
-// step of a delivery (batting: prepare; bowling: nextBall, and the bowler page
-// at the start) is held, nothing else. Wrapped on the session object only.
+// step of a delivery (batting: peopleReady / prepare; bowling: nextBall, and
+// the bowler page at the start) is held, nothing else. Wrapped on the session object only.
 export function holdSession(game, s) {
   if (!s || s._held) return s;
   s._held = true;
   const held = () => !!(game.ceremony && game.ceremony.holding);
+  // (batting: "is everyone ready?" says no while held -- its own count of the wait and its hurrying
+  // of the field go on as ever, so the beat overlaps the walk back instead of adding to it)
+  if (typeof s.peopleReady === 'function') {
+    const f = s.peopleReady;
+    s.peopleReady = function (...a) { const r = f.apply(this, a); return r && !held(); };
+  }
   for (const k of ['prepare', 'nextBall']) {
     const f = s[k];
     if (typeof f !== 'function') continue;
@@ -320,8 +328,17 @@ export class Ceremony {
   tick(dt) {
     const c = this.cur;
     if (!c) return;
+    // (held at a wait cue: the time stands still and the beat is that much longer)
+    if (c.wait) {
+      c.wait.t += dt;
+      if (c.wait.t < c.wait.max && this.waiting(c.wait.for)) { c.dur += dt; return; }
+      c.wait = null;
+    }
     c.t += dt;
-    while (this.cur === c && c.i < c.steps.length && c.steps[c.i].t <= c.t) this.exec(c.steps[c.i++], c.ctx);
+    while (this.cur === c && !c.wait && c.i < c.steps.length && c.steps[c.i].t <= c.t) {
+      const st = c.steps[c.i++];
+      if (st.cue === 'wait') { if (this.waiting(st.for)) c.wait = { for: st.for, max: st.max || 2, t: 0 }; } else this.exec(st, c.ctx);
+    }
     if (this.cur === c && c.t >= c.dur) this.finish(false);
   }
 
@@ -352,6 +369,13 @@ export class Ceremony {
     this.updateCast(dt);
     this.updateCoin(dt);
     this.updateCard(dt);
+  }
+
+  // Is that still going on? 'huddle': the fielding side round the wicket-taker (Fielding.celebrateWicket).
+  waiting(what) {
+    const g = this.g, s = g.session, L = s && s.field && s.field.logic;
+    if (what === 'huddle') return !!L && L.fielders.some((f) => f.state === 'huddle' || (f.huddleCenter && f.huddleUntil != null && g.simTime < f.huddleUntil));
+    return false;
   }
 
   // ---------------------------------------------------------------- watching play
