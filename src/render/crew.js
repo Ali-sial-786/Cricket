@@ -282,7 +282,9 @@ export class BatterCrew {
     }
     this.advanceLeaving(dt);
     for (const a of this.leaving) {
-      a.updateMoving(dt || 1e-4, t, null, false, a.task && a.task.kind === 'off');
+      // (walking off: a look back at the stumps over the first couple of seconds, then head down)
+      const back = a.task && a.task.age < 2.2 ? _look.set(0, 0.6, Math.abs(a.pos.z - PITCH.bowlingStumpsZ) < Math.abs(a.pos.z - PITCH.battingStumpsZ) ? PITCH.bowlingStumpsZ : PITCH.battingStumpsZ) : null;
+      a.updateMoving(dt || 1e-4, t, back, false, a.task && a.task.kind === 'off' ? sstep(2.0, 2.8, a.task.age) : 0);
       a.h.replayVisible = a.visible && (a.h.fade ?? 1) > 0.5;
     }
     void ball; void _look;

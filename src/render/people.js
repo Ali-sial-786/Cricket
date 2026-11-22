@@ -6,7 +6,7 @@ import { toV3, toQ } from './util.js';
 import { sstep, clamp } from './anim.js';
 import { CONFIG } from '../config.js';
 import { walkTask, stepWalk, fadeNearHead } from './crew.js';
-import { live } from './gestures.js';
+import { live, lastCrowd } from './gestures.js';
 
 // The runner in your kit is not drawn close to your head (you are looking out
 // through his eyes as he sets off / comes home): he fades in as he leaves you
@@ -55,7 +55,7 @@ export class BatterView {
       a.h.replayVisible = fade > 0.5;
       a.updateMoving(dt, t, ball);
       this.wasBat = false;
-      if (there) { a.task = null; a.h.setFade(1); if (!this.runnerOnly) this.blend = { snap: a.h.snapshot(), p: a.bat.position.clone(), q: a.bat.quaternion.clone(), t: 0 }; }
+      if (there) { this.justIn = k.kind === 'in'; a.task = null; a.h.setFade(1); if (!this.runnerOnly) this.blend = { snap: a.h.snapshot(), p: a.bat.position.clone(), q: a.bat.quaternion.clone(), t: 0 }; }
       return;
     }
     if (this.running) {
@@ -84,14 +84,41 @@ export class BatterView {
     // it now and then and looks round the field; he settles back into his
     // stance (cross-faded, bat and all) when the next ball is coming.
     if (this.between) {
-      if (this.wasBat) { a.handover(); a.slowNext = 0.6; a._batFrom.dur = 0.7; this.wasBat = false; this.relaxT = 0; }
+      if (!this.relaxed) {
+        // (out of the stance, or in from his walk to the crease: cross-faded, taking its time)
+        a.handover(); a.slowNext = 0.6; if (a._batFrom) a._batFrom.dur = 0.7;
+        this.wasBat = false; this.relaxT = 0;
+        // what he does first: a new man takes guard; after a play-and-miss a look back and a practice
+        // shot; after a boundary a twirl of the bat (and a fist pump, actors.js)
+        const recent = t - lastCrowd.t < 4;
+        this.routine = this.justIn ? 'guard' : recent && (lastCrowd.kind === 'beaten' || lastCrowd.kind === 'miss') ? 'beaten'
+          : recent && (lastCrowd.kind === 'boundaryAgainst' || lastCrowd.kind === 'four' || lastCrowd.kind === 'six') ? 'boundary' : null;
+        this.justIn = false;
+      }
       this.blend = null;
       this.relaxT = (this.relaxT || 0) + dt;
       a.speed = 0;
-      a.turnToward(RELAX_FACE, dt, 0.9);
-      const T = this.relaxT + 1.3, slot = Math.floor(T / 2.6) % LOOKS.length;
-      const tap = slot === 3 ? Math.max(0, Math.sin(T * 7.5)) * sstep(0, 0.3, T % 2.6) * (1 - sstep(2.2, 2.6, T % 2.6)) : 0;
-      a.updateLeaning(dt, t, _look.set(...LOOKS[slot]), tap);
+      const R = this.routine, T0 = this.relaxT, O = _ro;
+      O.upright = 0; O.shadow = 0; O.shadowW = 0; O.twirl = 0;
+      let tap = 0, look = null;
+      a.turnToward(R === 'guard' ? Math.PI / 2 + 1.2 : RELAX_FACE, dt, 0.9);
+      if (R === 'guard' && T0 < ROUTINE_END) {
+        // bat held up straight to the umpire for his guard, then scratching his mark on the crease
+        O.upright = sstep(0.2, 0.7, T0) * (1 - sstep(1.6, 2.0, T0));
+        look = T0 < 1.8 ? _look.set(-0.9, 1.6, -22) : _look.set(-0.3, 0, -1.25);
+        tap = T0 > 1.9 ? Math.abs(Math.sin(T0 * 9)) * sstep(1.9, 2.1, T0) * (1 - sstep(3.0, 3.3, T0)) : 0;
+      } else if (R === 'beaten' && T0 < ROUTINE_END) {
+        // a rueful look back at the keeper, then the shot he should have played
+        look = T0 < 1.3 ? _look.set(0.2, 1.0, 3) : _look.set(0.3, 0.2, -3);
+        O.shadowW = sstep(1.1, 1.5, T0) * (1 - sstep(2.8, 3.2, T0));
+        O.shadow = 0.5 - 0.5 * Math.cos(Math.max(0, T0 - 1.1) * Math.PI * 1.6);
+      } else if (R === 'boundary' && T0 < ROUTINE_END) {
+        O.twirl = TAU2 * 2 * sstep(0.3, 1.3, T0);
+        look = _look.set(...LOOKS[0]);
+      }
+      const T = (R && T0 < ROUTINE_END ? 0 : T0 - (R ? ROUTINE_END : 0)) + 1.3, slot = Math.floor(T / 2.6) % LOOKS.length;
+      if (!look) { look = _look.set(...LOOKS[slot]); tap = slot === 3 ? Math.max(0, Math.sin(T * 7.5)) * sstep(0, 0.3, T % 2.6) * (1 - sstep(2.2, 2.6, T % 2.6)) : 0; }
+      a.updateLeaning(dt, t, look, tap, O);
       this.relaxed = true;
       return;
     }
@@ -122,6 +149,8 @@ const _bq = new THREE.Quaternion();
 // The striker relaxing between balls: half turned toward the bowler's end; where he looks
 // (the bowler walking back, square leg, the off side, the pitch in front of him while he taps it).
 const RELAX_FACE = Math.PI / 2 + 0.55;
+const ROUTINE_END = 3.4, TAU2 = Math.PI * 2;
+const _ro = { upright: 0, shadow: 0, shadowW: 0, twirl: 0 };
 const LOOKS = [[0.5, 1.5, -26], [-22, 1.2, -1], [20, 1.2, -6], [-0.2, 0, -2.2]];
 
 // AI bowler wrapper (keeps the session API).

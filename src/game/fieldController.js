@@ -74,6 +74,29 @@ export class FieldController {
     this.logic.ballDead();
     if (this.game.crew) this.game.crew.ballDead(info);
     this.deadT = 0;
+    if (info.wicket && this.huddleOn !== false) this.huddle();
+  }
+  // A wicket (decided): the fielding side gets together round the catcher, the
+  // man who broke the stumps, or the bowler (the AI's figure, or you: they
+  // stand round the edge of your space), then back to their marks (Fielding.celebrateWicket).
+  huddle() {
+    const g = this.game, L = this.logic, t = g.simTime;
+    const held = L.caught && L.ballOverride && L.ballOverride.holder != null ? L.ballOverride.holder : -1;
+    let center = held >= 0 ? held : L.fielders.findIndex((f) => f.action && ((f.action.type === 'catch' && f.action.success) || f.action.type === 'break' || (f.action.type === 'take' && f.action.breakAt != null)));
+    if (center >= 0 && L.fielders[center].bowler && !L.bowlerFields) center = -1;
+    let focus = center >= 0 ? L.fielders[center].pos : null, r, budget = 11;
+    // (how long the next ball waits anyway: the AI bowler's walk back to his mark, and 2 s of grace)
+    const bw0 = g.figures && g.figures.bowler.actor;
+    if (bw0 && bw0.visible) budget = Math.hypot(bw0.home.x - bw0.pos.x, bw0.home.z - bw0.pos.z) / 2.6 + 3.5;
+    else if (g.session && g.session.isBowling) budget = 11.5;          // (you bowl: the new batter has to walk out from the gate first)
+    if (L.outcome && L.outcome.by === 'you') r = 1.9;          // (you took it: they stand round the edge of your space)
+    if (!focus) {
+      const bw = g.figures && g.figures.bowler.actor;
+      // (the AI bowler: where he is, a few steps toward the pitch -- he walks on toward his mark, the side comes to meet him)
+      if (bw && bw.visible) { const dz = PITCH.centerZ - bw.pos.z, dx = -bw.pos.x, d = Math.hypot(dx, dz), k = d > 1e-3 ? Math.min(3.5, d) / d : 0; focus = { x: bw.pos.x + dx * k, z: bw.pos.z + dz * k }; }
+      else if (g.session && g.session.isBowling) { const p = this.playerSpot(); if (p) { focus = p; r = 1.9; } }
+    }
+    if (focus) L.celebrateWicket(t, focus, center, r, budget);
   }
   // Everyone in place for the next ball at once (a skip to the next ball, the
   // view dark): the catching view over, every fielder on his mark (the AI
@@ -609,7 +632,7 @@ export class FieldController {
         _w.x += (lb.handFrom.x - lb.from.x) * k; _w.y += (lb.handFrom.y - lb.from.y) * k; _w.z += (lb.handFrom.z - lb.from.z) * k;
         // ... and into his hand wherever it has got to (he is walking back to his mark)
         const lt = L.lobTarget;
-        if (!lb.roll && lt) { const e = sstep(0.5, 1, 1 - k); _w.x += (lt.x - lb.to.x) * e; _w.y += (lt.y - lb.to.y) * e; _w.z += (lt.z - lb.to.z) * e; }
+        if (!lb.roll && lt && !lb.relay) { const e = sstep(0.5, 1, 1 - k); _w.x += (lt.x - lb.to.x) * e; _w.y += (lt.y - lb.to.y) * e; _w.z += (lt.z - lb.to.z) * e; }
       } else {
         _w.copy(o.pos);
         // A throw leaves from the thrower's hand (where it was drawn a frame
