@@ -631,7 +631,7 @@ function kitMaterial(shared = null) {
         else if (k > 29.5 && k < 30.5) mt = vec4(0.0, 0.6, 70.0, 2.0);
         else if (k < 31.5) mt = vec4(0.12, 0.06, 12.0, 5.0);
         else if (k < 32.5) mt = vec4(0.0, 1.4, 140.0, 6.0);
-        else if (k < 33.5) mt = vec4(0.15, 0.3, 36.0, 5.0);
+        else if (k < 33.5) { mt = vec4(0.35, 0.045, 9.0, 5.0); kc = vec3(0.97, 0.96, 0.93); }     // (boots: matte white leather)
         else if (k < 34.5) { kc = uKit3; mt = vec4(0.18, 0.022, 260.0, 2.0); }     // (matte painted shell; the clear coat is a small, sharp highlight)
         else if (k < 35.5) { kc = uKit2; mt = vec4(0.1, 0.25, 45.0, 2.0); }
         else if (k < 36.5) { kc = mix(vec3(0.9), uKit1, 0.6); mt = vec4(0.3, 0.07, 14.0, 5.0); }
@@ -856,12 +856,32 @@ function kitMaterial(shared = null) {
           c = mix(c, uHair * st, hairA); gSSS *= 1.0 - hairA; gSpec = mix(gSpec, 0.08, hairA);
         }
       }
+      // ---- the ears: their hollows in shadow (the bowl behind the rim)
+      if (vHeadW > 0.5 && abs(vBind.x) > uEye.x + 0.04 && vBind.z < uEye.w - 0.07) {
+        float earC = exp(-pow(length(vec2(vBind.y - uEye.y + 0.008, vBind.z - uSkull.z + 0.005) / vec2(0.02, 0.012)), 2.0));
+        c *= 1.0 - 0.4 * earC;
+        c *= mix(vec3(1.0), vec3(1.06, 0.92, 0.88), earC);
+      }
       // ---- the face: painted map projected from the front of the head
       if (vBind.y > uFaceRect.y && vBind.z > uFaceMisc.x && vHeadW > 0.3) {
         vec2 fu = (vBind.xy - uFaceRect.xy) / uFaceRect.zw;
         vec4 f = textureGrad(uFaceMap, fu, gBX.xy / uFaceRect.zw, gBY.xy / uFaceRect.zw);
-        float m = 0.35 + 1.3 * f.r;
+        // (the painted creases a third deeper than before: the mesh's own shading is soft)
+        float m = 0.2 + 1.6 * f.r;
         c *= m;
+        // skin is not one colour: warmer, redder cheeks, nose and lips, a darker, cooler jaw and upper
+        // lip (the beard under the skin), a little paler forehead; and pores and blotches close up
+        float ax = abs(vBind.x), yy = vBind.y;
+        float cheek = exp(-pow(length(vec2(ax - uEye.x - 0.006, yy - uEye.y + 0.03) / vec2(0.022, 0.018)), 2.0));
+        float nose = exp(-pow(length(vec2(ax, yy - uFaceMisc.y) / vec2(0.012, 0.02)), 2.0));
+        c *= mix(vec3(1.0), vec3(1.07, 0.93, 0.9), clamp(cheek * 0.8 + nose * 0.6, 0.0, 1.0));
+        float jaw = smoothstep(uFaceMisc.y - 0.012, uFaceMisc.w - 0.004, yy) * smoothstep(uFaceMisc.w - 0.045, uFaceMisc.w - 0.02, yy) * smoothstep(0.075, 0.03, ax);
+        c *= mix(vec3(1.0), vec3(0.9, 0.9, 0.95), jaw * (0.4 + 0.6 * uLook2.y));
+        c *= 1.0 + 0.05 * smoothstep(uEye.y + 0.02, uEye.y + 0.05, yy);
+        float pf = 1.0 - smoothstep(0.0004, 0.0009, fw);
+        float pore = sin(vBind.x * 3100.0 + sin(vBind.y * 2300.0)) * sin(vBind.y * 2900.0 + sin(vBind.x * 2700.0));
+        kitH += pf * 0.000015 * pore;
+        c *= 1.0 + 0.04 * sin(vBind.x * 430.0 + vBind.y * 260.0) * sin(vBind.y * 510.0 - vBind.x * 170.0);
         float liner = clamp(1.0 - 2.0 * f.b, 0.0, 1.0), white = clamp(2.0 * f.b - 1.0, 0.0, 1.0) * step(0.5, uLod);
         float lip = f.a * step(4.5, s);
         c = mix(c, c * vec3(0.78, 0.6, 0.62) + vec3(0.012, 0.0, 0.0), lip * (1.0 - step(7.5, s)));
@@ -929,6 +949,11 @@ function kitMaterial(shared = null) {
       vec2 cl = vec2(vBind.x - sign(vBind.x) * uEye.x - 0.0024, e.y - 0.0026);
       totalEmissiveRadiance += vec3(0.85, 0.88, 0.92) * smoothstep(0.0014, 0.0008, length(cl)) * (1.0 - lid);
       gSpec = mix(gSpec, 0.1, lid); gShin = mix(gShin, 16.0, lid); gSSS = lid;
+    } else if (gKind > 5.5) {
+      // sunglass lenses: a dark smoked lens with a blue-violet mirror coat, deeper toward the bottom
+      float g = smoothstep(uEye.y - 0.018, uEye.y + 0.016, vBind.y);
+      c = mix(vec3(0.02, 0.022, 0.03), vec3(0.08, 0.1, 0.2), g);
+      gSpec = 1.2; gShin = 160.0;
     } else if (gKind > 4.5 && gKind < 5.5) {
       // padding / leather / boots: a fine grain
       kitH += 0.00003 * sin(vBind.x * 2100.0 + vBind.y * 1700.0) * sin(vBind.z * 1900.0 - vBind.y * 1300.0) * (1.0 - smoothstep(0.0008, 0.0016, fw));
@@ -937,11 +962,22 @@ function kitMaterial(shared = null) {
         vec3 aj = vBind.x > 0.0 ? uAnkleL : uAnkleL * vec3(-1.0, 1.0, 1.0);
         vec2 f = vec2(vBind.z - aj.z, vBind.y);
         float sx = (abs(vBind.x) - abs(aj.x)) / 0.05;
-        if (s < 0.5) c *= 0.78;
-        else if (s > 32.5) {
+        float fine = 1.0 - smoothstep(0.0015, 0.003, fw);
+        if (s < 0.5) {
+          // the sole: dark rubber, the spikes' studs hinted round its edge
+          c = vec3(0.075, 0.075, 0.08) * (1.0 - 0.35 * step(0.6, fract(f.x * 55.0)) * fine);
+          gSpec = 0.02; gShin = 6.0;
+        } else if (s > 32.5) {
+          // the upper: a stitched toe cap, a mesh panel on the side, laces over the tongue, a heel tab in the team colour
           float toe = abs(f.x - 0.17 + 0.035 * sx * sx);
-          c *= 1.0 - 0.3 * smoothstep(0.003, 0.001, toe) * (1.0 - smoothstep(0.0015, 0.003, fw));
+          c *= 1.0 - 0.3 * smoothstep(0.003, 0.001, toe) * fine;
+          float mesh = smoothstep(0.55, 0.75, abs(sx)) * step(0.0, f.x) * step(f.x, 0.12) * step(0.08, f.y);
+          c *= 1.0 - 0.12 * mesh * (0.5 + 0.5 * sin(f.x * 900.0) * sin(f.y * 900.0)) * fine;
+          float lace = step(abs(sx), 0.28) * step(0.03, f.x) * step(f.x, 0.13) * step(0.105, f.y);
+          c = mix(c, vec3(0.93), lace * smoothstep(0.35, 0.15, abs(fract(f.x * 70.0) - 0.5)) * fine);
+          c *= 1.0 - 0.2 * lace * smoothstep(0.24, 0.3, abs(sx));
           c = mix(c, uKit1, smoothstep(-0.055, -0.065, f.x) * smoothstep(0.07, 0.08, f.y));
+          c = mix(c, vec3(0.14), smoothstep(0.07, 0.06, f.y) * 0.85);       // (the sole's rim)
         }
       }
       if (vSeg.y > 0.4 && vBind.y < uLegAxis.w + 0.25) {
@@ -1008,7 +1044,7 @@ function kitMaterial(shared = null) {
             vec3 rv = reflect(-geometryViewDir, normal);
             float t = dot(rv, up);
             vec3 env = mix(vec3(0.16, 0.2, 0.11), vec3(0.62, 0.74, 0.92), smoothstep(-0.15, 0.35, t));
-            float refl = gKind > 5.5 ? 0.55 : gKind > 4.5 ? 0.06 : gKind > 3.5 ? 0.1 : 0.22;
+            float refl = gKind > 5.5 ? 0.3 : gKind > 4.5 ? 0.06 : gKind > 3.5 ? 0.1 : 0.22;
             totalEmissiveRadiance += env * ao * refl * mix(0.25, 1.0, fres) * (gKind > 1.5 && gKind < 2.5 ? gSpec : 1.0);
           }
         }`)
