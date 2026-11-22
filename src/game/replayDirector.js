@@ -180,10 +180,13 @@ function recipe(story, tier, m, tape) {
     const subj = ballAt(tape, six ? land : Math.min(endT, cross + 0.5));
     const k2 = shot({ kind: 'track', rope: true, fov: DIRECTOR.fov.track, subj,
       dists: six ? [12, 16, 20] : [7, 10, 13], heights: six ? [2.2] : [1.7], endDist: six ? [10, 20] : [7, 14] });
-    let slow = S, from = Math.max(outT, key - (six ? 1.9 : 2.2)), overRate = 0.5;
+    // (a ball driven back down the pitch leaves the line camera at once: the shot from behind the arm instead)
+    const viaArm = (Math.min(hit + 0.2, outT) - tB) / S + Math.max(0, outT - hit - 0.2) < 0.7, k0 = viaArm ? arm() : -1;
+    let slow = S, from = Math.max(viaArm ? hit + 0.35 : outT, key - (six ? 1.9 : 2.2)), overRate = 0.5;
     const build = () => {
       segs.length = 0;
-      seg(tB, Math.min(hit + 0.2, outT), slow, k1); seg(hit + 0.2, outT, 1, k1);
+      if (viaArm) seg(rel - 0.7, hit + 0.35, 1, k0);
+      else { seg(tB, Math.min(hit + 0.2, outT), slow, k1); seg(hit + 0.2, outT, 1, k1); }
       seg(from, key - 0.6, 1, k2); seg(Math.max(from, key - 0.6), key + 0.3, overRate, k2); seg(key + 0.3, endT, 1, k2);
     };
     build();
