@@ -41,9 +41,9 @@ const PI = Math.PI;
 // Where a beat puts you (x, z: your head; dx, dz: the way you face).
 const toward = (x, z, tx, tz) => { const dx = tx - x, dz = tz - z, d = Math.hypot(dx, dz) || 1; return { x, z, dx: dx / d, dz: dz / d }; };
 export const SPOTS = {
-  // on the pavilion side, on a riser 2 m above the outfield (a fade cut takes you there): the square laid
+  // on the pavilion side, on a low riser above the outfield (a fade cut takes you there): the square laid
   // out below you with its figures and the stands round it -- at standing height it read as a flat field
-  pavilion: { ...toward(30, CZ + 3, 0, CZ), y: 2.0 },
+  pavilion: { ...toward(24, CZ + 3, 0, CZ), y: 1.2 },      // (1.2 m, not 2: comfortable with nothing drawn under your feet)
   toss: { x: -1.25, z: CZ + 1.2, dx: 1, dz: 0 },      // on the square, the other captain in front of you, the pavilion behind him
 };
 // The toss: who stands where (heading: Actor convention, atan2(dirX, dirZ)) and where the coin comes down.
