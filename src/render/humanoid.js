@@ -608,7 +608,7 @@ function kitMaterial(shared = null) {
         else if (k < 31.5) mt = vec4(0.12, 0.06, 12.0, 5.0);
         else if (k < 32.5) mt = vec4(0.0, 1.4, 140.0, 6.0);
         else if (k < 33.5) mt = vec4(0.15, 0.3, 36.0, 5.0);
-        else if (k < 34.5) { kc = uKit3; mt = vec4(0.18, 0.05, 260.0, 2.0); }     // (matte painted shell; the clear coat is a small, sharp highlight)
+        else if (k < 34.5) { kc = uKit3; mt = vec4(0.18, 0.022, 260.0, 2.0); }     // (matte painted shell; the clear coat is a small, sharp highlight)
         else if (k < 35.5) { kc = uKit2; mt = vec4(0.1, 0.25, 45.0, 2.0); }
         else if (k < 36.5) { kc = mix(vec3(0.9), uKit1, 0.6); mt = vec4(0.3, 0.07, 14.0, 5.0); }
         #ifdef USE_COLOR
