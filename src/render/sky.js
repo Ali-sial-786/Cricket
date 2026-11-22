@@ -8,6 +8,7 @@
 // distant skyline on an open cylinder behind the stands.
 import * as THREE from 'three';
 import { SUN_DIR, HAZE_COLOR } from './lighting.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 function mulberry(a) { return () => { a |= 0; a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
 
@@ -126,21 +127,28 @@ export function buildSky(parent, centreZ) {
         // Warm aureole round the sun, strongest low down.
         float aur = sd * sd; aur *= aur;
         sky = mix(sky, uSunHaze, aur * aur * (0.75 - 0.45 * h));
-        // Clouds on a flat layer.
-        vec2 cp = d.xz / (h + 0.09);
+        // Clouds on a flat layer, drawn finer overhead (x3.4 at the zenith, still monotonic out to the
+        // horizon): a plain flat layer is closest straight up, where its soft puffs were magnified into
+        // smeared swirls.
+        vec2 cp = d.xz / (h + 0.09) * (1.0 + 2.4 * h * h);
+        float up = smoothstep(0.35, 0.85, h);
         vec4 c1 = texture2D(uClouds, cp * 0.15 + vec2(0.31, 0.17));
         vec4 c2 = texture2D(uClouds, cp * 0.07 + vec2(0.6, 0.2) + vec2(0.0011, 0.0005) * uTime);
         float fade = smoothstep(0.015, 0.16, h);
-        // Fair-weather cumulus bank toward the horizon; a clearer, deeper sky overhead.
-        float dens = c1.r * fade * (1.0 - 0.85 * smoothstep(0.3, 0.75, h));
+        // Fair-weather cumulus bank toward the horizon; a clearer, deeper sky overhead, with crisper,
+        // broken (not blurrier) edges where the texture is magnified most.
+        // (the cirrus streaks in the same texel fray the cumulus edges a little overhead: wisps, not a blur)
+        float e = c1.r - c1.b * 0.5 * up;
+        float cr = mix(c1.r, smoothstep(0.1, 0.75, e), 0.15 + 0.3 * up);
+        float dens = cr * fade * (1.0 - 0.86 * up);
         float rim = sd * sd * sd * sd; rim *= rim;
         // Thin edges are lit through; only the thick cores show the shaded side,
         // and not round the sun, where the glare through the haze fills them in.
         float near = sd * sd * sd; near *= near;
-        float lk = mix(mix(0.92, c1.g, smoothstep(0.1, 0.7, c1.r)), 1.0, near * 0.85);
+        float lk = mix(mix(0.92, c1.g, smoothstep(0.1, 0.7, c1.r)), 1.0, max(near * 0.85, up * 0.3));   // (low contrast overhead)
         vec3 cc = mix(uCloudShade, uCloudLit, lk) + uSunHaze * rim * (1.0 - c1.r) * 0.9;
         cc = mix(cc, uHorizon, (1.0 - fade) * 0.5);
-        sky = mix(sky, mix(uHorizon, uCloudLit, 0.6) * (0.92 + 0.12 * rim), c2.b * fade * 0.4);
+        sky = mix(sky, mix(uHorizon, uCloudLit, 0.6) * (0.92 + 0.12 * rim), c2.b * fade * 0.4 * (1.0 - 0.6 * up));
         sky = mix(sky, cc, dens);
         // The sun: a hot disc, a tight glow and a wide one, dimmed through cloud.
         float disc = smoothstep(0.99990, 0.99994, sd);
@@ -157,13 +165,27 @@ export function buildSky(parent, centreZ) {
   sky.frustumCulled = false;
   parent.add(sky);
 
-  const skyline = new THREE.Mesh(new THREE.CylinderGeometry(330, 330, 70, 64, 1, true),
+  const skyline = new THREE.Mesh(skylineGeometry(),
     new THREE.MeshBasicMaterial({ map: skylineTexture(), transparent: true, side: THREE.BackSide, depthWrite: false, fog: true }));
   skyline.position.set(0, 26, centreZ);
   skyline.renderOrder = -9;
   parent.add(skyline);
 
   return { sky, skyline, update(t) { uniforms.uTime.value = t % 10000; } };
+}
+
+// The skyline's cylinder in two halves sharing one 2048 x 512 texture (the 4096 x 256 panorama
+// folded: the brief's 2048 limit, the same texels a metre). The second half's band is flipped so the
+// two meet ground to ground in the middle (a mip level's bleed there is treeline into treeline) and
+// the texture's outer edges are clear sky.
+function skylineGeometry() {
+  const halves = [0, 1].map((k) => {
+    const g = new THREE.CylinderGeometry(330, 330, 70, 32, 1, true, k * Math.PI, Math.PI);
+    const uv = g.attributes.uv;
+    for (let i = 0; i < uv.count; i++) { const v = uv.getY(i); uv.setY(i, k ? 0.5 - 0.5 * v : 0.5 + 0.5 * v); }
+    return g;
+  });
+  return mergeGeometries(halves, false);
 }
 
 // Distant skyline (an open cylinder 330 m out, y -9..61 m; canvas x = the
@@ -225,9 +247,13 @@ function skylineTexture() {
     g.fill();
   }
   g.fillStyle = hz([44, 66, 48], 0.32); g.fillRect(0, groundY - 8, W, H - groundY + 8);
-  const t = new THREE.CanvasTexture(c);
+  // folded into 2048 x 512 (skylineGeometry): 0-180 deg on top, 180-360 deg below it upside down
+  const f = document.createElement('canvas'); f.width = W / 2; f.height = H * 2;
+  const fg = f.getContext('2d');
+  fg.drawImage(c, 0, 0, W / 2, H, 0, 0, W / 2, H);
+  fg.save(); fg.translate(0, H * 2); fg.scale(1, -1); fg.drawImage(c, W / 2, 0, W / 2, H, 0, 0, W / 2, H); fg.restore();
+  const t = new THREE.CanvasTexture(f);
   t.colorSpace = THREE.SRGBColorSpace;
-  t.wrapS = THREE.RepeatWrapping;
   t.anisotropy = 2;
   return t;
 }

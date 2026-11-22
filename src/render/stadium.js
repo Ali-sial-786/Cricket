@@ -44,6 +44,7 @@ const ROOFED = new Uint8Array(720).map((_, i) => (ROOFS.some(([a0, a1]) => inArc
 const roofed = (a) => ROOFED[Math.floor(a * 2) % 720] === 1;
 const BANK = [20, 50], PAV = [80, 100];
 const WEDGES = [[350, 10], [170, 190]];                // behind the sightscreens: dark covers, nobody sits
+const MEDIA = [170, 190], MEDIA_TOP = 21.6;            // the far wedge's upper tier: the media centre's glass
 const TOWERS = [45, 135, 225, 315];
 const TV = [160, 200, 340, 270];                       // camera platforms on the upper tier front
 const bayType = (b) => (b >= 2 && b <= 4 ? 'bank' : b >= 8 && b <= 9 ? 'pav' : 'stand');
@@ -225,7 +226,7 @@ class Builder {
   constructor(sectors, shadeAt) { this.n = sectors; this.shadeAt = shadeAt; this.s = Array.from({ length: sectors }, () => ({ p: [], nr: [], uv: [], c: [], sh: [], idx: [] })); this.col = new THREE.Color(); }
   sector(x, z) { return Math.floor((angOf(x, z) / 360) * this.n) % this.n; }
   tint(hex) { this.col.set(hex); return [this.col.r, this.col.g, this.col.b]; }
-  // pts: 4 corners [x,y,z]; nrm: one [x,y,z] or 4; uvs: 4 [u,v]; o: { tint, emit, sky, sun, sector }
+  // pts: 4 corners [x,y,z]; nrm: one [x,y,z] or 4; uvs: 4 [u,v]; o: { tint, tints (one a corner), emit, sky, sun, sector }
   quad(pts, nrm, uvs, o = {}) {
     const ns = Array.isArray(nrm[0]) ? nrm : [nrm, nrm, nrm, nrm];
     // Wind so the face points along the intended normal.
@@ -238,7 +239,8 @@ class Builder {
     const base = S.p.length / 3, tint = o.tint ?? [1, 1, 1];
     for (let i = 0; i < 4; i++) {
       const p = pts[i], n = ns[i];
-      S.p.push(p[0], p[1], p[2]); S.nr.push(n[0], n[1], n[2]); S.uv.push(uvs[i][0], uvs[i][1]); S.c.push(tint[0], tint[1], tint[2]);
+      const tc = o.tints ? o.tints[i] : tint;
+      S.p.push(p[0], p[1], p[2]); S.nr.push(n[0], n[1], n[2]); S.uv.push(uvs[i][0], uvs[i][1]); S.c.push(tc[0], tc[1], tc[2]);
       const sh = o.fixed ? o.fixed : this.shadeAt(p[0], p[1], p[2], n[0], n[1], n[2]);
       S.sh.push(sh[0] * (o.sun ?? 1), sh[1] * (o.skyv ? o.skyv[i] : o.sky ?? 1), o.emit ?? 0);
     }
@@ -426,7 +428,7 @@ export function buildStadium(root, lights) {
   const C = {
     concrete: T(0xb9b5ad), wall: T(0x24333f), seatLow: T(0x2f5266), seatUp: T(0x3b6276), seatAlt: T(0xc9ced4), cover: T(0x272d36),
     members: T(0x2f5a3c), fascia: T(0x18222d), roofUnder: T(0xbcc5d2), roofTop: T(0xdfe3e6), steel: T(0xe9ecee), dark: T(0x14181d),
-    grass: T(0x5e8f3e), cream: T(0xece3cf), green: T(0x3f6b55), white: T(0xf4f2ec), tower: T(0xa8afb6),
+    grass: T(0x5e8f3e), cream: T(0xece3cf), green: T(0x3f6b55), white: T(0xf4f2ec), tower: T(0xa8afb6), tarp: T(0x3a4842),
   };
 
   // A profile edge swept from a0 to a1 (degrees): (r0,y0) -> (r1,y1), uv band slice [f0, f1].
@@ -440,6 +442,8 @@ export function buildStadium(root, lights) {
     const u0 = (A0 * rm) / us, u1 = (A1 * rm) / us;
     const va = vOf(band, f0), vb = vOf(band, f1);
     if (o.sky0 != null) o = { ...o, skyv: [o.sky0, o.sky0, o.sky1, o.sky1] };
+    if (o.tintA) o = { ...o, tints: [o.tintA[0], o.tintA[1], o.tintA[1], o.tintA[0]] };       // across the sweep (a0 -> a1)
+    else if (o.tintR) o = { ...o, tints: [o.tintR[0], o.tintR[0], o.tintR[1], o.tintR[1]] };  // along the profile edge
     B.quad([P(r0, y0, A0), P(r0, y0, A1), P(r1, y1, A1), P(r1, y1, A0)], [N(A0), N(A1), N(A1), N(A0)], [[u0, va], [u1, va], [u1, vb], [u0, vb]], o);
   };
   // A flat polygon in the radial plane at angle a (degrees): end walls of stands and tunnels.
@@ -507,8 +511,9 @@ export function buildStadium(root, lights) {
       sweep(a0, a1, BOWL.wallR, BOWL.wallTop, L.r0, BOWL.wallTop, 'PLAIN', 0.5, 0.5, { tint: C.concrete });
       sweep(a0, a1, L.r0, BOWL.wallTop, L.r0, L.y0, 'CONC', 0.2, 0.6, { tint: C.concrete });
       rail(a0, a1, BOWL.wallR + 0.15, BOWL.wallTop, BOWL.wallTop + 0.32);
-      // Lower tier.
-      for (let i = 0; i < L.rows; i++) {
+      // Lower tier (behind a sightscreen: under a tarpaulin).
+      if (covered) tarp(a0, a1, L, lowRowR, lowRowY, lowEndR, lowEndY);
+      else for (let i = 0; i < L.rows; i++) {
         const inVom = kind === 'vom' && i >= 3 && i <= 9;
         const yb = i ? lowRowY(i - 1) : L.y0 - 0.001, yt = lowRowY(i), r = lowRowR(i);
         if (inVom) {
@@ -537,8 +542,10 @@ export function buildStadium(root, lights) {
       sweep(a0, a1, BOWL.fasciaR, BOWL.fasciaTop, U.r0, BOWL.fasciaTop, 'PLAIN', 0.5, 0.5, { tint: C.white });
       sweep(a0, a1, U.r0, BOWL.fasciaTop, U.r0, U.y0, 'CONC', 0.2, 0.6, { tint: C.concrete });
       rail(a0, a1, BOWL.fasciaR + 0.17, BOWL.fasciaTop, BOWL.fasciaTop + 0.38);
-      // Upper tier.
-      for (let j = 0; j < U.rows; j++) {
+      // Upper tier (behind the far sightscreen, straight down the batter's line: the media centre).
+      if (covered && inArc(mid, MEDIA[0], MEDIA[1])) mediaCentre(a0, a1);
+      else if (covered) tarp(a0, a1, U, upRowR, upRowY, BOWL.backR, upEndY);
+      else for (let j = 0; j < U.rows; j++) {
         const yb = j ? upRowY(j - 1) : U.y0 - 0.001, yt = upRowY(j), r = upRowR(j);
         const band = kind === 'aisle' ? 'STEPS' : covered ? 'PLAIN' : 'ROW', ct = covered ? { tint: C.cover } : {};
         if (j > 0) sweep(a0, a1, r, yb, r, yt, band, TREAD, 1, { sky: 0.85, ...ct });
@@ -555,6 +562,7 @@ export function buildStadium(root, lights) {
       sweep(a0, a1, BOWL.backR, BOWL.top, BOWL.outerR, BOWL.top, 'PLAIN', 0.5, 0.5, { tint: C.concrete });
       sweep(a0, a1, BOWL.outerR, BOWL.top, BOWL.outerR, 0, 'CONC', 0.05, 0.95, { tint: T(0x8d9298), uScale: 16 });
     }
+    if (bay === MEDIA[0] / 10) for (const [a, f] of [[MEDIA[0], -1], [MEDIA[1], 1]]) cap(a, [[U.r0 + 0.1, U.y0 - 0.05], [BOWL.outerR, U.y0 - 0.05], [BOWL.outerR, MEDIA_TOP + 1.2], [U.r0 - 0.3, MEDIA_TOP + 1.2]], f, { tint: T(0x59616a), sky: 0.8 });
     // End walls where the stand stops (bank, pavilion).
     const prevType = bayType((bay + 35) % 36), nextType = bayType((bay + 1) % 36);
     if (type === 'stand' && prevType !== 'stand') cap(b0, fullProfile, -1, { tint: C.concrete });
@@ -608,11 +616,56 @@ export function buildStadium(root, lights) {
     const A = a * D, s = Math.sin(A), c = Math.cos(A);
     B.beam([s * r0, y0 + 0.95, c * r0], [s * r1, y1 + 0.95, c * r1], 0.06, { tint: T(0x9aa1a8) });
   }
-  // A vomitory: rows 4-9 cut away down to row 3's tread, dark tunnel mouth at the back.
+  // The covers over the seats behind a sightscreen: a dark charcoal-green tarpaulin draped over the
+  // seat backs (sagging between rows, so the baked light gives each row its fold), in panels a few
+  // metres wide that bulge a little (lighter in the middle) with a darker tie-down strap at each
+  // seam. Dark and calm from the crease: no seat colour, nothing bright behind the bowler's arm.
+  function tarp(a0, a1, T0, rowR, rowY, rEnd, yEnd) {
+    const prof = [[T0.r0, T0.y0]];
+    for (let i = 0; i < T0.rows; i++) {
+      const top = [rowR(i) + T0.depth - 0.1, rowY(i) + 0.82];
+      if (i) { const q = prof[prof.length - 1]; prof.push([(q[0] + top[0]) / 2, (q[1] + top[1]) / 2 - 0.17]); }
+      prof.push(top);
+    }
+    prof.push([rEnd, yEnd + 0.35], [rEnd, yEnd]);
+    const base = C.tarp, k = (f) => [base[0] * f, base[1] * f, base[2] * f];
+    const edge = k(0.6), mid = k(1.12), strap = k(0.42), sw = 0.11 / ((T0.r0 + rEnd) / 2) / D;
+    const am = (a0 + a1) / 2;
+    for (let n = 1; n < prof.length; n++) {
+      const [r0, y0] = prof[n - 1], [r1, y1] = prof[n];
+      sweep(a0, a0 + sw, r0, y0, r1, y1, 'PLAIN', 0.5, 0.5, { tint: strap });
+      sweep(a0 + sw, am, r0, y0, r1, y1, 'PLAIN', 0.5, 0.5, { tintA: [edge, mid] });
+      sweep(am, a1, r0, y0, r1, y1, 'PLAIN', 0.5, 0.5, { tintA: [mid, edge] });
+    }
+  }
+  // The media centre over the far sightscreen wedge: three storeys of dark tinted glass (the atlas's
+  // glazing: mullions, transoms, dim rooms and a few silhouettes behind, all toned right down), leaning
+  // out a little at the top as such glass does (no glare), floor slabs between, a dark fascia on top.
+  // Calm and dark behind the bowler's arm, but a building, not a black hole.
+  function mediaCentre(a0, a1) {
+    const storey = (MEDIA_TOP - BOWL.fasciaTop) / 3, lean = 0.14, glass = T(0x8a97a4), slab = T(0x3a4148);
+    for (let k = 0; k < 3; k++) {
+      const yb = BOWL.fasciaTop + k * storey, yt = yb + storey - 0.22, rb = U.r0 + 0.2 - lean * k, rt = rb - lean;
+      sweep(a0, a1, rb, yb, rt, yt, 'GLASS', 0.98, 0.02, { tint: glass, uScale: 12, emit: 0.1, sky: 0.9 });
+      sweep(a0, a1, rt, yt, rt - 0.02, yt + 0.22, 'PLAIN', 0.5, 0.5, { tint: slab });
+    }
+    const rTop = U.r0 + 0.2 - lean * 3 - 0.05;
+    sweep(a0, a1, rTop, MEDIA_TOP, rTop - 0.15, MEDIA_TOP + 1.2, 'PLAIN', 0.5, 0.5, { tint: C.fascia });
+    sweep(a0, a1, rTop - 0.15, MEDIA_TOP + 1.2, BOWL.outerR, MEDIA_TOP + 1.2, 'PLAIN', 0.5, 0.5, { tint: T(0x7d858e) });
+  }
+  // A vomitory: rows 4-9 cut away down to row 3's tread, and a tunnel going in at the back: its floor
+  // lit at the mouth and falling away to dark, walls and ceiling darkening with depth, a dark end
+  // (not a flat black hole).
   function vomitory(a0, a1) {
-    const yF = lowRowY(3), rF = lowRowR(4), rBk = lowRowR(10), yTop = lowRowY(9);
+    const yF = lowRowY(3), rF = lowRowR(4), rBk = lowRowR(10), yTop = lowRowY(9), rIn = rBk + 3.4;
     sweep(a0, a1, lowRowR(3), yF, rBk, yF, 'ROW', 0.5, 0.2, {});
-    sweep(a0, a1, rBk, yF, rBk, yTop, 'PLAIN', 0.5, 0.5, { tint: T(0x101215), fixed: [0, 0.4] });
+    sweep(a0, a1, rBk, yF, rIn, yF, 'CONC', 0.6, 0.4, { tintR: [T(0x9a968e), T(0x2a2b2c)], fixed: [0, 1], sky0: 0.85, sky1: 0.1 });       // floor
+    sweep(a0, a1, rIn, yTop, rBk, yTop, 'PLAIN', 0.5, 0.5, { tintR: [T(0x1c1e21), T(0x5d5c58)], fixed: [0, 1], sky0: 0.08, sky1: 0.42 });  // ceiling
+    sweep(a0, a1, rIn, yF, rIn, yTop, 'CONC', 0.9, 0.1, { tintR: [T(0x6d675c), T(0x45433f)], fixed: [0, 0.3], emit: 0.12 });                 // the far end: the lit concourse beyond
+    for (const [a, f] of [[a0, 1], [a1, -1]]) {
+      const side = [[rBk, yF], [rIn, yF], [rIn, yTop], [rBk, yTop]];
+      cap(a, side, f, { fixed: [0, 1], tintFn: (x, y, z) => { const t = clamp((Math.hypot(x, z) - rBk) / (rIn - rBk), 0, 1), v = 0.55 - 0.35 * t; return [v * 0.98, v * 0.97, v * 0.95]; } });
+    }
     const side = [[rF, yF]];
     for (let i = 4; i <= 9; i++) side.push([lowRowR(i), lowRowY(i)], [lowRowR(i + 1), lowRowY(i)]);
     side.push([rBk, yF]);
