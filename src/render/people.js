@@ -145,7 +145,7 @@ export class BatterView {
     this.wasBat = true;
   }
 }
-const _bq = new THREE.Quaternion();
+const _bq = new THREE.Quaternion(), _look2 = new THREE.Vector3();
 // The striker relaxing between balls: half turned toward the bowler's end; where he looks
 // (the bowler walking back, square leg, the off side, the pitch in front of him while he taps it).
 const RELAX_FACE = Math.PI / 2 + 0.55;
@@ -319,7 +319,7 @@ export class NonStrikerView {
     this.side.set(o.x, 0, o.z);
     const G = this.goal;
     G.x = this.home.x + o.x; G.z = this.home.z + o.z;
-    const look = ball || opts.watch || _look.set(0.5, 1.3, -30);
+    let look = ball || opts.watch || _look.set(0.5, 1.3, -30);
     if (backing) {
       // facing down the pitch, walking forward
       const pz = this.home.z + o.z + this.backing, dz = pz - a.pos.z;
@@ -348,7 +348,14 @@ export class NonStrikerView {
     a.speed = 0;
     a.turnToward(this.restFace(), dt, 3);
     a.h.setFade(1); a.h.replayVisible = true;
-    a.updateLeaning(dt, t, look);
+    // (with the ball dead: now and then a few taps of the bat at his crease, a look round instead of at the bowler)
+    let tap = 0;
+    if (!ball) {
+      const T = t + 4.1, slot = Math.floor(T / 7), u = T - slot * 7, r = (Math.sin(slot * 12.9898) * 43758.5453) % 1;
+      if (Math.abs(r) < 0.45 && u < 1.6) tap = Math.abs(Math.sin(u * 8)) * sstep(0, 0.2, u) * (1 - sstep(1.3, 1.6, u));
+      else if (Math.abs(r) > 0.75 && u < 2.4) look = _look2.set(this.home.x * 12, 1.4, -8);
+    }
+    a.updateLeaning(dt, t, look, tap);
     this.moving = false;
   }
   // He walks to his mark (task: one he already has, e.g. coming in from the gate).

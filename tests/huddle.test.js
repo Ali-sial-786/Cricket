@@ -74,3 +74,23 @@ test('the next ball breaks a huddle up: everyone heads for his mark', () => {
   assert.ok(!f.fielders.some((p) => p.state === 'huddle'));
   assert.ok(f.fielders.every((p) => p.huddleUntil == null));
 });
+
+test('the keeper sends the ball back through the slip: keeper -> slip -> bowler, all done within 6 s of the ball going dead', () => {
+  const f = field(4);
+  const k = f.fielders.findIndex((p) => p.keeper);
+  f.fielders[k].action = { type: 'keep', t0: 20, target: null, hold: true };
+  f.ballOverride = { pos: f.fielders[k].pos.clone(), holder: k };
+  f.lobTarget = { x: 1, y: 1.5, z: -28, roll: false };
+  const seen = [];
+  let t = 20, doneAt = null;
+  for (let n = 0; n < 60 * 10; n++) {
+    t += 1 / 60;
+    f.update(1 / 60, t, null, null);
+    const h = f.ballOverride ? (f.lob ? (f.lob.relay ? 'toRelay' : 'toBowler') : 'held' + f.ballOverride.holder) : 'gone';
+    if (seen[seen.length - 1] !== h) seen.push(h);
+    if (h === 'gone' && doneAt == null) doneAt = t - 20;
+  }
+  const slip = f.fielders.findIndex((p) => p.name === 'slip');
+  assert.deepEqual(seen, ['held' + k, 'toRelay', 'held' + slip, 'toBowler', 'gone'], seen.join(' > '));
+  assert.ok(doneAt < 6, `in the bowler's hand after ${doneAt.toFixed(1)} s`);
+});

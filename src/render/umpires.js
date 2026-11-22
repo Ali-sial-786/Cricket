@@ -51,13 +51,15 @@ class UmpireActor extends Actor {
     if (look && D.ok && dt > 0) {
       const vx = (look.x - D.p.x) / dt, vz = (look.z - D.p.z) / dt, px = look.x - this.pos.x, pz = look.z - this.pos.z;
       const v2 = vx * vx + vz * vz, tc = -(px * vx + pz * vz) / Math.max(1e-6, v2);
-      if (v2 > 64 && tc > 0 && tc < 0.7 && look.y < 2.3) {
+      // (a ball hit away from the striker -- not the delivery leaving the bowler's hand beside him)
+      const away = look.x * vx + (look.z - PITCH.battingStumpsZ) * vz > 0;
+      if (away && v2 > 64 && tc > 0 && tc < 0.7 && look.y < 2.3) {
         const cx = px + vx * tc, cz = pz + vz * tc;                     // closest the ball comes (relative to him)
         if (Math.hypot(cx, cz) < 1.1) { want = 1; this.forward(_f); D.side = (cx * _f.z - cz * _f.x) >= 0 ? -1 : 1; }
       }
     }
     if (look) { D.p.copy(look); D.ok = true; } else D.ok = false;
-    D.e = Math.max(want, D.e - dt * 1.4);
+    D.e = want > D.e ? Math.min(want, D.e + dt * 5) : Math.max(0, D.e - dt * 1.4);       // (quick out of the way, but never in one frame)
     return D;
   }
   update(dt, now, look) {

@@ -148,7 +148,7 @@ export function poseArms(h, fwd, kind, w, t, S) {
       _p.copy(sh).addScaledVector(_l, -0.5).addScaledVector(fwd, -0.3).addScaledVector(_u, -0.3);
     } else if (kind === 'highfive') {
       // (in the ring round the wicket-taker: the right hand up and into the middle, slapping now and then; the left at the chest)
-      const slap = sstep(0, 0.15, (t * 1.3) % 1) * (1 - sstep(0.3, 0.55, (t * 1.3) % 1));
+      const slap = sstep(0, 0.28, (t * 1.1) % 1) * (1 - sstep(0.4, 0.7, (t * 1.1) % 1));
       if (side === 'R') {
         _t.copy(sh).addScaledVector(_u, (0.36 + 0.12 * slap) * sc).addScaledVector(fwd, (0.36 + 0.16 * slap) * sc).addScaledVector(_l, 0.04);
         _p.copy(sh).addScaledVector(_l, -0.6).addScaledVector(_u, -0.3);
@@ -158,8 +158,8 @@ export function poseArms(h, fwd, kind, w, t, S) {
       }
     } else if (kind === 'fist' || kind === 'fistL') {
       if ((kind === 'fist') !== (side === 'R')) continue;       // one fist pumps (fist: the right), the other arm is left as it is
-      const pump = sstep(0, 0.12, (t * 1.6) % 1) * (1 - sstep(0.35, 0.6, (t * 1.6) % 1));
-      _t.copy(sh).addScaledVector(_u, (0.05 + 0.3 * pump) * sc).addScaledVector(fwd, 0.22 * sc).addScaledVector(_l, sg * 0.06);
+      const pump = sstep(0, 0.24, (t * 1.5) % 1) * (1 - sstep(0.4, 0.7, (t * 1.5) % 1));
+      _t.copy(sh).addScaledVector(_u, (0.1 + 0.38 * pump) * sc).addScaledVector(fwd, 0.28 * sc).addScaledVector(_l, sg * 0.08);
       _p.copy(sh).addScaledVector(_l, sg * 0.5).addScaledVector(_u, -0.5).addScaledVector(fwd, 0.1);
     } else return;
     h.ikArm(side, _t, _p);

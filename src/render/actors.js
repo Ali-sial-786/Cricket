@@ -23,7 +23,7 @@ import { CONFIG } from '../config.js';
 import { BatGeometry } from '../physics/bat.js';
 import { PITCH } from '../physics/pitch.js';
 import { steerAmong } from '../game/fielding.js';
-import { moodAt, reactionFor, idleGesture, envelope, poseArms, lookSteady, gestureStore, live, MOOD_DUR, IDLE_SLOT } from './gestures.js';
+import { moodAt, reactionFor, idleGesture, envelope, poseArms, lookSteady, gestureStore, live, hash01, MOOD_DUR, IDLE_SLOT } from './gestures.js';
 
 const TAU = Math.PI * 2;
 const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3(), _d = new THREE.Vector3();
@@ -212,7 +212,10 @@ export class FielderActor extends Actor {
     this.turnToward(s.face, dt, 12);                 // (the logic turns him at a body's pace: Fielding f.yaw)
     this.gait(dt);
     // (set as the ball is bowled; over the stumps waiting for a throw, part way: gloves up, knees a little bent)
-    const wantReady = (s.state === 'set' || s.state === 'walkin' || s.state === 'ready') && ctx.delivering ? 1 : s.await && this.speed < 1.2 ? (this.keeper ? 0.32 : 0.45) : 0;
+    // (each man gets down in his own time, a little before or after the next: the field never drops as one)
+    this._dlv = ctx.delivering ? (this._dlv || 0) + dt : 0;
+    const lag = this.keeper ? 0 : 0.35 * hash01(this.seed, 3.3);
+    const wantReady = (s.state === 'set' || s.state === 'walkin' || s.state === 'ready') && ctx.delivering && this._dlv >= lag ? 1 : s.await && this.speed < 1.2 ? (this.keeper ? 0.32 : 0.45) : 0;
     this.ready += clamp(wantReady - this.ready, -dt * 3, dt * 4);
     // A dive carries the body off its spot (offX / offZ). When the dive is over
     // the body is not put back: what is left of the offset is walked off.
@@ -378,7 +381,8 @@ export class FielderActor extends Actor {
       this.poseKey = 'stand';
       this.idle(t);
       if (this.ready > 0.01) {
-        const k = sstep(0, 1, this.ready);
+        // (and to his own depth: some crouch lower than others)
+        const k = sstep(0, 1, this.ready) * (0.8 + 0.25 * hash01(this.seed, 7.7));
         applyClip(h, 'set', t + this.idleOff, k, MASK_LEGS);
         for (const [b, x, z] of READY_TOP) { _e2.set(x, 0, z); _q.setFromEuler(_e2); h.bones[b].quaternion.slerp(_q, k); }
       }

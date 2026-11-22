@@ -344,7 +344,7 @@ export class Fielding {
       const busy = a && (
         (a.type === 'throw' && t < a.t0 + 1.0)
         || (a.type === 'pickup')
-        || (a.type === 'take' && (t < a.t0 + 0.8 || (a.breakAt != null && t < a.breakAt + 0.7)))
+        || (a.type === 'take' && (t < a.t0 + (a.relay ? 0.35 : 0.8) || (a.breakAt != null && t < a.breakAt + 0.7)))
         || (a.type === 'break' && t < a.at + 0.9)
         || ((a.type === 'catch' || a.type === 'keep' || a.type === 'kmiss') && (this.deadFor < 2.0 || t < a.t0 + 1.3)));
       if (busy || (th && th.f === f && !th.released) || (f.state === 'celebrate' && this.deadFor < 2.4)) continue;
@@ -374,7 +374,7 @@ export class Fielding {
       for (const o of this.fielders) {
         if (o === f || o.bowler || o.keeper || o.playerControlled || o.state !== 'set' || o.action) continue;
         const d = Math.hypot(o.pos.x - f.pos.x, o.pos.z - f.pos.z);
-        if (d > 2.5 && d < RELAY_MAX && d < best) { best = d; relay = o; }
+        if (d > 0.8 && d < RELAY_MAX && d < best) { best = d; relay = o; }
       }
     }
     const to = relay ? new Vec3(relay.pos.x, 1.2, relay.pos.z) : lt ? new Vec3(lt.x, roll ? this.cfg.ball.radius : lt.y, lt.z) : new Vec3(0.9, this.cfg.ball.radius, PITCH.bowlingStumpsZ + 1.5);
@@ -394,7 +394,7 @@ export class Fielding {
     throwPoint(L, k, this.ballOverride.pos);
     // (relayed: in the next man's hands, and he sends it on; in the bowler's hand: gone into his own
     // figure; rolled to you: it lies at your feet until the next ball)
-    if (L.relay && !L.caughtBy && t >= L.tArrive - 0.25) { L.caughtBy = true; L.relay.action = { type: 'take', t0: t, target: L.to.clone(), stumps: null, breakAt: null }; }
+    if (L.relay && !L.caughtBy && t >= L.tArrive - 0.25) { L.caughtBy = true; L.relay.action = { type: 'take', t0: t, target: L.to.clone(), stumps: null, breakAt: null, relay: true }; }
     if (k >= 1) {
       if (L.relay) this.ballOverride.holder = this.fielders.indexOf(L.relay);
       else if (!L.roll) this.ballOverride = null;
