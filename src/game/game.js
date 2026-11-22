@@ -1151,7 +1151,8 @@ export class Game {
       // Through your own eyes you see a faint body below you (no head), so you
       // know where your feet are in the crease.
       const ghost = batting && this.input.xr && !behind && !this.viewOverride && !this.mr && this.settings.ownBody !== false;
-      this.playerBody.actor.h.setGhost(ghost, GHOST_LEGS);    // (pads and boots clear enough to read when you look down; one layer: the depth pre-pass)
+      this.playerBody.actor.h.setGhost(ghost, GHOST_LEGS);    // (solid; it steps aside from the ball and your blade: Humanoid.seeThrough)
+      if (ghost) { const G = this.batMesh.geometry.userData, M = this.batMesh.updateMatrixWorld() || this.batMesh.matrixWorld; this.playerBody.actor.h.seeThrough(this.ballView.mesh.visible ? this.ballView.mesh.position : null, _fpA.set(0, G.shY, 0).applyMatrix4(M), _fpB.set(0, G.toeY, 0).applyMatrix4(M)); }
       // (through your own eyes the faint body stays under you: it is where you stand)
       if (!ghost) this.playerBody.actor.h.setFade(1 - cover);
       this.playerBody.show((deskThird || ((behind || ghost) && batting)) && (ghost || cover < 0.98));
@@ -1274,6 +1275,7 @@ const _batPose = new Pose();
 const _swRef = { x: 0, y: 0, z: 0 }, _lin = new Vec3();
 const BAT_ABOVE_TURF = 0.01;       // m: the lowest corner of your bat's toe is kept this far up while the view is dropped
 const DROP_IN = 0.22, DROP_OUT = 0.3, DROP_FLOOR = 0.12;   // s the sweep's view drop takes down / back up; m your eyes may go under the kneeling height
+const _fpA = new THREE.Vector3(), _fpB = new THREE.Vector3();   // (your blade's shoulder and toe, for your own body to stay out of your view of it)
 const GHOST_LEGS = 0.72;          // opacity of your see-through pads when you look down (boots +0.3, thighs x0.7; Humanoid.setGhost)
 const _bd = new Vec3();
 const _eq = new THREE.Quaternion();
