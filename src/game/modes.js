@@ -122,8 +122,9 @@ export function startWithIntro(game, kind) {
     C.play('nets', { title: kind === 'nets' ? 'BATTING' : 'BOWLING', sub });
     return;
   }
+  // (a chase, an over: straight to the fielding side's huddle in the middle, with the title)
   const session = createSession(game, kind);
-  C.play('intro', introCtx(game, kind), () => begin(game, session));
+  begin(game, session, { ...introCtx(game, kind), titleCard: true });
 }
 
 // ---------------------------------------------------------------- match
@@ -212,7 +213,6 @@ function inningsBreak(game, i, next, card) {
   game.ceremony.play('inningsBreak', {
     team: i.label || (c && c.team) || '', score: i.scoreText, overs: i.overs, target: i.runs + 1, balls: i.ballsLimit, chasing,
     best: [top && `top score ${top}`, best && `best bowling ${best}`].filter(Boolean).join(' · ') || `${i.fours} fours · ${i.sixes} sixes`,
-    endFirst: () => { game.endSession(); },
   }, () => begin(game, next(), { second: true }));
 }
 
