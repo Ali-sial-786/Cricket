@@ -170,7 +170,8 @@ export class PerfControl {
     lines[1] = `${L.name}${this.gov.fixed >= 0 ? ' (fixed)' : ' (auto)'}${this.gov.bench > 0 ? ' benchmarking' : ''} · fov ${L.foveation.toFixed(2)} · vp ${vp}`;
     lines[2] = `CPU ${s.updMs.toFixed(1)} update + ${s.rendMs.toFixed(1)} draw ms${s.bound ? ' · ' + s.bound + '-bound' : ''}`;
     lines[3] = `${i.render.calls} calls · ${(i.render.triangles / 1000).toFixed(0)}k tris · ${i.programs ? i.programs.length : 0} prog · ${i.memory.textures} tex`;
-    lines[4] = `heap ${this.heapMB.toFixed(0)} MB · long frames ${g.frameLog ? g.frameLog.count : 0}`;
+    const vel = g.input && g.input.xr ? (g.input.right.hasXRVel ? 'XR' : 'pose') : 'desktop';     // (was on the Settings page)
+    lines[4] = `heap ${this.heapMB.toFixed(0)} MB · long frames ${g.frameLog ? g.frameLog.count : 0} · velocity ${vel} · v${g.version}`;
     P.draw(lines, s.latePct >= 3);
   }
 

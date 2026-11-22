@@ -712,13 +712,10 @@ export class BowlingSession {
       g.aiBatter.adjust(g.world.ball.clone(), g.world.time);
       // (Where it pitched, not a wide call: "wide of off" there is only a line.)
       const ln = lineName(e.pos.x).replace('wide outside off', 'well outside off');
-      g.ui.setHud({ last: `${this.delivery ? Math.round(this.delivery.vel.length() * 3.6) + ' km/h · ' : ''}Pitched: ${lengthName(-e.pos.z)} (${(-e.pos.z).toFixed(1)} m) · ${ln} · moved ${e.deviationDeg.toFixed(1)}°` });
-      // What you bowled and where it went, near the middle of your view.
-      const d = this.delivery;
-      if (d) {
-        const len = lengthName(PITCH.battingStumpsZ - e.pos.z);
-        g.ui.prompt(`${cap(d.name)} · ${Math.round(d.paceKmh)} km/h\n${len === 'good' ? 'good length' : len} · ${stumpLine(this.atStumps)}`, 2.4, '#ffffff');
-      }
+      // What you bowled and where it went: on the score display, which comes back once the ball is
+      // dead (not a card floating over the pitch while the batters run).
+      const d = this.delivery, sl = stumpLine(this.atStumps);
+      g.ui.setHud({ last: `${d ? cap(d.name) + ' · ' + Math.round(this.delivery.vel.length() * 3.6) + ' km/h · ' : ''}Pitched: ${lengthName(-e.pos.z)} (${(-e.pos.z).toFixed(1)} m) · ${sl || ln} · moved ${e.deviationDeg.toFixed(1)}°` });
     }
     if (e.type === 'bat' && e.batId === 'ai' && !this.hit) {
       const pred = predict(g.world.ball, { maxTime: 8, h: 1 / 240 });
