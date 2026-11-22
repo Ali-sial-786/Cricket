@@ -128,7 +128,7 @@ function prepareRig(meta, bin) {
 //    to (skull, head centre, chin, eyes) are scaled with it.
 // No joint moves and no bone changes length: the clips, IK, foot plants and
 // your own body (its head, gloves on the bat, legs and pads) are as before.
-const SHOULDER_OUT = 0.018, HEAD_K = 0.9;
+const SHOULDER_OUT = 0.016, HEAD_K = 0.9;
 function athleteBuild(lods, J, meta) {
   const B = meta.bones, ih = B.indexOf('head'), isL = B.indexOf('shoulderL'), isR = B.indexOf('shoulderR');
   const Jh = J.head.clone(), ss = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
@@ -144,7 +144,9 @@ function athleteBuild(lods, J, meta) {
       // (along the upper arm: full at the shoulder, none by the elbow)
       const sd = x > 0 ? J.shoulderL : J.shoulderR, ed = x > 0 ? J.elbowL : J.elbowR;
       const t = ((x - sd.x) * (ed.x - sd.x) + (y - sd.y) * (ed.y - sd.y)) / ((ed.x - sd.x) ** 2 + (ed.y - sd.y) ** 2);
-      x += SHOULDER_OUT * (wl - wr) * (1 - ss(0.25, 0.85, t));
+      // (out along the surface's own normal, mostly: a rounded deltoid, not a squared-off pad)
+      const k = SHOULDER_OUT * (wl + wr) * (1 - ss(0.25, 0.85, t)), N = p.geo.attributes.normal;
+      x += k * (0.35 * Math.sign(wl - wr) + 0.65 * N.getX(v)); y += k * 0.5 * N.getY(v); z += k * 0.65 * N.getZ(v);
       if (wh > 0) { const k = 1 - (1 - HEAD_K) * wh; x = Jh.x + (x - Jh.x) * k; y = Jh.y + (y - Jh.y) * k; z = Jh.z + (z - Jh.z) * k; }
       P.setXYZ(v, x, y, z);
     }
@@ -280,6 +282,9 @@ function refinePart(p, lod) {
   // (the build kept vertices whose normals differ by a little split, so the skin showed creases: weld them)
   if (lod > 0) weldNormals(g, 0.3, true, 3);
   else if (p.name === 'Athlete_Body' || p.name === 'Details_Mouth') weldNormals(g, 0.5, false, 1);
+  // (the shirt's painted panels split its vertices, and the simplifier left creases on the shoulders,
+  // upper arms and collar: one smooth normal per place, then smoothed over its neighbours)
+  else if (p.name === 'Performance_Polo' || p.name === 'Details_Shirt') weldNormals(g, 0.35, true, 2);
 }
 const pkey = (P, v) => `${Math.round(P.getX(v) * 1e4)},${Math.round(P.getY(v) * 1e4)},${Math.round(P.getZ(v) * 1e4)}`;
 function hairEdge(g) {
@@ -574,7 +579,7 @@ function kitMaterial(shared = null) {
         #ifdef USE_COLOR
           kc = vColor.rgb;
         #endif
-        vec4 mt = vec4(0.25, 0.035, 10.0, 0.0);
+        vec4 mt = vec4(0.15, 0.035, 10.0, 0.0);      // (cloth: a little wrap, so the folds and the torso keep their form in the sun)
         float push = 0.0;
         if (k < 0.5) mt = vec4(0.2, 0.06, 16.0, 5.0);
         else if (k < 1.5 || (k > 9.5 && k < 23.5)) { kc = uKit1; push = uLook.x * (trunkW + 0.6 * upperW); }
@@ -603,7 +608,7 @@ function kitMaterial(shared = null) {
         else if (k < 31.5) mt = vec4(0.12, 0.06, 12.0, 5.0);
         else if (k < 32.5) mt = vec4(0.0, 1.4, 140.0, 6.0);
         else if (k < 33.5) mt = vec4(0.15, 0.3, 36.0, 5.0);
-        else if (k < 34.5) { kc = uKit3; mt = vec4(0.1, 0.09, 170.0, 2.0); }
+        else if (k < 34.5) { kc = uKit3; mt = vec4(0.18, 0.05, 260.0, 2.0); }     // (matte painted shell; the clear coat is a small, sharp highlight)
         else if (k < 35.5) { kc = uKit2; mt = vec4(0.1, 0.25, 45.0, 2.0); }
         else if (k < 36.5) { kc = mix(vec3(0.9), uKit1, 0.6); mt = vec4(0.3, 0.07, 14.0, 5.0); }
         #ifdef USE_COLOR
@@ -839,24 +844,26 @@ function kitMaterial(shared = null) {
         gSpec += lip * 0.05; gShin = mix(gShin, 18.0, lip);
         // beard: stubble shadow, then hair where the beard reaches
         float bf = f.g;
-        float stub = uLook2.y * smoothstep(0.15, 0.55, bf);
-        c = mix(c, c * 0.72 + uHair * 0.06, stub * 0.6);
-        float beard = smoothstep(1.0 - uLook2.x, 1.0 - uLook2.x + 0.22, bf) * step(0.01, uLook2.x);
-        float strands = 0.8 + 0.2 * sin(vBind.x * 1900.0 + sin(vBind.y * 700.0) * 3.0) * (1.0 - smoothstep(0.0008, 0.0016, fw));
-        c = mix(c, mix(uHair, c * 0.45, 0.3) * strands, beard * 0.92);
+        // (stubble: a tint of the hair's colour over the skin, thicker toward the beard's centre;
+        // a beard: soft-edged, thinning out at its border into the stubble, the hair colour lifted
+        // a little so a dark beard on dark skin reads as hair, not a hole)
+        vec3 hc = max(uHair, vec3(0.035, 0.028, 0.022)) * 1.35;
+        float stub = uLook2.y * smoothstep(0.12, 0.6, bf);
+        c = mix(c, c * 0.8 + hc * 0.12, stub * 0.55);
+        float b0 = 1.0 - uLook2.x, beard = smoothstep(b0 - 0.08, b0 + 0.3, bf) * step(0.01, uLook2.x);
+        float strands = 0.82 + 0.18 * sin(vBind.x * 1900.0 + sin(vBind.y * 700.0) * 3.0) * (1.0 - smoothstep(0.0008, 0.0016, fw));
+        beard *= 0.55 + 0.45 * smoothstep(b0, b0 + 0.35, bf);
+        c = mix(c, mix(hc, c * 0.55, 0.35) * strands, beard * 0.72);
         gSSS *= 1.0 - beard; gSpec = mix(gSpec, 0.1, beard); gShin = mix(gShin, 12.0, beard);
         kitH += beard * 0.00012 * sin(vBind.x * 1500.0 + vBind.y * 900.0) * (1.0 - smoothstep(0.0008, 0.0016, fw));
         c = mix(c, uHair * 0.35, liner * 0.92);
         c = mix(c, vec3(0.78, 0.76, 0.72), white);
         // forehead, nose and cheekbones are a little shinier
         gSpec *= 1.0 + 0.6 * smoothstep(0.03, 0.0, abs(vBind.y - uFaceMisc.y - 0.035)) * smoothstep(0.035, 0.0, abs(vBind.x));
-        // sunglasses on the distant model (which carries no glasses geometry): a dark band over the eyes
-        float sg = uShades * step(0.5, uLod) * step(abs(vBind.y - uEye.y - 0.0005), 0.0155) * step(abs(vBind.x), 0.088);
-        c = mix(c, vec3(0.025, 0.03, 0.04), sg); gSpec = mix(gSpec, 0.9, sg); gShin = mix(gShin, 60.0, sg); gSSS *= 1.0 - sg;
-        // zinc cream on the nose
-        float zn = length((vBind.xy - vec2(0.0, uFaceMisc.y + 0.008)) / vec2(0.017, 0.03));
-        float zc = uLook2.w * smoothstep(1.0, 0.85, zn) * step(uFaceMisc.z - 0.01, vBind.z);
-        c = mix(c, vec3(0.86, 0.87, 0.88), zc); gSSS *= 1.0 - zc; gSpec = mix(gSpec, 0.05, zc);
+        // zinc cream (now and then): a thin, worn stripe down the bridge of the nose, not a blob
+        float zx = abs(vBind.x) / 0.0055, zy = (vBind.y - uFaceMisc.y - 0.004) / 0.019;
+        float zc = uLook2.w * 0.45 * smoothstep(1.0, 0.6, zx) * smoothstep(1.0, 0.7, abs(zy)) * step(uFaceMisc.z - 0.006, vBind.z);
+        c = mix(c, mix(c, vec3(0.62, 0.6, 0.57), 0.55), zc); gSSS *= 1.0 - zc; gSpec = mix(gSpec, 0.03, zc);
       }
     } else if (gKind > 2.5 && gKind < 3.5) {
       // ---- hair: a soft hairline (cropped cuts thin out toward the edge), strands
@@ -887,6 +894,16 @@ function kitMaterial(shared = null) {
       float lash = exp(-pow((e.y - up - 0.0005) / 0.0012, 2.0)) * (1.0 - smoothstep(0.8, 1.05, abs(u)));
       c = mix(c, uHair * 0.22, clamp(lash, 0.0, 1.0) * 0.95);
       c = mix(c, uSkin * 0.55, exp(-pow((e.y - lo + 0.0004) / 0.0007, 2.0)) * 0.5);
+      // the iris: a dark ring at its edge, lighter flecks round the pupil, the pupil black; and a
+      // catch-light (the sky in the wet eye) on the same side of both eyes
+      float ir = length(e) / (uEye.z * 0.84);
+      if (s > 24.5 && s < 25.5) {
+        float fl = 0.88 + 0.12 * sin(atan(e.y, e.x) * 23.0);
+        c *= mix(1.3 * fl, 0.45, smoothstep(0.6, 1.0, ir));
+        c = mix(c, vec3(0.012), smoothstep(0.42, 0.36, ir));
+      }
+      vec2 cl = vec2(vBind.x - sign(vBind.x) * uEye.x - 0.0024, e.y - 0.0026);
+      totalEmissiveRadiance += vec3(0.85, 0.88, 0.92) * smoothstep(0.0014, 0.0008, length(cl)) * (1.0 - lid);
       gSpec = mix(gSpec, 0.1, lid); gShin = mix(gShin, 16.0, lid); gSSS = lid;
     } else if (gKind > 4.5 && gKind < 5.5) {
       // padding / leather / boots: a fine grain

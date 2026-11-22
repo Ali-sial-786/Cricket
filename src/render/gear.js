@@ -271,7 +271,9 @@ function helmet(P, part, c, R, S, lod) {
 // and nose bridge, a thin frame along its top, arms back over the ears.
 function shades(P, part, RIG, c, S, lod) {
   const F = RIG.face, J = RIG.J.head;
-  const ey = F.eye[1] - J.y + 0.001, zc = c[2], rx = 0.104, rz = 0.122, tm = 0.95;
+  // (fitted to this head: the lens sits ~2 cm in front of the eyes, clear of the brow and the nose, and wraps to the temples)
+  const R = RIG.skull ? RIG.skull.r : [0.086, 0.1, 0.11];
+  const ey = F.eye[1] - J.y + 0.001, zc = c[2], rz = F.front - J.z - zc + 0.02, rx = R[0] + 0.012, tm = 0.95;
   const at = (t, y, d = 0) => [(rx + d) * Math.sin(t), y, zc + (rz + d) * Math.cos(t)];
   const top = (t) => ey + 0.0145 - 0.004 * Math.pow(Math.abs(t) / tm, 2);
   const bot = (t) => ey - 0.0165 + 0.009 * Math.pow(Math.abs(t) / tm, 3) + 0.0085 * Math.exp(-Math.pow(t / 0.17, 2));
@@ -296,7 +298,7 @@ function shades(P, part, RIG, c, S, lod) {
   part(P, tube(fr, 0.0022, lod ? 3 : 5, { caps: true }), 'head', 0x15171b, [0, 0, 0], null, null, STEEL_M);
   for (const sx of [-1, 1]) {
     const e = at(sx * (tm + 0.04), top(tm) - 0.003, 0.001);
-    part(P, tube([e, [sx * 0.104, e[1] + 0.002, e[2] - 0.04], [sx * 0.102, e[1] - 0.004, e[2] - 0.085]], 0.0022, lod ? 3 : 4, { caps: true }), 'head', 0x15171b, [0, 0, 0], null, null, STEEL_M);
+    part(P, tube([e, [sx * (rx + 0.002), e[1] + 0.002, e[2] - 0.04], [sx * rx, e[1] - 0.004, e[2] - 0.085]], 0.0022, lod ? 3 : 4, { caps: true }), 'head', 0x15171b, [0, 0, 0], null, null, STEEL_M);
   }
 }
 
@@ -351,11 +353,11 @@ function hat(P, part, c, R, S, lod) {
 // the thigh, side wings wrap round the leg; straps go round the back.
 function pad(P, part, s, keeper, S, lod) {
   const knee = 'knee' + s, hip = 'hip' + s, sx = s === 'L' ? 1 : -1;
-  const W = keeper ? 1.5 : 1.85;                        // wrap half-angle (rad)
+  const W = keeper ? 1.5 : 1.75;                        // wrap half-angle (rad)
   const yt = (a) => mix(keeper ? 0.1 : 0.215, keeper ? 0.04 : 0.07, sstep(0.55, 1.45, Math.abs(a)));
   const yb = (a) => mix(keeper ? -0.425 : -0.445, -0.385, sstep(0.25, 1.6, Math.abs(a)));
   // (the inside hugs the fitted trousers, trousers.js: about 7 cm round the shin, 1 cm of lining)
-  const rin = (a, y) => { const k = 1 + (keeper ? 0 : 0.14 * sstep(0.06, 0.2, y)), w = sstep(0.6, 1.7, Math.abs(a)), tuck = 1 - 0.14 * sstep(1.35, W, Math.abs(a)); return [mix(0.088, 0.077, w) * k * tuck, mix(0.092, 0.08, w) * k * tuck]; };   // (the wings tuck in round the calf)
+  const rin = (a, y) => { const k = 1 + (keeper ? 0 : 0.14 * sstep(0.06, 0.2, y)), w = sstep(0.6, 1.7, Math.abs(a)), tuck = 1 - 0.24 * sstep(1.2, W, Math.abs(a)); return [mix(0.088, 0.077, w) * k * tuck, mix(0.092, 0.08, w) * k * tuck]; };   // (the wings tuck in round the calf)
   const cz = 0.008;
   const canes = (a, y) => {
     const front = 1 - sstep(1.0, 1.25, Math.abs(a));
@@ -423,7 +425,7 @@ function pad(P, part, s, keeper, S, lod) {
       const rb = y > 0.1 ? 0.096 : 0.072, r = mix(rx + 0.004, rb, sstep(0, 0.3, back)), rzz = mix(rz + 0.004, rb, sstep(0, 0.3, back));
       pts.push([Math.sin(a) * r, y, cz + Math.cos(a) * rzz]);
     }
-    part(P, tube(pts, 0.012, 4, { caps: false, ratio: 0.3, up: [0, 0, 1] }), knee, KIT.trim, [0, 0, 0], null, null, { blend: bl, ao: 0.85 });
+    part(P, tube(pts, 0.012, 4, { caps: false, ratio: 0.3, up: [0, 0, 1] }), knee, STRAP, [0, 0, 0], null, null, { blend: bl, ao: 0.85, m: 31 });
     const ab = sx * W * 0.7, [rx, rz] = rin(ab, y), t = thick(ab, y);
     part(P, pillow([0.011, 0.013, 0.0035], 0.4, 6, 4), knee, 0xc8ccd2, [Math.sin(ab) * (rx + t + 0.002), y, cz + Math.cos(ab) * (rz + t + 0.002)], [0, ab, 0], null, { blend: bl, m: 30 });
   }

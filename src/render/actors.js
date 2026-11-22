@@ -2286,8 +2286,9 @@ export class BatterActor extends Actor {
     _q.setFromUnitVectors(_up, dir);
     if (opt && opt.twirl) _q.premultiply(_ql.setFromAxisAngle(dir, opt.twirl));       // (a twirl of the bat in the fingers)
     this.bat.quaternion.copy(_q);
-    // bat origin (grip point) sits 0.72 above the toe along the bat axis
-    this.bat.position.copy(toe).addScaledVector(dir, Math.min(0.72, handle.distanceTo(toe)));
+    // bat origin (grip point) is the bat's own grip-to-toe length above the toe along its axis
+    // (a shorter one put the toe in the turf and the bat beside his hand, not in it)
+    this.bat.position.copy(toe).addScaledVector(dir, -BAT_GEO.toeY);
     this.batSmooth(dt);
     // the wrist a palm up the handle from the grip point (as when he carries it)
     h.update();
