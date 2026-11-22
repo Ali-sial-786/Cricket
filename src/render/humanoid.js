@@ -460,11 +460,6 @@ function hullFor(geo) {
 //  * Shape variation in the vertex shader: build (girth of cloth and arms),
 //    hair standing off the scalp below the headgear.
 // depth: the see-through body's depth pre-pass (setGhost), sharing `shared` (the figure's uniforms).
-// The elbow's place along a bind-space arm (as armAt measures it) and the arm's radius there.
-function armT(side) {
-  const J = RIG.J, sh = J['shoulder' + side], d = J['hand' + side].clone().sub(sh), L = d.length();
-  return new THREE.Vector2(J['elbow' + side].clone().sub(sh).dot(d) / (L * L), 0.04);
-}
 let SHARED = null;      // uniforms that are the same for every figure (textures, landmarks)
 function sharedUniforms() {
   if (SHARED) return SHARED;
@@ -535,8 +530,8 @@ function kitMaterial(shared = null) {
     // blade (from its shoulder to its toe), so the body steps aside from them in your view.
     uFpBall: { value: new THREE.Vector4() },
     uFpB0: { value: new THREE.Vector4() }, uFpB1: { value: new THREE.Vector3() },
-    uFpHip: { value: new THREE.Vector3((RIG.J.hipL.x + RIG.J.kneeL.x) / 2, 0.7, 0.025) },   // where your trousers close over each thigh (bind: leg line x, height, z)
-    uFpElbow: { value: armT('L') },   // where your upper arm closes: the elbow's place along the arm (armAt), and the arm's radius there
+    uFpShift: { value: new THREE.Vector3() },   // your upper body drawn this far (object space) behind your eyes (fpShift)
+    uFpNeck: { value: new THREE.Vector3(0.03, RIG.J.neck.y - 0.02, RIG.J.neck.z + 0.008) },   // your neck's close: height of its dome, the collar height, its z (bind)
     uLegIdx: { value: new THREE.Vector3(RIG.index.hipL, RIG.index.kneeL, RIG.index.ankleL) },
     uLegIdxR: { value: new THREE.Vector3(RIG.index.hipR, RIG.index.kneeR, RIG.index.ankleR) },
   };
@@ -550,49 +545,31 @@ function kitMaterial(shared = null) {
         uniform vec3 uLegIdx; uniform vec3 uLegIdxR;
         varying float vHeadW; varying float vLegW; varying vec3 vSeg; varying float vHandW; varying vec2 vKA; varying float vHairE;
         #ifdef FP_BODY
-          varying vec3 vFpW; varying float vUpW; varying float vFpGone; uniform vec3 uFpHip; uniform vec2 uFpElbow;
+          varying vec3 vFpW; varying float vUpW; uniform vec3 uFpNeck; uniform vec3 uFpShift;
         #endif
         ${KIT_GLSL_COMMON}`)
-      .replace('#include <beginnormal_vertex>', `#include <beginnormal_vertex>
-        #ifdef FP_BODY
-          // Your own body ends in rounded closes (in bind space, so they ride with the pose): the
-          // trousers over each thigh (a dome above mid-thigh) and each arm at the elbow, upper arm
-          // and sleeve folded into it. Looking down you see legs and forearms, never into an open
-          // tube whose shirt has stepped aside, and nothing of it reaches up to your eyes.
-          float fpT = 0.0, fpA = 0.0; vec2 fpC = vec2(0.0), fpR = vec2(0.0); vec3 fpE = vec3(0.0), fpAx = vec3(0.0), fpO = vec3(0.0);
-          // (what is not drawn of the trunk and shoulders is flagged, and the fragment shader drops
-          // every triangle that touches it: no slivers from the elbows back to the chest)
-          // (the shirt is never a leg, however much thigh its hem follows)
-          bool fpShirt = k > 0.5 && k < 2.5 || k > 6.5 && k < 7.5 || k > 9.5 && k < 23.5;
-          // (and so does a vertex the arm does not mostly carry: the chest would skin it elsewhere)
-          bool fpGone = (k < 3.5 || k > 4.5) && (1.0 - vArmW - vHandW - (fpShirt ? 0.0 : clamp(vSeg.x + vSeg.y + vSeg.z, 0.0, 1.0)) > 0.5 || (upperW > 0.02 && vArmW < 0.85));
-          vFpGone = fpGone ? 1.0 : 0.0;
-          if (fpGone || vArmW - foreW > 0.02) {
-            bool fl = position.x > 0.0;
-            vec4 ax = fl ? uArmL : uArmR; vec3 sh = fl ? uShoulderL : uShoulderR;
-            fpAx = ax.xyz / ax.w;
-            float t = dot(position - sh, fpAx) / ax.w;
-            fpE = sh + ax.xyz * uFpElbow.x;
-            fpO = position - sh - ax.xyz * t;                       // off the arm's line
-            // (a quarter circle from the elbow back: radius cos, length sin, so the cap starts exactly
-            // where the arm is and closes over a few centimetres)
-            fpE = sh + ax.xyz * (uFpElbow.x + 0.02);
-            fpA = clamp((uFpElbow.x + 0.02 - t) / 0.2, 0.0, 1.0) * step(0.02, upperW);   // (all of it, chest-side verts too: those are not drawn, so no sliver reaches back to the chest)
-            if (fpGone) fpA = 0.0;
-            float th = fpA * 1.5708;
-            vec3 rd = fpO / max(length(fpO), 1e-4);
-            objectNormal = normalize(mix(objectNormal, rd * cos(th) - fpAx * sin(th), sin(th)));
-          }
-          if (k > 3.5 && k < 4.5) {
-            fpT = smoothstep(uFpHip.y, uFpHip.y + 0.12, position.y);
-            fpC = vec2((color.r > 0.5 ? 1.0 : -1.0) * uFpHip.x, uFpHip.z);     // (trousers.js: colour.r is the leg)
-            fpR = position.xz - fpC;
-            float fs = 1.0 - fpT;
-            vec2 rd = fpR / max(length(fpR), 1e-4);
-            objectNormal = normalize(mix(objectNormal, vec3(rd.x * fs, sqrt(max(0.0, 1.0 - fs * fs)), rd.y * fs), fpT));
-          }
-        #endif`)
       .replace('#include <project_vertex>', `
+        #ifdef FP_BODY
+          // Your eyes are in front of your head's joint, not on top of it: your upper body is drawn
+          // that far behind them (it fades in up the trunk from the hips; the forearms, gloves, legs
+          // and feet stay exactly where they are), so looking down you see your chest from the front
+          // of your face, not the inside of your collar.
+          float fpUp = smoothstep(0.95, 1.3, position.y) * (1.0 - clamp(foreW + vHandW + vSeg.y + vSeg.z, 0.0, 1.0));
+          transformed += uFpShift * fpUp;
+          // Your neck ends just above the collar in a rounded close of skin (the head above it is
+          // not drawn): looking down you never see through the collar into the shirt.
+          if (k > 4.5 && k < 5.5 && position.y > uFpNeck.y) {
+            float t = smoothstep(uFpNeck.y, uFpNeck.y + 0.045, position.y), fs = 1.0 - t;
+            vec2 c = vec2(0.0, uFpNeck.z), r = position.xz - c;
+            vec3 dome = vec3(c.x + r.x * fs, uFpNeck.y + uFpNeck.x * sqrt(max(0.0, 1.0 - fs * fs)), c.y + r.y * fs);
+            #ifdef USE_SKINNING
+              vec4 sp = bindMatrix * vec4(dome, 1.0);
+              vec4 sk = vec4(0.0);
+              sk += boneMatX * sp * skinWeight.x; sk += boneMatY * sp * skinWeight.y; sk += boneMatZ * sp * skinWeight.z; sk += boneMatW * sp * skinWeight.w;
+              transformed = (bindMatrixInverse * sk).xyz + uFpShift;
+            #endif
+          }
+        #endif
         #include <project_vertex>
         #ifdef FP_BODY
           vFpW = (modelMatrix * vec4(transformed, 1.0)).xyz; vUpW = upperW;
@@ -654,7 +631,7 @@ function kitMaterial(shared = null) {
         else if (k > 29.5 && k < 30.5) mt = vec4(0.0, 0.6, 70.0, 2.0);
         else if (k < 31.5) mt = vec4(0.12, 0.06, 12.0, 5.0);
         else if (k < 32.5) mt = vec4(0.0, 1.4, 140.0, 6.0);
-        else if (k < 33.5) mt = vec4(0.15, 0.3, 36.0, 5.0);
+        else if (k < 33.5) { mt = vec4(0.35, 0.045, 9.0, 5.0); kc = vec3(0.97, 0.96, 0.93); }     // (boots: matte white leather)
         else if (k < 34.5) { kc = uKit3; mt = vec4(0.18, 0.022, 260.0, 2.0); }     // (matte painted shell; the clear coat is a small, sharp highlight)
         else if (k < 35.5) { kc = uKit2; mt = vec4(0.1, 0.25, 45.0, 2.0); }
         else if (k < 36.5) { kc = mix(vec3(0.9), uKit1, 0.6); mt = vec4(0.3, 0.07, 14.0, 5.0); }
@@ -667,15 +644,12 @@ function kitMaterial(shared = null) {
         float br = sin(uTime * (1.45 + 0.4 * uSeed) + uSeed * 40.0);
         push += 0.0022 * br * trunkW * smoothstep(1.12, 1.3, position.y) * smoothstep(1.47, 1.38, position.y) * step(k, 7.5);
         transformed += objectNormal * push;
-        #ifdef FP_BODY
-          if (fpT > 0.0) { float fs = 1.0 - fpT; transformed.xz = fpC + fpR * fs; transformed.y = uFpHip.y + 0.06 * sqrt(max(0.0, 1.0 - fs * fs)); }
-          if (fpA > 0.0) { float th = fpA * 1.5708; transformed = fpE + fpO * cos(th) - fpAx * uFpElbow.y * sin(th); }
-        #endif`);
+`);
     sh.fragmentShader = sh.fragmentShader
       .replace('#include <common>', `#include <common>
         uniform float uNoHead;
         #ifdef FP_BODY
-          uniform vec4 uFpBall; uniform vec4 uFpB0; uniform vec3 uFpB1; varying vec3 vFpW; varying float vUpW; varying float vFpGone;
+          uniform vec4 uFpBall; uniform vec4 uFpB0; uniform vec3 uFpB1; varying vec3 vFpW; varying float vUpW;
         #endif
         varying float vHeadW; varying float vLegW; varying vec3 vSeg; varying float vHandW; varying vec2 vKA; varying float vHairE;
         uniform sampler2D uFaceMap; uniform sampler2D uDecal;
@@ -729,22 +703,20 @@ function kitMaterial(shared = null) {
       .replace('#include <color_fragment>', `#include <color_fragment>
   #ifdef FP_BODY
   {
-    // Your own body is solid, but it never hides the ball or the bat's blade from your eyes, and
-    // nothing of it comes right up to them: a dithered hole in it, along your line of sight to the
-    // ball (a cone a little wider than the ball) and to the blade (the wedge from your eye along it),
-    // and a fade of anything within ~25 cm of the eye. A few dot products; no extra pass.
+    // Your own body is your whole figure but the head and neck, solid and shaded like everyone
+    // else's: looking down you see your shirt front and shoulders, the arms from the shoulders to
+    // the gloves, hips, thighs, pads and boots. What would get in the way steps aside, softly:
+    //  * anything within ~25 cm of the eye drawing it (cameraPosition is each eye's own in stereo),
+    //    so nothing of the collar or shoulders comes up against the lenses;
+    //  * a hole along that eye's line of sight to the ball (a cone a little wider than the ball)
+    //    and to the bat's blade while the ball is in play.
+    // A few dot products and an ordered dither in one opaque draw; no extra pass.
     vec3 E = cameraPosition, d = vFpW - E;
-    float dl = length(d), cut = 1.0 - smoothstep(0.2, 0.24, dl);
+    float dl = length(d);
     vec3 D = d / max(dl, 1e-4);
-    // Looking down you see your legs (closed over the thighs: the domes in the vertex shader),
-    // pads and boots, your forearms and gloves; never the inside of a shirt or a sleeve.
-    bool shirtS = vSlot > 0.5 && vSlot < 2.5 || vSlot > 6.5 && vSlot < 7.5 || vSlot > 9.5 && vSlot < 23.5;
-    float arm = clamp(vArmW + vHandW, 0.0, 1.0), leg = shirtS ? 0.0 : clamp(vSeg.x + vSeg.y + vSeg.z, 0.0, 1.0);
-    // (the trunk, shirt and upper arms are not drawn at all through your own eyes: a clean cut
-    // where the weights hand over to the forearms; the elbows are closed, see the vertex shader)
-    float trunk = clamp(1.0 - arm - leg, 0.0, 1.0) * step(0.5, abs(vSlot - 4.0));
-    if (trunk > 0.5) discard;
-    if (vFpGone > 0.002) discard;      // (any triangle touching a vertex that is not drawn: no fins)
+    // (only the arms and gloves can come right up to your eyes, a bat brought to your face: they fade
+    // there. The trunk is never cut: it is a shell, and a hole in it would show its empty inside)
+    float cut = (1.0 - smoothstep(0.12, 0.2, dl)) * clamp(vArmW + vHandW, 0.0, 1.0);
     if (uFpBall.w > 0.5) {
       vec3 b = uFpBall.xyz - E; float bl = length(b);
       float c = dot(D, b / bl), ang = sqrt(max(0.0, 1.0 - c * c)) / max(c, 1e-3);   // tan of the angle off the ball
@@ -884,12 +856,32 @@ function kitMaterial(shared = null) {
           c = mix(c, uHair * st, hairA); gSSS *= 1.0 - hairA; gSpec = mix(gSpec, 0.08, hairA);
         }
       }
+      // ---- the ears: their hollows in shadow (the bowl behind the rim)
+      if (vHeadW > 0.5 && abs(vBind.x) > uEye.x + 0.04 && vBind.z < uEye.w - 0.07) {
+        float earC = exp(-pow(length(vec2(vBind.y - uEye.y + 0.008, vBind.z - uSkull.z + 0.005) / vec2(0.02, 0.012)), 2.0));
+        c *= 1.0 - 0.4 * earC;
+        c *= mix(vec3(1.0), vec3(1.06, 0.92, 0.88), earC);
+      }
       // ---- the face: painted map projected from the front of the head
       if (vBind.y > uFaceRect.y && vBind.z > uFaceMisc.x && vHeadW > 0.3) {
         vec2 fu = (vBind.xy - uFaceRect.xy) / uFaceRect.zw;
         vec4 f = textureGrad(uFaceMap, fu, gBX.xy / uFaceRect.zw, gBY.xy / uFaceRect.zw);
-        float m = 0.35 + 1.3 * f.r;
+        // (the painted creases a third deeper than before: the mesh's own shading is soft)
+        float m = 0.2 + 1.6 * f.r;
         c *= m;
+        // skin is not one colour: warmer, redder cheeks, nose and lips, a darker, cooler jaw and upper
+        // lip (the beard under the skin), a little paler forehead; and pores and blotches close up
+        float ax = abs(vBind.x), yy = vBind.y;
+        float cheek = exp(-pow(length(vec2(ax - uEye.x - 0.006, yy - uEye.y + 0.03) / vec2(0.022, 0.018)), 2.0));
+        float nose = exp(-pow(length(vec2(ax, yy - uFaceMisc.y) / vec2(0.012, 0.02)), 2.0));
+        c *= mix(vec3(1.0), vec3(1.07, 0.93, 0.9), clamp(cheek * 0.8 + nose * 0.6, 0.0, 1.0));
+        float jaw = smoothstep(uFaceMisc.y - 0.012, uFaceMisc.w - 0.004, yy) * smoothstep(uFaceMisc.w - 0.045, uFaceMisc.w - 0.02, yy) * smoothstep(0.075, 0.03, ax);
+        c *= mix(vec3(1.0), vec3(0.9, 0.9, 0.95), jaw * (0.4 + 0.6 * uLook2.y));
+        c *= 1.0 + 0.05 * smoothstep(uEye.y + 0.02, uEye.y + 0.05, yy);
+        float pf = 1.0 - smoothstep(0.0004, 0.0009, fw);
+        float pore = sin(vBind.x * 3100.0 + sin(vBind.y * 2300.0)) * sin(vBind.y * 2900.0 + sin(vBind.x * 2700.0));
+        kitH += pf * 0.000015 * pore;
+        c *= 1.0 + 0.04 * sin(vBind.x * 430.0 + vBind.y * 260.0) * sin(vBind.y * 510.0 - vBind.x * 170.0);
         float liner = clamp(1.0 - 2.0 * f.b, 0.0, 1.0), white = clamp(2.0 * f.b - 1.0, 0.0, 1.0) * step(0.5, uLod);
         float lip = f.a * step(4.5, s);
         c = mix(c, c * vec3(0.78, 0.6, 0.62) + vec3(0.012, 0.0, 0.0), lip * (1.0 - step(7.5, s)));
@@ -957,6 +949,11 @@ function kitMaterial(shared = null) {
       vec2 cl = vec2(vBind.x - sign(vBind.x) * uEye.x - 0.0024, e.y - 0.0026);
       totalEmissiveRadiance += vec3(0.85, 0.88, 0.92) * smoothstep(0.0014, 0.0008, length(cl)) * (1.0 - lid);
       gSpec = mix(gSpec, 0.1, lid); gShin = mix(gShin, 16.0, lid); gSSS = lid;
+    } else if (gKind > 5.5) {
+      // sunglass lenses: a dark smoked lens with a blue-violet mirror coat, deeper toward the bottom
+      float g = smoothstep(uEye.y - 0.018, uEye.y + 0.016, vBind.y);
+      c = mix(vec3(0.02, 0.022, 0.03), vec3(0.08, 0.1, 0.2), g);
+      gSpec = 1.2; gShin = 160.0;
     } else if (gKind > 4.5 && gKind < 5.5) {
       // padding / leather / boots: a fine grain
       kitH += 0.00003 * sin(vBind.x * 2100.0 + vBind.y * 1700.0) * sin(vBind.z * 1900.0 - vBind.y * 1300.0) * (1.0 - smoothstep(0.0008, 0.0016, fw));
@@ -965,11 +962,22 @@ function kitMaterial(shared = null) {
         vec3 aj = vBind.x > 0.0 ? uAnkleL : uAnkleL * vec3(-1.0, 1.0, 1.0);
         vec2 f = vec2(vBind.z - aj.z, vBind.y);
         float sx = (abs(vBind.x) - abs(aj.x)) / 0.05;
-        if (s < 0.5) c *= 0.78;
-        else if (s > 32.5) {
+        float fine = 1.0 - smoothstep(0.0015, 0.003, fw);
+        if (s < 0.5) {
+          // the sole: dark rubber, the spikes' studs hinted round its edge
+          c = vec3(0.075, 0.075, 0.08) * (1.0 - 0.35 * step(0.6, fract(f.x * 55.0)) * fine);
+          gSpec = 0.02; gShin = 6.0;
+        } else if (s > 32.5) {
+          // the upper: a stitched toe cap, a mesh panel on the side, laces over the tongue, a heel tab in the team colour
           float toe = abs(f.x - 0.17 + 0.035 * sx * sx);
-          c *= 1.0 - 0.3 * smoothstep(0.003, 0.001, toe) * (1.0 - smoothstep(0.0015, 0.003, fw));
+          c *= 1.0 - 0.3 * smoothstep(0.003, 0.001, toe) * fine;
+          float mesh = smoothstep(0.55, 0.75, abs(sx)) * step(0.0, f.x) * step(f.x, 0.12) * step(0.08, f.y);
+          c *= 1.0 - 0.12 * mesh * (0.5 + 0.5 * sin(f.x * 900.0) * sin(f.y * 900.0)) * fine;
+          float lace = step(abs(sx), 0.28) * step(0.03, f.x) * step(f.x, 0.13) * step(0.105, f.y);
+          c = mix(c, vec3(0.93), lace * smoothstep(0.35, 0.15, abs(fract(f.x * 70.0) - 0.5)) * fine);
+          c *= 1.0 - 0.2 * lace * smoothstep(0.24, 0.3, abs(sx));
           c = mix(c, uKit1, smoothstep(-0.055, -0.065, f.x) * smoothstep(0.07, 0.08, f.y));
+          c = mix(c, vec3(0.14), smoothstep(0.07, 0.06, f.y) * 0.85);       // (the sole's rim)
         }
       }
       if (vSeg.y > 0.4 && vBind.y < uLegAxis.w + 0.25) {
@@ -994,7 +1002,9 @@ function kitMaterial(shared = null) {
       if (vHeadW > 0.5 && vBind.z > 0.1) { vec4 t = decalAt(vBind.xy, uCapAt, uCrestUV, 0.0); c = mix(c, t.rgb, t.a); gSpec *= 1.0 - 0.3 * t.a; }
     }
     #ifdef FP_BODY
-      if (!gl_FrontFacing) { c *= 0.32; gSpec = 0.0; }     // (your own body is two-sided: the inside of a trouser leg or pad is dark lining, not a hole)
+      if (!gl_FrontFacing) { c *= 0.32; gSpec = 0.0; }
+      // (your neck's close, under the chin you do not have: the shadow inside your collar)
+      if (vHeadW > 0.2 && skin) { c = mix(c, uKit1 * 0.22, smoothstep(0.2, 0.6, vHeadW)); gSpec = 0.0; gSSS = 0.0; }     // (your own body is two-sided: the inside of a trouser leg or pad is dark lining, not a hole)
     #endif
     diffuseColor.rgb = c;
   }`)
@@ -1009,7 +1019,12 @@ function kitMaterial(shared = null) {
     vec3 bn = normalize(abs(det) * normal - gr);
     normal = abs(det) > 1e-14 ? bn : normal;
   }`)
-      .replace('#include <clipping_planes_fragment>', '#include <clipping_planes_fragment>\n  if ((uNoHead > 0.5 && vHeadW > 0.35 && vHeadW < 1.5) || vHeadW > 1.5) discard;')
+      .replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>
+  #ifdef FP_BODY
+    if (vHeadW > 1.5 || (vHeadW > 0.35 && (vSlot < 4.5 || vSlot > 5.5))) discard;     // (your neck's skin stays: it closes the collar)
+  #else
+    if ((uNoHead > 0.5 && vHeadW > 0.35 && vHeadW < 1.5) || vHeadW > 1.5) discard;
+  #endif`)
       .replace('#include <aomap_fragment>', `#include <aomap_fragment>
         {
           float ao = clamp(vKA.y, 0.0, 1.0);
@@ -1029,7 +1044,7 @@ function kitMaterial(shared = null) {
             vec3 rv = reflect(-geometryViewDir, normal);
             float t = dot(rv, up);
             vec3 env = mix(vec3(0.16, 0.2, 0.11), vec3(0.62, 0.74, 0.92), smoothstep(-0.15, 0.35, t));
-            float refl = gKind > 5.5 ? 0.55 : gKind > 4.5 ? 0.06 : gKind > 3.5 ? 0.1 : 0.22;
+            float refl = gKind > 5.5 ? 0.3 : gKind > 4.5 ? 0.06 : gKind > 3.5 ? 0.1 : 0.22;
             totalEmissiveRadiance += env * ao * refl * mix(0.25, 1.0, fres) * (gKind > 1.5 && gKind < 2.5 ? gSpec : 1.0);
           }
         }`)
@@ -1047,6 +1062,7 @@ const _v = new THREE.Vector3(), _v2 = new THREE.Vector3(), _S = new THREE.Vector
 const _pq = new THREE.Quaternion(), _eul = new THREE.Euler(), _bq = new THREE.Quaternion();
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const FOOT_ONLY = {}, HAND_ONLY = {};
+const _fq = new THREE.Quaternion();
 
 export class Humanoid {
   // vary: let this figure's height differ from the standard (fielders, umpires: not
@@ -1183,6 +1199,13 @@ export class Humanoid {
     this.fade = 1;
     u.uNoHead.value = on ? 1 : 0;
     if (!on) { u.uFpBall.value.w = 0; u.uFpB0.value.w = 0; }
+  }
+
+  // Your upper body drawn behind your eyes (through your own eyes only): v world, or null for none.
+  fpShift(v) {
+    const u = this.material.userData.uniforms.uFpShift.value;
+    if (!v) { u.set(0, 0, 0); return; }
+    u.copy(v).applyQuaternion(_fq.copy(this.root.quaternion).invert()).divideScalar(this.root.scale.x || 1);
   }
 
   // Where the ball (or null: none to keep in view) and the bat's blade (b0 shoulder, b1 toe, or

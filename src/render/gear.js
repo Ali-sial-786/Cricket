@@ -275,8 +275,9 @@ function shades(P, part, RIG, c, S, lod) {
   const R = RIG.skull ? RIG.skull.r : [0.086, 0.1, 0.11];
   const ey = F.eye[1] - J.y + 0.001, zc = c[2], rz = F.front - J.z - zc + 0.02, rx = R[0] + 0.012, tm = 0.95;
   const at = (t, y, d = 0) => [(rx + d) * Math.sin(t), y, zc + (rz + d) * Math.cos(t)];
-  const top = (t) => ey + 0.0145 - 0.004 * Math.pow(Math.abs(t) / tm, 2);
-  const bot = (t) => ey - 0.0165 + 0.009 * Math.pow(Math.abs(t) / tm, 3) + 0.0085 * Math.exp(-Math.pow(t / 0.17, 2));
+  // (a taller sport lens, cut up over the nose)
+  const top = (t) => ey + 0.0175 - 0.005 * Math.pow(Math.abs(t) / tm, 2);
+  const bot = (t) => ey - 0.02 + 0.011 * Math.pow(Math.abs(t) / tm, 3) + 0.011 * Math.exp(-Math.pow(t / 0.17, 2));
   const nu = S(24, 10), nv = lod ? 1 : 3, B = new Builder(), out = [], inn = [];
   for (let j = 0; j <= nv; j++) {
     const ro = [], ri = [];
@@ -295,7 +296,7 @@ function shades(P, part, RIG, c, S, lod) {
   // frame along the top and the arms
   const fr = [];
   for (let i = 0; i <= 12; i++) { const t = mix(-tm - 0.04, tm + 0.04, i / 12); fr.push(at(t, top(t) + 0.0012, 0.001)); }
-  part(P, tube(fr, 0.0022, lod ? 3 : 5, { caps: true }), 'head', 0x15171b, [0, 0, 0], null, null, STEEL_M);
+  part(P, tube(fr, 0.0028, lod ? 3 : 6, { caps: true }), 'head', 0x15171b, [0, 0, 0], null, null, STEEL_M);
   for (const sx of [-1, 1]) {
     const e = at(sx * (tm + 0.04), top(tm) - 0.003, 0.001);
     part(P, tube([e, [sx * (rx + 0.002), e[1] + 0.002, e[2] - 0.04], [sx * rx, e[1] - 0.004, e[2] - 0.085]], 0.0022, lod ? 3 : 4, { caps: true }), 'head', 0x15171b, [0, 0, 0], null, null, STEEL_M);
