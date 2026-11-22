@@ -1,18 +1,24 @@
 // One pooled particle system (single draw call): pitch dust puffs and grit,
 // grass flecks, a dust ring where the bat's toe hits the turf, the flash and
-// ring of a sweet bat contact, bail sparkle and splinters, boundary fireworks.
+// ring of a sweet bat contact, the broken wicket's chips and dust, and the
+// boundary's confetti cannons on the roof.
 // Point sprites with per-particle colour, alpha, size and kind:
-//   0 soft puff · 1 hard fleck · 2 ring · 3 sparkle (additive)
+//   0 soft puff · 1 hard fleck · 2 ring · 3 sparkle (additive) · 4.x confetti (x: its spin phase)
 // Premultiplied blending lets the additive sparkles share the draw with the
 // alpha-blended dust. Works in XR (size scales with the projection). Nothing
 // is uploaded while no particle is alive.
 import * as THREE from 'three';
+import { SUN_BLOCKERS } from './stadium.js';
+import { PITCH } from '../physics/pitch.js';
 
 const N = 512;
 const PUFF = 0, FLECK = 1, RING = 2, SPARK = 3;
 // The pitch's dust and soil (sRGB, written straight to the framebuffer).
 const PITCH_DUST = [0xefe3c4, 0xe4d3ab, 0xf6eedb], PITCH_GRIT = [0x7d6544, 0x5e4a30, 0x9c8158];
 const GRASS = [0x2f6a22, 0xa8c46a, 0xc9d98c, 0x6d5a3a];
+// Paper confetti: bright but not neon, with white and a foil gold.
+const CONFETTI = [0xf2f2ee, 0xf2f2ee, 0xffd34d, 0xe8b33a, 0xe23b4e, 0x2f7de1, 0x35b768, 0xff8a3d];
+const WOOD = [0xf1ead8, 0xe6d9b8, 0xd8c79e];
 
 export class Particles {
   constructor(scene) {
@@ -29,6 +35,7 @@ export class Particles {
     this.size0 = new Float32Array(N);
     this.grow = new Float32Array(N);
     this.keep = 1;                     // share of spawned particles kept (quality.js)
+    this.celebrations = true;          // the boundary cannons (off for a training session in the nets)
     this.alpha0 = new Float32Array(N);
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(this.pos, 3).setUsage(THREE.DynamicDrawUsage));
@@ -38,7 +45,7 @@ export class Particles {
     g.setAttribute('kind', new THREE.BufferAttribute(this.kind, 1).setUsage(THREE.DynamicDrawUsage));
     this.geo = g;
     this.mat = new THREE.ShaderMaterial({
-      uniforms: { uHalfH: { value: 500 } },
+      uniforms: { uHalfH: { value: 500 }, uTime: { value: 0 } },
       vertexShader: `
         attribute float alpha; attribute float size; attribute vec3 color; attribute float kind;
         varying float vA; varying vec3 vC; varying float vK;
@@ -51,21 +58,29 @@ export class Particles {
         }`,
       fragmentShader: `
         varying float vA; varying vec3 vC; varying float vK;
+        uniform float uTime;
         void main() {
           vec2 d = gl_PointCoord - 0.5;
           float r = length(d) * 2.0;
           float a;
+          vec3 c = vC;
           if (vK < 0.5) { float q = max(0.0, 1.0 - r * r); a = q * q; }                       // soft puff
           else if (vK < 1.5) a = 1.0 - smoothstep(0.55, 1.0, r);                              // fleck
           else if (vK < 2.5) { float e = (r - 0.8) / 0.13; a = exp(-e * e); }                 // ring
-          else {                                                                              // sparkle: core + cross
+          else if (vK < 3.5) {                                                                // sparkle: core + cross
             vec2 ad = abs(d);
             a = (1.0 - smoothstep(0.0, 0.32, r)) + 0.8 * (1.0 - smoothstep(0.0, 0.07, min(ad.x, ad.y))) * (1.0 - smoothstep(0.2, 1.0, r));
+          } else {                                                                            // confetti: a crisp paper rectangle tumbling
+            float ph = fract(vK) * 6.2832, sp = cos(uTime * (5.0 + 7.0 * fract(vK * 7.13)) + ph);
+            vec2 q = vec2(cos(ph) * d.x - sin(ph) * d.y, sin(ph) * d.x + cos(ph) * d.y);
+            float e = 0.06, hx = 0.05 + 0.31 * abs(sp);
+            a = (1.0 - smoothstep(hx - e, hx + e, abs(q.x))) * (1.0 - smoothstep(0.2 - e, 0.2 + e, abs(q.y)));
+            c *= 0.62 + 0.45 * abs(sp);                                                       // catching the sun as it turns
           }
           a *= vA;
           if (a < 0.004) discard;
-          float add = step(2.5, vK);
-          gl_FragColor = vec4(vC * a, a * (1.0 - add));
+          float add = step(2.5, vK) * step(vK, 3.5);
+          gl_FragColor = vec4(c * a, a * (1.0 - add));
         }`,
       transparent: true, depthWrite: false,
       blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcAlphaFactor,
@@ -168,36 +183,49 @@ export class Particles {
     if (q > 0.5) this.spawn(p.x, p.y, p.z, 0, 0, 0, { color: 0xffffff, life: 0.22, size: 0.08, grow: 1.2, drag: 0, grav: 0, alpha: 0.4 * (q - 0.3), kind: RING });
   }
 
-  fireworks(p) {
-    const cols = [0xff4d6d, 0xffd34d, 0x4dd2ff, 0x7dff8a, 0xff9f43, 0xffffff, 0xb57bff];
-    for (let b = 0; b < 3; b++) {
-      const cx = p.x + (Math.random() - 0.5) * 10, cy = 14 + Math.random() * 8, cz = p.z + (Math.random() - 0.5) * 10;
-      const col = cols[Math.floor(Math.random() * cols.length)];
-      for (let i = 0; i < 40; i++) {
-        const u = Math.random() * 2 - 1, th = Math.random() * Math.PI * 2, r = Math.sqrt(1 - u * u);
-        const s = 6 + Math.random() * 4;
-        this.spawn(cx, cy, cz, r * Math.cos(th) * s, u * s, r * Math.sin(th) * s,
-          { color: col, life: 1.3 + Math.random() * 0.6, size: 0.9, drag: 1.4, grav: 3, alpha: 1, kind: i % 4 ? FLECK : SPARK });
+  // A boundary (p: where the ball crossed the rope; six: over it on the full): confetti cannons on the
+  // roof lip either side of where it went, a pop of smoke at each mouth and paper fluttering down in
+  // the sun for a few seconds. A six: five cannons; a four: two, smaller. (Daylight: no light show.)
+  celebrate(p, six = true) {
+    if (!this.celebrations) return;
+    const R = Math.random, B = SUN_BLOCKERS, cz = PITCH.centerZ;
+    const a0 = Math.atan2(p.x, p.z - cz) * DEG;
+    const slots = six ? [-17, -8.5, 0, 8.5, 17] : [-5, 5], per = six ? 40 : 20;
+    for (const off of slots) {
+      // on a roofed arc (the nearest roof where the bank, the pavilion or a sightscreen wedge is)
+      let a = a0 + off;
+      for (let k = 1; k < 40 && !B.roofed(a); k++) a = a0 + off + (k % 2 ? 1 : -1) * Math.ceil(k / 2) * 2;
+      if (!B.roofed(a)) continue;
+      const s = Math.sin(a / DEG), c = Math.cos(a / DEG), rr = B.roof.rF + 0.4;
+      const x = s * rr, y = B.roof.yF + 1.6, z = cz + c * rr;
+      for (let i = 0; i < 3; i++) this.spawn(x, y, z, -s * (1 + i), 3 + R() * 2, -c * (1 + i),
+        { color: 0xeeece6, life: 1.2 + R() * 0.5, size: 1.8, grow: 0.6, drag: 2.4, grav: -0.3, alpha: 0.5, kind: PUFF });
+      for (let i = 0; i < per; i++) {
+        const up = (six ? 10 : 7.5) + R() * 7, inn = 2 + R() * (six ? 8 : 5), side = (R() - 0.5) * 9;
+        this.spawn(x + (R() - 0.5) * 0.6, y, z + (R() - 0.5) * 0.6, -s * inn + c * side, up, -c * inn - s * side,
+          { color: pick(CONFETTI), life: 3.6 + R() * 1.8, size: 0.5 + R() * 0.3, drag: 1.25, grav: 2.0, alpha: 1, kind: 4 + R() * 0.999 });
       }
     }
   }
+  fireworks(p) { this.celebrate(p, true); }
 
-  // The wicket broken: chips off the stumps, sparkle where the bails were, dust at the base.
+  // The wicket broken: chips of wood off the stumps and bails, and a puff of dust off the crease
+  // (the bails themselves fly and the LEDs flash: objects.js).
   splinters(p) {
     const R = Math.random, dz = p.z < -10 ? -1 : 1;
     for (let i = 0; i < 12; i++) {
       const a = R() * Math.PI * 2;
       this.spawn(p.x + (R() - 0.5) * 0.2, 0.5 + R() * 0.25, p.z, Math.cos(a) * 1.5, 1 + R() * 2, Math.sin(a) * 1.5 + 1.5 * dz,
-        { color: 0xf1ead8, life: 0.8, size: 0.012 + R() * 0.01, drag: 1, grav: 9.8, kind: FLECK });
+        { color: pick(WOOD), life: 0.8, size: 0.012 + R() * 0.01, drag: 1, grav: 9.8, kind: FLECK });
     }
-    for (let i = 0; i < 9; i++) {
-      this.spawn(p.x + (R() - 0.5) * 0.24, 0.71 + R() * 0.04, p.z, (R() - 0.5) * 0.6, 0.2 + R() * 0.6, (R() - 0.2) * 0.8 * dz,
-        { color: i % 3 ? 0xfff1c4 : 0xff6a4a, life: 0.25 + R() * 0.3, size: 0.03 + R() * 0.04, drag: 2, grav: 0.5, alpha: 0.9, kind: SPARK });
+    for (let i = 0; i < 7; i++) {
+      this.spawn(p.x + (R() - 0.5) * 0.24, 0.71 + R() * 0.04, p.z, (R() - 0.5) * 1.4, 0.6 + R() * 1.4, (R() - 0.2) * 1.4 * dz,
+        { color: pick(WOOD), life: 0.5 + R() * 0.3, size: 0.008 + R() * 0.008, drag: 1.2, grav: 9.8, kind: FLECK });
     }
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 7; i++) {
       const a = R() * Math.PI * 2;
-      this.spawn(p.x + (R() - 0.5) * 0.25, 0.03, p.z, Math.cos(a) * 0.3, 0.1, Math.sin(a) * 0.3 + 0.3 * dz,
-        { color: pick(PITCH_DUST), life: 0.9, size: 0.08, grow: 0.3, drag: 2.5, grav: 0, alpha: 0.25, kind: PUFF });
+      this.spawn(p.x + (R() - 0.5) * 0.25, 0.03 + R() * 0.05, p.z, Math.cos(a) * 0.45, 0.12 + R() * 0.2, Math.sin(a) * 0.45 + 0.35 * dz,
+        { color: pick(PITCH_DUST), life: 1.0 + R() * 0.4, size: 0.1 + R() * 0.05, grow: 0.4, drag: 2.5, grav: -0.05, alpha: 0.32, kind: PUFF });
     }
   }
 
@@ -228,6 +256,7 @@ export class Particles {
   update(dt, halfH) {
     this.mat.uniforms.uHalfH.value = halfH;
     if (dt <= 0 || this.live === 0) return;
+    this.mat.uniforms.uTime.value = (this.mat.uniforms.uTime.value + dt) % 1000;
     let live = 0;
     for (let i = 0; i < N; i++) {
       if (this.age[i] >= this.life[i]) { if (this.alpha[i] !== 0) this.alpha[i] = 0; continue; }
@@ -251,4 +280,5 @@ export class Particles {
   }
 }
 const _c = new THREE.Color();
+const DEG = 180 / Math.PI;
 const pick = (a) => a[(Math.random() * a.length) | 0];

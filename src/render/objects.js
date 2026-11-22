@@ -30,7 +30,7 @@ export class BallView {
     this.shadow = ballShadowMesh();
     scene.add(this.shadow);
 
-    // Trail for hit balls: the whole flight from the bat (BallTrail).
+    // Trail for hit balls: a thin line along the flight from the bat (BallTrail).
     this.trail = new BallTrail(scene);
     this.trailEnabled = true;
     this.spinAngle = 0;
@@ -78,19 +78,25 @@ export class BallView {
   // 0 new .. 1 very old: the rough half's scuffing and loss of shine.
   setWear(k) { this.mesh.material.userData.wear.value = Math.max(0, Math.min(1, k)); }
   get trailOn() { return this.trail.count > 0; }
-  // Each frame, after the ball has moved: the ribbon turned to face your eyes.
-  faceTrail(eye) { this.trail.face(eye); }
+  // Each frame, after the ball has moved: the line turned to face your eyes (dt: game time, 0 paused).
+  faceTrail(eye, dt) { this.trail.face(eye, dt); }
 }
 
-// The hit ball's path: a soft ribbon from the bat to wherever the ball is now, kept until the
-// next ball. It is turned to face you every frame and never thinner than ~0.17 deg of your view
-// (a 70 m six stays a readable line); the newest part is the brightest. The finder's arrow,
-// halo and landing ring (render/ballFinder.js) still point to the ball itself.
+// The hit ball's path, drawn as a thin line you can follow, never a ribbon in your face: a few
+// pixels wide at any distance (its width is an angle, clamped both ways), a bright comet head over
+// the last ~0.25 s of flight and a faint thin line for the path before it. It comes in over the
+// first metres from the bat and is gone within a few metres of your eyes; a ball along the ground
+// leaves only a short-lived line; a couple of seconds after the ball stops moving it fades away.
+// It is turned to face you every frame. The finder's arrow, halo and landing ring
+// (render/ballFinder.js) still point to the ball itself.
+const PX = 0.0009;                         // one headset pixel, in radians (~19 px a degree)
 export class BallTrail {
-  constructor(scene, { max = 480, step = 0.25, width = 0.05, minAngle = 0.003, color = 0xfff3c4 } = {}) {
-    this.max = max; this.step = this.baseStep = step; this.width = width; this.minAngle = minAngle;
+  constructor(scene, { max = 480, step = 0.25, head = 0.25, color = 0xfffbec, tail = 0xffe48f } = {}) {
+    this.max = max; this.step = this.baseStep = step; this.head = head;
     this.pts = new Float32Array(max * 3);
-    this.count = 0;
+    this.len = new Float32Array(max);      // path length from the bat to each point
+    this.tim = new Float32Array(max);      // when the ball was there (the trail's own clock)
+    this.count = 0; this.t = 0; this.still = 0; this.fade = 1;
     const geo = new THREE.BufferGeometry();
     this.pos = new THREE.BufferAttribute(new Float32Array(max * 2 * 3), 3).setUsage(THREE.DynamicDrawUsage);
     this.col = new THREE.BufferAttribute(new Float32Array(max * 2 * 4), 4).setUsage(THREE.DynamicDrawUsage);
@@ -101,8 +107,8 @@ export class BallTrail {
     geo.setAttribute('position', this.pos); geo.setAttribute('color', this.col); geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
     geo.setIndex(idx); geo.setDrawRange(0, 0);
     this.geo = geo;
-    const c = new THREE.Color(color);
-    this.rgb = [c.r, c.g, c.b];
+    const c = new THREE.Color(color), d = new THREE.Color(tail);
+    this.rgb = [c.r, c.g, c.b]; this.rgbTail = [d.r, d.g, d.b];
     this.mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ map: edgeTexture(), vertexColors: true, transparent: true, depthWrite: false, side: THREE.DoubleSide, toneMapped: false }));
     this.mesh.name = 'ballTrail';
     this.mesh.frustumCulled = false;
@@ -114,44 +120,65 @@ export class BallTrail {
   get visible() { return this.mesh.visible; }
   set visible(v) { this.mesh.visible = v; }
 
-  clear() { this.count = 0; this.step = this.baseStep; this.mesh.visible = false; this.geo.setDrawRange(0, 0); }
+  clear() { this.count = 0; this.step = this.baseStep; this.still = 0; this.fade = 1; this.mesh.visible = false; this.geo.setDrawRange(0, 0); }
 
   // The ball is at p: a new point every `step` m (the newest always follows the ball).
   add(p) {
-    const P = this.pts;
+    const P = this.pts, L = this.len, T = this.tim;
     let n = this.count;
     const y = Math.max(p.y, 0.03);
+    if (n >= 1) {
+      const j = (n - 1) * 3, moved = Math.hypot(p.x - P[j], y - P[j + 1], p.z - P[j + 2]);
+      if (moved > 0.004) { this.still = 0; this.fade = 1; }          // (still moving: not dead yet)
+    }
     if (n >= 2) {
       const i = (n - 2) * 3, d = Math.hypot(p.x - P[i], y - P[i + 1], p.z - P[i + 2]);
-      if (d < this.step) { const j = (n - 1) * 3; P[j] = p.x; P[j + 1] = y; P[j + 2] = p.z; return; }
+      if (d < this.step) { const j = (n - 1) * 3; P[j] = p.x; P[j + 1] = y; P[j + 2] = p.z; L[n - 1] = L[n - 2] + d; T[n - 1] = this.t; return; }
     }
     if (n >= this.max) {                       // full: keep every other point (the shape stays; the spacing doubles)
       let w = 0;
-      for (let r = 0; r < n; r += 2) { P[w * 3] = P[r * 3]; P[w * 3 + 1] = P[r * 3 + 1]; P[w * 3 + 2] = P[r * 3 + 2]; w++; }
+      for (let r = 0; r < n; r += 2) { P[w * 3] = P[r * 3]; P[w * 3 + 1] = P[r * 3 + 1]; P[w * 3 + 2] = P[r * 3 + 2]; L[w] = L[r]; T[w] = T[r]; w++; }
       n = w; this.step *= 2;
     }
-    P[n * 3] = p.x; P[n * 3 + 1] = y; P[n * 3 + 2] = p.z;
+    const j = (n - 1) * 3;
+    L[n] = n ? L[n - 1] + Math.hypot(p.x - P[j], y - P[j + 1], p.z - P[j + 2]) : 0;
+    P[n * 3] = p.x; P[n * 3 + 1] = y; P[n * 3 + 2] = p.z; T[n] = this.t;
     this.count = n + 1;
-    this.mesh.visible = this.count >= 2;
+    this.mesh.visible = this.count >= 2 && this.fade > 0;
   }
 
-  // Two vertices a point, across the path as you see it; brightest where the ball is now.
-  face(eye) {
+  // Each frame (dt: the trail's clock, 0 while paused). Two vertices a point, across the path as you see it.
+  face(eye, dt = 0) {
     const n = this.count;
-    if (n < 2 || !this.mesh.visible) return;
-    const P = this.pts, V = this.pos.array, C = this.col.array, [r, g, b] = this.rgb;
+    if (n < 2) return;
+    this.t += dt; this.still += dt;
+    // dead a moment (nothing moved): hold ~1.6 s, then fade out over ~0.9 s
+    if (this.still > 1.6) { this.fade = Math.max(0, 1 - (this.still - 1.6) / 0.9); if (this.fade <= 0) { this.mesh.visible = false; return; } }
+    if (!this.mesh.visible) return;
+    const P = this.pts, L = this.len, T = this.tim, V = this.pos.array, C = this.col.array;
+    const [r1, g1, b1] = this.rgb, [r0, g0, b0] = this.rgbTail, now = this.t, H = this.head, F = this.fade;
     for (let i = 0; i < n; i++) {
       const a = Math.max(0, i - 1) * 3, c = Math.min(n - 1, i + 1) * 3, o = i * 3;
       const tx = P[c] - P[a], ty = P[c + 1] - P[a + 1], tz = P[c + 2] - P[a + 2];
       const ex = eye.x - P[o], ey = eye.y - P[o + 1], ez = eye.z - P[o + 2];
       let sx = ty * ez - tz * ey, sy = tz * ex - tx * ez, sz = tx * ey - ty * ex;
       const sl = Math.hypot(sx, sy, sz) || 1, dist = Math.hypot(ex, ey, ez);
-      const k = 0.5 * Math.max(this.width, dist * this.minAngle) / sl;
+      // the head: 1 at the ball, 0 by `head` seconds back along the path
+      const age = now - T[i], h = age < H ? 1 - age / H : 0, hh = h * h;
+      // width as an angle: ~5 px at the head down to ~2 px for the old path (a ball-width line far away, never more)
+      const ang = Math.min((2.2 + 2.8 * hh) * PX, Math.max(2 * PX, 0.07 / Math.max(dist, 1)));
+      const k = 0.5 * dist * ang / sl;
       sx *= k; sy *= k; sz *= k;
       V[i * 6] = P[o] - sx; V[i * 6 + 1] = P[o + 1] - sy; V[i * 6 + 2] = P[o + 2] - sz;
       V[i * 6 + 3] = P[o] + sx; V[i * 6 + 4] = P[o + 1] + sy; V[i * 6 + 5] = P[o + 2] + sz;
-      const f = i / (n - 1), al = (0.45 + 0.5 * f) * Math.min(1, (n - 1 - i) / 2 + 0.6);   // (fades toward the bat; soft at the ball)
-      C[i * 8] = C[i * 8 + 4] = r; C[i * 8 + 1] = C[i * 8 + 5] = g; C[i * 8 + 2] = C[i * 8 + 6] = b;
+      // faint old path, bright head; in over the first 2-5 m from the bat, out within ~4 m of your eyes;
+      // along the ground (a ball rolling or skidding) only a second's line
+      let al = 0.5 + 0.5 * hh;                                      // (warm yellow-white: reads on blue sky, the stands and the green)
+      al *= sstep(1.5, 5, L[i]) * sstep(2, 4.5, dist);
+      if (P[o + 1] < 0.12) al *= 1 - sstep(0.5, 1.3, age);
+      al *= F;
+      if (i === n - 1) al *= 0.7;                                   // (soft where the ball is)
+      C[i * 8] = C[i * 8 + 4] = r0 + (r1 - r0) * h; C[i * 8 + 1] = C[i * 8 + 5] = g0 + (g1 - g0) * h; C[i * 8 + 2] = C[i * 8 + 6] = b0 + (b1 - b0) * h;
       C[i * 8 + 3] = C[i * 8 + 7] = al;
     }
     this.pos.needsUpdate = true; this.col.needsUpdate = true;
@@ -159,6 +186,7 @@ export class BallTrail {
     this.geo.setDrawRange(0, (n - 1) * 6);
   }
 }
+const sstep = (a, b, x) => { const t = x <= a ? 0 : x >= b ? 1 : (x - a) / (b - a); return t * t * (3 - 2 * t); };
 
 // Across the ribbon: solid in the middle, soft at the edges.
 let _edgeTex = null;

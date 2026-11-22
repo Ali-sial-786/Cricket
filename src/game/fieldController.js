@@ -655,9 +655,12 @@ export class FieldController {
       }
       g.ballOverride = { pos: { x: _w.x, y: _w.y, z: _w.z } };
       g.ballView.setVisible(true);
-    } else if (!b.active && !(g.figures && g.figures.bowler.holdingBall())) {
-      // (not while the AI bowler runs in with it: the session keeps it in his hand, else it is drawn wherever it last was)
+      this.ownOverride = true;
+    } else if (!b.active && this.ownOverride) {
+      // (only its own: the bowler's hand holds the ball through his run-up (batting.js), which this
+      // used to drop every frame, leaving the ball drawn at the foot of the stumps)
       g.ballOverride = null;
+      this.ownOverride = false;
     }
 
   }

@@ -868,7 +868,7 @@ export class Game {
       if (this.playerBowler.showHand) this.playerBowler.showHand(null);
       if (this.session && this.session.field) this.crew.duringReplay(realDt);   // (a batter walking off / in keeps going)
       this.replay.placeOverlays(this.eye, realDt);
-      this.ballView.faceTrail(this.eye.p);
+      this.ballView.faceTrail(this.eye.p, realDt);
       this.ballFinder.hide();
       Humanoid.updateLods(this.eye.p);
       this.nearCull.update(this.eye.p, Humanoid.all, 0.6);
@@ -889,7 +889,7 @@ export class Game {
       this.applyView();
       this.updateEye();
       this.updateViews(sdt, paused);
-      this.ballView.faceTrail(this.eye.p);
+      this.ballView.faceTrail(this.eye.p, paused ? 0 : sdt);
       this.umpires.update(paused ? 0 : realDt, this.clock);
       if (this.session && this.state === 'play' && !paused) this.recordForReplay();
       this.replay.placeOverlays(this.eye, realDt);
@@ -900,11 +900,14 @@ export class Game {
     ShadowPool.update();                     // (after everything is posed: bats, stumps, the upload)
     try { this.audio.update(realDt); } catch (err) { console.warn('audio', err); }   // the listener in your head, the crowd, what has no event of its own
     const cu = this.env.crowd.userData.uniforms;
+    // The nets are a training day: a few people scattered round the stands, no cannons, no wave.
+    const nets = !!(this.session && (this.session.kind === 'nets' || this.session.kind === 'bowlnets'));
+    this.env.crowd.userData.setOccupancy?.(nets ? 0.1 : 1); this.particles.celebrations = !nets;
     cu.uTime.value = now;
     cu.uCheer.value = Math.max(0, cu.uCheer.value - dt * 0.35);
     // Now and then a Mexican wave goes round the ground.
     this.waveIn = (this.waveIn ?? 45) - dt;
-    if (this.waveIn <= 0 && !(this.waveLeft > 0) && this.state === 'play') {
+    if (this.waveIn <= 0 && !(this.waveLeft > 0) && this.state === 'play' && !nets) {
       this.waveLeft = 16; this.waveIn = 80 + this.rng() * 70;
       if (this.settings.sound) this.sample('crowd_whoa', { gain: 0.35 });
     }
@@ -1066,8 +1069,8 @@ export class Game {
     } else if (e.type === 'wicket') {
       this.stumps[e.end].break({ x: 0, y: 0, z: (e.end === 'batting' ? 1 : -1) * e.speed }, e.stump);
       this.particles.splinters({ x: 0, z: e.end === 'batting' ? 0 : -20.12 });
-    } else if (e.type === 'boundary' && e.onFull && e.batted) {
-      this.particles.fireworks(e.pos);
+    } else if (e.type === 'boundary' && e.batted) {
+      this.particles.celebrate(e.pos, !!e.onFull);         // (roof cannons: five for a six, two for a four)
     }
     if (this.session) this.session.onEvent(e);
   }
