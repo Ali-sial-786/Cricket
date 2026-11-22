@@ -152,9 +152,12 @@ function recipe(story, tier, m, tape) {
     const k0 = arm(), k1 = line(), tB = lineFrom();
     const key = story === 'bowled' ? (m.wicket ?? arr) : story === 'lbw' ? (m.pad ?? arr) : arr;
     const slowEnd = key + (story === 'edge' ? 0.3 : 0.35);
-    const after = story === 'edge' ? Math.min((m.caught ?? m.held ?? dead) + 0.5, slowEnd + 1.6) : slowEnd + 0.8;
+    let after = story === 'edge' ? Math.min((m.caught ?? m.held ?? dead) + 0.5, slowEnd + 1.6) : slowEnd + 0.8;
+    // (a ball knocked back off the stumps or the pad does not come at your head: it ends first)
+    const L = DIRECTOR.line, back = firstWhen(tape, key, after, (p) => Math.hypot(p.x, p.y - L.y, p.z - L.z) < L.gap);
+    if (back != null) after = Math.max(key + 0.15, back - 0.03);
     let pre = 0.9;
-    const build = (rate) => { segs.length = 0; seg(rel - pre, tB, 1, k0); seg(tB, slowEnd, rate, k1); seg(slowEnd, after, 1, k1); };
+    const build = (rate) => { segs.length = 0; seg(rel - pre, tB, 1, k0); seg(tB, Math.min(slowEnd, after), rate, k1); seg(slowEnd, after, 1, k1); };
     build(S);
     fit([() => { pre = 0.4; build(S); }, () => build(0.45), () => { segs[segs.length - 1].b = Math.min(segs[segs.length - 1].b, slowEnd + 0.4); }]);
     return { story, tier, shots, segs, key };

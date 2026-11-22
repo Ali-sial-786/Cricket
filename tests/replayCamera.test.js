@@ -261,6 +261,15 @@ test('the ball never comes close to the camera on a tracking shot, and the line 
   }
 });
 
+test('a ball knocked back off the stumps toward the line camera: the replay ends before it gets near', () => {
+  // bowled: into the stumps at T0 + 0.62, then back down the pitch at 9 m/s
+  const pts = shot(null), iw = Math.round((PRE + 0.62) / DT);
+  for (let i = iw; i < pts.length; i++) { const t = (i - iw) * DT; pts[i] = { x: 0, y: 0.4, z: -0.1 - 9 * t, vis: true }; }
+  const { p, tape } = plan('bowled', 'wicket', pts, { noHit: true, wicket: T0 + 0.62 });
+  for (const f of walk(p, tape)) if (p.shots[f.shot].kind === 'line') assert.ok(Math.hypot(f.bx - f.x, f.by - f.y, f.bz - f.z) >= 2.9, `ball ${Math.hypot(f.bx - f.x, f.by - f.y, f.bz - f.z).toFixed(1)} m from the line camera`);
+  assert.ok(p.segs.some((s) => s.rate < 0.6 && T0 + 0.62 >= s.a && T0 + 0.62 <= s.b), 'still slowed through the stumps breaking');
+});
+
 test('planAt: between samples it interpolates; across a cut it does not blend the two angles', () => {
   const p = { n: 4, du: 0.5, T: [0, 0.5, 1, 1.5], X: [0, 1, 10, 11], Y: [3, 3, 2, 2], Z: [0, 0, 0, 0], W: [0, 0.2, 1, 1], P: [0, 0, 0, 0], S: [0, 0, 1, 1], R: [1, 1, 1, 1] };
   const o = {};
