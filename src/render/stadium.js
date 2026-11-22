@@ -661,7 +661,7 @@ export function buildStadium(root, lights) {
     sweep(a0, a1, lowRowR(3), yF, rBk, yF, 'ROW', 0.5, 0.2, {});
     sweep(a0, a1, rBk, yF, rIn, yF, 'CONC', 0.6, 0.4, { tintR: [T(0x9a968e), T(0x2a2b2c)], fixed: [0, 1], sky0: 0.85, sky1: 0.1 });       // floor
     sweep(a0, a1, rIn, yTop, rBk, yTop, 'PLAIN', 0.5, 0.5, { tintR: [T(0x1c1e21), T(0x5d5c58)], fixed: [0, 1], sky0: 0.08, sky1: 0.42 });  // ceiling
-    sweep(a0, a1, rIn, yF, rIn, yTop, 'CONC', 0.9, 0.1, { tintR: [T(0x6d675c), T(0x45433f)], fixed: [0, 0.3], emit: 0.12 });                 // the far end: the lit concourse beyond
+    sweep(a0, a1, rIn, yF, rIn, yTop, 'CONC', 0.9, 0.1, { tintR: [T(0xa0977f), T(0x6f6a61)], fixed: [0, 0.5], emit: 0.24 });                // the far end: the lit concourse beyond
     for (const [a, f] of [[a0, 1], [a1, -1]]) {
       const side = [[rBk, yF], [rIn, yF], [rIn, yTop], [rBk, yTop]];
       cap(a, side, f, { fixed: [0, 1], tintFn: (x, y, z) => { const t = clamp((Math.hypot(x, z) - rBk) / (rIn - rBk), 0, 1), v = 0.55 - 0.35 * t; return [v * 0.98, v * 0.97, v * 0.95]; } });
