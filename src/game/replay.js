@@ -308,7 +308,7 @@ export class Replay {
     if (g.viewOverride) g.endViewOverride();           // (a catching view still up: back where you play from first)
     this.path = plan; this.again = again;
     this.clip = { start: plan.start, end: plan.end, release: m.release, key: plan.arrive ?? plan.key ?? m.release + 0.6, dead: m.dead ?? null, playerBatting: !!m.playerBatting };
-    this.u = 0; this.rt = plan.T[0]; this.active = true; this.pending = null;
+    this.u = 0; this.rt = plan.T[0]; this.active = true; this.pending = null; this.trailDt = 0;
     this.nextCut = 0; this.slowNow = false; this.shotNow = plan.S[0]; this.cheered = false;
     m.played = true;                                    // (its automatic replay is done; on demand it can be seen again)
     this.stopReason = null;
@@ -423,7 +423,7 @@ export class Replay {
       return;
     }
     const fade = this.fade, P = this.path, busy = !!(g.quickSkip && g.quickSkip.busy);
-    if (g.ui.menuOpen) { if (fade.fadingOut && !busy) fade.cut(FADE_IN); this.moveCamera(0); return; }   // paused with the game
+    if (g.ui.menuOpen) { this.trailDt = 0; if (fade.fadingOut && !busy) fade.cut(FADE_IN); this.moveCamera(0); return; }   // paused with the game
     if (this.skipButton().down || g.input.desktop.took('Space') || g.input.desktop.took('Enter')) { this.skip(); return; }
     this.u += dt;
     if (this.u >= P.len) { this.stopReason = 'end'; this.stop(); return; }
@@ -431,11 +431,17 @@ export class Replay {
     if (!busy) {
       const c = P.cuts[this.nextCut];
       if (c != null && this.u >= c * P.du) { fade.cut(DIRECTOR.cutIn); this.nextCut++; this.camPrev = null; }
-      else if (c != null && c * P.du - this.u <= DIRECTOR.cutOut) { if (!fade.fadingOut) fade.fadeOut(Math.max(0.02, c * P.du - this.u)); }
+      // (dark a frame before the cut: the last frame on the old angle is black, not 95%)
+      else if (c != null && c * P.du - this.u <= DIRECTOR.cutOut) { if (!fade.fadingOut) fade.fadeOut(Math.max(0.02, c * P.du - this.u - 0.016)); }
       else if (c == null && P.len - this.u <= DIRECTOR.endOut && !fade.fadingOut) fade.fadeOut(Math.max(0.02, P.len - this.u));
     }
     planAt(P, this.u, _cam);
+    const was = this.rt;
     this.rt = _cam.t; this.slowNow = _cam.rate < 0.99; this.shotNow = _cam.shot;
+    // The trail's clock runs on the tape (its bright head is the last 0.25 s of the ball's flight, slowed
+    // with it); a cut that skips part of the flight grows the skipped part first (not a chord across the arc).
+    this.trailDt = Math.max(0, Math.min(0.1, this.rt - was));
+    if (this.rt - was > 0.05) this.regrowTrail(was, this.rt);
     this.stepJob();
     this.apply(this.rt);
     this.moveCamera(dt);
@@ -504,6 +510,17 @@ export class Replay {
     }
     for (let j = 0; j < this.extras.length; j++) { const x = this.extras[j]; lerpTo(B, a, b, k, x.position, x.quaternion); x.visible = B[a + 7] > 0.5; a += 8; b += 8; }
     for (let j = 0; j < this.pieces.length; j++) { lerpTo(B, a, b, k, this.pieces[j].position, this.pieces[j].quaternion); a += 7; b += 7; }
+  }
+
+  // The hit ball's trail over tape time (t0, t1), as it grew live (the tape's ball flag 2), at a cut that skips ahead.
+  regrowTrail(t0, t1) {
+    const g = this.g, tr = g.ballView.trail;
+    if (!tr || !tr.add || !(g.settings && g.settings.trail)) return;
+    for (let t = t0 + 1 / 90; t < t1; t += 1 / 90) {
+      const i = this.find(t);
+      if (i < 0 || this.buf[this.slotAt(i) * this.stride + 7 + 8] < 1.5) continue;
+      this.tapeBall(t, _o); _v2.set(_o.x, _o.y, _o.z); tr.add(_v2);
+    }
   }
 
   // The ball between two frames that have one of its exact moments between

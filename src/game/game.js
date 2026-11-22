@@ -868,7 +868,7 @@ export class Game {
       if (this.playerBowler.showHand) this.playerBowler.showHand(null);
       if (this.session && this.session.field) this.crew.duringReplay(realDt);   // (a batter walking off / in keeps going)
       this.replay.placeOverlays(this.eye, realDt);
-      this.ballView.faceTrail(this.eye.p, realDt);
+      this.ballView.faceTrail(this.eye.p, this.replay.trailDt ?? realDt);   // (the trail on the tape's clock: Replay.trailDt)
       this.ballFinder.hide();
       Humanoid.updateLods(this.eye.p);
       this.nearCull.update(this.eye.p, Humanoid.all, 0.6);
