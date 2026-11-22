@@ -1161,7 +1161,7 @@ export class Game {
       // know where your feet are in the crease.
       const ghost = batting && this.input.xr && !behind && !this.viewOverride && !this.mr && this.settings.ownBody !== false;
       this.playerBody.actor.h.setGhost(ghost, GHOST_LEGS);    // (solid; it steps aside from the ball and your blade: Humanoid.seeThrough)
-      if (ghost) { const G = this.batMesh.geometry.userData, M = this.batMesh.updateMatrixWorld() || this.batMesh.matrixWorld; this.playerBody.actor.h.seeThrough(this.ballView.mesh.visible ? this.ballView.mesh.position : null, _fpA.set(0, G.shY, 0).applyMatrix4(M), _fpB.set(0, G.toeY, 0).applyMatrix4(M)); }
+      if (ghost) { const G = this.batMesh.geometry.userData, M = this.batMesh.updateMatrixWorld() || this.batMesh.matrixWorld, bv = this.ballView.mesh.visible; this.playerBody.actor.h.seeThrough(bv ? this.ballView.mesh.position : null, bv && _fpA.set(0, G.shY, 0).applyMatrix4(M), bv && _fpB.set(0, G.toeY, 0).applyMatrix4(M)); }
       // (through your own eyes the faint body stays under you: it is where you stand)
       if (!ghost) this.playerBody.actor.h.setFade(1 - cover);
       this.playerBody.show((deskThird || ((behind || ghost) && batting)) && (ghost || cover < 0.98));

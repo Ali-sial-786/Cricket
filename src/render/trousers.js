@@ -11,7 +11,7 @@
 // the midline plane (hidden inside), so the two tubes together make the
 // seat and fork with no special joint. Skinned to the hips, thighs, shins
 // and a little foot at the hem; the two tubes' midline points carry the same
-// weights so the seam never opens. colour.g carries the angle round the leg
+// weights so the seam never opens. colour.r says which leg (1 left, 0 right), colour.g the angle round the leg
 // (0 inner, 0.25 front, 0.5 outer side, 0.75 back) and colour.b the ring's
 // radius, for the side stripe the shader draws.
 import * as THREE from 'three';
@@ -70,7 +70,7 @@ export function buildTrousers(J, bones, lod) {
         pos.push(x, y, z);
         const nx = s * sa / rx, nz = ca / (ca > 0 ? rzF : rzB), nl = Math.hypot(nx, nz) || 1;
         nrm.push(nx / nl, 0, nz / nl);
-        col.push(1, u, rx);
+        col.push(s > 0 ? 1 : 0, u, rx);
         // ambient occlusion: the fork, the seat crease, behind the knee, under the shirt's hem
         const inner = 1 - sstep(0.0, 0.05, s * x);
         let ao = 0.95 - 0.4 * inner * Math.exp(-Math.pow((y - yC - 0.01) / 0.06, 2));
@@ -100,7 +100,7 @@ export function buildTrousers(J, bones, lod) {
       for (let i = 0; i <= n; i++) {
         const v = H + i, px = pos[v * 3], py = pos[v * 3 + 1], pz = pos[v * 3 + 2], cx = s * (Math.abs(ank.x) + 0.004), cz = ank.z;
         const dx = px - cx, dz = pz - cz, dl = Math.hypot(dx, dz) || 1;
-        pos.push(px - dx / dl * inset, py + up, pz - dz / dl * inset); nrm.push(-dx / dl, 0, -dz / dl); col.push(1, 0, 0.06); kit.push(4, 0.45);
+        pos.push(px - dx / dl * inset, py + up, pz - dz / dl * inset); nrm.push(-dx / dl, 0, -dz / dl); col.push(s > 0 ? 1 : 0, 0, 0.06); kit.push(4, 0.45);
         for (let k = 0; k < 4; k++) { si.push(si[v * 4 + k]); sw.push(sw[v * 4 + k]); }
       }
     }
