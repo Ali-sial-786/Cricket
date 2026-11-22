@@ -18,6 +18,8 @@ class UmpireActor extends Actor {
     this.sig = null;
   }
   signal(type, now, dur = 2.6) { this.sig = { type, t0: now, dur }; }
+  // (ceremonies: still = standing square, hands behind his back, eyes on what he is shown -- no idling, no dodging; nod(now): a nod)
+  nod(now) { this.nodAt = now; }
   // The hands while he stands: clasped behind his back, and now and then
   // (idleHands) clasped in front, in his trouser pockets, or the right hand
   // at his waist counting the balls of the over -- always by way of behind the
@@ -27,7 +29,7 @@ class UmpireActor extends Actor {
     h.update();
     this.forward(_f);
     _l.set(_f.z, 0, -_f.x);                        // figure's left
-    const T = now + this.idleOff, slot = Math.floor(T / UMP_SLOT), mode = UMP_HANDS[Math.floor(hash01(this.seed, slot) * UMP_HANDS.length)];
+    const T = now + this.idleOff, slot = Math.floor(T / UMP_SLOT), mode = this.still ? null : UMP_HANDS[Math.floor(hash01(this.seed, slot) * UMP_HANDS.length)];
     const w = mode ? envelope(T - slot * UMP_SLOT, UMP_SLOT, 0.8, 0.8) : 0;
     for (const [side, sg, on] of [['L', 1, left], ['R', -1, right]]) {
       if (!on) continue;
@@ -79,7 +81,7 @@ class UmpireActor extends Actor {
       if (!walking) this.clasp(true, true, now);
     }
     // A ball hit straight at him: he sways out of its way, arms in (visual: his mark is where it was).
-    const D = this.dodge(look, dt), e = D.e > 0 ? sstep(0, 1, D.e) : 0;
+    const D = this.dodge(this.still ? null : look, dt), e = D.e > 0 ? sstep(0, 1, D.e) : 0;
     if (e > 0.001) {
       this.forward(_f);
       h.addRot('spine', 0.2 * e, 0, D.side * 0.35 * e); h.addRot('chest', 0, -D.side * 0.3 * e, 0);
@@ -92,7 +94,10 @@ class UmpireActor extends Actor {
       if (u >= 1) this.sig = null;
       else this.pose(s, now - s.t0, u);
     }
-    if (look && !(s && s.type === 'notout')) h.lookAt(look, 0.7);
+    if (look && !(s && s.type === 'notout')) h.lookAt(look, this.still ? 0.95 : 0.7);
+    // a nod (nodAt: when it began, on his clock)
+    const nu = this.nodAt != null ? now - this.nodAt : -1;
+    if (nu > 0 && nu < 0.9) { const k = Math.sin(Math.PI * 2 * nu / 0.45) * (1 - sstep(0.5, 0.9, nu)) * sstep(0, 0.08, nu); h.addRot('neck', 0.15 * k, 0, 0); h.addRot('head', 0.1 * k, 0, 0); }
     if (!this.far) this.smooth(dt);
     h.syncShadow();
   }

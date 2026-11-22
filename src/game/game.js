@@ -506,20 +506,20 @@ export class Game {
 
   // Temporarily put the player somewhere else, facing (dirX, dirZ) — used
   // for catching chances.
-  beginViewOverride(x, z, dirX, dirZ) {
-    this.viewOverride = { x, z, dirX, dirZ };
+  beginViewOverride(x, z, dirX, dirZ, y = 0) {
+    this.viewOverride = { x, z, dirX, dirZ, y };          // (y: m you stand above the turf -- the ceremonies' raised vantage points)
     this.lookYaw = 0; this.lookOff.x = this.lookOff.z = 0;       // set the rig directly; face forward afterwards
     if (this.input.xr) {
       const head = this.input.headRef;
       const r = computeRigFacing(head.p, headForward(head.q), x, z, dirX, dirZ);
-      this.rig.position.set(r.x, 0, r.z);
+      this.rig.position.set(r.x, y, r.z);
       this.rig.rotation.set(0, r.yaw, 0);
       this.rig.updateMatrixWorld(true);
       this.input.refreshHeadWorld();
       this.input.right.resetMotion(); this.input.left.resetMotion();
     } else {
-      this.camera.position.set(x, 1.62, z);
-      this.camera.lookAt(x + dirX * 6, 1.45, z + dirZ * 6);
+      this.camera.position.set(x, 1.62 + y, z);
+      this.camera.lookAt(x + dirX * 6, 1.45 + y - (y > 0 ? 0.6 : 0), z + dirZ * 6);
       this.camera.updateMatrixWorld(true);
     }
   }
@@ -563,7 +563,7 @@ export class Game {
   setRig(r) {
     this.rigState = r;
     const ov = !!this.viewOverride;
-    this.rig.position.set(r.x + (ov ? 0 : this.rigOffset.x + this.lookOff.x), ov ? 0 : -this.rigDrop, r.z + (ov ? 0 : this.rigOffset.z + this.lookOff.z));
+    this.rig.position.set(r.x + (ov ? 0 : this.rigOffset.x + this.lookOff.x), ov ? (this.viewOverride.y || 0) : -this.rigDrop, r.z + (ov ? 0 : this.rigOffset.z + this.lookOff.z));
     this.rig.rotation.set(0, r.yaw + (ov ? 0 : this.lookYaw), 0);
     this.rig.updateMatrixWorld(true);
     this.input.right.resetMotion();

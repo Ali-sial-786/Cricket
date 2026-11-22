@@ -388,7 +388,7 @@ export class FielderActor extends Actor {
         for (const [b, x, z] of READY_TOP) { _e2.set(x, 0, z); _q.setFromEuler(_e2); h.bones[b].quaternion.slerp(_q, k); }
       }
       this.apply();
-      gest = !act; idleOK = !act && !s.await;
+      gest = !act && !s.ceremony; idleOK = !act && !s.await && !s.ceremony;
     } else {
       this.poseKey = 'stand';
       poseIdle(h, t + this.phase * 3, 1);
@@ -396,7 +396,7 @@ export class FielderActor extends Actor {
       this.apply();
       this.plant(this.keeper ? 0.24 : 0.15, true);
       if (this.keeper) this.glovesFront(sstep(0.1, 0.8, this.ready));
-      gest = !act; idleOK = !act && !s.await; this.folded = 0;
+      gest = !act && !s.ceremony; idleOK = !act && !s.await && !s.ceremony; this.folded = 0;
     }
     // Where the body is off its spot (a dive's or a stumping's lunge): it
     // gets there at a lunge's pace, never in one frame (the keeper's read of
@@ -2029,7 +2029,7 @@ export class BatterActor extends Actor {
   }
 
   // Generic locomotion (running between the wickets / walking), carrying the bat.
-  updateMoving(dt, t, look = null, diving = false, sad = false) {
+  updateMoving(dt, t, look = null, diving = false, sad = false, joy = 0) {
     const h = this.h;
     this.mode = 'run';
     this.gait(dt);
@@ -2052,6 +2052,8 @@ export class BatterActor extends Actor {
     }
     lookSteady(h, !diving ? look : null, 0.8, dt, this._gs);      // (at a neck's pace: the ball appearing, or a turn at the crease)
     this.smooth(dt);
+    // (the batting side has won: both arms up, the bat raised in the right hand -- the carried bat follows the forearm)
+    if (joy > 0.001) { this.forward(_fwd); poseArms(h, _fwd, 'arms', joy, t, this._gs); }
     this.armBlend(dt);
     this.placeCarriedBat();
     this.batSmooth(dt);

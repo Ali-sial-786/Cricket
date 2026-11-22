@@ -35,7 +35,7 @@ export const lastCrowd = { kind: null, t: -1e9 };
 // A stronger mood replaces a weaker one; a weaker one does not cut a stronger one short
 // (a run-out's "close" a moment after the wicket's celebration).
 export function noteCrowd(kind, t) {
-  if (Number.isFinite(t)) { lastCrowd.kind = kind; lastCrowd.t = t; }
+  if (Number.isFinite(t)) { lastCrowd.kind = kind; lastCrowd.t = t; if (kind === 'batWin') J.t0 = t; }
   const m = moodFor(kind);
   if (!m || !Number.isFinite(t)) return;
   const live = M.mood && t >= M.t0 && t - M.t0 < MOOD_DUR[M.mood];
@@ -49,7 +49,11 @@ export function moodAt(t) {
   _now.mood = M.mood; _now.age = t - M.t0; _now.n = M.n;
   return _now;
 }
-export function clearMood() { M.mood = null; M.t0 = -1e9; }
+export function clearMood() { M.mood = null; M.t0 = -1e9; J.t0 = -1e9; }
+// The batting side has won (ceremony.js, noteCrowd('batWin')): the batters' bats go up.
+const J = { t0: -1e9 };
+export const JOY_DUR = 4.5;
+export function joyAt(t) { const u = t - J.t0; return u > 0 && u < JOY_DUR ? envelope(u, JOY_DUR, 0.35, 0.6) : 0; }
 
 // The ball while it is live (FieldView sets it every frame; the bowler watches it after letting it go).
 export const live = { ball: null };

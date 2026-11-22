@@ -6,7 +6,7 @@ import { toV3, toQ } from './util.js';
 import { sstep, clamp } from './anim.js';
 import { CONFIG } from '../config.js';
 import { walkTask, stepWalk, fadeNearHead } from './crew.js';
-import { live, lastCrowd } from './gestures.js';
+import { live, lastCrowd, joyAt } from './gestures.js';
 
 // The runner in your kit is not drawn close to your head (you are looking out
 // through his eyes as he sets off / comes home): he fades in as he leaves you
@@ -101,12 +101,20 @@ export class BatterView {
       a.h.replayVisible = fade > 0.5;
       a.speed = this.running.speed;
       a.turnToward(this.running.heading, dt, this.running.moving ? 7 : 4.5);
-      if (this.running.dive) a.updateDive(dt, t, this.running.dive); else a.updateMoving(dt, t, ball, false);
+      if (this.running.dive) a.updateDive(dt, t, this.running.dive); else a.updateMoving(dt, t, ball, false, 0, joyAt(t));
       return;
     }
     if (this.runnerOnly) { a.h.setFade(0); return; }       // (your runner with nowhere to go: not drawn)
     a.h.setFade(1);
     a.h.replayVisible = true;
+    // His side has won (the result): out of his stance, bat and arms up.
+    const joy = joyAt(t);
+    if (joy > 0.001) {
+      if (this.wasBat) { a.handover(); a.slowNext = 0.35; this.wasBat = false; }
+      this.blend = null; this.relaxed = true; a.speed = 0;
+      a.updateMoving(dt, t, null, false, 0, joy);
+      return;
+    }
     // Between balls he does not stand frozen in his stance: he straightens up,
     // half turns toward the bowler's end, leans on his bat, taps the pitch with
     // it now and then and looks round the field; he settles back into his
@@ -350,7 +358,7 @@ export class NonStrikerView {
       a.pos.set(this.running.x, 0, this.running.z);
       a.speed = this.running.speed;
       a.turnToward(this.running.heading, dt, this.running.moving ? 7 : 4.5);
-      if (this.running.dive) a.updateDive(dt, t, this.running.dive); else a.updateMoving(dt, t, ball, false);
+      if (this.running.dive) a.updateDive(dt, t, this.running.dive); else a.updateMoving(dt, t, ball, false, 0, joyAt(t));
       this.moving = true;
       return;
     }
@@ -399,7 +407,9 @@ export class NonStrikerView {
       if (Math.abs(r) < 0.45 && u < 1.6) tap = Math.abs(Math.sin(u * 8)) * sstep(0, 0.2, u) * (1 - sstep(1.3, 1.6, u));
       else if (Math.abs(r) > 0.75 && u < 2.4) look = _look2.set(this.home.x * 12, 1.4, -8);
     }
-    a.updateLeaning(dt, t, look, tap);
+    const joy = joyAt(t);
+    if (joy > 0.001) a.updateMoving(dt, t, null, false, 0, joy);           // (his side has won: off his bat, arms and bat up)
+    else a.updateLeaning(dt, t, look, tap);
     this.moving = false;
   }
   // He walks to his mark (task: one he already has, e.g. coming in from the gate).

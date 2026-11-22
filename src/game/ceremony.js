@@ -24,7 +24,8 @@ import * as THREE from 'three';
 import { CanvasPanel, fitText } from '../ui/panel.js';
 import { C, font, rr, slant, vgrad, hgrad, caps, chip, teamBlock, teamByName, ballDot, drawIcon } from '../ui/theme.js';
 import { GATE, STRIKER_SPOT, walkTask } from '../render/crew.js';
-import { noteCrowd } from '../render/gestures.js';
+import { noteCrowd, envelope } from '../render/gestures.js';
+import { coinToss, nod, offerHand, TOSS_AT } from '../render/ceremonyPoses.js';
 import { decisionPending } from './quickSkip.js';
 import { SQUADS } from './squad.js';
 import { PITCH } from '../physics/pitch.js';
@@ -40,7 +41,9 @@ const PI = Math.PI;
 // Where a beat puts you (x, z: your head; dx, dz: the way you face).
 const toward = (x, z, tx, tz) => { const dx = tx - x, dz = tz - z, d = Math.hypot(dx, dz) || 1; return { x, z, dx: dx / d, dz: dz / d }; };
 export const SPOTS = {
-  pavilion: toward(24, CZ + 3, 0, CZ),                  // on the outfield in front of the pavilion, the middle and the far stands before you
+  // on the pavilion side, on a riser 2 m above the outfield (a fade cut takes you there): the square laid
+  // out below you with its figures and the stands round it -- at standing height it read as a flat field
+  pavilion: { ...toward(30, CZ + 3, 0, CZ), y: 2.0 },
   toss: { x: -1.25, z: CZ + 1.2, dx: 1, dz: 0 },      // on the square, the other captain in front of you, the pavilion behind him
 };
 // The toss: who stands where (heading: Actor convention, atan2(dirX, dirZ)) and where the coin comes down.
@@ -480,7 +483,7 @@ export class Ceremony {
   goTo(spot) {
     const g = this.g;
     if (!spot || !g.beginViewOverride) return;
-    g.beginViewOverride(spot.x, spot.z, spot.dx, spot.dz);
+    g.beginViewOverride(spot.x, spot.z, spot.dx, spot.dz, spot.y || 0);
     if (g.viewOverride) g.viewOverride.scene = true;      // (no catching hands)
     if (!this.view && g.ui && g.ui.showHud) g.ui.showHud(false);   // (the score panel by the pitch is not part of the scene)
     this.view = spot;
@@ -516,6 +519,7 @@ export class Ceremony {
     const g = this.g, s = g.session;
     const fieldingWon = ctx.fieldingWon;
     noteCrowd(fieldingWon ? 'wicketFor' : 'six', g.simTime);
+    if (!fieldingWon && ctx.winner !== 'tie') noteCrowd('batWin', g.simTime);       // (the batters' bats go up: gestures.js joyAt)
     if (fieldingWon && s && s.field && s.field.huddle) { try { s.field.logic.dead = true; s.field.huddle(); } catch { /* (no huddle: they stand) */ } }
     this.resultField = s && s.done && s.field ? s.field : null;
   }
@@ -557,14 +561,15 @@ export class Ceremony {
     const cap = g.fieldView.actors[CAPTAIN], U = g.umpires;
     if (!cap) return;
     cap.h.setTeam('away'); cap.cut(); cap.place(TOSS.captain.x, TOSS.captain.z, TOSS.captain.face); cap.visible = true;
-    const st = { x: TOSS.captain.x, z: TOSS.captain.z, face: TOSS.captain.face, speed: 0, state: 'set', action: null, crouch: false, armsUp: false, huddle: 0 };
+    cap.foldArms = 0;                 // (standing square to you, arms by his sides: no folded arms, no idle gestures)
+    const st = { x: TOSS.captain.x, z: TOSS.captain.z, face: TOSS.captain.face, speed: 0, state: 'set', action: null, crouch: false, armsUp: false, huddle: 0, ceremony: true };
     let ump = null;
     if (U && U.main) {
       ump = U.main;
       U.show(true); if (U.leg) U.leg.visible = false;
       if (!ump.mark) U.place(false);
       ump.mark.set(TOSS.umpire.x, 0, TOSS.umpire.z); ump.off.set(0, 0, 0); ump.goal.x = TOSS.umpire.x; ump.goal.z = TOSS.umpire.z; ump.rest = TOSS.umpire.face;
-      ump.task = null; ump.speed = 0; ump.cut(); ump.place(TOSS.umpire.x, TOSS.umpire.z, TOSS.umpire.face);
+      ump.task = null; ump.speed = 0; ump.cut(); ump.place(TOSS.umpire.x, TOSS.umpire.z, TOSS.umpire.face); ump.still = true; ump.nodAt = null;
       U.setLook && U.setLook(new THREE.Vector3(TOSS.coin.x, 0.6, TOSS.coin.z));
     }
     this.cast = { cap, st, ump };
@@ -573,6 +578,8 @@ export class Ceremony {
     const g = this.g, c = this.cast;
     if (!c) return;
     this.cast = null;
+    c.cap.foldArms = c.cap.keeper ? 0 : 0.25;
+    if (c.ump) { c.ump.still = false; c.ump.nodAt = null; }
     if (!g.session || !g.fieldView.visible) c.cap.visible = false;
     if (c.ump && g.umpires) { g.umpires.show(false); g.umpires.place(false); }
   }
@@ -581,17 +588,21 @@ export class Ceremony {
     if (!c) return;
     const t = g.simTime;
     c.cap.update(Math.max(dt, 1e-4), c.st, { t, ball: null, delivering: false, cam: g.eye ? g.eye.p : null, others: [] });
-    // the coin in his right hand, held out in front of him, then flicked up
-    const F = this.flip, h = c.cap.h;
-    if (F && F.tf < 1.0) {
-      const up = F.tf < 0.55 ? sstep01(F.tf / 0.4) : 1 - sstep01((F.tf - 0.62) / 0.38);
-      h.update();
-      c.cap.forward(_f);
-      h.worldPos('shoulderR', _a);
-      _b.copy(_a).addScaledVector(_f, 0.33).add(_up.set(0, -0.12 + 0.2 * (F.tf > 0.55 ? 1 : 0), 0));
-      h.worldPos('handR', _c);
-      _c.lerp(_b, up);
-      h.ikArm('R', _c, _d.copy(_a).add(_up.set(0, -0.5, 0)).addScaledVector(_f, -0.2));
+    // The toss (src/render/ceremonyPoses.js): the coin held out and flicked up
+    // off the thumb, his eyes after it up and down, leaning over to read it;
+    // then a nod to you and his hand out to shake yours. The umpire stands
+    // square, hands behind his back, watching the coin, and nods at the result.
+    const F = this.flip;
+    if (F) {
+      const coinAt = this.coin.mesh.visible ? this.coin.mesh.position : null;
+      coinToss(c.cap, F.tf, coinAt, Math.max(dt, 1e-4), g.eye ? g.eye.p : null);
+      nod(c.cap, F.tf - 2.15);
+      offerHand(c.cap, envelope(F.tf - 2.5, 2.4, 0.4, 0.5), t);
+      c.cap.h.syncShadow();
+      if (c.ump && g.umpires) {
+        if (coinAt) g.umpires.setLook(coinAt);
+        if (F.tf >= 2.25 && c.ump.nodAt == null) c.ump.nod(g.clock);
+      }
     }
   }
 
@@ -609,7 +620,7 @@ export class Ceremony {
         c.cap.h.update();
         c.cap.h.worldPos('handR', _a);
         coin.hold(_a, c.cap.heading);
-        if (F.tf >= 0.55) {
+        if (F.tf >= TOSS_AT) {
           F.launched = true;
           coin.toss(_a, _b.set(TOSS.coin.x, 0, TOSS.coin.z), F.face, this.rng);
         }
@@ -675,7 +686,6 @@ function huddleSpot(f) {
   return { x, z, dx: dx / d, dz: dz / d };
 }
 
-const sstep01 = (u) => { const t = Math.min(1, Math.max(0, u)); return t * t * (3 - 2 * t); };
 const _q = new THREE.Quaternion(), _f = new THREE.Vector3(), _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3(), _d = new THREE.Vector3(), _up = new THREE.Vector3();
 
 // ---------------------------------------------------------------- the coin
