@@ -460,11 +460,6 @@ function hullFor(geo) {
 //  * Shape variation in the vertex shader: build (girth of cloth and arms),
 //    hair standing off the scalp below the headgear.
 // depth: the see-through body's depth pre-pass (setGhost), sharing `shared` (the figure's uniforms).
-// The elbow's place along a bind-space arm (as armAt measures it) and the arm's radius there.
-function armT(side) {
-  const J = RIG.J, sh = J['shoulder' + side], d = J['hand' + side].clone().sub(sh), L = d.length();
-  return new THREE.Vector2(J['elbow' + side].clone().sub(sh).dot(d) / (L * L), 0.04);
-}
 let SHARED = null;      // uniforms that are the same for every figure (textures, landmarks)
 function sharedUniforms() {
   if (SHARED) return SHARED;
@@ -535,8 +530,8 @@ function kitMaterial(shared = null) {
     // blade (from its shoulder to its toe), so the body steps aside from them in your view.
     uFpBall: { value: new THREE.Vector4() },
     uFpB0: { value: new THREE.Vector4() }, uFpB1: { value: new THREE.Vector3() },
-    uFpHip: { value: new THREE.Vector3((RIG.J.hipL.x + RIG.J.kneeL.x) / 2, 0.7, 0.025) },   // where your trousers close over each thigh (bind: leg line x, height, z)
-    uFpElbow: { value: armT('L') },   // where your upper arm closes: the elbow's place along the arm (armAt), and the arm's radius there
+    uFpShift: { value: new THREE.Vector3() },   // your upper body drawn this far (object space) behind your eyes (fpShift)
+    uFpNeck: { value: new THREE.Vector3(0.03, RIG.J.neck.y - 0.02, RIG.J.neck.z + 0.008) },   // your neck's close: height of its dome, the collar height, its z (bind)
     uLegIdx: { value: new THREE.Vector3(RIG.index.hipL, RIG.index.kneeL, RIG.index.ankleL) },
     uLegIdxR: { value: new THREE.Vector3(RIG.index.hipR, RIG.index.kneeR, RIG.index.ankleR) },
   };
@@ -550,49 +545,31 @@ function kitMaterial(shared = null) {
         uniform vec3 uLegIdx; uniform vec3 uLegIdxR;
         varying float vHeadW; varying float vLegW; varying vec3 vSeg; varying float vHandW; varying vec2 vKA; varying float vHairE;
         #ifdef FP_BODY
-          varying vec3 vFpW; varying float vUpW; varying float vFpGone; uniform vec3 uFpHip; uniform vec2 uFpElbow;
+          varying vec3 vFpW; varying float vUpW; uniform vec3 uFpNeck; uniform vec3 uFpShift;
         #endif
         ${KIT_GLSL_COMMON}`)
-      .replace('#include <beginnormal_vertex>', `#include <beginnormal_vertex>
-        #ifdef FP_BODY
-          // Your own body ends in rounded closes (in bind space, so they ride with the pose): the
-          // trousers over each thigh (a dome above mid-thigh) and each arm at the elbow, upper arm
-          // and sleeve folded into it. Looking down you see legs and forearms, never into an open
-          // tube whose shirt has stepped aside, and nothing of it reaches up to your eyes.
-          float fpT = 0.0, fpA = 0.0; vec2 fpC = vec2(0.0), fpR = vec2(0.0); vec3 fpE = vec3(0.0), fpAx = vec3(0.0), fpO = vec3(0.0);
-          // (what is not drawn of the trunk and shoulders is flagged, and the fragment shader drops
-          // every triangle that touches it: no slivers from the elbows back to the chest)
-          // (the shirt is never a leg, however much thigh its hem follows)
-          bool fpShirt = k > 0.5 && k < 2.5 || k > 6.5 && k < 7.5 || k > 9.5 && k < 23.5;
-          // (and so does a vertex the arm does not mostly carry: the chest would skin it elsewhere)
-          bool fpGone = (k < 3.5 || k > 4.5) && (1.0 - vArmW - vHandW - (fpShirt ? 0.0 : clamp(vSeg.x + vSeg.y + vSeg.z, 0.0, 1.0)) > 0.5 || (upperW > 0.02 && vArmW < 0.85));
-          vFpGone = fpGone ? 1.0 : 0.0;
-          if (fpGone || vArmW - foreW > 0.02) {
-            bool fl = position.x > 0.0;
-            vec4 ax = fl ? uArmL : uArmR; vec3 sh = fl ? uShoulderL : uShoulderR;
-            fpAx = ax.xyz / ax.w;
-            float t = dot(position - sh, fpAx) / ax.w;
-            fpE = sh + ax.xyz * uFpElbow.x;
-            fpO = position - sh - ax.xyz * t;                       // off the arm's line
-            // (a quarter circle from the elbow back: radius cos, length sin, so the cap starts exactly
-            // where the arm is and closes over a few centimetres)
-            fpE = sh + ax.xyz * (uFpElbow.x + 0.02);
-            fpA = clamp((uFpElbow.x + 0.02 - t) / 0.2, 0.0, 1.0) * step(0.02, upperW);   // (all of it, chest-side verts too: those are not drawn, so no sliver reaches back to the chest)
-            if (fpGone) fpA = 0.0;
-            float th = fpA * 1.5708;
-            vec3 rd = fpO / max(length(fpO), 1e-4);
-            objectNormal = normalize(mix(objectNormal, rd * cos(th) - fpAx * sin(th), sin(th)));
-          }
-          if (k > 3.5 && k < 4.5) {
-            fpT = smoothstep(uFpHip.y, uFpHip.y + 0.12, position.y);
-            fpC = vec2((color.r > 0.5 ? 1.0 : -1.0) * uFpHip.x, uFpHip.z);     // (trousers.js: colour.r is the leg)
-            fpR = position.xz - fpC;
-            float fs = 1.0 - fpT;
-            vec2 rd = fpR / max(length(fpR), 1e-4);
-            objectNormal = normalize(mix(objectNormal, vec3(rd.x * fs, sqrt(max(0.0, 1.0 - fs * fs)), rd.y * fs), fpT));
-          }
-        #endif`)
       .replace('#include <project_vertex>', `
+        #ifdef FP_BODY
+          // Your eyes are in front of your head's joint, not on top of it: your upper body is drawn
+          // that far behind them (it fades in up the trunk from the hips; the forearms, gloves, legs
+          // and feet stay exactly where they are), so looking down you see your chest from the front
+          // of your face, not the inside of your collar.
+          float fpUp = smoothstep(0.95, 1.3, position.y) * (1.0 - clamp(foreW + vHandW + vSeg.y + vSeg.z, 0.0, 1.0));
+          transformed += uFpShift * fpUp;
+          // Your neck ends just above the collar in a rounded close of skin (the head above it is
+          // not drawn): looking down you never see through the collar into the shirt.
+          if (k > 4.5 && k < 5.5 && position.y > uFpNeck.y) {
+            float t = smoothstep(uFpNeck.y, uFpNeck.y + 0.045, position.y), fs = 1.0 - t;
+            vec2 c = vec2(0.0, uFpNeck.z), r = position.xz - c;
+            vec3 dome = vec3(c.x + r.x * fs, uFpNeck.y + uFpNeck.x * sqrt(max(0.0, 1.0 - fs * fs)), c.y + r.y * fs);
+            #ifdef USE_SKINNING
+              vec4 sp = bindMatrix * vec4(dome, 1.0);
+              vec4 sk = vec4(0.0);
+              sk += boneMatX * sp * skinWeight.x; sk += boneMatY * sp * skinWeight.y; sk += boneMatZ * sp * skinWeight.z; sk += boneMatW * sp * skinWeight.w;
+              transformed = (bindMatrixInverse * sk).xyz + uFpShift;
+            #endif
+          }
+        #endif
         #include <project_vertex>
         #ifdef FP_BODY
           vFpW = (modelMatrix * vec4(transformed, 1.0)).xyz; vUpW = upperW;
@@ -667,15 +644,12 @@ function kitMaterial(shared = null) {
         float br = sin(uTime * (1.45 + 0.4 * uSeed) + uSeed * 40.0);
         push += 0.0022 * br * trunkW * smoothstep(1.12, 1.3, position.y) * smoothstep(1.47, 1.38, position.y) * step(k, 7.5);
         transformed += objectNormal * push;
-        #ifdef FP_BODY
-          if (fpT > 0.0) { float fs = 1.0 - fpT; transformed.xz = fpC + fpR * fs; transformed.y = uFpHip.y + 0.06 * sqrt(max(0.0, 1.0 - fs * fs)); }
-          if (fpA > 0.0) { float th = fpA * 1.5708; transformed = fpE + fpO * cos(th) - fpAx * uFpElbow.y * sin(th); }
-        #endif`);
+`);
     sh.fragmentShader = sh.fragmentShader
       .replace('#include <common>', `#include <common>
         uniform float uNoHead;
         #ifdef FP_BODY
-          uniform vec4 uFpBall; uniform vec4 uFpB0; uniform vec3 uFpB1; varying vec3 vFpW; varying float vUpW; varying float vFpGone;
+          uniform vec4 uFpBall; uniform vec4 uFpB0; uniform vec3 uFpB1; varying vec3 vFpW; varying float vUpW;
         #endif
         varying float vHeadW; varying float vLegW; varying vec3 vSeg; varying float vHandW; varying vec2 vKA; varying float vHairE;
         uniform sampler2D uFaceMap; uniform sampler2D uDecal;
@@ -729,22 +703,20 @@ function kitMaterial(shared = null) {
       .replace('#include <color_fragment>', `#include <color_fragment>
   #ifdef FP_BODY
   {
-    // Your own body is solid, but it never hides the ball or the bat's blade from your eyes, and
-    // nothing of it comes right up to them: a dithered hole in it, along your line of sight to the
-    // ball (a cone a little wider than the ball) and to the blade (the wedge from your eye along it),
-    // and a fade of anything within ~25 cm of the eye. A few dot products; no extra pass.
+    // Your own body is your whole figure but the head and neck, solid and shaded like everyone
+    // else's: looking down you see your shirt front and shoulders, the arms from the shoulders to
+    // the gloves, hips, thighs, pads and boots. What would get in the way steps aside, softly:
+    //  * anything within ~25 cm of the eye drawing it (cameraPosition is each eye's own in stereo),
+    //    so nothing of the collar or shoulders comes up against the lenses;
+    //  * a hole along that eye's line of sight to the ball (a cone a little wider than the ball)
+    //    and to the bat's blade while the ball is in play.
+    // A few dot products and an ordered dither in one opaque draw; no extra pass.
     vec3 E = cameraPosition, d = vFpW - E;
-    float dl = length(d), cut = 1.0 - smoothstep(0.2, 0.24, dl);
+    float dl = length(d);
     vec3 D = d / max(dl, 1e-4);
-    // Looking down you see your legs (closed over the thighs: the domes in the vertex shader),
-    // pads and boots, your forearms and gloves; never the inside of a shirt or a sleeve.
-    bool shirtS = vSlot > 0.5 && vSlot < 2.5 || vSlot > 6.5 && vSlot < 7.5 || vSlot > 9.5 && vSlot < 23.5;
-    float arm = clamp(vArmW + vHandW, 0.0, 1.0), leg = shirtS ? 0.0 : clamp(vSeg.x + vSeg.y + vSeg.z, 0.0, 1.0);
-    // (the trunk, shirt and upper arms are not drawn at all through your own eyes: a clean cut
-    // where the weights hand over to the forearms; the elbows are closed, see the vertex shader)
-    float trunk = clamp(1.0 - arm - leg, 0.0, 1.0) * step(0.5, abs(vSlot - 4.0));
-    if (trunk > 0.5) discard;
-    if (vFpGone > 0.002) discard;      // (any triangle touching a vertex that is not drawn: no fins)
+    // (only the arms and gloves can come right up to your eyes, a bat brought to your face: they fade
+    // there. The trunk is never cut: it is a shell, and a hole in it would show its empty inside)
+    float cut = (1.0 - smoothstep(0.12, 0.2, dl)) * clamp(vArmW + vHandW, 0.0, 1.0);
     if (uFpBall.w > 0.5) {
       vec3 b = uFpBall.xyz - E; float bl = length(b);
       float c = dot(D, b / bl), ang = sqrt(max(0.0, 1.0 - c * c)) / max(c, 1e-3);   // tan of the angle off the ball
@@ -994,7 +966,9 @@ function kitMaterial(shared = null) {
       if (vHeadW > 0.5 && vBind.z > 0.1) { vec4 t = decalAt(vBind.xy, uCapAt, uCrestUV, 0.0); c = mix(c, t.rgb, t.a); gSpec *= 1.0 - 0.3 * t.a; }
     }
     #ifdef FP_BODY
-      if (!gl_FrontFacing) { c *= 0.32; gSpec = 0.0; }     // (your own body is two-sided: the inside of a trouser leg or pad is dark lining, not a hole)
+      if (!gl_FrontFacing) { c *= 0.32; gSpec = 0.0; }
+      // (your neck's close, under the chin you do not have: the shadow inside your collar)
+      if (vHeadW > 0.2 && skin) { c = mix(c, uKit1 * 0.22, smoothstep(0.2, 0.6, vHeadW)); gSpec = 0.0; gSSS = 0.0; }     // (your own body is two-sided: the inside of a trouser leg or pad is dark lining, not a hole)
     #endif
     diffuseColor.rgb = c;
   }`)
@@ -1009,7 +983,12 @@ function kitMaterial(shared = null) {
     vec3 bn = normalize(abs(det) * normal - gr);
     normal = abs(det) > 1e-14 ? bn : normal;
   }`)
-      .replace('#include <clipping_planes_fragment>', '#include <clipping_planes_fragment>\n  if ((uNoHead > 0.5 && vHeadW > 0.35 && vHeadW < 1.5) || vHeadW > 1.5) discard;')
+      .replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>
+  #ifdef FP_BODY
+    if (vHeadW > 1.5 || (vHeadW > 0.35 && (vSlot < 4.5 || vSlot > 5.5))) discard;     // (your neck's skin stays: it closes the collar)
+  #else
+    if ((uNoHead > 0.5 && vHeadW > 0.35 && vHeadW < 1.5) || vHeadW > 1.5) discard;
+  #endif`)
       .replace('#include <aomap_fragment>', `#include <aomap_fragment>
         {
           float ao = clamp(vKA.y, 0.0, 1.0);
@@ -1047,6 +1026,7 @@ const _v = new THREE.Vector3(), _v2 = new THREE.Vector3(), _S = new THREE.Vector
 const _pq = new THREE.Quaternion(), _eul = new THREE.Euler(), _bq = new THREE.Quaternion();
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const FOOT_ONLY = {}, HAND_ONLY = {};
+const _fq = new THREE.Quaternion();
 
 export class Humanoid {
   // vary: let this figure's height differ from the standard (fielders, umpires: not
@@ -1183,6 +1163,13 @@ export class Humanoid {
     this.fade = 1;
     u.uNoHead.value = on ? 1 : 0;
     if (!on) { u.uFpBall.value.w = 0; u.uFpB0.value.w = 0; }
+  }
+
+  // Your upper body drawn behind your eyes (through your own eyes only): v world, or null for none.
+  fpShift(v) {
+    const u = this.material.userData.uniforms.uFpShift.value;
+    if (!v) { u.set(0, 0, 0); return; }
+    u.copy(v).applyQuaternion(_fq.copy(this.root.quaternion).invert()).divideScalar(this.root.scale.x || 1);
   }
 
   // Where the ball (or null: none to keep in view) and the bat's blade (b0 shoulder, b1 toe, or

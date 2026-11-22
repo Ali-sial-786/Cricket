@@ -118,14 +118,19 @@ export class PlayerBowlerActor extends Actor {
     _e.setFromQuaternion(_q, 'YXZ');
     const yaw = _e.y + Math.PI;                       // headset looks down -Z; the figure faces +Z at heading 0
     const fx = Math.sin(yaw), fz = Math.cos(yaw);
-    const x = head.p.x - fx * 0.1, z = head.p.z - fz * 0.1;
+    // (your eyes are in front of your head's joint: the body that far behind them, so you look down at your chest, not down your collar)
+    const x = head.p.x - fx * 0.16, z = head.p.z - fz * 0.16;
     if (this.prev && dt > 0) {
       const v = Math.hypot(x - this.prev.x, z - this.prev.z) / dt;
       this.speed += (Math.min(7, v) - this.speed) * Math.min(1, dt * 8);
     }
     this.prev = { x, z };
     this.pos.set(x, 0, z);
-    this.turnToward(yaw, dt, 9);
+    // (the chest does not turn with every look: looking round, it stays put until the head is well
+    // off it (it follows a little behind); moving, it turns your way)
+    const off = Math.atan2(Math.sin(yaw - this.heading), Math.cos(yaw - this.heading));
+    const want = this.speed > 0.6 ? yaw : Math.abs(off) > 0.7 ? yaw - Math.sign(off) * 0.7 : this.heading;
+    this.turnToward(want, dt, this.speed > 0.6 ? 9 : 4);
     this.gait(dt);
     h.reset();
     if (this.speed > 0.35) this.locomote(t);
