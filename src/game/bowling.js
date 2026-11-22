@@ -169,7 +169,7 @@ export class BowlingSession {
     else if (ev === 'crease' && this.autoRun && this.state === 'ready') { this.autoRun = false; this.autoBowl(); }
     else if (ev === 'cancel' || ev === 'backToMark' || ev === 'deadBall') {
       // A tap that hardly moved you is no pull-out: quietly back on the mark.
-      if (ev === 'deadBall') g.ui.prompt('Dead ball — back to your mark', 2.2, '#ffb347');
+      if (ev === 'deadBall') { g.ui.prompt('Dead ball — back to your mark', 2.2, '#ffb347'); g.umpires.signal('deadball', g.clock); }
       else if (ev === 'backToMark') g.ui.prompt('Back to your mark', 1.4, '#cfe3f5');
       g.aiBatter.reset();
       if (this.field) { this.field.reset(); this.field.setSpinner(this.keeperUp); }

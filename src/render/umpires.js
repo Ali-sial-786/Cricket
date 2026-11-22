@@ -1,9 +1,10 @@
 // Two umpires (bowler's end and square leg) with the standard signals:
-// four, six, out, not out, wide, no-ball, free hit, bye, leg bye and "review"
+// four, six, out, not out, wide, no-ball, free hit, bye, leg bye, dead ball and "review"
 // (the TV square). Between signals the hands are clasped behind the back.
 import * as THREE from 'three';
 import { Actor } from './actors.js';
 import { plantFeet, keys, sstep } from './anim.js';
+import { hash01, envelope } from './gestures.js';
 import { clipsReady } from './clips.js';
 import { PITCH } from '../physics/pitch.js';
 import { walkTask, stepWalk } from './crew.js';
@@ -17,14 +18,49 @@ class UmpireActor extends Actor {
     this.sig = null;
   }
   signal(type, now, dur = 2.6) { this.sig = { type, t0: now, dur }; }
-  clasp(left, right) {
-    const h = this.h;
+  // The hands while he stands: clasped behind his back, and now and then
+  // (idleHands) clasped in front, in his trouser pockets, or the right hand
+  // at his waist counting the balls of the over -- always by way of behind the
+  // back, the hands moving there over most of a second.
+  clasp(left, right, now = 0) {
+    const h = this.h, sc = h.root.scale.y;
     h.update();
     this.forward(_f);
     _l.set(_f.z, 0, -_f.x);                        // figure's left
-    h.worldPos('hips', _t).addScaledVector(_f, -0.2).add(_c.set(0, 0.06, 0));
-    if (left) { _a.copy(_t).addScaledVector(_l, 0.03); h.worldPos('shoulderL', _b).addScaledVector(_l, 0.5).addScaledVector(_f, -0.2); h.ikArm('L', _a, _b); }
-    if (right) { _a.copy(_t).addScaledVector(_l, -0.03); h.worldPos('shoulderR', _b).addScaledVector(_l, -0.5).addScaledVector(_f, -0.2); h.ikArm('R', _a, _b); }
+    const T = now + this.idleOff, slot = Math.floor(T / UMP_SLOT), mode = UMP_HANDS[Math.floor(hash01(this.seed, slot) * UMP_HANDS.length)];
+    const w = mode ? envelope(T - slot * UMP_SLOT, UMP_SLOT, 0.8, 0.8) : 0;
+    for (const [side, sg, on] of [['L', 1, left], ['R', -1, right]]) {
+      if (!on) continue;
+      h.worldPos('hips', _t).addScaledVector(_f, -0.2).add(_c.set(0, 0.06, 0)).addScaledVector(_l, sg * 0.03);
+      h.worldPos('shoulder' + side, _b).addScaledVector(_l, sg * 0.5).addScaledVector(_f, -0.2);
+      if (w > 0.001 && !(mode === 'count' && side === 'L')) {
+        if (mode === 'front') h.worldPos('hips', _a).addScaledVector(_f, 0.2 * sc).add(_c.set(0, 0.03 * sc, 0)).addScaledVector(_l, sg * 0.035);
+        else if (mode === 'pockets') h.worldPos('hip' + side, _a).addScaledVector(_f, 0.07 * sc).addScaledVector(_l, sg * 0.03).add(_c.set(0, -0.02 * sc, 0));
+        else h.worldPos('hips', _a).addScaledVector(_f, 0.24 * sc).add(_c.set(0, (0.12 + 0.015 * Math.sin(now * 7)) * sc, 0)).addScaledVector(_l, -0.07);   // (count: fingers at the waist)
+        _t.lerp(_a, w);
+        _b.addScaledVector(_f, 0.3 * w);
+      }
+      h.ikArm(side, _t, _b);
+    }
+  }
+  // Out of the way of a ball hit straight at him (look: the ball, each frame):
+  // weight 0..1 of a sway away from it, and which way (the figure's left = +1).
+  dodge(look, dt) {
+    const D = this._dodge || (this._dodge = { p: new THREE.Vector3(), ok: false, e: 0, side: 1 });
+    let want = 0;
+    if (look && D.ok && dt > 0) {
+      const vx = (look.x - D.p.x) / dt, vz = (look.z - D.p.z) / dt, px = look.x - this.pos.x, pz = look.z - this.pos.z;
+      const v2 = vx * vx + vz * vz, tc = -(px * vx + pz * vz) / Math.max(1e-6, v2);
+      // (a ball hit away from the striker -- not the delivery leaving the bowler's hand beside him)
+      const away = look.x * vx + (look.z - PITCH.battingStumpsZ) * vz > 0;
+      if (away && v2 > 64 && tc > 0 && tc < 0.7 && look.y < 2.3) {
+        const cx = px + vx * tc, cz = pz + vz * tc;                     // closest the ball comes (relative to him)
+        if (Math.hypot(cx, cz) < 1.1) { want = 1; this.forward(_f); D.side = (cx * _f.z - cz * _f.x) >= 0 ? -1 : 1; }
+      }
+    }
+    if (look) { D.p.copy(look); D.ok = true; } else D.ok = false;
+    D.e = want > D.e ? Math.min(want, D.e + dt * 5) : Math.max(0, D.e - dt * 1.4);       // (quick out of the way, but never in one frame)
+    return D;
   }
   update(dt, now, look) {
     const h = this.h;
@@ -39,8 +75,15 @@ class UmpireActor extends Actor {
       this.footWorld(_a, 0.13, 0.02); this.footWorld(_b, -0.13, 0);
       // (With the idle clip the feet are already planted where it stands them.)
       if (!clipsReady() && !walking) plantFeet(h, _a, s && s.type === 'legbye' ? null : _b, this.forward(_c).multiplyScalar(0.6));
-      // Hands clasped behind the back; walking, the arms swing.
-      if (!walking) this.clasp(true, true);
+      // Hands clasped behind the back (or in front, in his pockets, counting); walking, the arms swing.
+      if (!walking) this.clasp(true, true, now);
+    }
+    // A ball hit straight at him: he sways out of its way, arms in (visual: his mark is where it was).
+    const D = this.dodge(look, dt), e = D.e > 0 ? sstep(0, 1, D.e) : 0;
+    if (e > 0.001) {
+      this.forward(_f);
+      h.addRot('spine', 0.2 * e, 0, D.side * 0.35 * e); h.addRot('chest', 0, -D.side * 0.3 * e, 0);
+      h.root.position.x += _f.z * D.side * 0.4 * e; h.root.position.z += -_f.x * D.side * 0.4 * e;
     }
     // A signal goes up from wherever the arms are (clasped) and comes back down
     // to them: the arms are posed for the signal in full and slerped in by k.
@@ -88,6 +131,16 @@ class UmpireActor extends Actor {
       this.forward(_f);
       h.worldPos('kneeR', _t).addScaledVector(_f, 0.06).add(_c.set(0, 0.07, 0));
       h.ikArm('R', _t, h.worldPos('shoulderR', _b).addScaledVector(_f, -0.3).add(_c.set(0, -0.2, 0)));
+    } else if (s.type === 'deadball') {
+      // dead ball: the wrists crossed and uncrossed below the waist
+      h.update();
+      this.forward(_f);
+      _l.set(_f.z, 0, -_f.x);
+      const x = 0.09 * Math.cos(tt * 7.5);
+      for (const [side, sg] of [['L', 1], ['R', -1]]) {
+        h.worldPos('hips', _t).addScaledVector(_f, 0.3).add(_c.set(0, -0.12 + (side === 'L' ? 0.02 : 0), 0)).addScaledVector(_l, -sg * x);
+        h.ikArm(side, _t, h.worldPos('shoulder' + side, _b).addScaledVector(_l, sg * 0.6).add(_c.set(0, -0.3, 0)));
+      }
     } else if (s.type === 'notout') {
       arms = false;
       h.rot('head', 0, 0.45 * Math.sin(tt * 8) * k, 0);
@@ -111,6 +164,8 @@ class UmpireActor extends Actor {
 }
 
 const ARMS = ['shoulderL', 'elbowL', 'handL', 'shoulderR', 'elbowR', 'handR'];
+// Standing about (clasp): slots of UMP_SLOT s, each with one of these for his hands (null: behind his back).
+const UMP_SLOT = 6.5, UMP_HANDS = [null, null, 'front', 'pockets', 'count', null, 'front'];
 const _q = new THREE.Quaternion();
 
 export class UmpireView {

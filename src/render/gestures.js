@@ -30,9 +30,12 @@ export const MOOD_DUR = { celebrate: 3.4, dejected: 2.8, ooh: 1.7, appeal: 1.6 }
 export const moodFor = (kind) => EVENT_MOOD[kind] || null;
 
 const M = { mood: null, t0: -1e9, n: 0 };
+// The last crowd event of any kind (the striker's routines read it: a play-and-miss, a boundary).
+export const lastCrowd = { kind: null, t: -1e9 };
 // A stronger mood replaces a weaker one; a weaker one does not cut a stronger one short
 // (a run-out's "close" a moment after the wicket's celebration).
 export function noteCrowd(kind, t) {
+  if (Number.isFinite(t)) { lastCrowd.kind = kind; lastCrowd.t = t; }
   const m = moodFor(kind);
   if (!m || !Number.isFinite(t)) return;
   const live = M.mood && t >= M.t0 && t - M.t0 < MOOD_DUR[M.mood];
@@ -137,10 +140,26 @@ export function poseArms(h, fwd, kind, w, t, S) {
       const hi = side === 'R' ? 1 : 0;
       _t.copy(sh).addScaledVector(_u, (0.3 + 0.28 * hi) * sc).addScaledVector(fwd, (0.42 - 0.12 * hi) * sc).addScaledVector(_l, sg * 0.1 * sc);
       _p.copy(sh).addScaledVector(_l, sg * 0.7).addScaledVector(_u, -0.3);
+    } else if (kind === 'shine') {
+      // (the ball rubbed on the front of his right thigh; the left arm swings as it was)
+      if (side === 'L') continue;
+      const rub = 0.06 * Math.sin(t * 11);
+      h.worldPos('hipR', _t).addScaledVector(fwd, 0.13 * sc).addScaledVector(_u, (-0.1 + rub) * sc).addScaledVector(_l, -0.05);
+      _p.copy(sh).addScaledVector(_l, -0.5).addScaledVector(fwd, -0.3).addScaledVector(_u, -0.3);
+    } else if (kind === 'highfive') {
+      // (in the ring round the wicket-taker: the right hand up and into the middle, slapping now and then; the left at the chest)
+      const slap = sstep(0, 0.28, (t * 1.1) % 1) * (1 - sstep(0.4, 0.7, (t * 1.1) % 1));
+      if (side === 'R') {
+        _t.copy(sh).addScaledVector(_u, (0.36 + 0.12 * slap) * sc).addScaledVector(fwd, (0.36 + 0.16 * slap) * sc).addScaledVector(_l, 0.04);
+        _p.copy(sh).addScaledVector(_l, -0.6).addScaledVector(_u, -0.3);
+      } else {
+        h.worldPos('chest', _t).addScaledVector(fwd, 0.3 * sc).addScaledVector(_l, 0.08 * sc).addScaledVector(_u, -0.02);
+        _p.copy(sh).addScaledVector(_l, 0.5).addScaledVector(_u, -0.6);
+      }
     } else if (kind === 'fist' || kind === 'fistL') {
       if ((kind === 'fist') !== (side === 'R')) continue;       // one fist pumps (fist: the right), the other arm is left as it is
-      const pump = sstep(0, 0.12, (t * 1.6) % 1) * (1 - sstep(0.35, 0.6, (t * 1.6) % 1));
-      _t.copy(sh).addScaledVector(_u, (0.05 + 0.3 * pump) * sc).addScaledVector(fwd, 0.22 * sc).addScaledVector(_l, sg * 0.06);
+      const pump = sstep(0, 0.24, (t * 1.5) % 1) * (1 - sstep(0.4, 0.7, (t * 1.5) % 1));
+      _t.copy(sh).addScaledVector(_u, (0.1 + 0.38 * pump) * sc).addScaledVector(fwd, 0.28 * sc).addScaledVector(_l, sg * 0.08);
       _p.copy(sh).addScaledVector(_l, sg * 0.5).addScaledVector(_u, -0.5).addScaledVector(fwd, 0.1);
     } else return;
     h.ikArm(side, _t, _p);

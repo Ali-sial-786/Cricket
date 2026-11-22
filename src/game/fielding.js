@@ -144,7 +144,14 @@ const FETCH_REACH = 0.85;     // m: a dead ball the keeper walks up to is picked
 const FETCH_GIVEUP = 3.0;     // s: ...or this long after he set off for it (round the batter, the stumps)
 const SELF_RUN = 3.2;
 const LOOSE_SLOW = 1.0;      // m/s: a loose ball this slow is anyone's to pick up (the keeper's after byes; reached into your space)
-const LOB_AFTER = 1.3;       // s after the ball is dead before it is tossed back (after the replay's tape ends: TAIL 1 s)        // m: a man with the ball this close to a set of stumps runs in and breaks them himself
+// The wicket huddle (celebrateWicket): men within HUDDLE_NEAR m of it (at most
+// HUDDLE_MAX) jog in at HUDDLE_JOG m/s and stand HUDDLE_R m round its middle for
+// HUDDLE_HOLD s; the rest come HUDDLE_DEEP m in (a third of the way at most) and clap.
+const HUDDLE_NEAR = 21, HUDDLE_MAX = 5, HUDDLE_JOG = 5.2, HUDDLE_R = 1.15, HUDDLE_HOLD = 1.3, HUDDLE_DEEP = 6, HUDDLE_BUDGET = 10, HUDDLE_GRACE = 2;
+// s for a huddle trip of d m: there at the jog, the hold, back at a run, plus starting, stopping and turning.
+export const huddleTrip = (d) => d / HUDDLE_JOG + HUDDLE_HOLD + d / 4.2 + 2.0;
+const LOB_AFTER = 1.3;
+const RELAY_MAX = 22;         // m: the keeper tosses the ball to a man this close (else straight to the bowler)       // s after the ball is dead before it is tossed back (after the replay's tape ends: TAIL 1 s)        // m: a man with the ball this close to a set of stumps runs in and breaks them himself
 const RELEASE_SET = 4;       // m: a fielder this close to his mark at the release stops and gets set
 const BRAKE = 13;            // m/s^2 pulling up
 function angDiff(a, b) { let d = b - a; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI; return d; }
@@ -225,6 +232,7 @@ export class Fielding {
       f.playerControlled = false;
       f.pos.copy(f.home); f.vel.set(0, 0, 0); f.state = 'set'; f.target = null; f.speed = 0; f.prevDist = Infinity;
       f.action = null; f.leap = null; f.out = false; f.runIn = null; f.coverEnd = null; f.backEnd = null; f.noGatherUntil = 0;
+      f.huddleUntil = null; f.huddleCenter = false;
       f.face = f.yaw = this.restFace(f);
     }
   }
@@ -248,6 +256,7 @@ export class Fielding {
     for (const f of this.fielders) {
       f.playerControlled = false;
       f.prevDist = Infinity; f.action = null; f.leap = null; f.runIn = null; f.coverEnd = null; f.backEnd = null; f.noGatherUntil = 0;
+      f.huddleUntil = null; f.huddleCenter = false;
       // Nobody is ever put back on his mark: whoever is away from it runs back
       // (flat out if it is a long way, see update()).
       // (the AI bowler, back in his own figure, is walking to his mark as himself)
@@ -264,6 +273,59 @@ export class Fielding {
   ballDead() {
     this.dead = true;
     this.deadFor = 0;
+  }
+  // A wicket, the ball dead (and any review decided): the fielding side gets
+  // together. The men near enough jog to `focus` (the catcher, the man who
+  // broke the stumps, or the bowler) and stand round him for the high fives;
+  // the ones in the deep come in part of the way and clap; then everyone jogs
+  // back to his mark (goHome) and the next ball waits for them as always
+  // (settled()). Visual only: nothing here happens while the ball is live.
+  // focus {x, z}; center: index of the fielder at the middle (stays where he is), or -1; r: m from the
+  // middle the ring stands (more round you, the bowler). budget: s the next ball is going to wait
+  // anyway (the bowler walking back to his mark): a man only goes as far as he can and be back by then.
+  celebrateWicket(t, focus, center = -1, r = HUDDLE_R, budget = HUDDLE_BUDGET) {
+    if (!this.dead || !focus) return 0;
+    const F = this.fielders, cand = [];
+    // (they would take this long to get back anyway: whoever is furthest from his mark)
+    let back = 0;
+    for (const f of F) if (!f.bowler) back = Math.max(back, Math.hypot(f.pos.x - f.home.x, f.pos.z - f.home.z) / 4.2 + 1.5);
+    budget = Math.max(budget, back + HUDDLE_GRACE);
+    F.forEach((f, i) => {
+      // (not the bowler: his own figure walks back to his mark, the side comes to him on the way)
+      if (f.playerControlled || f.bowler || i === center) return;
+      cand.push({ f, d: Math.hypot(f.pos.x - focus.x, f.pos.z - focus.z) });
+    });
+    cand.sort((a, b) => a.d - b.d);
+    let inner = 0;
+    const base = Math.atan2(-focus.x, PITCH.centerZ - focus.z);         // (the ring opens from the pitch side)
+    for (const c of cand) {
+      const f = c.f;
+      f.huddleAt = f.huddleAt || new Vec3();
+      f.huddleAt.set(focus.x, 0, focus.z);
+      f.target = new Vec3();
+      if (c.d <= HUDDLE_NEAR && inner < HUDDLE_MAX && huddleTrip(c.d) <= budget) {
+        const a = base + (inner % 2 ? 1 : -1) * (0.6 + Math.floor(inner / 2) * 1.0) + (inner === 0 ? 0.6 : 0);
+        f.target.set(focus.x + Math.sin(a) * r, 0, focus.z + Math.cos(a) * r);
+        f.huddleInner = true;
+        f.huddleUntil = t + Math.max(1.2, c.d / HUDDLE_JOG) + HUDDLE_HOLD;
+        inner++;
+      } else {
+        let k = Math.min(0.3, HUDDLE_DEEP / Math.max(1, c.d));
+        while (k > 0.05 && huddleTrip(c.d * k) > budget) k *= 0.8;
+        f.target.set(f.pos.x + (focus.x - f.pos.x) * k, 0, f.pos.z + (focus.z - f.pos.z) * k);
+        f.huddleInner = false;
+        f.huddleUntil = t + c.d * k / 3.2 + HUDDLE_HOLD * 0.8;
+      }
+      f.state = 'huddle';
+    }
+    if (center >= 0) {
+      const f = F[center];
+      (f.huddleAt = f.huddleAt || new Vec3()).set(focus.x, 0, focus.z);
+      f.huddleInner = true; f.huddleCenter = true;
+      f.huddleUntil = t + Math.max(...cand.filter((c) => c.f.huddleInner).map((c) => c.f.huddleUntil - t), 1.5) + 0.2;
+    }
+    this.huddle = { focus: { x: focus.x, z: focus.z }, t0: t, center };
+    return inner;
   }
   // (once a frame while the ball is dead) Whoever has finished what he was
   // doing with the ball -- the throw, the take at the stumps, the catch and a
@@ -282,13 +344,17 @@ export class Fielding {
       const busy = a && (
         (a.type === 'throw' && t < a.t0 + 1.0)
         || (a.type === 'pickup')
-        || (a.type === 'take' && (t < a.t0 + 0.8 || (a.breakAt != null && t < a.breakAt + 0.7)))
+        || (a.type === 'take' && (t < a.t0 + (a.relay ? 0.35 : 0.8) || (a.breakAt != null && t < a.breakAt + 0.7)))
         || (a.type === 'break' && t < a.at + 0.9)
         || ((a.type === 'catch' || a.type === 'keep' || a.type === 'kmiss') && (this.deadFor < 2.0 || t < a.t0 + 1.3)));
       if (busy || (th && th.f === f && !th.released) || (f.state === 'celebrate' && this.deadFor < 2.4)) continue;
+      // (in the huddle until it breaks up; the man in the middle with the ball still tosses it back)
+      const huddling = f.huddleUntil != null && t < f.huddleUntil && (f.state === 'huddle' || f.huddleCenter);
       // Holding the ball: he lobs it back toward the bowler first (nobody walks
       // about with it, and it never hangs in the air at a hidden hand).
       if (this.ballOverride && this.ballOverride.holder === this.fielders.indexOf(f) && !this.lob && !(f.bowler && this.bowlerFields)) { if (this.deadFor >= LOB_AFTER) this.startLob(f, t); continue; }
+      if (huddling) continue;
+      f.huddleUntil = null; f.huddleCenter = false;
       f.action = null; f.leap = null; f.runIn = null; f.coverEnd = null; f.backEnd = null;
       if (Math.hypot(f.pos.x - f.home.x, f.pos.z - f.home.z) > 0.4) { f.state = 'return'; f.target = null; }
       else { f.state = 'set'; f.target = null; }
@@ -298,12 +364,23 @@ export class Fielding {
   // The ball dead, the man holding it tosses it back: into the AI bowler's
   // hand (lobTarget, set by the controller: where his hand is), or, when you
   // bowl, rolled along the turf to just in front of your feet.
+  // (The keeper does not throw it all the way himself: he tosses it to the
+  // nearest man standing at his mark -- usually the slip -- who sends it on.)
   startLob(f, t) {
     const lt = this.lobTarget;
-    const roll = !lt || !!lt.roll;
-    const to = lt ? new Vec3(lt.x, roll ? this.cfg.ball.radius : lt.y, lt.z) : new Vec3(0.9, this.cfg.ball.radius, PITCH.bowlingStumpsZ + 1.5);
+    let roll = !lt || !!lt.roll, relay = null;
+    if (f.keeper && !roll) {
+      let best = Infinity;
+      for (const o of this.fielders) {
+        if (o === f || o.bowler || o.keeper || o.playerControlled || o.state !== 'set' || o.action) continue;
+        const d = Math.hypot(o.pos.x - f.pos.x, o.pos.z - f.pos.z);
+        if (d > 0.8 && d < RELAY_MAX && d < best) { best = d; relay = o; }
+      }
+    }
+    const to = relay ? new Vec3(relay.pos.x, 1.2, relay.pos.z) : lt ? new Vec3(lt.x, roll ? this.cfg.ball.radius : lt.y, lt.z) : new Vec3(0.9, this.cfg.ball.radius, PITCH.bowlingStumpsZ + 1.5);
+    if (relay) { roll = false; relay.face = Math.atan2(f.pos.x - relay.pos.x, f.pos.z - relay.pos.z); }
     const from = new Vec3(f.pos.x, 1.1, f.pos.z), d = Math.hypot(to.x - from.x, to.z - from.z);
-    this.lob = { from, to, roll, tStart: t + 0.35, tArrive: t + 0.35 + Math.max(0.5, d / (roll ? 11 : 13)), arc: roll ? Math.min(1.5, 0.3 + d * 0.04) : Math.min(5, 0.6 + d * 0.16), bounce: roll ? 0.3 : 0 };
+    this.lob = { from, to, roll, relay, tStart: t + 0.35, tArrive: t + 0.35 + Math.max(0.5, d / (roll ? 11 : 13)), arc: roll ? Math.min(1.5, 0.3 + d * 0.04) : Math.min(5, 0.6 + d * 0.16), bounce: roll ? 0.3 : 0 };
     f.action = { type: 'throw', t0: t + 0.35 - THROW.windup, quick: true };
     f.face = Math.atan2(to.x - f.pos.x, to.z - f.pos.z);
     this.lobFrom = f;
@@ -315,8 +392,14 @@ export class Fielding {
     if (!L.released) { L.released = true; this.ballOverride.holder = null; L.from.set(this.lobFrom.pos.x, 1.1, this.lobFrom.pos.z); }
     const k = clamp((t - L.tStart) / (L.tArrive - L.tStart), 0, 1);
     throwPoint(L, k, this.ballOverride.pos);
-    // (in his hand: gone into his own figure; rolled to you: it lies at your feet until the next ball)
-    if (k >= 1) { if (!L.roll) this.ballOverride = null; this.lob = null; this.lobFrom = null; }
+    // (relayed: in the next man's hands, and he sends it on; in the bowler's hand: gone into his own
+    // figure; rolled to you: it lies at your feet until the next ball)
+    if (L.relay && !L.caughtBy && t >= L.tArrive - 0.25) { L.caughtBy = true; L.relay.action = { type: 'take', t0: t, target: L.to.clone(), stumps: null, breakAt: null, relay: true }; }
+    if (k >= 1) {
+      if (L.relay) this.ballOverride.holder = this.fielders.indexOf(L.relay);
+      else if (!L.roll) this.ballOverride = null;
+      this.lob = null; this.lobFrom = null;
+    }
   }
 
   // Everyone within this distance of their mark? (the bowler's own figure
@@ -780,11 +863,12 @@ export class Fielding {
     const watch = ball ? ball.pos : this.ballOverride ? this.ballOverride.pos : null;
     for (const f of this.fielders) {
       let goal = null, maxV = F.fielderSpeed;
-      if (f.state === 'chase' || f.state === 'backup' || f.state === 'stumps' || f.state === 'gather' || f.state === 'walkin' || f.state === 'backstop') goal = f.target;
+      if (f.state === 'chase' || f.state === 'backup' || f.state === 'stumps' || f.state === 'gather' || f.state === 'walkin' || f.state === 'backstop' || f.state === 'huddle') goal = f.target;
       else if (f.state === 'return') goal = f.home;
       else if (f.state === 'throwing' && f.runIn) goal = f.runIn;           // (running the ball in)
       if (f.state === 'backup') maxV *= 0.7;
       if (f.state === 'walkin') maxV = 1.6;
+      if (f.state === 'huddle') maxV = f.huddleInner ? HUDDLE_JOG : 3.2;
       if (f.keeper && f.state === 'gather' && this.fetchT0 != null) maxV = 3.5;       // (walking up to a dead ball: brisk, no sprint)
       if (f.state === 'throwing') maxV = 5.0;
       const urgent = f.state === 'chase' || f.state === 'gather' || f.state === 'backup' || f.state === 'stumps' || f.state === 'backstop';
@@ -846,6 +930,7 @@ export class Fielding {
         // standing: eyes on the ball while it is in play, else on the batter (the keeper: the bowler)
         const live = !this.dead && this.hitT != null && watch && Math.hypot(watch.x - f.pos.x, watch.z - f.pos.z) > 1.2;
         if (f.keeper && f.state === 'gather') f.face = Math.atan2(0, -1);
+        else if (f.state === 'huddle' && f.huddleAt) f.face = Math.atan2(f.huddleAt.x - f.pos.x, f.huddleAt.z - f.pos.z);       // (in the huddle: facing its middle)
         else f.face = live ? Math.atan2(watch.x - f.pos.x, watch.z - f.pos.z) : this.restFace(f);
       }
       const turn = (f.speed > 3 ? 7.5 : urgent || f.action ? 6.5 : 4.2) * dt;
@@ -1402,7 +1487,7 @@ export class Fielding {
     for (const f of this.fielders) {
       f.playerControlled = false; f.out = false;
       f.pos.copy(f.home); f.vel.set(0, 0, 0); f.state = 'set'; f.target = null; f.speed = 0; f.prevDist = Infinity;
-      f.action = null; f.leap = null; f.runIn = null; f.coverEnd = null; f.backEnd = null;
+      f.action = null; f.leap = null; f.runIn = null; f.coverEnd = null; f.backEnd = null; f.huddleUntil = null; f.huddleCenter = false;
       f.face = f.yaw = this.restFace(f);
     }
   }
@@ -1421,6 +1506,8 @@ export class Fielding {
       // over the stumps, waiting for the throw: gloves up, a little crouched
       await: f.state === 'stumps' && !!f.target && Math.hypot(f.pos.x - f.target.x, f.pos.z - f.target.z) < 0.5 && !this.dead,
       armsUp: f.state === 'celebrate',
+      // the wicket huddle: 1 in the ring, 2 come in from the deep, 3 the man in the middle
+      huddle: f.state === 'huddle' ? (f.huddleInner ? 1 : 2) : f.huddleCenter && f.huddleUntil != null ? 3 : 0,
     }));
   }
 
