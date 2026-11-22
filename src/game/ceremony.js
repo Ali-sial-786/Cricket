@@ -45,76 +45,94 @@ export const SPOTS = {
   // out below you with its figures and the stands round it -- at standing height it read as a flat field
   pavilion: { ...toward(24, CZ + 3, 0, CZ), y: 1.2 },      // (1.2 m, not 2: comfortable with nothing drawn under your feet)
   toss: { x: -1.25, z: CZ + 1.2, dx: 1, dz: 0 },      // on the square, the other captain in front of you, the pavilion behind him
+  // beside the path out of the pavilion gate, 4.5 m off it: whoever walks out passes in front of you
+  gate: toward(GATE.x - 9.5, GATE.z + 3.6, GATE.x - 5, GATE.z),
+  // on the outfield in front of the pavilion, looking in at the middle: the fielding side gathers
+  // between you and the square and runs out away from you to their marks (few of them are behind you)
+  huddle: toward(37, CZ + 4, 0, CZ),
 };
+const HUDDLE_AT = 4.2;            // m in front of you the fielding side gathers before an innings
+const WALK = 1.7;                 // m/s: walking out
 // The toss: who stands where (heading: Actor convention, atan2(dirX, dirZ)) and where the coin comes down.
 const TOSS = { captain: { x: 0.5, z: CZ + 1.2, face: -PI / 2 }, umpire: { x: 1.0, z: CZ + 2.5, face: Math.atan2(-1.05, -1.25) }, coin: { x: -0.05, z: CZ + 1.25 } };
 const CAPTAIN = 4;                // the fielder figure who is the other captain at the toss (mid-off: a cap, no pads)
-const TAKE_FIELD_RUN = 12;        // m: the fielders come out this far from their marks (a jog), from the pavilion side
 const WALK_OUT = 14;              // m: the batters walk out from this far (and a new batter runs in from no further: hurryIn)
 const WICKET_DELAY = 1.0;         // game s after a wicket before its beat may start (the field gets together)
 const SKIP_OUT = 0.2, SKIP_IN = 0.35;
+const STRAP = 0.82;               // the strap's scale (1.12 x 0.38 m at 2 m: ~31 degrees wide)
 
 // ---------------------------------------------------------------- the beats
 // cue: fade {out|in: s} · vantage {spot} · clear (back where you play, the toss
 // figures gone) · cast (the toss figures out) · card {card} · cardOff · board
 // {board} · sting {sting} · sound {name} · crowd {mood} · coin · call {fn: a
-// ctx function} · arrange (the field coming out) · celebrate · hurryIn.
+// ctx function} · walkout (the toss party out of the gate) · huddle / breakHuddle
+// (the fielding side gathered in front of you, then off to their marks) · settle
+// (everyone on his mark: Field settleNow) · guard (the innings break's guard of
+// honour) · release (back where you play).
 // wait {for, max}: the beat stands still while that is going on (at most max s).
 // if: a ctx flag the cue needs.
 export const BEATS = {
-  // The first ball of a match / chase / over: the ground from the pavilion, the title.
-  intro: { dur: 7.0, short: 2.6, hold: true, steps: [
-    { t: 0, cue: 'fade', out: 0.4, scene: 1 },
-    { t: 0.42, cue: 'vantage', spot: 'pavilion', scene: 1 },
-    { t: 0.42, cue: 'cast', scene: 1, if: 'toss' },
-    { t: 0.45, cue: 'fade', in: 1.2, scene: 1 },
-    { t: 0.45, cue: 'crowd', mood: 'build', scene: 1 },
+  // A match: you stand by the pavilion gate as the other captain and the
+  // umpire walk out past you to the middle for the toss, the crowd rising; the title.
+  intro: { dur: 3.2, short: 2.2, hold: true, steps: [
+    { t: 0, cue: 'fade', out: 0.3, scene: 1 },
+    { t: 0.32, cue: 'vantage', spot: 'gate', scene: 1 },
+    { t: 0.32, cue: 'walkout', scene: 1 },
+    { t: 0.35, cue: 'fade', in: 0.5, scene: 1 },
+    { t: 0.35, cue: 'crowd', mood: 'build', scene: 1 },
+    { t: 0.5, cue: 'crowd', mood: 'applause', scene: 1 },
     { t: 0.5, ts: 0, cue: 'board', board: 'title' },
-    { t: 1.4, ts: 0, cue: 'card', card: 'title', el: -0.3 },         // (low: the middle and the toss figures above it)
-    { t: 1.4, ts: 0, cue: 'sting', sting: 'menu' },
-    { t: 6.2, ts: 2.4, cue: 'cardOff' },
-    { t: 6.55, cue: 'fade', out: 0.4, scene: 1 },
+    { t: 0.7, ts: 0, cue: 'card', card: 'title' },
+    { t: 0.7, ts: 0, cue: 'sting', sting: 'menu' },
+    { t: 2.75, ts: 2.0, cue: 'cardOff' },
+    { t: 2.85, cue: 'fade', out: 0.3, scene: 1 },
   ] },
   // Cut to the middle: the other captain in front of you, the umpire; then you call (modes.js).
-  toss: { dur: 1.3, short: 0, hold: true, steps: [
+  toss: { dur: 0.7, short: 0, hold: true, steps: [
     { t: 0, cue: 'fade', out: 0.3, scene: 1 },
-    { t: 0.32, cue: 'vantage', spot: 'toss', scene: 1 },
-    { t: 0.32, cue: 'cast', scene: 1 },
-    { t: 0.35, cue: 'fade', in: 0.7, scene: 1 },
+    { t: 0.32, cue: 'vantage', spot: 'toss' },
+    { t: 0.32, cue: 'cast' },
+    { t: 0.35, cue: 'fade', in: 0.35, scene: 1 },
     { t: 0.35, cue: 'board', board: 'toss' },
   ] },
-  // The coin goes up, lands; the result on the big screen and a card.
-  flip: { dur: 4.8, short: 2.6, hold: true, steps: [
+  // The coin goes up, lands; the result on the big screen and the strap (he nods, offers his hand).
+  flip: { dur: 3.0, short: 2.2, hold: true, steps: [
     { t: 0, cue: 'coin', scene: 1 },
     { t: 0.5, cue: 'sound', name: 'coin', scene: 1 },
-    { t: 2.05, ts: 0, cue: 'sound', name: 'chime' },
-    { t: 2.05, ts: 0, cue: 'board', board: 'tossResult' },
-    { t: 2.15, ts: 0, cue: 'card', card: 'tossResult', el: -0.3 },
-    { t: 2.3, cue: 'crowd', mood: 'murmur', scene: 1 },
-    { t: 4.6, ts: 2.4, cue: 'cardOff' },
+    { t: 1.8, ts: 0, cue: 'sound', name: 'chime' },
+    { t: 1.8, ts: 0, cue: 'board', board: 'tossResult' },
+    { t: 1.8, ts: 0, cue: 'card', card: 'tossResult' },
+    { t: 1.9, cue: 'crowd', mood: 'murmur', scene: 1 },
+    { t: 2.95, ts: 2.1, cue: 'cardOff' },
   ] },
-  // An innings starts: back where you play, the fielders jogging out to their
-  // marks, the batters walking out, the crowd applauding; then play (the first
-  // ball still waits for everyone to be in place, as every ball does).
-  takeField: { dur: 4.6, short: 2.4, hold: true, steps: [
-    { t: 0, cue: 'fade', out: 0.35, scene: 1 },
-    { t: 0.37, cue: 'clear' },
-    { t: 0.38, cue: 'call', fn: 'begin' },
-    { t: 0.39, cue: 'arrange', scene: 1 },
-    { t: 0.42, cue: 'fade', in: 0.8, scene: 1 },
-    { t: 0.6, cue: 'crowd', mood: 'applause', scene: 1 },
-    { t: 0.9, ts: 0.1, cue: 'card', card: 'innings' },
-    { t: 0.9, ts: 0.1, cue: 'board', board: 'innings' },
-    { t: 4.4, ts: 2.3, cue: 'cardOff' },
+  // An innings starts (and a chase / an over begins): in the middle with the
+  // fielding side in a huddle in front of you; it breaks and they jog out to
+  // their marks; cut to where you play with everyone in place: play.
+  takeField: { dur: 3.4, short: 2.2, hold: true, steps: [
+    { t: 0, cue: 'fade', out: 0.3, scene: 1 },
+    { t: 0.32, cue: 'clear' },
+    { t: 0.33, cue: 'call', fn: 'begin' },
+    { t: 0.34, cue: 'vantage', spot: 'huddle', scene: 1 },
+    { t: 0.35, cue: 'huddle', scene: 1 },
+    { t: 0.37, cue: 'fade', in: 0.4, scene: 1 },
+    { t: 0.4, cue: 'crowd', mood: 'applause', scene: 1 },
+    { t: 0.5, ts: 0.1, cue: 'card', card: 'innings' },
+    { t: 0.5, ts: 0.1, cue: 'board', board: 'innings' },
+    { t: 1.55, cue: 'breakHuddle', scene: 1 },
+    { t: 2.55, ts: 2.1, cue: 'cardOff' },
+    { t: 2.6, cue: 'fade', out: 0.3, scene: 1 },
+    { t: 2.92, cue: 'release' },
+    { t: 2.93, cue: 'settle' },
+    { t: 2.95, cue: 'fade', in: 0.4, scene: 1 },
   ] },
   // You are out (batting), after the replay: the fielding side's celebration in
   // view (cut round to it if it is behind you), the dismissal card, the
   // walk-off fade, the new batter's card, back at the crease.
   wicket: { dur: 4.8, short: 3.0, hold: true, steps: [
     { t: 0, cue: 'fade', out: 0.25, scene: 1, if: 'behind' },
-    { t: 0.27, cue: 'vantage', spot: 'huddle', scene: 1, if: 'behind' },
+    { t: 0.27, cue: 'vantage', spot: 'behind', scene: 1, if: 'behind' },
     { t: 0.3, cue: 'fade', in: 0.35, scene: 1, if: 'behind' },
-    { t: 1.0, ts: 0, cue: 'card', card: 'dismissal', el: -0.22 },   // (low: the huddle stays in view above it)
+    { t: 1.0, ts: 0, cue: 'card', card: 'dismissal' },   // (the strap is low: the huddle stays in view above it)
     { t: 1.0, ts: 0, cue: 'board', board: 'dismissal' },
     { t: 2.9, cue: 'wait', for: 'huddle', max: 2.0, scene: 1 },          // (never fade over the huddle: until it breaks up)
     { t: 3.0, cue: 'fade', out: 0.3, scene: 1 },
@@ -137,25 +155,32 @@ export const BEATS = {
     { t: 0, cue: 'board', board: 'over' },
     { t: 2.45, cue: 'cardOff' },
   ] },
-  // A match's innings break: the field empties, the score and the target on the big screen.
-  inningsBreak: { dur: 7.4, short: 4.0, hold: true, steps: [
-    { t: 0, cue: 'fade', out: 0.4, scene: 1 },
-    { t: 0.42, cue: 'call', fn: 'endFirst', scene: 1 },
-    { t: 0.42, cue: 'vantage', spot: 'pavilion', scene: 1 },
-    { t: 0.45, cue: 'fade', in: 1.0, scene: 1 },
+  // A match's innings break: by the pavilion gate, the side that fielded
+  // lines the path and claps as the new pair walks out between them past you.
+  inningsBreak: { dur: 4.2, short: 3.2, hold: true, steps: [
+    { t: 0, cue: 'fade', out: 0.35, scene: 1 },
+    { t: 0.37, cue: 'vantage', spot: 'gate', scene: 1 },
+    { t: 0.37, cue: 'guard', scene: 1 },
+    { t: 0.4, cue: 'fade', in: 0.45, scene: 1 },
+    { t: 0.45, cue: 'crowd', mood: 'applause', scene: 1 },
     { t: 0.5, ts: 0, cue: 'board', board: 'break' },
-    { t: 0.9, ts: 0, cue: 'card', card: 'break' },
-    { t: 1.0, cue: 'crowd', mood: 'applause', scene: 1 },
-    { t: 6.8, ts: 3.8, cue: 'cardOff' },
-    { t: 6.95, cue: 'fade', out: 0.4, scene: 1 },
+    { t: 0.6, ts: 0, cue: 'card', card: 'break' },
+    { t: 3.7, ts: 3.0, cue: 'cardOff' },
+    { t: 3.8, cue: 'fade', out: 0.35, scene: 1 },
   ] },
-  // The winning moment held, then the result (the scorecard page follows: modes.js).
-  result: { dur: 4.8, short: 2.6, hold: true, steps: [
+  // The winning moment, close: the winners celebrating near you (cut to them
+  // if they are far off), then the banner; the scorecard page follows (modes.js).
+  result: { dur: 4.4, short: 2.6, hold: true, steps: [
     { t: 0, cue: 'crowd', mood: 'result' },
-    { t: 0, cue: 'celebrate', scene: 1 },
-    { t: 0.6, ts: 0, cue: 'board', board: 'result' },
-    { t: 1.0, ts: 0, cue: 'card', card: 'result' },
-    { t: 4.6, ts: 2.5, cue: 'cardOff' },
+    { t: 0, cue: 'fade', out: 0.3, scene: 1, if: 'cut' },
+    { t: 0.32, cue: 'vantage', spot: 'winners', scene: 1, if: 'cut' },
+    { t: 0.35, cue: 'fade', in: 0.4, scene: 1, if: 'cut' },
+    { t: 1.6, ts: 0, cue: 'board', board: 'result' },
+    { t: 1.8, ts: 0, cue: 'card', card: 'result' },
+    { t: 3.8, ts: 2.5, cue: 'cardOff' },
+    { t: 3.85, cue: 'fade', out: 0.3, scene: 1, if: 'cut' },
+    { t: 4.17, cue: 'release', if: 'cut' },
+    { t: 4.18, cue: 'fade', in: 0.3, scene: 1, if: 'cut' },
   ] },
   // Nets and the bowling nets: a title card, nothing else.
   nets: { dur: 3.4, short: 3.4, hold: false, steps: [
@@ -164,7 +189,9 @@ export const BEATS = {
   ] },
 };
 // Cues that leave the game in a state (done at once when a beat is skipped); the rest are effects.
-const STATE_CUES = new Set(['clear', 'call', 'cardOff', 'arrange']);
+// The beats on the way into play: a skip goes through them at once (rush).
+const RUSH = new Set(['intro', 'toss', 'flip', 'takeField', 'inningsBreak']);
+const STATE_CUES = new Set(['clear', 'call', 'cardOff', 'vantage', 'cast', 'release', 'settle']);
 
 export const ceremonyMode = (g) => (g && g.settings && CEREMONIES.includes(g.settings.ceremonies) ? g.settings.ceremonies : 'on');
 
@@ -248,6 +275,8 @@ export class Ceremony {
     this.cardOn = false; this.cardA = 0;
     this.coin = new Coin(game.scene);
     this.cast = null;           // the toss figures: { captain, umpire }
+    this.stage = { walkers: [], breaks: [], field: null, huddleOf: null };
+    this.rushUntil = -1;
     this.flip = null;           // the coin's toss in progress
   }
 
@@ -265,7 +294,12 @@ export class Ceremony {
     const beat = BEATS[name];
     if (this.cur) this.finish(false);
     const mode = opts.short && this.mode() === 'on' ? 'short' : this.mode();
+    // (the result: the winners' moment starts now, and where to see it from, close, is known before the plan)
+    if (name === 'result' && mode !== 'off') { this.celebrate(ctx); ctx.winSpot = mode === 'on' ? this.winnersSpot(ctx) : null; ctx.cut = !!ctx.winSpot; }
     const plan = beat && mode !== 'off' ? beatPlan(beat, mode, ctx) : null;
+    // (skipped a moment ago: the beats on the way to play go by at once -- their state, no show)
+    const rush = plan && RUSH.has(name) && this.g.clock < this.rushUntil;
+    if (rush) { this.rushUntil = this.g.clock + 1.5; for (const st of plan.steps) if (STATE_CUES.has(st.cue)) this.exec(st, ctx); if (done) done(); return false; }
     if (!plan || plan.dur <= 0) {
       if (beat) for (const s of beat.steps) if (s.cue === 'call' && !(mode === 'short' && s.scene)) this.exec(s, ctx);
       if (done) done();
@@ -283,7 +317,7 @@ export class Ceremony {
   stop() {
     if (this.skipping) this.g.replay?.fade.cut(SKIP_IN);
     this.cur = null; this.skipping = null; this.queue.length = 0; this.page = null;
-    this.release(); this.castOff(); this.coin.hide(); this.hideCard(true);
+    this.release(); this.castOff(); this.coin.hide(); this.hideCard(true); this.endStage();
   }
 
   // The bowler page is held back until the beat is over (and the field has come out).
@@ -308,6 +342,7 @@ export class Ceremony {
   skip() {
     const c = this.cur, fade = this.g.replay && this.g.replay.fade;
     if (!c) return;
+    this.rushUntil = this.g.clock + 1.5;
     // (a beat that has you somewhere else, or is still to: down to dark first)
     if (fade && c.scene && (this.view || c.steps.slice(c.i).some((s) => s.cue === 'vantage' || s.cue === 'clear' || s.cue === 'call'))) {
       this.skipping = { t: 0 };
@@ -369,6 +404,7 @@ export class Ceremony {
       this.resultField.update(dt, g.simTime);
       if (g.session.bowlerFig && g.session.bowlerFig.update) g.session.bowlerFig.update(dt, g.simTime);
     } else this.resultField = null;
+    if (this.cur) this.stepStage(dt); else if (this.stage.walkers.length || this.stage.field) this.endStage();
     this.updateCast(dt);
     this.updateCoin(dt);
     this.updateCard(dt);
@@ -461,8 +497,9 @@ export class Ceremony {
           if (s.out != null) f.fadeOut(s.out); else f.cut(s.in);
           break;
         }
-        case 'vantage': this.goTo(s.spot === 'huddle' ? huddleSpot(ctx.focus) : SPOTS[s.spot]); break;
-        case 'clear': this.release(); this.castOff(); this.coin.hide(); this.flip = null; break;
+        case 'vantage': this.goTo(s.spot === 'behind' ? huddleSpot(ctx.focus) : s.spot === 'winners' ? ctx.winSpot : SPOTS[s.spot]); break;
+        case 'clear': this.release(); this.castOff(); this.coin.hide(); this.flip = null; this.endStage(); break;
+        case 'release': this.release(); this.endStage(); break;
         case 'cast': this.castOn(); break;
         case 'card': this.showCard(s.card, ctx, s); break;
         case 'cardOff': this.hideCard(false); break;
@@ -472,8 +509,11 @@ export class Ceremony {
         case 'crowd': this.crowd(s.mood, ctx); break;
         case 'coin': this.startFlip(ctx); break;
         case 'call': if (typeof ctx[s.fn] === 'function') { const f = ctx[s.fn]; ctx[s.fn] = null; f(); } break;
-        case 'arrange': this.arrange(); break;
-        case 'celebrate': this.celebrate(ctx); break;
+        case 'walkout': this.walkout(); break;
+        case 'huddle': this.huddle(); break;
+        case 'breakHuddle': this.breakHuddle(); break;
+        case 'settle': this.settle(); break;
+        case 'guard': this.guard(ctx); break;
         default:
       }
     } catch (e) { console.warn('ceremony', s.cue, e); }
@@ -524,40 +564,129 @@ export class Ceremony {
     this.resultField = s && s.done && s.field ? s.field : null;
   }
 
-  // The field taking the field: everyone out from the pavilion side a jog
-  // from his mark; the batters walking out; the AI bowler to his mark.
-  arrange() {
-    const g = this.g, s = g.session;
-    if (!s) return;
-    const L = s.field && s.field.logic;
-    if (L) {
-      for (const f of L.fielders) {
-        if (f.bowler) continue;
-        const dx = GATE.x - f.home.x, dz = GATE.z - f.home.z, d = Math.hypot(dx, dz) || 1, k = Math.min(TAKE_FIELD_RUN, d * 0.9) / d;
-        f.pos.set(f.home.x + dx * k, 0, f.home.z + dz * k);
-        f.vel.set(0, 0, 0); f.speed = 0; f.state = 'return'; f.target = null;
-        f.face = f.yaw = Math.atan2(-dx, -dz);
+  // ---------------------------------------------------------------- staging
+  // What a beat sets moving, driven here each frame (stepStage): walkers (a
+  // figure, a straight walk at its pace), huddle breaks (each man off in his
+  // own time), and a finished innings' field kept alive (the innings break).
+  endStage() {
+    const S = this.stage;
+    for (const w of S.walkers) if (w.kind === 'batter') { w.a.visible = false; w.a.h.replayVisible = false; }
+    S.walkers.length = 0; S.breaks.length = 0; S.field = null;
+  }
+  stepStage(dt) {
+    const g = this.g, S = this.stage, t = g.simTime;
+    for (const b of S.breaks) if (!b.done && (b.at -= dt) <= 0) { b.done = true; const f = b.f; f.state = 'return'; f.target = null; f.huddleUntil = null; f.huddleInner = false; }
+    for (const w of S.walkers) {
+      w.x += w.vx * dt; w.z += w.vz * dt;
+      const sp = Math.hypot(w.vx, w.vz), hd = Math.atan2(w.vx, w.vz);
+      if (w.kind === 'fielder') { const st = w.st; st.x = w.x; st.z = w.z; st.speed = sp; st.face = hd; w.a.update(Math.max(dt, 1e-4), st, { t, ball: null, delivering: false, cam: g.eye ? g.eye.p : null, others: [] }); }
+      else {
+        w.a.pos.set(w.x, 0, w.z); w.a.speed = sp; w.a.heading = hd;
+        if (w.kind === 'umpire') w.a.update(Math.max(dt, 1e-4), g.clock, null);
+        else w.a.updateMoving(Math.max(dt, 1e-4), t, null);
       }
+    }
+    if (S.field && g.session && g.session.field === S.field) S.field.update(dt, t);
+  }
+  walker(kind, a, x, z, vx, vz, st = null) {
+    a.cut(); a.place(x, z, Math.atan2(vx, vz)); a.visible = true;
+    this.stage.walkers.push({ kind, a, x, z, vx, vz, st });
+  }
+
+  // The match intro: the other captain and the umpire walk out of the gate
+  // past you (4-5 m off) toward the middle for the toss.
+  walkout() {
+    const g = this.g;
+    if (g.session || !g.fieldView) return;
+    const cap = g.fieldView.actors[CAPTAIN], U = g.umpires;
+    if (cap) {
+      cap.h.setTeam('away'); cap.foldArms = 0;
+      this.walker('fielder', cap, GATE.x - 4.4, GATE.z - 0.3, -WALK, -0.06, { x: 0, z: 0, face: 0, speed: WALK, state: 'return', action: null, crouch: false, armsUp: false, huddle: 0, ceremony: true });
+    }
+    if (U && U.main) { U.main.still = false; this.walker('umpire', U.main, GATE.x - 3.3, GATE.z + 0.55, -WALK * 1.04, -0.08); }
+  }
+
+  // An innings starts: the fielding side in a huddle HUDDLE_AT m in front of
+  // you (in the dark: nobody is seen put there), then off to their marks, a
+  // few at a time.
+  huddle() {
+    const g = this.g, s = g.session, L = s && s.field && s.field.logic, v = this.view;
+    if (!L || !v) return;
+    const H = { x: v.x + v.dx * HUDDLE_AT, z: v.z + v.dz * HUDDLE_AT };
+    const F = L.fielders.filter((f) => !f.bowler), n = F.length, base = Math.atan2(-v.dx, -v.dz), r = 1.5;
+    F.forEach((f, i) => {
+      const a = base + (i + 0.5) * 2 * PI / n;
+      f.pos.set(H.x + Math.sin(a) * r, 0, H.z + Math.cos(a) * r);
+      f.vel.set(0, 0, 0); f.speed = 0; f.state = 'huddle'; f.target = f.pos.clone(); f.action = null;
+      (f.huddleAt = f.huddleAt || f.pos.clone()).set(H.x, 0, H.z);
+      f.huddleInner = true; f.huddleCenter = false; f.huddleUntil = g.simTime + 60; f.huddleMood = null;
+      f.face = f.yaw = Math.atan2(H.x - f.pos.x, H.z - f.pos.z);
+    });
+    if (g.fieldView && g.fieldView.placeAll) g.fieldView.placeAll(L.states());
+    this.stage.huddleOf = L;
+  }
+  breakHuddle() {
+    const L = this.stage.huddleOf;
+    if (!L) return;
+    this.stage.huddleOf = null;
+    L.fielders.forEach((f, i) => { if (f.state === 'huddle') this.stage.breaks.push({ f, at: ((i * 7) % 5) * 0.11 }); });
+  }
+  // Everyone on his mark (in the dark): the fielders, the batters, the umpires, the AI bowler on his.
+  settle() {
+    const g = this.g, s = g.session;
+    this.stage.huddleOf = null; this.stage.breaks.length = 0;
+    if (!s) return;
+    if (s.field && s.field.settleNow) s.field.settleNow();
+    if (s.bowlerFig && s.bowlerFig.placeAtMark && s.bowlerFig.actor && s.bowlerFig.actor.home) { try { s.bowlerFig.placeAtMark(); } catch { /* (no mark yet: he walks to it) */ } }
+  }
+
+  // The innings break: the side that fielded in two lines either side of the
+  // path from the gate, clapping, as the new pair walks out between them past you.
+  guard(ctx) {
+    const g = this.g, s = g.session, L = s && s.field && s.field.logic;
+    if (L) {
+      const F = L.fielders.filter((f) => !f.bowler);
+      F.forEach((f, i) => {
+        const k = Math.floor(i / 2), near = i % 2 === 0, x = GATE.x - 1.6 - k * 1.55 - (near ? 0 : 0.75), z = GATE.z + (near ? 1.5 : -1.5);
+        f.pos.set(x, 0, z); f.vel.set(0, 0, 0); f.speed = 0; f.state = 'huddle'; f.target = f.pos.clone(); f.action = null;
+        (f.huddleAt = f.huddleAt || f.pos.clone()).set(x, 0, GATE.z);
+        f.huddleInner = false; f.huddleCenter = false; f.huddleUntil = g.simTime + 60; f.huddleMood = null;
+        f.face = f.yaw = near ? PI : 0;
+      });
       if (g.fieldView && g.fieldView.placeAll) g.fieldView.placeAll(L.states());
+      this.stage.field = s.field;
     }
-    const from = (to) => { const dx = GATE.x - to.x, dz = GATE.z - to.z, d = Math.hypot(dx, dz) || 1; return { x: to.x + dx / d * WALK_OUT, z: to.z + dz / d * WALK_OUT, h: Math.atan2(-dx, -dz) }; };
-    const ns = g.nonStrikerView, bv = g.batterView;
-    if (ns && ns.visible && ns.walkHome) {
-      const p = from(ns.home); ns.actor.cut(); ns.actor.place(p.x, p.z, p.h);
-      ns.walkHome(walkTask(ns.home, null, { speed: 2.3, tol: 0.12 }));
+    const cr = g.crew, team = ctx.chasing === HOME.name ? 'home' : 'away';
+    if (cr && cr.spares) cr.spares.slice(0, 2).forEach((a, k) => {
+      a.task = null; a.h.setTeam(team); a.h.setFade(1); a.h.replayVisible = false;
+      this.walker('batter', a, GATE.x - 1.8 - k * 0.6, GATE.z + (k ? 0.45 : -0.45), -1.75, -0.03);
+    });
+  }
+
+  // Where to see the winners from, close: beside the man raising his bat, or
+  // the fielding side's huddle (you bowling: it is round you, no cut). null: stay.
+  winnersSpot(ctx) {
+    const g = this.g, s = g.session;
+    if (!s) return null;
+    let f = null;
+    if (ctx.fieldingWon) {
+      if (s.isBowling) return null;
+      const L = s.field && s.field.logic;
+      f = L && L.huddle && L.huddle.focus ? L.huddle.focus : s.bowlerFig && s.bowlerFig.actor && s.bowlerFig.actor.visible ? s.bowlerFig.actor.pos : null;
+    } else if (ctx.winner !== 'tie') {
+      const a = s.isBowling ? g.batterView && g.batterView.actor : g.nonStrikerView && g.nonStrikerView.actor;
+      f = a && a.visible ? a.pos : null;
     }
-    if (s.isBowling && bv && bv.shown) {
-      const p = from(STRIKER_SPOT); bv.actor.cut(); bv.actor.place(p.x, p.z, p.h);
-      bv.actor.task = walkTask(STRIKER_SPOT, PI / 2, { speed: 2.3 }); bv.wasBat = false; bv.blend = null;
-    }
-    const bw = s.bowlerFig && s.bowlerFig.actor;
-    if (bw && bw.visible) { bw.cut(); bw.place(1.2, PITCH.bowlingStumpsZ + 3, PI); }
+    if (!f) return null;
+    const side = f.x <= 0 ? -1 : 1;
+    return toward(f.x + side * (ctx.fieldingWon ? 5.5 : 3.6), f.z + 1.2, f.x, f.z);
   }
 
   // ---------------------------------------------------------------- the toss figures
   castOn() {
     const g = this.g;
     if (this.cast || !g.fieldView || g.session) return;
+    this.endStage();                  // (the walk out is over: they are in the middle)
     const cap = g.fieldView.actors[CAPTAIN], U = g.umpires;
     if (!cap) return;
     cap.h.setTeam('away'); cap.cut(); cap.place(TOSS.captain.x, TOSS.captain.z, TOSS.captain.face); cap.visible = true;
@@ -644,8 +773,9 @@ export class Ceremony {
       if (_f.lengthSq() < 1e-6) _f.set(0, 0, -1);
       _f.normalize();
       // (beside the control hints and the message strip when a game is on: they keep to the left)
-      const s = this.g.session, xr = !!this.g.input?.xr, d = xr ? 2.2 : 2.6;
-      const yaw = cue.yaw ?? (!s ? 0 : s.isBowling ? 12 : 13) * PI / 180, el = cue.el ?? (s && s.isBowling ? -0.2 : xr ? -0.12 : -0.2);
+      // a broadcast strap: one at a time, low (22 degrees down) and square on, under whoever the beat is about
+      const xr = !!this.g.input?.xr, d = xr ? 2.0 : 2.4;
+      const yaw = cue.yaw ?? 0, el = cue.el ?? (xr ? -0.4 : -0.3);
       const c = Math.cos(yaw), sn = Math.sin(yaw), fx = _f.x * c - _f.z * sn, fz = _f.x * sn + _f.z * c;
       P.mesh.position.set(e.p.x + fx * d, e.p.y + el * d, e.p.z + fz * d);
       P.mesh.lookAt(e.p.x, P.mesh.position.y, e.p.z);
@@ -654,6 +784,8 @@ export class Ceremony {
     if (!this.cardOn) { this.cardA = 0; this.cardT = 0; }
     this.cardOn = true;
   }
+  // A beat's strap is up (the UI holds its own messages and control hints back meanwhile: one card at a time).
+  get cardUp() { return this.cardOn || this.cardA > 0.01; }
   hideCard(now) { this.cardOn = false; if (now) { this.cardA = 0; this.card.mesh.visible = false; } }
   updateCard(dt) {
     const m = this.card.mesh, g = this.g;
@@ -664,7 +796,7 @@ export class Ceremony {
     this.cardA += Math.max(-dt / 0.2, Math.min(dt / 0.25, want - this.cardA));
     m.visible = this.cardA > 0.01;
     m.material.opacity = this.cardA;
-    if (m.visible) { const k = 0.96 + 0.04 * this.cardA; m.scale.set(k, k, 1); }
+    if (m.visible) { const k = STRAP * (0.96 + 0.04 * this.cardA); m.scale.set(k, k, 1); }
   }
 
   showBoard(kind, ctx) {
@@ -810,6 +942,7 @@ export const CARDS = {
     coin: c.coin,
   }),
   innings: (c) => {
+    if (c.titleCard) return CARDS.title(c);
     const bowlSide = c.playerBats ? AWAY.name : HOME.name;
     const tag = c.mode === 'chase' ? 'RUN CHASE' : c.mode === 'over' ? 'BOWL AN OVER' : c.second ? '2ND INNINGS' : '1ST INNINGS';
     return { tag, title: `${cap1(bowlSide)} TAKE THE FIELD`, sub: c.target != null ? `Target ${c.target} · ${c.batting} need ${c.target} off ${c.balls} balls` : `${c.openers} open the batting · ${c.overs} over${c.overs === 1 ? '' : 's'}`, color: (c.playerBats ? awayT() : homeT()).c2, teams: c.playerBats ? [homeT(), awayT()] : [awayT(), homeT()] };

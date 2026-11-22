@@ -355,7 +355,7 @@ export class Replay {
     // the play. (Before the pitch has a direction in your room: your head.)
     this.ref = xr ? { p: g.input.headRef.p.clone(), f: g.roomForward ? g.roomForward.clone() : heading(g.input.headRef.q) } : null;
     this.look = null; this.camLog = []; this.camPrev = null;
-    this.fade.cut(FADE_IN);
+    this.fade.cut(DIRECTOR.inOut);
     g.sample?.('cam_whoosh', { gain: 0.45 });          // (a soft whoosh in: the game's own sounds are not played again)
     planAt(plan, 0, _cam);
     this.apply(this.rt);
@@ -378,7 +378,7 @@ export class Replay {
     if (!g.input.xr && s.fov != null && g.camera.fov !== s.fov) { g.camera.fov = s.fov; g.camera.updateProjectionMatrix(); }
     if (g.input.xr) g.setRig(g.rigState); else g.placeDesktopCamera();
     g.snapBat = true;
-    this.fade.cut(FADE_IN);                             // back where you play from: in from dark
+    this.fade.cut(DIRECTOR.inOut);                      // back where you play from: in from dark (quickly)
     // The result banner after the replay (it played over the start of it); not after a skip.
     if (this.banner && this.stopReason === 'end') { g.ui.prompt('', 0); g.ui.prompt(this.banner.text, 2.0, this.banner.color); }
     this.banner = null;
@@ -432,7 +432,7 @@ export class Replay {
       const c = P.cuts[this.nextCut];
       if (c != null && this.u >= c * P.du) { fade.cut(DIRECTOR.cutIn); this.nextCut++; this.camPrev = null; }
       // (dark a frame before the cut: the last frame on the old angle is black, not 95%)
-      else if (c != null && c * P.du - this.u <= DIRECTOR.cutOut) { if (!fade.fadingOut) fade.fadeOut(Math.max(0.02, c * P.du - this.u - 0.016)); }
+      else if (c != null && c * P.du - this.u <= DIRECTOR.cutOut) { if (!fade.fadingOut) fade.fadeOut(Math.max(0.014, c * P.du - this.u - 0.014)); }
       else if (c == null && P.len - this.u <= DIRECTOR.endOut && !fade.fadingOut) fade.fadeOut(Math.max(0.02, P.len - this.u));
     }
     planAt(P, this.u, _cam);
