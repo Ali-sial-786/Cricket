@@ -192,11 +192,13 @@ view also faces forward by itself before each ball, on recenter, catches and rep
   The angle comes from what happened: high behind the bowler's arm for the run-up, down the line of the stumps
   (7 m in front of the batter, at eye height) for a bowled, an lbw, a near miss or an edge, side-on at the
   popping crease for a run-out or a stumping (frozen for a moment as the stumps break), and a tracking spot picked
-  from the ball's own flight for boundaries and catches (the ball kept near the middle of the view; a six shows the
-  arc, the landing in the stands and the crowd going up; a catch ends close on the fielder). Real speed for the
+  from the ball's own flight (the ball kept near the middle of the view): a four or six is bat on ball down the line,
+  then a spot by the rope 8-15 m from where the ball goes over (a six: 10-20 m from where it lands in the seats),
+  the ball coming to you, the fielder chasing, the boards and the crowd going up; a catch is the shot down the line,
+  then a spot close to the fielder for the flight and the take. Real speed for the
   build-up, slow motion through the key moment (a small *SLOW MOTION* tag). At most 6 s for a wicket, 5 s for a
-  boundary or a close call. Each angle is a fixed spot that turns to follow the ball; between angles the view dips
-  to dark and back, as it does whenever the game moves you. After an appeal, a DRS review or the third umpire, the
+  boundary or a close call. Each angle is a fixed spot that turns to follow the ball; there is one cut at most, a
+  quick dip to dark and back (0.08 s), and the replay comes in and goes out in about a tenth of a second. After an appeal, a DRS review or the third umpire, the
   replay comes after the verdict; the result banner comes back once the replay is over. In the headset the play is
   where you face when you bat, wherever you happened to be looking when it started. A small *REPLAY* label shows
   for the first 1.5 s. Your **off-hand trigger** (the hand without the bat or the ball: the left one) skips it at

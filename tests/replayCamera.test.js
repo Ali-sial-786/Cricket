@@ -20,12 +20,13 @@ function shot(v, { after = 5 } = {}) {
     else if (t < fl) { const k = t / fl; pts.push({ x: rel[0] + (bat[0] - rel[0]) * k, y: rel[1] + (bat[1] - rel[1]) * k, z: rel[2] + (bat[2] - rel[2]) * k, vis: true }); }
     else {
       if (v) {
-        vel[1] -= 9.81 * DT;
+        if (vel[0] || vel[1] || vel[2]) vel[1] -= 9.81 * DT;
         for (let a = 0; a < 3; a++) p[a] += vel[a] * DT;
         if (p[1] < 0.036) { p[1] = 0.036; vel[1] = Math.abs(vel[1]) * 0.45; if (vel[1] < 0.5) vel[1] = 0; }
         if (p[1] <= 0.04) { vel[0] *= 1 - 0.35 * DT; vel[2] *= 1 - 0.35 * DT; }
         const r = Math.hypot(p[0], p[2] - CZ);
-        if (r > 68 && p[1] < 1) { p[0] *= 68 / r; p[2] = CZ + (p[2] - CZ) * 68 / r; vel[0] = vel[2] = 0; }
+        if (r > 68 && r < 70 && p[1] < 1) { p[0] *= 68 / r; p[2] = CZ + (p[2] - CZ) * 68 / r; vel[0] = vel[2] = 0; }   // (the boards)
+        else if (r >= 70 && p[1] < 1 + (r - 70) * 0.6) vel[0] = vel[1] = vel[2] = 0;                                    // (into the raked seats)
       } else { if (p[2] < 6) p[2] += 22 * DT; p[1] = 0.9; }
       pts.push({ x: p[0], y: p[1], z: p[2], vis: true });
     }
@@ -117,6 +118,9 @@ test('classify: wickets, boundaries and close calls get a replay; leaves, dots a
   assert.deepEqual(C({ res: { kind: 'beaten', padded: true }, review: true }), { story: 'lbw', tier: 'close' }, 'an lbw shout');
   assert.deepEqual(C({ res: { kind: 'runs', runs: 0 }, edge: true, behind: true }), { story: 'edge', tier: 'close' });
   assert.deepEqual(C({ res: { kind: 'beaten' }, nearMiss: 0.05 }), { story: 'beaten', tier: 'close' });
+  assert.deepEqual(C({ res: { kind: 'beaten' }, nearMiss: 0.094 }), { story: 'beaten', tier: 'close' }, 'played and missed by 9 cm');
+  assert.deepEqual(C({ res: { kind: 'left' }, nearMiss: 0.094 }), { story: 'routine', tier: 'routine' }, 'left alone, 9 cm outside off stump (review 4, bug 2)');
+  assert.deepEqual(C({ res: { kind: 'left' }, nearMiss: 0.03 }), { story: 'leave', tier: 'close' }, 'left alone, shaving the stumps');
   assert.deepEqual(C({ res: { kind: 'runs', runs: 1 }, direct: true, brk: true }), { story: 'direct', tier: 'close' });
   assert.deepEqual(C({ res: { kind: 'runs', runs: 1 }, dive: true }), { story: 'dive', tier: 'close' });
   assert.deepEqual(C({ res: { kind: 'runs', runs: 3, overthrows: 1 } }), { story: 'misfield', tier: 'close' });
@@ -139,7 +143,7 @@ test('every kind of replay keeps to its length: wicket 6 s, boundary and close c
     ['routine', 'routine', shot(HITS.push)], ['routine', 'routine', shot(null), { noHit: true }],
     ['bowled', 'wicket', shot(null), { noHit: true, wicket: T0 + 0.62 }], ['lbw', 'wicket', shot(null), { noHit: true, pad: T0 + 0.58 }],
     ['beaten', 'close', shot(null), { noHit: true }], ['edge', 'close', shot(HITS.fine)],
-    ['four', 'boundary', shot(HITS.cover)], ['four', 'boundary', shot(HITS.square)], ['six', 'boundary', shot([-20, 20, -18])], ['six', 'boundary', shot([2, 22, -28])],
+    ['four', 'boundary', shot(HITS.cover)], ['four', 'boundary', shot(HITS.square)], ['six', 'boundary', shot([-17, 17, -14])], ['six', 'boundary', shot([1, 18, -24])],
     ['caught', 'wicket', caughtAt([-12, 14, -10], 2.4).pts, { caught: T0 + 0.6 + 2.4 }], ['caught', 'wicket', caughtAt([1, 2, 20], 0.5).pts, { caught: T0 + 1.1 }],
     ['dropped', 'close', shot([-12, 14, -10]), { dropT: T0 + 3.0 }],
     ['runout', 'wicket', shot(HITS.push), { brk: T0 + 3.4, brkEnd: 'bowling' }], ['runout', 'close', shot(HITS.push), { brk: T0 + 4.4, brkEnd: 'batting' }],
@@ -151,6 +155,7 @@ test('every kind of replay keeps to its length: wicket 6 s, boundary and close c
     assert.ok(p, `${story}: no plan`);
     assert.ok(p.len <= BUDGET[tier] + 1e-6, `${story} (${tier}): ${p.len.toFixed(2)} s`);
     assert.ok(p.len > 1.5, `${story}: ${p.len.toFixed(2)} s is too short to show anything`);
+    assert.ok(p.cuts.length <= 1, `${story}: ${p.cuts.length} cuts (one dip at most a replay)`);
     assert.equal(Math.abs(segsLength(p.segs) - p.len) < 1e-9, true);
     // the tape only goes forward; nothing past the tape
     for (let i = 1; i < p.n; i++) assert.ok(p.T[i] >= p.T[i - 1] - 1e-9, `${story}: back in time at ${i}`);
@@ -160,7 +165,7 @@ test('every kind of replay keeps to its length: wicket 6 s, boundary and close c
 
 test('the angles: fixed spots (no flying), level, turning within the comfort limits; cuts only between angles', () => {
   for (const [xr, lim] of [[true, DIRECTOR.xr], [false, DIRECTOR.desk]]) {
-    for (const [story, tier, pts, extra] of [['four', 'boundary', shot(HITS.cover)], ['six', 'boundary', shot([-20, 20, -18])], ['caught', 'wicket', caughtAt([-12, 14, -10], 2.4).pts, { caught: T0 + 3.0 }],
+    for (const [story, tier, pts, extra] of [['four', 'boundary', shot(HITS.cover)], ['six', 'boundary', shot([-17, 17, -14])], ['caught', 'wicket', caughtAt([-12, 14, -10], 2.4).pts, { caught: T0 + 3.0 }],
       ['bowled', 'wicket', shot(null), { noHit: true, wicket: T0 + 0.62 }], ['routine', 'routine', shot(HITS.pull)], ['misfield', 'close', shot(HITS.drive)]]) {
       const { p, tape } = plan(story, tier, pts, extra, xr), at = `${xr ? 'xr' : 'desk'} ${story}`;
       const F = walk(p, tape);
@@ -172,9 +177,9 @@ test('the angles: fixed spots (no flying), level, turning within the comfort lim
         assert.ok(Math.abs(wrap(b.yaw - a.yaw)) / du <= lim.wMax * 1.02, `${at}: turn ${(Math.abs(wrap(b.yaw - a.yaw)) / du / D2R).toFixed(0)}°/s`);
       }
       assert.equal(cuts, p.cuts.length, at);
-      assert.ok(p.cuts.length <= 3, `${at}: ${p.cuts.length} cuts`);
+      assert.ok(p.cuts.length <= 1, `${at}: ${p.cuts.length} cuts (one dip at most a replay)`);
       for (const sh of p.shots) if (sh.i0 >= 0) {
-        assert.ok(Math.hypot(sh.pos.x, sh.pos.z - CZ) <= DIRECTOR.rim + 1e-6, `${at}: ${sh.kind} outside the rim`);
+        assert.ok(Math.hypot(sh.pos.x, sh.pos.z - CZ) <= DIRECTOR.rim + (sh.rope ? 2.5 : 0) + 1e-6, `${at}: ${sh.kind} outside the rim`);
         assert.ok(sh.pos.y >= 1.3 && sh.pos.y <= 6.5, `${at}: ${sh.kind} at ${sh.pos.y} m`);
       }
       if (!xr) for (const f of F) assert.ok(Math.abs(f.pitch) <= 50 * D2R + 1e-6, `${at}: tilted ${f.pitch / D2R}°`);
@@ -185,7 +190,7 @@ test('the angles: fixed spots (no flying), level, turning within the comfort lim
 test('the ball stays near the middle of the view (±20°) while it is followed: boundaries, catches, misfields, every-ball replays', () => {
   const cases = {
     'four through cover': ['four', 'boundary', shot(HITS.cover)], 'four square': ['four', 'boundary', shot(HITS.square)],
-    'six over mid-wicket': ['six', 'boundary', shot([-20, 20, -18])], 'six straight': ['six', 'boundary', shot([2, 22, -28])],
+    'six over mid-wicket': ['six', 'boundary', shot([-17, 17, -14])], 'six straight': ['six', 'boundary', shot([1, 18, -24])],
     'catch in the deep': ['caught', 'wicket', caughtAt([-12, 14, -10], 2.4).pts, { caught: T0 + 3.0 }], 'catch at slip': ['caught', 'wicket', caughtAt([1, 2, 20], 0.5).pts, { caught: T0 + 1.1 }],
     'overthrows': ['misfield', 'close', shot(HITS.drive)], 'every ball: a pull': ['routine', 'routine', shot(HITS.pull)], 'every ball: a push': ['routine', 'routine', shot(HITS.push)],
   };
@@ -208,8 +213,9 @@ test('slow motion through the key moment: the stumps, bat on ball, the catch; a 
   const r = plan('runout', 'wicket', shot(HITS.push), { brk: T0 + 3.4, brkEnd: 'bowling' }).p;
   assert.ok(r.segs.some((s) => s.rate === 0 && Math.abs(s.a - (T0 + 3.4)) < 1e-9 && s.dur >= 0.3), 'run-out: a freeze at the break');
   assert.ok(slowAt(r, T0 + 3.3) && slowAt(r, T0 + 3.5), 'run-out: slowed either side of it');
-  // the build-up runs at real speed
-  for (const p of [b, f, c]) assert.equal(p.segs[0].rate, 1);
+  // the build-up runs at real speed (a bowled: from behind the arm); a boundary or a catch opens on the line camera, bat on ball slowed
+  assert.equal(b.segs[0].rate, 1);
+  for (const p of [f, c]) assert.equal(p.shots[p.S[0]].kind, 'line');
   // a routine ball: real speed throughout
   assert.ok(plan('routine', 'routine', shot(HITS.push)).p.segs.every((s) => s.rate === 1));
 });
@@ -233,15 +239,17 @@ test('a run-out is judged side-on at the popping crease, on the side the throw c
 });
 
 test('a six: from inside the ground, out toward the landing in the stands; a catch ends close on the fielder', () => {
-  const pts = shot([-20, 20, -18]), { p, tape } = plan('six', 'boundary', pts);
+  const pts = shot([-17, 17, -14]), { p, tape } = plan('six', 'boundary', pts);
   const last = p.shots[p.S[p.n - 1]], F = walk(p, tape), e = F[F.length - 1];
   assert.equal(last.kind, 'track');
-  assert.ok(Math.hypot(last.pos.x, last.pos.z - CZ) <= DIRECTOR.rim + 1e-6);
+  assert.ok(Math.hypot(last.pos.x, last.pos.z - CZ) <= DIRECTOR.rim + 2.5 + 1e-6);
   assert.ok(offOf(e) < DIRECTOR.cone, `facing ${(offOf(e) / D2R).toFixed(0)}° away from the ball at the end`);
   const out = Math.hypot(e.bx, e.bz - CZ) - Math.hypot(e.x, e.z - CZ);
   assert.ok(out > 8, `the ball is not beyond the camera, out toward the stands (${out.toFixed(1)} m)`);
-  // the arc stays in view: never more than ~45° above level from the tracking spot
-  for (const f of F) if (f.shot === p.S[p.n - 1]) assert.ok(Math.atan2(f.by - f.y, Math.hypot(f.bx - f.x, f.bz - f.z)) < 46 * D2R, 'the ball went out of the top of the view');
+  // the ball coming down never more than ~55° above level from the rope spot (a look up, not over your head), and it ends 10-21 m away
+  for (const f of F) if (f.shot === p.S[p.n - 1]) assert.ok(Math.atan2(f.by - f.y, Math.hypot(f.bx - f.x, f.bz - f.z)) < 55 * D2R, `the ball ${(Math.atan2(f.by - f.y, Math.hypot(f.bx - f.x, f.bz - f.z)) / D2R).toFixed(0)}° up`);
+  const dl = Math.hypot(last.subj.x - last.pos.x, last.subj.z - last.pos.z);
+  assert.ok(dl >= 9 && dl <= 22, `${dl.toFixed(1)} m from the landing`);
   // the catch: the last angle is near the catcher, nobody too close to the camera
   const { pts: cp, catcher } = caughtAt([-12, 14, -10], 2.4);
   const c = plan('caught', 'wicket', cp, { caught: T0 + 3.0 }, true, [person(-0.4, -1.1), person(0.4, -21.6), person(catcher.x + 0.5, catcher.z)]).p;
@@ -252,7 +260,7 @@ test('a six: from inside the ground, out toward the landing in the stands; a cat
 });
 
 test('the ball never comes close to the camera on a tracking shot, and the line camera joins only once the ball is past it', () => {
-  for (const [story, tier, pts, extra] of [['four', 'boundary', shot(HITS.cover)], ['four', 'boundary', shot(HITS.drive)], ['six', 'boundary', shot([2, 22, -28])], ['misfield', 'close', shot(HITS.drive)]]) {
+  for (const [story, tier, pts, extra] of [['four', 'boundary', shot(HITS.cover)], ['four', 'boundary', shot(HITS.drive)], ['six', 'boundary', shot([1, 18, -24])], ['misfield', 'close', shot(HITS.drive)]]) {
     const { p, tape } = plan(story, tier, pts, extra);
     for (const f of walk(p, tape)) {
       const sh = p.shots[f.shot];
