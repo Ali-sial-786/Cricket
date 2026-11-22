@@ -332,8 +332,9 @@ const VERT = /* glsl */`
     float col = body, row = pose;
     vec3 p = seat.xyz;
     float sway = uAnim * (sin(t * 0.8 + ph) * 0.018 + sin(t * 2.3 + ph * 3.0) * 0.006);
+    float far = smoothstep(45.0, 100.0, length(cameraPosition - seat.xyz));
     if (kind < 0.5) {
-      p += right * (cx * 0.425 + sway) * scale;
+      p += right * (cx * 0.425 * (1.0 + 0.12 * far) + sway) * scale;
       p.y += (cy * 1.7 + standing * 0.4) * scale + lift + 0.006 * sin(t * 1.3 + ph);
     } else if (kind < 1.5) {
       // A flag held up beside its owner: swings about the hands, the free corner flaps.
@@ -373,7 +374,9 @@ const FRAG = /* glsl */`
     vec4 tx = texture2D(map, vUv);
     vec3 m = tx.rgb / max(tx.a, 0.004);
     vec3 c = mix(mix(vC0, vC2, m.b), mix(vC1, vC3, m.b), m.g) * (m.r * vLight);
-    float a = smoothstep(0.32, 0.32 + max(fwidth(tx.a), 0.02), tx.a);
+    float texels = max(fwidth(vUv.x) * 1024.0, fwidth(vUv.y) * 1024.0);
+    float th = mix(0.32, 0.2, smoothstep(1.5, 6.0, texels));    // far: mips average a figure with its holes
+    float a = smoothstep(th, th + max(fwidth(tx.a), 0.02), tx.a);
     if (a < 0.01) discard;
     gl_FragColor = vec4(c, a);
     #include <tonemapping_fragment>
@@ -406,6 +409,7 @@ function makeLighting(dirs, hemi) {
       const d = dirs[i], k = Math.max(0, nx * d.dir.x + ny * d.dir.y + nz * d.dir.z) * (i === 0 ? sunVis : 0.5 + 0.5 * skyVis);
       r += d.color.r * k; g += d.color.g * k; b += d.color.b * k;
     }
+    r += 0.42 * skyVis; g += 0.41 * skyVis; b += 0.38 * skyVis;     // bounce off the sunlit field (as the stands' shader)
     out[0] = r / Math.PI; out[1] = g / Math.PI; out[2] = b / Math.PI;
     return out;
   };
@@ -497,7 +501,8 @@ export function buildCrowd(spots, { blocks, lights, maxCount = 26000, sectors = 
       } else {
         const B = blocks.get(s.block) || { home: 0.4, away: 0.1 };
         const r0 = rand();
-        team = s.team ?? (r0 < B.home ? 1 : r0 < B.home + B.away ? 2 : 0);
+        const sh = s.home ?? B.home, sa = s.away ?? B.away;      // (a seat near a block's edge has a blended mix)
+        team = s.team ?? (r0 < sh ? 1 : r0 < sh + sa ? 2 : 0);
         const kid = s.type !== 'members' && rand() < (s.row != null && s.row < 4 ? 0.12 : 0.05);
         body = kid ? (rand() < 0.5 ? 8 : 9) : pick([0, 1, 2, 3, 4, 5, 6, 7, 10, 11, 12, 13, 14]);
         if (s.type === 'members') body = pick([5, 13, 12, 3, 7, 0, 5, 13]);

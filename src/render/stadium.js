@@ -78,10 +78,10 @@ function stadiumAtlas() {
   // Seat backs: 16 to the width (0.5 m each), moulded plastic, lit from above.
   {
     const [y0, y1] = BAND.SEATS;
-    band('SEATS', '#3a3c40');
+    band('SEATS', '#505358');
     for (let i = 0; i < 16; i++) {
       const x = i * 64;
-      g.fillStyle = vgrad(y0, y1, [[0, '#f4f4f4'], [0.12, '#e6e6e6'], [0.55, '#c4c4c4'], [1, '#8c8c8c']]);
+      g.fillStyle = vgrad(y0, y1, [[0, '#e4e4e4'], [0.12, '#d6d6d6'], [0.55, '#bcbcbc'], [1, '#929292']]);   // soft: rows should not band at 100 m
       rr(g, x + 6, y0 + 5, 52, 56, 9); g.fill();
       g.fillStyle = 'rgba(255,255,255,0.35)'; g.fillRect(x + 10, y0 + 9, 44, 4);
       g.fillStyle = 'rgba(0,0,0,0.18)'; g.fillRect(x + 8, y0 + 40, 48, 3);
@@ -180,7 +180,8 @@ function stadiumAtlas() {
 
 // The boards' and ribbons' LED face: invented brands, two sets (perimeter, ribbon).
 function ledAtlas() {
-  const W = 4096, H = 256, c = document.createElement('canvas');
+  // 2048 x 512: four rows of four ads (perimeter A, B; ribbon A, B), each 512 x 128.
+  const W = 2048, H = 512, c = document.createElement('canvas');
   c.width = W; c.height = H;
   const g = c.getContext('2d');
   const sets = [
@@ -192,7 +193,7 @@ function ledAtlas() {
       ['CREASE VR', '#0d1f4a', '#1f4fa8', '#ffffff', 'stumps'], ['BOUNDARY BUILDERS', '#f2c12e', '#d9a514', '#111111', 'moon']],
   ];
   sets.forEach((set, si) => set.forEach(([txt, bg0, bg1, fg, icon], i) => {
-    const x = i * 512, y = si * 128, h = 128;
+    const x = (i % 4) * 512, y = (si * 2 + Math.floor(i / 4)) * 128, h = 128;
     const gr = g.createLinearGradient(x, y, x + 512, y + h); gr.addColorStop(0, bg0); gr.addColorStop(1, bg1);
     g.fillStyle = gr; g.fillRect(x, y, 512, h);
     g.fillStyle = 'rgba(255,255,255,0.08)'; g.fillRect(x, y, 512, 10);
@@ -260,7 +261,7 @@ class Builder {
         S.p.push(x, y, z); S.nr.push(nx, ny, nz);
         if (o.raw) S.uv.push(UV.getX(j), UV.getY(j));
         else S.uv.push(UV ? u0 + UV.getX(j) * (u1 - u0) : (u0 + u1) / 2, UV ? v0 + UV.getY(j) * (v1 - v0) : (v0 + v1) / 2);
-        S.c.push(tint[0], tint[1], tint[2]);
+        if (o.tintFn) { const tc = o.tintFn(x, y, z, nx, ny, nz); S.c.push(tc[0], tc[1], tc[2]); } else S.c.push(tint[0], tint[1], tint[2]);
         const sh = o.fixed ? o.fixed : this.shadeAt(x, y, z, nx, ny, nz);
         S.sh.push(sh[0] * (o.sun ?? 1), sh[1] * (o.sky ?? 1), o.emit ?? 0);
       }
@@ -314,9 +315,9 @@ function stadiumMaterial(map) {
     sh.fragmentShader = sh.fragmentShader
       .replace('#include <common>', '#include <common>\nvarying vec3 vShade;')
       .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += diffuseColor.rgb * vShade.z;')
-      .replace('#include <lights_fragment_end>', '#include <lights_fragment_end>\nreflectedLight.directDiffuse *= vShade.x;\nreflectedLight.indirectDiffuse *= vShade.y;');
+      .replace('#include <lights_fragment_end>', '#include <lights_fragment_end>\nreflectedLight.directDiffuse *= vShade.x;\nreflectedLight.indirectDiffuse *= vShade.y;\nreflectedLight.indirectDiffuse += diffuseColor.rgb * vec3(0.15, 0.145, 0.135) * vShade.y;');   // bounce off the sunlit field: shade stays rich, never a void
   };
-  mat.customProgramCacheKey = () => 'stadium-v1';
+  mat.customProgramCacheKey = () => 'stadium-v2';
   return mat;
 }
 
@@ -362,8 +363,8 @@ function makeShade(sunDir) {
   const skyVis = (x, y, z) => {
     const r = Math.hypot(x, z), a = angOf(x, z);
     let k = 1;
-    if (r > ROOF.rF - 0.5 && y < ROOF.yB && roofed(a)) { const el = Math.atan2(roofY(ROOF.rF) - y, Math.max(0.1, r - ROOF.rF)); k = 0.36 + 0.64 * Math.sin(clamp(el, 0, Math.PI / 2)) * 0.85; }
-    if (typeAt(a) === 'stand' && r > lowEndR - 0.1 && r < BOWL.concourseR + 0.1 && y > lowEndY - 0.1 && y < BOWL.boxTop + 0.05) k *= 0.6;
+    if (r > ROOF.rF - 0.5 && y < ROOF.yB && roofed(a)) { const el = Math.atan2(roofY(ROOF.rF) - y, Math.max(0.1, r - ROOF.rF)); k = 0.7 + 0.3 * Math.sin(clamp(el, 0, Math.PI / 2)); }      // the sunlit field bounces a lot back in
+    if (typeAt(a) === 'stand' && r > lowEndR - 0.1 && r < BOWL.concourseR + 0.1 && y > lowEndY - 0.1 && y < BOWL.boxTop + 0.05) k *= 0.8;
     return k;
   };
   const out = [1, 1];
@@ -385,8 +386,8 @@ const towerPlan = (ta) => {
   head.position.set(Math.sin(A) * (r - 1.2), H + 3.6, Math.cos(A) * (r - 1.2));
   head.lookAt(0, 0, 0);
   head.updateMatrixWorld(true);
-  const corner = (lx, ly) => new THREE.Vector3(lx, ly, -1.0).applyMatrix4(head.matrixWorld).toArray();
-  return { cx: Math.sin(A) * r, cz: Math.cos(A) * r, y0: bank ? 7.5 : 0, H, half0: 1.7, half1: 0.7, head: [corner(-6.1, -3.7), corner(6.1, -3.7), corner(6.1, 3.7), corner(-6.1, 3.7)] };
+  const corner = (lx, ly) => new THREE.Vector3(lx, ly, -0.7).applyMatrix4(head.matrixWorld).toArray();     // the head's frame (buildStadium)
+  return { cx: Math.sin(A) * r, cz: Math.cos(A) * r, y0: bank ? 7.5 : 0, H, half0: 1.7, half1: 0.7, head: [corner(-6.5, -4.0), corner(6.5, -4.0), corner(6.5, 4.0), corner(-6.5, 4.0)] };
 };
 export const SUN_BLOCKERS = {
   roof: ROOF,                                                   // lip (rF, yF) .. back (rB, yB)
@@ -405,13 +406,26 @@ export function buildStadium(root, lights) {
   const shadeAt = makeShade(sunDir);
   const B = new Builder(8, shadeAt);
   const spots = [], blocks = new Map();
-  const lampHousing = new THREE.CylinderGeometry(0.66, 0.74, 0.6, 10, 1, true), lampFace = new THREE.CircleGeometry(0.6, 10);
+  const lampHousing = new THREE.CylinderGeometry(0.66, 0.74, 0.6, 10, 1, true), lampFace = new THREE.CircleGeometry(0.62, 12), lampBack = new THREE.CircleGeometry(0.74, 10);
   const LAMP_AXIS = new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.PI / 2, 0, 0)), ONE = new THREE.Vector3(1, 1, 1);
+  const LAMP_FLIP = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, Math.PI, 0)), glowAt = [];
   const trunkGeo = new THREE.CylinderGeometry(0.25, 0.35, 4, 6, 1, true), crownGeo = new THREE.IcosahedronGeometry(1, 1);
+  const lumpGeo = [0, 1, 2].map((seed) => {
+    const g = new THREE.IcosahedronGeometry(1, 1).toNonIndexed(), P = g.attributes.position, r = mulberry(seed * 7 + 3);
+    const cache = new Map();
+    for (let i = 0; i < P.count; i++) {
+      const key = `${P.getX(i).toFixed(3)},${P.getY(i).toFixed(3)},${P.getZ(i).toFixed(3)}`;
+      let f = cache.get(key); if (f === undefined) { f = 0.8 + r() * 0.38; cache.set(key, f); }
+      P.setXYZ(i, P.getX(i) * f, P.getY(i) * f, P.getZ(i) * f);
+    }
+    g.computeVertexNormals();
+    return g;
+  });
+  const coneGeo = new THREE.ConeGeometry(1, 1, 9, 1, true);
   const T = (h) => B.tint(h);
   const C = {
     concrete: T(0xb9b5ad), wall: T(0x24333f), seatLow: T(0x2f5266), seatUp: T(0x3b6276), seatAlt: T(0xc9ced4), cover: T(0x272d36),
-    members: T(0x2f5a3c), fascia: T(0x18222d), roofUnder: T(0xadb9d4), roofTop: T(0xdfe3e6), steel: T(0xe9ecee), dark: T(0x14181d),
+    members: T(0x2f5a3c), fascia: T(0x18222d), roofUnder: T(0xbcc5d2), roofTop: T(0xdfe3e6), steel: T(0xe9ecee), dark: T(0x14181d),
     grass: T(0x5e8f3e), cream: T(0xece3cf), green: T(0x3f6b55), white: T(0xf4f2ec), tower: T(0xa8afb6),
   };
 
@@ -464,9 +478,9 @@ export function buildStadium(root, lights) {
 
   const wedge = (a) => WEDGES.some(([a0, a1]) => inArc(a, a0, a1));
   const blockOf = (bay, tier) => bay * 3 + tier;
+  // Who fills each block (all first: a seat near a block's edge takes some of its neighbour's mix).
   for (let bay = 0; bay < 36; bay++) {
-    const type = bayType(bay), b0 = bay * 10, b1 = b0 + 10;
-    // Who fills this block.
+    const type = bayType(bay);
     for (let tier = 0; tier < 3; tier++) {
       const away = bay >= 20 && bay <= 22, ultras = (bay === 14 || bay === 15) && tier === 0;
       const thin = tier === 1 && (bay === 26 || bay === 27 || bay === 31 || bay === 5);
@@ -475,6 +489,9 @@ export function buildStadium(root, lights) {
         occ: tier === 2 ? 0.3 : type === 'bank' ? 0.5 : thin ? 0.55 : tier === 0 ? 0.86 + rand() * 0.1 : 0.74 + rand() * 0.16,
       });
     }
+  }
+  for (let bay = 0; bay < 36; bay++) {
+    const type = bayType(bay), b0 = bay * 10, b1 = b0 + 10;
     if (type === 'bank') { bankBay(b0, b1, bay); continue; }
     // Angular pieces: the aisle, seats, a vomitory in every other lower-tier bay.
     const pieces = [[b0, b0 + AISLE, 'aisle']];
@@ -489,6 +506,7 @@ export function buildStadium(root, lights) {
       sweep(a0, a1, BOWL.wallR, 0, BOWL.wallR, BOWL.wallTop, 'CONC', 0.75, 0.05, { tint: type === 'pav' ? C.cream : C.wall });
       sweep(a0, a1, BOWL.wallR, BOWL.wallTop, L.r0, BOWL.wallTop, 'PLAIN', 0.5, 0.5, { tint: C.concrete });
       sweep(a0, a1, L.r0, BOWL.wallTop, L.r0, L.y0, 'CONC', 0.2, 0.6, { tint: C.concrete });
+      rail(a0, a1, BOWL.wallR + 0.15, BOWL.wallTop, BOWL.wallTop + 0.32);
       // Lower tier.
       for (let i = 0; i < L.rows; i++) {
         const inVom = kind === 'vom' && i >= 3 && i <= 9;
@@ -510,13 +528,15 @@ export function buildStadium(root, lights) {
       if (kind === 'aisle') { handrail(a0 + AISLE / 2, lowRowR(0) + 0.2, lowRowY(0), lowRowR(L.rows) - 0.3, lowEndY); aisleWalker(a0, a1, lowRowR, lowRowY, L, 0); }
       // Concourse, the box level, the upper tier's fascia (pavilion bays stop at the concourse).
       sweep(a0, a1, lowEndR, lowEndY, BOWL.concourseR, lowEndY, 'ROW', 0.3, 0.1, {});
+      rail(a0, a1, lowEndR + 0.12, lowEndY, lowEndY + 1.05);
       if (type === 'pav') continue;
       if (kind === 'seats') concourseStanders(a0, a1, blockOf(bay, 2));
-      sweep(a0, a1, BOWL.concourseR, lowEndY, BOWL.concourseR, BOWL.boxTop, 'GLASS', 0.98, 0.02, { uScale: 12 });
+      sweep(a0, a1, BOWL.concourseR, lowEndY, BOWL.concourseR, BOWL.boxTop, 'GLASS', 0.98, 0.02, { uScale: 12, emit: 0.22 });   // the boxes' rooms lit behind the glass
       sweep(a0, a1, BOWL.concourseR, BOWL.boxTop, BOWL.fasciaR, BOWL.boxTop, 'CONC', 0.4, 0.6, { tint: C.dark });
       sweep(a0, a1, BOWL.fasciaR, BOWL.boxTop, BOWL.fasciaR, BOWL.fasciaTop, 'PLAIN', 0.5, 0.5, { tint: C.fascia });
       sweep(a0, a1, BOWL.fasciaR, BOWL.fasciaTop, U.r0, BOWL.fasciaTop, 'PLAIN', 0.5, 0.5, { tint: C.white });
       sweep(a0, a1, U.r0, BOWL.fasciaTop, U.r0, U.y0, 'CONC', 0.2, 0.6, { tint: C.concrete });
+      rail(a0, a1, BOWL.fasciaR + 0.17, BOWL.fasciaTop, BOWL.fasciaTop + 0.38);
       // Upper tier.
       for (let j = 0; j < U.rows; j++) {
         const yb = j ? upRowY(j - 1) : U.y0 - 0.001, yt = upRowY(j), r = upRowR(j);
@@ -549,8 +569,18 @@ export function buildStadium(root, lights) {
       if (nearTV && TV.some((t) => Math.abs(a / D - t) < 1.4)) continue;
       const x = Math.sin(a) * rr, z = Math.cos(a) * rr;
       const sh = shadeAt(x, y + 1.0, z, -Math.sin(a) * 0.6, 0.8, -Math.cos(a) * 0.6);
-      spots.push({ x, y, z, nx: -Math.sin(a), nz: -Math.cos(a), sun: sh[0], sky: sh[1], block, row, i: Math.round(a / D * 20 + k), type });
+      const mix = blendMix(block, a / D);
+      spots.push({ x, y, z, nx: -Math.sin(a), nz: -Math.cos(a), sun: sh[0], sky: sh[1], block, row, i: Math.round(a / D * 20 + k), type, home: mix[0], away: mix[1] });
     }
+  }
+  // Team shares fade into the next block over the outer quarter of each
+  // (so a red end next to a blue one is a gradient of mixed shirts, not a line).
+  function blendMix(block, aDeg) {
+    const bay = Math.floor(block / 3), tier = block % 3, Bk = blocks.get(block);
+    const t = ((((aDeg - bay * 10) % 360) + 360) % 360) / 10;
+    const nb = t < 0.5 ? blocks.get(((bay + 35) % 36) * 3 + tier) : blocks.get(((bay + 1) % 36) * 3 + tier);
+    const w = nb ? 0.5 * smooth(0.25, 0, Math.min(t, 1 - t)) : 0;
+    return [Bk.home * (1 - w) + (nb ? nb.home : 0) * w, Bk.away * (1 - w) + (nb ? nb.away : 0) * w];
   }
   // Now and then someone on the stairs, going for a drink or back to their seat.
   function aisleWalker(a0, a1, rowR, rowY, T, tier) {
@@ -567,6 +597,12 @@ export function buildStadium(root, lights) {
       const sh = shadeAt(x, lowEndY + 1.3, z, -Math.sin(a) * 0.6, 0.8, -Math.cos(a) * 0.6);
       spots.push({ x, y: lowEndY, z, nx: -Math.sin(a), nz: -Math.cos(a), sun: sh[0], sky: sh[1], block, row: 20, i: k, type: 'stand' });
     }
+  }
+  // A tier-front railing: a top rail on posts (one post per piece, ~3.5 m).
+  function rail(a0, a1, r, yBase, yTop) {
+    const P = (a, y) => [Math.sin(a * D) * r, y, Math.cos(a * D) * r], o = { tint: T(0xc4cad0) };
+    B.beam(P(a0, yTop), P(a1, yTop), 0.075, o);
+    B.beam(P(a0, yBase), P(a0, yTop), 0.06, o);
   }
   function handrail(a, r0, y0, r1, y1) {
     const A = a * D, s = Math.sin(A), c = Math.cos(A);
@@ -601,6 +637,16 @@ export function buildStadium(root, lights) {
     // People sitting on the grass in little groups.
     for (let gI = 0; gI < 26; gI++) {
       const ga = a0 + 0.6 + rand() * (a1 - a0 - 1.2), gr = 86 + rand() * 13.5, size = 1 + Math.floor(rand() * 5);
+      if (size > 2 && rand() < 0.35) {               // a picnic rug under them
+        const rugC = [0x8e3a33, 0x3a5a86, 0xb8a46a, 0x4a6a4e, 0xcfc8b8][Math.floor(rand() * 5)], hw = (size * 0.32 + 0.3) / gr / D, hr = 0.7;
+        const P = (a, r) => [Math.sin(a * D) * r, profileTop('bank', r) + 0.03, Math.cos(a * D) * r];
+        B.quad([P(ga - hw, gr - hr), P(ga + hw, gr - hr), P(ga + hw, gr + hr), P(ga - hw, gr + hr)], [-Math.sin(ga * D) * 0.38, 0.92, -Math.cos(ga * D) * 0.38], [[0.3, vOf('PLAIN', 0.8)], [0.4, vOf('PLAIN', 0.8)], [0.4, vOf('PLAIN', 0.2)], [0.3, vOf('PLAIN', 0.2)]], { tint: T(rugC) });
+      }
+      if (size > 3 && rand() < 0.5) {               // and a sunshade
+        const A = (ga + 0.6) * D, ux = Math.sin(A) * (gr + 0.8), uz = Math.cos(A) * (gr + 0.8), uy = profileTop('bank', gr + 0.8);
+        B.beam([ux, uy, uz], [ux, uy + 2.3, uz], 0.05, { tint: C.white });
+        B.geom(coneGeo, new THREE.Matrix4().compose(new THREE.Vector3(ux, uy + 2.2, uz), new THREE.Quaternion(), new THREE.Vector3(1.4, 0.45, 1.4)), { tint: T([0xe8e4da, 0x2f6bb0, 0xc0392b][Math.floor(rand() * 3)]) });
+      }
       for (let p = 0; p < size; p++) {
         const a = (ga + (p - size / 2) * 0.42 + (rand() - 0.5) * 0.2) * D, r = gr + (rand() - 0.5) * 0.8;
         const x = Math.sin(a) * r, z = Math.cos(a) * r, y = profileTop('bank', r) - 0.4;
@@ -608,20 +654,64 @@ export function buildStadium(root, lights) {
         spots.push({ x, y, z, nx: -Math.sin(a), nz: -Math.cos(a), sun: sh[0], sky: sh[1], block: blockOf(bay, 0), row: 0, i: gI, type: 'grass' });
       }
     }
-    // Trees along the top.
+    // Trees along the top, mixed kinds and sizes, not in a row.
+    const kinds = ['broad', 'broad', 'conifer', 'broad', 'poplar'];
     for (let k = 0; k < 4; k++) {
-      const a = (a0 + 1.5 + k * 2.4 + rand()) * D, r = 104 + rand() * 4;
-      tree(Math.sin(a) * r, 7.5, Math.cos(a) * r, 0.8 + rand() * 0.5);
+      const a = (a0 + 1.2 + k * 2.3 + rand() * 1.2) * D, r = 103.5 + rand() * 4.5;
+      tree(Math.sin(a) * r, 7.5, Math.cos(a) * r, 0.75 + rand() * 0.55, kinds[(bay * 4 + k) % kinds.length]);
+    }
+    // A post-and-rail fence along the terrace edge.
+    const fr = 101.4, nP = Math.round(((a1 - a0) * D * fr) / 2.6);
+    for (let k = 0; k <= nP; k++) {
+      const a = (a0 + ((a1 - a0) * k) / nP) * D, P0 = [Math.sin(a) * fr, 7.47, Math.cos(a) * fr];
+      B.beam(P0, [P0[0], 8.45, P0[2]], 0.09, { tint: T(0xe8e4da) });
+      if (k) for (const yy of [7.9, 8.35]) { const b2 = (a0 + ((a1 - a0) * (k - 1)) / nP) * D; B.beam([Math.sin(b2) * fr, yy, Math.cos(b2) * fr], [P0[0], yy, P0[2]], 0.07, { tint: T(0xe8e4da) }); }
+    }
+    // A gravel path slanting up the bank.
+    {
+      const pts = [];
+      for (let k = 0; k <= 10; k++) { const t = k / 10; pts.push([a0 + 2 + (a1 - a0 - 5) * t, 85.2 + 15.6 * t]); }
+      for (let k = 0; k < 10; k++) {
+        const [aa, ra] = pts[k], [ab, rb] = pts[k + 1], w = 0.85 / ((ra + rb) / 2) / D;
+        const P = (a, r) => [Math.sin(a * D) * r, profileTop('bank', r) + 0.04, Math.cos(a * D) * r];
+        B.quad([P(aa - w, ra), P(aa + w, ra), P(ab + w, rb), P(ab - w, rb)], [-Math.sin(aa * D) * 0.38, 0.92, -Math.cos(aa * D) * 0.38], [[0.1, vOf('GRASS', 0.9)], [0.2, vOf('GRASS', 0.9)], [0.2, vOf('GRASS', 0.1)], [0.1, vOf('GRASS', 0.1)]], { tint: T(0xc9b893) });
+      }
     }
   }
-  function tree(x, y, z, k) {
-    const m = new THREE.Matrix4();
-    B.geom(trunkGeo, m.compose(new THREE.Vector3(x, y + 2 * k, z), new THREE.Quaternion(), new THREE.Vector3(k, k, k)), { tint: T(0x4a3b2c) });
-    const greens = [0x2f5a2a, 0x3a6a30, 0x2a4f26, 0x456f35];
-    for (let i = 0; i < 3; i++) {
-      const s = (2.6 + rand() * 1.4) * k;
-      m.compose(new THREE.Vector3(x + (rand() - 0.5) * 2.4 * k, y + (5 + rand() * 2.5) * k, z + (rand() - 0.5) * 2.4 * k), new THREE.Quaternion(), new THREE.Vector3(s, s * 0.85, s));
-      B.geom(crownGeo, m, { tint: T(greens[Math.floor(rand() * greens.length)]), sky: 0.9 });
+  // Trees at 90-130 m: a trunk with two limbs and a canopy of jittered lumps
+  // (broadleaf dome, a narrow poplar, a layered conifer), each vertex tinted
+  // darker low and inside the crown, lighter on the sun side and the top.
+  function tree(x, y, z, k, kind = 'broad') {
+    const m = new THREE.Matrix4(), q = new THREE.Quaternion();
+    const greens = kind === 'conifer' ? [0x24432a, 0x2b4d30] : kind === 'poplar' ? [0x4b6f2e, 0x557a33] : [0x3a6a2c, 0x46772f, 0x335f2a, 0x527d34];
+    const base = new THREE.Color(greens[Math.floor(rand() * greens.length)]);
+    const h = (kind === 'poplar' ? 12 : kind === 'conifer' ? 11 : 8.5) * k, crownR = (kind === 'poplar' ? 1.8 : kind === 'conifer' ? 2.6 : 3.8) * k;
+    const sunH = new THREE.Vector2(sunDir.x, sunDir.z).normalize();
+    const tintFn = (px, py, pz, nx, ny, nz) => {
+      const up = clamp((py - y - h * 0.3) / (h * 0.75), 0, 1), out = clamp(Math.hypot(px - x, pz - z) / crownR, 0, 1);
+      const side = 0.5 + 0.5 * (nx * sunH.x + nz * sunH.y);
+      const f = (0.55 + 0.3 * up + 0.2 * out) * (0.85 + 0.25 * side) * (0.9 + 0.2 * Math.max(0, ny));
+      return [base.r * f, base.g * f, base.b * f];
+    };
+    const trunkH = kind === 'conifer' ? h * 0.35 : h * 0.55;
+    B.geom(trunkGeo, m.compose(new THREE.Vector3(x, y + trunkH / 2, z), q, new THREE.Vector3(k * 0.9, trunkH / 4, k * 0.9)), { tint: T(0x4a3d30), sky: 0.8 });
+    if (kind === 'broad') for (const s2 of [-1, 1]) { const ang = rand() * Math.PI * 2; B.beam([x, y + trunkH * 0.7, z], [x + Math.cos(ang) * 1.6 * k * s2, y + trunkH * 1.15, z + Math.sin(ang) * 1.6 * k * s2], 0.22 * k, { tint: T(0x4a3d30), sky: 0.7 }); }
+    if (kind === 'conifer') {
+      for (let i = 0; i < 4; i++) {
+        const t = i / 4, rr = crownR * (1 - t * 0.7), hh = h * 0.34;
+        q.setFromEuler(new THREE.Euler((rand() - 0.5) * 0.08, rand() * 6.3, (rand() - 0.5) * 0.08));
+        B.geom(coneGeo, m.compose(new THREE.Vector3(x, y + h * (0.3 + t * 0.55) + hh / 2, z), q, new THREE.Vector3(rr, hh, rr)), { tintFn });
+      }
+      return;
+    }
+    // Lumps: a lower ring round the trunk top and a few higher, all a bit different.
+    const lumps = kind === 'poplar' ? [[0, 0.5, 0, 1.0], [0, 0.72, 0, 0.9], [0, 0.9, 0, 0.7]] :
+      [[0.55, 0.55, 0, 0.62], [-0.5, 0.58, 0.3, 0.6], [0.1, 0.56, -0.6, 0.58], [-0.15, 0.6, 0.6, 0.55], [0.2, 0.8, 0.1, 0.62], [-0.3, 0.86, -0.2, 0.5], [0.35, 0.74, 0.45, 0.45]];
+    for (const [lx, ly, lz, ls] of lumps) {
+      const sc = ls * crownR * (0.85 + rand() * 0.3);
+      q.setFromEuler(new THREE.Euler(rand() * 6.3, rand() * 6.3, 0));
+      const sy = kind === 'poplar' ? sc * 2.2 : sc * 0.82;
+      B.geom(lumpGeo[Math.floor(rand() * 3)], m.compose(new THREE.Vector3(x + lx * crownR, y + ly * h, z + lz * crownR), q, new THREE.Vector3(sc, sy, sc)), { tintFn });
     }
   }
 
@@ -633,13 +723,19 @@ export function buildStadium(root, lights) {
     const nSeg = Math.ceil((s1 - s0) / 2.5), w = (s1 - s0) / nSeg;
     for (let k = 0; k < nSeg; k++) {
       const a0 = s0 + k * w, a1 = a0 + w, t = ROOF.t;
-      sweep(a0, a1, ROOF.rB, ROOF.yB, ROOF.rF, ROOF.yF, 'UNDER', 0.05, 0.95, { tint: C.roofUnder, uScale: 8, sky0: 1.5, sky1: 3.4 });   // lit from below by the sunlit field, darker deep inside
+      sweep(a0, a1, ROOF.rB, ROOF.yB, ROOF.rF, ROOF.yF, 'UNDER', 0.05, 0.95, { tint: C.roofUnder, uScale: 8, sky0: 1.3, sky1: 2.4, emit: 0.16 });   // lit from below by the sunlit field, darker deep inside
       sweep(a0, a1, ROOF.rF, ROOF.yF + t, ROOF.rB, ROOF.yB + t, 'UNDER', 0.95, 0.05, { tint: C.roofTop, uScale: 8 });
       sweep(a0, a1, ROOF.rF, ROOF.yF - 0.9, ROOF.rF, ROOF.yF + t + 0.6, 'PLAIN', 0.5, 0.5, { tint: C.steel });
       sweep(a0, a1, ROOF.rF, ROOF.yF + t + 0.6, ROOF.rF + 0.5, ROOF.yF + t + 0.6, 'PLAIN', 0.5, 0.5, { tint: C.steel });
       sweep(a0, a1, ROOF.rF + 0.5, ROOF.yF + t + 0.6, ROOF.rF + 0.5, ROOF.yF + t, 'PLAIN', 0.5, 0.5, { tint: C.steel });
       sweep(a0, a1, ROOF.rF + 0.5, ROOF.yF - 0.9, ROOF.rF, ROOF.yF - 0.9, 'PLAIN', 0.5, 0.5, { tint: C.steel, sky: 2.4 });
       sweep(a0, a1, ROOF.rB, ROOF.yB + t, ROOF.rB, ROOF.yB, 'PLAIN', 0.5, 0.5, { tint: C.steel });
+      // A catwalk under the deck with a lamp per bay (the rig you see from below).
+      { const rc = 95.6, yc = roofY(rc) - 1.1, P = (a, y) => [Math.sin(a * D) * rc, y, Math.cos(a * D) * rc];
+        B.beam(P(a0, yc), P(a1, yc), 0.35, { tint: T(0xc9cfd6), h: 0.22, sky: 2.6 });
+        const am = (a0 + a1) / 2, pm = P(am, yc - 0.35);
+        B.box(pm, [0.55, 0.45, 0.5], { rot: [0.5, am * D + Math.PI, 0], tint: T(0x5d646c), sky: 2.0 });
+        B.box([pm[0] * 0.995, pm[1] - 0.18, pm[2] * 0.995], [0.42, 0.12, 0.36], { rot: [0.5, am * D + Math.PI, 0], tint: T(0xfff2d8), emit: 1.6, fixed: [1, 1] }); }
       // Cladding between the top of the stand and the roof at the back.
       sweep(a0, a1, BOWL.outerR - 0.05, BOWL.top, BOWL.outerR - 0.05, ROOF.yB, 'CONC', 0.6, 0.1, { tint: T(0x7d858e), uScale: 4, sky: 1.8 });
     }
@@ -647,7 +743,7 @@ export function buildStadium(root, lights) {
     const endP = [[ROOF.rB, ROOF.yB], [ROOF.rF + 0.5, roofY(ROOF.rF + 0.5)], [ROOF.rF + 0.5, ROOF.yF - 0.9], [ROOF.rF, ROOF.yF - 0.9], [ROOF.rF, ROOF.yF + ROOF.t + 0.6], [ROOF.rF + 0.5, ROOF.yF + ROOF.t + 0.6], [ROOF.rF + 0.5, roofY(ROOF.rF + 0.5) + ROOF.t], [ROOF.rB, ROOF.yB + ROOF.t]];
     cap(s0, endP, -1, { tint: C.steel, band: 'PLAIN' });
     cap(s1, endP, 1, { tint: C.steel, band: 'PLAIN' });
-    for (let a = s0 + 2.5; a < s1 - 1; a += 5) truss(a);
+    for (let a = s0 + 2.5; a < s1 - 1; a += 5) { truss(a); const A = a * D, rc = 95.6; B.beam([Math.sin(A) * rc, roofY(rc) - 1.1, Math.cos(A) * rc], [Math.sin(A) * rc, roofY(rc) - 0.2, Math.cos(A) * rc], 0.08, { tint: C.steel, sky: 2.4 }); }
     // Flags along the back of the roof.
     for (let a = s0 + 5; a < s1 - 2; a += 10) flagpole(a, ROOF.rB - 0.6, ROOF.yB + ROOF.t, 7);
   }
@@ -666,7 +762,7 @@ export function buildStadium(root, lights) {
       if (prev != null) B.beam(P(prev, deck(prev)), P(r, chord(r)), 0.16, o);
       prev = r;
     }
-    B.beam(P(ROOF.rB - 0.5, ROOF.yB - 0.25), P(ROOF.rF + 0.6, ROOF.yF - 0.25), 0.35, { tint: T(0x8a929a), h: 0.5, sky: 2.4 });
+    B.beam(P(ROOF.rB - 0.5, ROOF.yB - 0.25), P(ROOF.rF + 0.6, ROOF.yF - 0.25), 0.35, { tint: T(0xb4bcc6), h: 0.5, sky: 3.0 });
     B.beam(P(ROOF.rB + 0.3, 0), P(ROOF.rB + 0.3, ROOF.yB + t), 0.7, { tint: C.steel });
   }
   function flagpole(aDeg, r, y, h) {
@@ -772,22 +868,28 @@ export function buildStadium(root, lights) {
     head.updateMatrixWorld(true);
     const hm = head.matrixWorld, q = head.quaternion;
     const at = (lx, ly, lz) => new THREE.Vector3(lx, ly, lz).applyMatrix4(hm);
-    // Four banked rows of six round lamps on bars, a cage frame behind; each row aims a little lower.
-    const fo = { tint: T(0x4a5058) };
-    for (const sx of [-1, 1]) B.beam(at(sx * 6.4, -3.9, -0.6).toArray(), at(sx * 6.4, 3.9, -0.6).toArray(), 0.3, fo);
-    B.beam(at(-6.4, 3.9, -0.6).toArray(), at(6.4, 3.9, -0.6).toArray(), 0.3, fo);
-    B.box(at(0, 0, -1.0).toArray(), [12.2, 7.4, 0.25], { quat: q, tint: T(0x30353c) });
+    // Four banked rows of six lamps, each in a galvanised housing under a
+    // visor, on a lattice frame (light steel, not a black slab against the
+    // sky); the lenses are lit, each row aims a little lower.
+    const fo = { tint: T(0xa9b0b8) }, galv = T(0x8b939c);
+    for (const sx of [-1, 1]) B.beam(at(sx * 6.5, -4.0, -0.7).toArray(), at(sx * 6.5, 4.0, -0.7).toArray(), 0.32, fo);
+    for (const sy of [-4.0, 4.0]) B.beam(at(-6.5, sy, -0.7).toArray(), at(6.5, sy, -0.7).toArray(), 0.32, fo);
+    for (const sx of [-1, 1]) B.beam(at(sx * 6.5, -4.0, -0.7).toArray(), at(-sx * 6.5, 4.0, -0.7).toArray(), 0.16, fo);
     for (let gy = 0; gy < 4; gy++) {
-      const ly = (gy - 1.5) * 1.8, lz = (gy - 1.5) * -0.25;
-      B.beam(at(-6.4, ly - 0.85, lz - 0.4).toArray(), at(6.4, ly - 0.85, lz - 0.4).toArray(), 0.22, fo);
+      const ly = (gy - 1.5) * 1.85, lz = (gy - 1.5) * -0.25;
+      B.beam(at(-6.5, ly - 0.8, lz - 0.45).toArray(), at(6.5, ly - 0.8, lz - 0.45).toArray(), 0.2, fo);
       const rq = q.clone().multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(0.08 * (1.5 - gy), 0, 0)));
       const n = new THREE.Vector3(0, 0, 1).applyQuaternion(rq);
+      // the visor over the row
+      B.box(at(0, ly + 0.78, lz + 0.15).toArray(), [12.6, 0.07, 0.95], { quat: rq.clone().multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.25, 0, 0))), tint: galv });
       for (let gx = 0; gx < 6; gx++) {
         const p = at((gx - 2.5) * 2.05, ly, lz);
-        B.geom(lampHousing, new THREE.Matrix4().compose(p, rq.clone().multiply(LAMP_AXIS), ONE), { tint: T(0x2b3036) });
-        B.geom(lampFace, new THREE.Matrix4().compose(p.clone().addScaledVector(n, 0.3), rq, ONE), { tint: T(0xfff4d6), emit: 2.4, fixed: [1, 1] });
+        B.geom(lampHousing, new THREE.Matrix4().compose(p, rq.clone().multiply(LAMP_AXIS), ONE), { tint: galv });
+        B.geom(lampBack, new THREE.Matrix4().compose(p.clone().addScaledVector(n, -0.3), rq.clone().multiply(LAMP_FLIP), ONE), { tint: galv });
+        B.geom(lampFace, new THREE.Matrix4().compose(p.clone().addScaledVector(n, 0.28), rq, ONE), { tint: T(0xfff8ea), emit: 3.2, fixed: [1, 1] });
       }
     }
+    glowAt.push(at(0, 0, 1.2), new THREE.Vector3(0, 0, 1).applyQuaternion(q));
     B.box([cx, H + 0.1, cz], [4.4, 0.25, 4.4], { tint: C.tower });
   }
 
@@ -806,6 +908,8 @@ export function buildStadium(root, lights) {
     fr.updateMatrixWorld(true);
     const at = (lx, ly, lz) => new THREE.Vector3(lx, ly, lz).applyMatrix4(fr.matrixWorld).toArray();
     B.box(at(0, 0, 0), [26.8, 11.8, 1.2], { quat: fr.quaternion, tint: T(0x1b1f26) });
+    for (const [x, y, w, h] of [[0, 5.75, 26.6, 0.18], [0, -5.75, 26.6, 0.18], [13.25, 0, 0.18, 11.5], [-13.25, 0, 0.18, 11.5]])
+      B.box(at(x, y, 0.62), [w, h, 0.06], { quat: fr.quaternion, tint: T(0xd6e4ff), emit: 1.4, fixed: [1, 1] });
     B.box(at(0, 6.3, -0.3), [27.4, 0.8, 1.9], { quat: fr.quaternion, tint: T(0x2b3038) });
     B.box(at(0, -6.3, -0.3), [27.4, 0.8, 1.9], { quat: fr.quaternion, tint: T(0x2b3038) });
     const rb = BOWL.outerR + 1.6, sa = Math.sin(a), ca = Math.cos(a), t = new THREE.Vector3(ca, 0, -sa);
@@ -888,6 +992,7 @@ export function buildStadium(root, lights) {
   // ---------------------------------------------------------- LED boards + ribbons
   const led = buildLed(ledR, ledH, (a) => wedge(a) ? 0 : 1, (a) => typeAt(a) === 'stand' && !wedge(a));
   group.add(led.mesh);
+  group.add(buildGlow(glowAt));
 
   root.add(group);
 
@@ -926,23 +1031,29 @@ function buildLed(ledR, ledH, liveAt, ribbonAt) {
       }`,
   });
   const pos = [], uv = [], led = [], idx = [];
-  const strip = (r, y0, y1, a0, a1, v0, v1, uLen, which, bright) => {
-    const A0 = a0 * D, A1 = a1 * D, base = pos.length / 3;
-    pos.push(Math.sin(A0) * r, y0, Math.cos(A0) * r, Math.sin(A1) * r, y0, Math.cos(A1) * r, Math.sin(A1) * r, y1, Math.cos(A1) * r, Math.sin(A0) * r, y1, Math.cos(A0) * r);
-    const u0 = -(A0 * r) / uLen, u1 = -(A1 * r) / uLen;               // negative: reads left to right from inside
-    uv.push(u0, v0, u1, v0, u1, v1, u0, v1);
-    for (let k = 0; k < 4; k++) led.push(which, bright);
-    idx.push(base, base + 2, base + 1, base, base + 3, base + 2);
+  // A panel shows exactly one ad (u over a quarter of the texture), in a few
+  // flat strips for the curve; the slide moves u on by a quarter, inside its row.
+  const panel = (r, y0, y1, a0, a1, row, ad, which, bright) => {
+    const v1 = 1 - row / 4 - 0.002, v0 = 1 - (row + 1) / 4 + 0.002, n = 3;
+    for (let k = 0; k < n; k++) {
+      const s0 = a0 + ((a1 - a0) * k) / n, s1 = a0 + ((a1 - a0) * (k + 1)) / n, A0 = s0 * D, A1 = s1 * D, base = pos.length / 3;
+      pos.push(Math.sin(A0) * r, y0, Math.cos(A0) * r, Math.sin(A1) * r, y0, Math.cos(A1) * r, Math.sin(A1) * r, y1, Math.cos(A1) * r, Math.sin(A0) * r, y1, Math.cos(A0) * r);
+      const u0 = (ad + 1 - k / n) / 4, u1 = (ad + 1 - (k + 1) / n) / 4;       // decreasing with angle: reads left to right from inside
+      uv.push(u0, v0, u1, v0, u1, v1, u0, v1);
+      for (let j = 0; j < 4; j++) led.push(which, bright);
+      idx.push(base, base + 2, base + 1, base, base + 3, base + 2);
+    }
   };
-  for (let k = 0; k < 240; k++) {
-    const a0 = k * 1.5, a1 = a0 + 1.5, live = liveAt(a0 + 0.75);
-    strip(ledR, 0.03, ledH - 0.02, a0, a1, 0.5, 1.0, 40, live ? 1 : 0, live ? 1 : 0.05);
-  }
-  for (let k = 0; k < 360; k++) {
-    const a0 = k, a1 = a0 + 1;
-    if (!ribbonAt(a0 + 0.5)) continue;
-    strip(BOWL.fasciaR - 0.1, BOWL.boxTop + 0.35, BOWL.fasciaTop - 0.3, a0, a1, 0.0, 0.5, 48, 2, 0.9);
-  }
+  const ring = (r, len, y0, y1, rowBase, keep, which, bright) => {
+    const n = Math.round((2 * Math.PI * r) / len), w = 360 / n;
+    for (let k = 0; k < n; k++) {
+      const a0 = k * w, a1 = a0 + w, st = keep(a0 + w / 2, a0 + 0.1, a1 - 0.1);
+      if (st === null) continue;
+      panel(r, y0, y1, a0, a1, rowBase + Math.floor((k % 8) / 4), k % 4, st ? which : 0, st ? bright : 0.05);
+    }
+  };
+  ring(ledR, 5, 0.03, ledH - 0.02, 0, (a) => !!liveAt(a), 1, 1);
+  ring(BOWL.fasciaR - 0.1, 6, BOWL.boxTop + 0.35, BOWL.fasciaTop - 0.3, 2, (a, e0, e1) => (ribbonAt(a) && ribbonAt(e0) && ribbonAt(e1) ? true : null), 2, 0.9);
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
@@ -952,6 +1063,49 @@ function buildLed(ledR, ledH, liveAt, ribbonAt) {
   const mesh = new THREE.Mesh(geo, mat);
   mesh.name = 'led';
   // Every 30 s the ads slide on by one (0.8 s); the ribbon a quarter-cycle later.
-  const step = (t, off) => { const c = (t + off) / 30, k = Math.floor(c), f = (c - k) * 30; return (k + smooth(29.2, 30, f)) / 8; };
+  const step = (t, off) => { const c = (t + off) / 30, k = Math.floor(c), f = (c - k) * 30; return (k + smooth(29.2, 30, f)) / 4; };
   return { mesh, tex, update(t) { uniforms.uFlip.value.set(step(t, 0) % 1, step(t, 7.5) % 1); } };
+}
+
+// The lamp heads' glow without post-processing: one camera-facing card per
+// head in one draw, additive, the falloff worked out in the shader (no
+// texture, no banding), strongest when you look into the lamps.
+function buildGlow(list) {
+  const pos = [], dir = [], corner = [], idx = [];
+  for (let i = 0; i < list.length; i += 2) {
+    const p = list[i], d = list[i + 1], k = (i / 2) * 4;
+    for (const [cx, cy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) { pos.push(p.x, p.y, p.z); dir.push(d.x, d.y, d.z); corner.push(cx, cy); }
+    idx.push(k, k + 1, k + 2, k, k + 2, k + 3);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('aDir', new THREE.Float32BufferAttribute(dir, 3));
+  geo.setAttribute('aCorner', new THREE.Float32BufferAttribute(corner, 2));
+  geo.setIndex(idx);
+  geo.computeBoundingSphere(); geo.boundingSphere.radius += 12;
+  const mat = new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false, fog: false,
+    vertexShader: `attribute vec2 aCorner; attribute vec3 aDir; varying vec2 vC; varying float vK;
+      void main() {
+        vec4 wp = modelMatrix * vec4(position, 1.0);
+        vec3 toEye = normalize(cameraPosition - wp.xyz);
+        vK = smoothstep(-0.1, 0.8, dot(toEye, normalize(mat3(modelMatrix) * aDir)));
+        vC = aCorner;
+        vec4 mv = viewMatrix * wp;
+        mv.xy += aCorner * vec2(9.5, 6.5) * (0.7 + 0.3 * vK);
+        gl_Position = projectionMatrix * mv;
+      }`,
+    fragmentShader: `varying vec2 vC; varying float vK;
+      void main() {
+        vec2 q = vC * vec2(1.0, 1.0);
+        float d2 = dot(q, q);
+        float a = (exp(-d2 * 5.0) * 0.55 + exp(-d2 * 18.0) * 0.45) * (1.0 - smoothstep(0.7, 1.0, d2));
+        gl_FragColor = vec4(vec3(1.0, 0.95, 0.84) * a * (0.12 + 0.3 * vK), 1.0);
+        #include <colorspace_fragment>
+      }`,
+  });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.name = 'floodlight-glow';
+  mesh.renderOrder = 2;
+  return mesh;
 }
