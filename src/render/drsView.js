@@ -129,6 +129,20 @@ function makeTube(maxRings, material) {
   };
 }
 
+// The stump-to-stump strip, flat on the pitch: faded to nothing over its last 2.5 m at each end
+// (vertex alpha), so it is a hint of the line rather than a painted stripe.
+function corridorGeometry(w, len) {
+  const n = 16, g = new THREE.PlaneGeometry(w, len, 1, n);
+  g.rotateX(-Math.PI / 2);
+  const P = g.attributes.position, col = new Float32Array(P.count * 4);
+  for (let i = 0; i < P.count; i++) {
+    const e = len / 2 - Math.abs(P.getZ(i)), a = Math.min(1, e / 2.5);
+    col[i * 4] = col[i * 4 + 1] = col[i * 4 + 2] = 1; col[i * 4 + 3] = a * a * (3 - 2 * a);
+  }
+  g.setAttribute('color', new THREE.BufferAttribute(col, 4));
+  return g;
+}
+
 // The delivery seen from its own end (the bowler reviewing his own ball) starts NEAR_CLEAR m in
 // front of the viewer, not at his head: drops the points inside that, starting the polyline where it
 // leaves the sphere. Returns how many points went.
@@ -298,7 +312,7 @@ export class DRSView {
     this._panel.mesh.add(this._screen.mesh);
 
     // Stump-to-stump corridor.
-    this._corridor = add(new THREE.Mesh(flat(new THREE.PlaneGeometry(half * 2, PITCH.length)), basic(HEX.blue, 0.32, ground)), 1, 'drs-corridor');
+    this._corridor = add(new THREE.Mesh(corridorGeometry(half * 2, PITCH.length), basic(HEX.blue, CORRIDOR, { ...ground, vertexColors: true })), 1, 'drs-corridor');
     this._corridor.position.set(0, 0.012, (PITCH.battingStumpsZ + PITCH.bowlingStumpsZ) / 2);
 
     // Delivery (solid) and projection (pale, see-through) tubes.
@@ -470,6 +484,7 @@ export class DRSView {
     this._contactT = null;
     this._cS = null;
     this._tTrack = LBW_T.track;
+    this._tDecision = Infinity;
     this._screen.mesh.visible = false;
     this.placeBoard(viewerPos);
     this._cues.push('stinger');
@@ -606,6 +621,7 @@ export class DRSView {
     }
     this._at(tDecision, 'decision', null);
     this._at(tDecision + T.showDecision, 'done', null);
+    this._tDecision = tDecision;
     this._events.sort((a, b) => a.t - b.t);
     this._drawBoard();
   }
@@ -673,6 +689,7 @@ export class DRSView {
       this._at(i === 0 ? LBW_T.onField : label === 'SNICKO' ? E.snickoRow : label === 'HOT SPOT' ? E.hotRow : LBW_T.extras, 'row', i);
     }
     const tDecision = E.end + 0.2;
+    this._tDecision = tDecision;
     this._at(tDecision, 'decision', null);
     this._at(tDecision + LBW_T.showDecision, 'done', null);
     this._events.sort((a, b) => a.t - b.t);
@@ -833,10 +850,16 @@ export class DRSView {
     if (this._screen.mesh.visible) this._screen.update();
   }
 
+  // The stump-to-stump strip: only while the ball is being tracked (in with the delivery, out as the
+  // decision comes up), never a stripe left painted down the pitch.
+  _corridorAt(t, t0) {
+    return CORRIDOR * clamp01((t - t0) / 0.6) * (1 - clamp01((t - (this._tDecision ?? Infinity)) / 0.6));
+  }
+
   _animateLbw() {
     const T = LBW_T, t = this._t;
     const pulse = 1 + 0.08 * Math.sin(this._clock * 9);
-    this._corridor.material.opacity = CORRIDOR * clamp01(t / 0.8);
+    this._corridor.material.opacity = this._corridorAt(t, this._tTrack);
 
     // The delivery, eased so it settles into the pad.
     const u = clamp01((t - this._tTrack) / T.toImpact);
@@ -861,7 +884,7 @@ export class DRSView {
   // tip goes with the camera frame being shown (on to the bat and past it).
   _animateCaught() {
     const t = this._t, d = this._delivery;
-    this._corridor.material.opacity = CORRIDOR * clamp01(t / 0.8);
+    this._corridor.material.opacity = this._corridorAt(t, 0.3);
     const u = clamp01((t - 0.3) / (EDGE_T.start - 0.35));
     let s = this._cPreS * u * (2 - u);
     const tr = this._edge.trace;

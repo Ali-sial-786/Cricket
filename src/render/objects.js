@@ -447,12 +447,12 @@ function scuffTexture() {
   let seed = 5; const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
   // (the canvas is stretched to 0.15 x 0.25 m: circles drawn here are ovals along the ball's line)
   // a halo of disturbed dust, thrown forward (toward the bottom of the canvas = +z)
-  const halo = g.createRadialGradient(64, 70, 8, 64, 70, 60);
+  const halo = g.createRadialGradient(64, 70, 8, 64, 70, 50);
   halo.addColorStop(0, 'rgba(150,122,80,0.55)'); halo.addColorStop(0.55, 'rgba(160,132,90,0.28)'); halo.addColorStop(1, 'rgba(160,132,90,0)');
   g.fillStyle = halo; g.fillRect(0, 0, S, S);
   for (let i = 0; i < 140; i++) {
-    const a = (rnd() - 0.5) * 1.4, d = 26 + rnd() * 36;
-    g.fillStyle = `rgba(${rnd() < 0.5 ? '120,95,60' : '240,228,196'},${0.25 + rnd() * 0.35})`;
+    const a = (rnd() - 0.5) * 1.4, d = 22 + rnd() * 26;
+    g.fillStyle = `rgba(${rnd() < 0.65 ? '120,98,66' : '214,200,166'},${0.2 + rnd() * 0.3})`;
     g.fillRect(64 + Math.sin(a) * d - 1, 60 + Math.cos(a) * d - 1, 1.5 + rnd() * 2, 1.5 + rnd() * 2);
   }
   // the pressed, darker scuff where the ball hit, and its seam's line across it
@@ -460,6 +460,13 @@ function scuffTexture() {
   core.addColorStop(0, 'rgba(88,66,38,0.95)'); core.addColorStop(0.55, 'rgba(104,80,48,0.8)'); core.addColorStop(1, 'rgba(110,86,52,0)');
   g.fillStyle = core; g.beginPath(); g.arc(64, 56, 34, 0, Math.PI * 2); g.fill();
   g.strokeStyle = 'rgba(52,38,20,0.6)'; g.lineWidth = 2.5; g.beginPath(); g.moveTo(44, 52); g.lineTo(84, 60); g.stroke();
+  // Nothing reaches the quad's edge: everything fades out by 0.42 of the canvas from its middle
+  // (no edge and no mip bleed at any distance; what filtering pulls in from the transparent
+  // texels is at an alpha too low to see).
+  g.globalCompositeOperation = 'destination-in';
+  const mask = g.createRadialGradient(64, 62, 30, 64, 62, 56);
+  mask.addColorStop(0, 'rgba(0,0,0,1)'); mask.addColorStop(1, 'rgba(0,0,0,0)');
+  g.fillStyle = mask; g.fillRect(0, 0, S, S);
   _scuffTex = new THREE.CanvasTexture(c); _scuffTex.colorSpace = THREE.SRGBColorSpace; _scuffTex.anisotropy = 4;
   return _scuffTex;
 }

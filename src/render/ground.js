@@ -228,7 +228,7 @@ function macroTexture() {
           // Ghost creases and the repaired, re-seeded foot holes.
           g.strokeStyle = 'rgba(235,235,225,0.13)'; g.lineWidth = 0.05;
           g.beginPath(); g.moveTo(ex - 1.1, sz + dir * PITCH.poppingOffset); g.lineTo(ex + 1.1, sz + dir * PITCH.poppingOffset); g.stroke();
-          for (const fx of [-0.45, 0.45]) blob(g, ex + fx, sz + dir * (PITCH.poppingOffset + 0.3), 0.32, 0.45, [162, 125, 96], 0.55);
+          for (const fx of [-0.3, 0.3]) blob(g, ex + fx, sz + dir * (PITCH.poppingOffset - 0.15), 0.28, 0.4, [154, 150, 112], 0.35);
           blob(g, ex, sz + dir * 0.6, 0.7, 0.9, [176, 161, 121], 0.3);
         } else blob(g, ex, sz + dir * 0.8, 0.6, 0.9, [162, 172, 108], 0.18);
       }
@@ -344,10 +344,11 @@ function pitchTexture() {
   }
   // Ball marks on a good length at both ends, mostly in the off-stump channel.
   for (const [sz, dir] of [[PITCH.battingStumpsZ, -1], [PITCH.bowlingStumpsZ, 1]]) {
-    for (let i = 0; i < 70; i++) {
-      const x = -0.15 + r() * 0.65 + (r() - 0.5) * 0.3, z = sz + dir * (3.5 + r() * 5.5);
-      g.fillStyle = rgb([128, 104, 70], 0.35 + r() * 0.3); g.beginPath(); g.ellipse(x, z, 0.012 + r() * 0.01, 0.02 + r() * 0.015, 0, 0, Math.PI * 2); g.fill();
-      g.fillStyle = rgb([224, 210, 170], 0.25); g.beginPath(); g.ellipse(x + 0.006, z + dir * 0.02, 0.01, 0.012, 0, 0, Math.PI * 2); g.fill();
+    // (pressed, not stained: a muted darker clay, all sizes, drawn out along the ball's skid)
+    for (let i = 0; i < 60; i++) {
+      const x = -0.15 + r() * 0.65 + (r() - 0.5) * 0.3, z = sz + dir * (3.5 + r() * 5.5), w = 0.006 + r() * r() * 0.016, l = w * (1.4 + r() * 1.6);
+      g.fillStyle = rgb([158, 146, 116], 0.22 + r() * 0.25); g.beginPath(); g.ellipse(x, z, w, l, (r() - 0.5) * 0.3, 0, Math.PI * 2); g.fill();
+      g.fillStyle = rgb([224, 210, 170], 0.2); g.beginPath(); g.ellipse(x + 0.004, z + dir * l, w * 0.8, w, 0, 0, Math.PI * 2); g.fill();
     }
   }
   // Each end: the batter's scuffed crease and guard mark, the bowlers' foot
@@ -356,28 +357,40 @@ function pitchTexture() {
   for (const [sz, dir] of [[PITCH.battingStumpsZ, -1], [PITCH.bowlingStumpsZ, 1]]) {
     const pop = sz + dir * PITCH.poppingOffset;
     // A scrape: a narrow darker gouge with the loosened dust kicked lighter beside it.
+    // (a few short stud and toe drags with ragged ends, in a muted darker clay - scuffed turf and dust,
+    // not a round stain - and the loosened dust kicked lighter beside them)
     const scuff = (x, z, rx, rz, a, dark = true) => {
       const rot = (r() - 0.5) * 0.9, w = Math.min(rx, rz) * 0.45, l = Math.max(rx, rz);
-      blob(g, x, z, l, w, dark ? [146, 118, 80] : [222, 206, 164], a * 0.9, rot + Math.PI / 2);
-      blob(g, x + 0.02, z + 0.015, l * 0.8, w * 0.9, [226, 212, 172], a * 0.5, rot + Math.PI / 2);
-      if (dark) blob(g2, x, z, l, w, [0, 0, 0], a);
+      blob(g, x + 0.02, z + 0.015, l * 0.8, w * 0.9, [226, 212, 172], a * 0.45, rot + Math.PI / 2);
+      if (!dark) { blob(g, x, z, l, w, [222, 206, 164], a * 0.8, rot + Math.PI / 2); return; }
+      for (let k = 0, n = 2 + Math.floor(r() * 3); k < n; k++) {
+        const ox = (r() - 0.5) * w * 1.6, oz = (r() - 0.5) * l * 1.2, sl = l * (0.25 + r() * 0.4), sw = w * (0.18 + r() * 0.3);
+        blob(g, x + ox, z + oz, sl, sw, [156, 144, 116], a * (1.1 + r() * 0.7), rot + Math.PI / 2 + (r() - 0.5) * 0.5);
+      }
+      blob(g2, x, z, l, w, [0, 0, 0], a);
     };
-    for (let i = 0; i < 90; i++) scuff((r() - 0.5) * 1.4, pop + dir * (r() - 0.3) * 1.2, 0.05 + r() * 0.12, 0.04 + r() * 0.1, 0.18 + r() * 0.2, r() < 0.8);
+    // The batters' wear: feet planted at the crease (mostly just behind it, where they take guard) and
+    // the front foot's strides a stride ahead, near the line of the stumps - not spread across the width.
+    for (let i = 0; i < 90; i++) {
+      const front = r() < 0.4, x = -0.22 + r() * 0.62 + (r() - 0.5) * 0.12;
+      scuff(x, pop + dir * (front ? 0.25 + r() * 0.65 : -0.45 + r() * 0.5), 0.04 + r() * 0.09, 0.04 + r() * 0.08, 0.16 + r() * 0.18, r() < 0.8);
+    }
     for (let i = 0; i < 50; i++) scuff((r() - 0.5) * 0.9, sz + dir * r() * 1.1, 0.04 + r() * 0.1, 0.04 + r() * 0.08, 0.15 + r() * 0.15);
     g.strokeStyle = rgb([118, 92, 60], 0.6); g.lineWidth = 0.012;
     g.beginPath(); g.moveTo(-0.04, pop - dir * 0.05); g.lineTo(-0.04, pop - dir * 0.3); g.stroke();
     for (const sx of [-1, 1]) {
-      // Foot holes: dug-out ovals with a dark floor and a lighter crumbled rim.
-      const fx = sx * (0.42 + r() * 0.12), fz = pop + dir * 0.18;
-      // (dug by many landings: a ragged cluster of gouges along the stride, loose dust round it)
-      blob(g, fx, fz, 0.22, 0.36, [220, 204, 164], 0.4);
-      for (let i = 0; i < 14; i++) {
-        const gx = fx + (r() - 0.5) * 0.14, gz = fz + (r() - 0.5) * 0.26, w = 0.025 + r() * 0.04, l = 0.05 + r() * 0.08;
-        g.fillStyle = rgb([156, 126, 88], 0.28 + r() * 0.25);
-        g.beginPath(); g.ellipse(gx, gz, w, l, (r() - 0.5) * 0.8, 0, Math.PI * 2); g.fill();
+      // Foot holes: where the bowlers' front feet land, heel just behind the popping crease and close to
+      // the line of the stumps (over and round the wicket), dug by many landings: a ragged cluster of
+      // stud gouges along the stride in a muted darker clay, loose dust round it.
+      const fx = sx * (0.22 + r() * 0.12), fz = pop - dir * (0.12 + r() * 0.1);
+      blob(g, fx, fz, 0.2, 0.32, [220, 204, 164], 0.35);
+      for (let i = 0; i < 18; i++) {
+        const gx = fx + (r() - 0.5) * 0.16, gz = fz + (r() - 0.5) * 0.3, w = 0.008 + r() * 0.02, l = 0.02 + r() * 0.05;
+        g.fillStyle = rgb([158, 146, 118], 0.3 + r() * 0.28);
+        g.beginPath(); g.ellipse(gx, gz, w, l, (r() - 0.5) * 1.0, 0, Math.PI * 2); g.fill();
       }
-      blob(g, fx, fz + dir * 0.03, 0.05, 0.09, [126, 98, 66], 0.35);
-      blob(g2, fx, fz, 0.18, 0.3, [0, 0, 0], 0.9);
+      blob(g, fx, fz + dir * 0.03, 0.045, 0.08, [150, 138, 112], 0.25);
+      blob(g2, fx, fz, 0.16, 0.28, [0, 0, 0], 0.85);
       // Follow-through: scuffs angling down the side, away from the danger area.
       for (let i = 0; i < 26; i++) { const t = r(); scuff(sx * (0.7 + t * 0.55) + (r() - 0.5) * 0.25, pop + dir * (0.6 + t * 4.5), 0.06 + r() * 0.1, 0.08 + r() * 0.14, 0.18 + r() * 0.18); }
       // Run-on past the stumps (the bowler's last strides).

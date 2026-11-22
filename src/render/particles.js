@@ -54,6 +54,13 @@ export class Particles {
           vA = alpha; vC = color; vK = kind;
           vec4 mv = modelViewMatrix * vec4(position, 1.0);
           gl_Position = projectionMatrix * mv;
+          // A sprite is a flat square facing you at its centre's depth: a big dust puff on the ground
+          // went half under the turf, and the depth test cut it off along a hard, straight line (a pale
+          // stepped rectangle where the ball pitched). Its depth is taken twice its size nearer to you
+          // (a grazing look at the turf needs that much; at most 1.2 m), so the whole of it clears the
+          // ground it sits on; it still goes behind anything really in front.
+          vec4 near = projectionMatrix * vec4(mv.xy, min(mv.z + min(size * 2.0, 1.2), -0.05), 1.0);
+          gl_Position.z = max(near.z / near.w, -0.999) * gl_Position.w;
           gl_PointSize = alpha > 0.001 ? size * projectionMatrix[1][1] * uHalfH / max(0.1, -mv.z) : 0.0;
         }`,
       fragmentShader: `
