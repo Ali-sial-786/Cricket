@@ -48,6 +48,7 @@ export function defaultSettings() {
     ballFinder: true,              // arrow / halo / landing ring to find the ball after a hit
     replay: 'highlights',          // highlights (wickets, boundaries, close calls) | every (every ball) | off
     replayV: 2,
+    ceremonies: 'on',              // on | short (cards only) | off: the intro, toss, wicket, innings-break and result beats (ceremony.js)
     commentary: true,
     seenHowTo: false,
     paceMultiplier: CONFIG.bowling.paceMultiplier,

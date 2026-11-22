@@ -3,7 +3,7 @@
 // graphics (score bug, big screen, stings, scorecard) are broadcast.js.
 import * as THREE from 'three';
 import { CanvasPanel, fitText, fillFit, reportOverflow, FONT } from './panel.js';
-import { C, font, rr, surface, caps, drawIcon, drawWordmark, vgrad, hgrad, slant } from './theme.js';
+import { C, font, rr, surface, caps, drawIcon, drawWordmark, vgrad, hgrad, slant, teamBlock, teamByName } from './theme.js';
 import { matchState, drawScoreBug, drawBigBar, drawBigScreen, drawPromptCard, drawResultBody, stingKind, shade } from './broadcast.js';
 import { drawHintCard, drawController, drawKey } from './controllerHint.js';
 import { PLAYER_BOWLERS, PLAYER_BOWLER_ORDER } from '../game/bowlerTypes.js';
@@ -12,6 +12,8 @@ import { chaseTarget } from '../game/scoring.js';
 import { CONFIG } from '../config.js';
 import { buildVisionChart } from './visionChart.js';
 import { QUALITY_NAMES } from '../render/quality.js';
+import { CEREMONIES, CEREMONY_NAMES, drawCoinIcon } from '../game/ceremony.js';
+import { SQUADS } from '../game/squad.js';
 
 const fmt1 = (v) => (Math.round(v * 10) / 10).toFixed(1);
 const signed = (v, d = 2) => (v > 0 ? '+' : '') + v.toFixed(d);
@@ -22,6 +24,9 @@ const VIEW_NAMES = { eyes: 'your eyes', helmet: 'eyes + helmet grille', behind: 
 const REPLAYS = ['off', 'highlights', 'every'];
 const REPLAY_NAMES = { off: 'off', highlights: 'highlights', every: 'every ball', bowler: 'highlights' };
 const TURNS = ['smooth', 'snap', 'off'];
+// The result page's "change mode": the mode it offers after each.
+const NEXT_MODE = { chase: 'over', over: 'match', match: 'chase', nets: 'chase', bowlnets: 'over' };
+const MODE_NAMES = { chase: 'Run Chase', over: 'Bowl an Over', match: 'Match', nets: 'Nets', bowlnets: 'Bowling nets' };
 // Graphics setting: 'auto' shows the level the governor is on now.
 const qualityName = (g, q) => (q === 'auto' || !q ? `Auto · ${g.perf ? g.perf.spec.name : 'Ultra'}` : q[0].toUpperCase() + q.slice(1));
 const DEG = Math.PI / 180;
@@ -87,6 +92,7 @@ export class UI {
     game.env.stadium.add(this.board.mesh);
     this.boardData = { lines: ['CREASE VR', 'Nets'] };
     this.boardSting = null;      // { kind, word, sub, until }: a call up on the screen
+    this.boardOver = null;       // { lines, until }: a beat's card on the screen (ceremony.js)
     this._boardReplay = false;
 
     // Laser pointer.
@@ -189,6 +195,10 @@ export class UI {
     this.boardSting = { kind, word, sub, until: this.clock + STING_SECS };
     this.drawBoard();
   }
+
+  // A beat's sting / card on the stadium screen (ceremony.js), for `secs`; the scoreboard comes back after.
+  bigSting(kind, word, sub, secs = STING_SECS) { this.boardSting = { kind, word, sub, until: this.clock + secs }; this.drawBoard(); }
+  boardCard(lines, secs = 6) { this.boardOver = lines ? { lines: lines.slice(), until: this.clock + secs } : null; this.drawBoard(); }
 
   // Show control hints (up to three) for `secs`. Same set again just extends it.
   hints(list, secs = 4) {
@@ -335,6 +345,8 @@ export class UI {
       // above the helmet grille's top bar, which is hidden while a menu is open.
       m.position.set(head.p.x + fwd.x * 1.1, Math.max(1.0, head.p.y - 0.04), head.p.z + fwd.z * 1.1);
       m.lookAt(head.p.x, m.position.y, head.p.z);
+      // A compact card (the toss in the middle): smaller and low, below the captain's face, tipped toward you.
+      if (this.compact()) { m.position.y = Math.max(0.75, head.p.y - 0.42); m.lookAt(head.p.x, head.p.y, head.p.z); }
     } else {
       // Desktop: centre it in front of the camera.
       const cam = this.game.camera;
@@ -343,8 +355,11 @@ export class UI {
       const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(cam.getWorldQuaternion(new THREE.Quaternion()));
       m.position.copy(p).addScaledVector(fwd, 1.0);
       m.quaternion.copy(cam.getWorldQuaternion(new THREE.Quaternion()));
+      if (this.compact()) m.position.addScaledVector(new THREE.Vector3(0, 1, 0).applyQuaternion(m.quaternion), -0.2);
     }
+    m.scale.setScalar(this.compact() ? 0.62 : 1);
   }
+  compact() { return this.page === 'result' && !!(this.game.resultInfo && this.game.resultInfo.compact); }
 
   closeMenu() {
     this.pendingPick = null;
@@ -394,15 +409,31 @@ export class UI {
       btn('ok', { x: PW * 0.3, y: PH * 0.76, w: PW * 0.4, h: 84 }, 'My space is clear', () => g.actions.safetyOk(), { variant: 'primary', icon: 'check', size: 32 });
       P.set(W, '');
     } else if (this.page === 'calibrate') {
-      const cal = g.calib;
+      const cal = g.calib, adjust = cal.step === 'adjust';
       header('Bat calibration', 'calibrate');
-      const text = cal.step === 'capture'
-        ? 'Hold the RIGHT controller like a bat handle.\nStand in your stance and look at the bowler.\nLet the bat hang straight down, face to the bowler,\nthen press A (or left trigger).'
-        : `Check the bat in your hand. Fine-tune its angle with\nthe LEFT thumbstick (up/down): ${signed(s.batAngleDeg, 0)}°\nPress A to save, B to capture again.`;
-      custom((c) => surface(c, M, 116, CW, 316, 20, { top: '#16233b', bottom: '#111c30', lift: false }));
-      label(PW / 2, 170, text, { align: 'center', size: 31, color: C.text });
+      // Left: the pose, drawn. Right: the steps.
+      const dw = 400, top = 116, dh = PH - 140 - 16 - top;
+      custom((c) => {
+        surface(c, M, top, dw, dh, 20, { top: '#16233b', bottom: '#111c30', lift: false });
+        drawCalibPose(c, M, top, dw, dh, adjust ? s.batAngleDeg : null);
+        surface(c, M + dw + 16, top, CW - dw - 16, dh, 20, { top: '#16233b', bottom: '#111c30', lift: false });
+      });
+      const steps = adjust
+        ? [['Check the bat in your hand', 'it should sit as a bat does in your grip'], [`[L STICK] up / down: tilt ${signed(s.batAngleDeg, 0)}°`, 'until the blade hangs straight'], ['[A] save', '[B] capture again']]
+        : [['Hold the [RIGHT] controller', 'like a bat handle: top hand, knuckles forward'], ['Let the bat hang straight down', 'face toward the bowler, in your stance'], ['Look at the bowler', 'head still, eyes level'], ['Press [A]', 'or the left trigger']];
+      custom((c) => {
+        const x0 = M + dw + 40, wmax = CW - dw - 70, rowH = Math.min(96, (dh - 30) / steps.length);
+        steps.forEach(([t, sub], i) => {
+          const y = top + 28 + i * rowH + rowH * 0.32;
+          c.beginPath(); c.arc(x0 + 18, y, 18, 0, Math.PI * 2); c.fillStyle = 'rgba(255,201,60,0.18)'; c.fill();
+          c.fillStyle = C.accent; c.font = font(900, 22); c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(String(i + 1), x0 + 18, y + 1);
+          drawRich(c, t, x0 + 50, y, 29, wmax - 50, 800);
+          c.fillStyle = C.text3; c.textAlign = 'left';
+          fillFit(c, sub, x0 + 50, y + 34, wmax - 50, 500, 22, 16, 'menu');
+        });
+      });
       const bw = (CW - 2 * 16) / 3, by = PH - 140, bh = 76;
-      if (cal.step === 'adjust') {
+      if (adjust) {
         btn('cal-redo', { x: M, y: by, w: bw, h: bh }, 'Recapture', () => g.actions.calibRedo(), { icon: 'refresh' });
         btn('cal-save', { x: M + bw + 16, y: by, w: bw, h: bh }, 'Save', () => g.actions.calibSave(), { active: true, variant: 'primary', icon: 'check' });
       } else {
@@ -426,11 +457,11 @@ export class UI {
       const cardR = (i) => ({ x: M + (i % 3) * (cw + 14), y: cy0 + Math.floor(i / 3) * (chh + 14), w: cw, h: chh });
       const cur = playing ? g.session.kind : null;
       const mode = (i, id, text, sub, icon, fn) => btn(id, cardR(i), text, fn, { variant: 'card', icon, sub, size: 30, tag: cur === id || (id === 'nets' && cur === 'nets') || (id === 'bnets' && cur === 'bowlnets') ? 'IN PLAY' : '' });
-      mode(0, 'nets', 'Nets: Batting', 'Face the bowling machine', 'bat', () => g.actions.start('nets'));
-      mode(1, 'bnets', 'Nets: Bowling', 'Bowl at a batter, no score', 'ball', () => g.actions.start('bowlnets'));
-      mode(2, 'chase', 'Run Chase', `Chase ${chaseTarget(s.difficulty, s.overs)} in ${s.overs} over${s.overs > 1 ? 's' : ''}`, 'target', () => g.actions.start('chase'));
-      mode(3, 'over', 'Bowl an Over', 'Defend a total in six balls', 'over', () => g.actions.start('over'));
-      mode(4, 'match', 'Match', `${s.overs} overs a side, 5 wickets`, 'trophy', () => g.actions.start('match'));
+      mode(0, 'nets', 'Nets: Batting', 'Face the bowling machine', 'bat', () => g.actions.play('nets'));
+      mode(1, 'bnets', 'Nets: Bowling', 'Bowl at a batter, no score', 'ball', () => g.actions.play('bowlnets'));
+      mode(2, 'chase', 'Run Chase', `Chase ${chaseTarget(s.difficulty, s.overs)} in ${s.overs} over${s.overs > 1 ? 's' : ''}`, 'target', () => g.actions.play('chase'));
+      mode(3, 'over', 'Bowl an Over', 'Defend a total in six balls', 'over', () => g.actions.play('over'));
+      mode(4, 'match', 'Match', `${s.overs} overs a side, 5 wickets`, 'trophy', () => g.actions.play('match'));
       mode(5, 'machine', 'Bowling machine', 'Pace, line, swing and spin', 'machine', () => this.go('machine'));
       // Secondary.
       const sw = (CW - 2 * 14) / 3, sy = 450, sh = 60;
@@ -455,63 +486,50 @@ export class UI {
       P.set(W, '');
     } else if (this.page === 'howto') {
       const tab = this.howTab || 0;
+      // Each action: the controller with its button lit (or an icon), what it is, what it does.
       const pages = [
         ['Batting', 'bat', [
-          'The right controller is the bat.',
-          'Bat face at contact: straight = along the ground, open = in the air.',
-          'Hold [TRIGGER]: stride down the pitch. More power, harder to time.',
-          'Miss it when you stride and the keeper can stump you.',
-          'Hold [GRIP]: sweep. Swing to the off side = reverse sweep.',
-          '[TRIGGER] + [GRIP]: come down and slog-sweep.',
-          '[L STICK] (or really stepping): move in your crease.',
+          { hand: 'R', title: 'YOUR BAT', text: 'The right controller is the bat. Face square: along the ground; open: in the air.' },
+          { hand: 'R', button: 'trigger', title: 'STEP OUT', text: 'Hold: stride down the pitch. More power, harder to time; miss and you can be stumped.' },
+          { hand: 'R', button: 'grip', title: 'SWEEP', text: 'Hold and swing low. Swing to the off side for the reverse sweep.' },
+          { hand: 'R', button: 'trigger', button2: 'grip', title: 'SLOG-SWEEP', text: 'Trigger and grip together: come down the pitch and slog-sweep.' },
+          { hand: 'L', button: 'stick', title: 'MOVE', text: 'Left stick, or really step: move about in your crease.' },
+          { hand: 'L', button: 'trigger', title: 'NEXT BALL', text: 'Ball dead? The left trigger skips the rest (and the replay).' },
         ]],
         ['Running', 'run', [
-          'After you hit it: [X] = RUN.',
-          'The batters stop after each run. [X] again for another.',
-          '[Y] = turn back.  Hold left [TRIGGER] = DIVE for the line.',
-          'Ball dead? Left [TRIGGER] skips to the next ball.',
-          'Between balls: [B] shows the last ball again.',
-          'A throw that beats you home is a RUN OUT.',
-          'Close run-outs and stumpings go to the third umpire.',
-          'Given out LBW? Press [A] to review.',
-          'NO BALL: the next ball is a FREE HIT.',
-          'On a free hit you can only be run out.',
+          { hand: 'L', button: 'a', title: 'RUN', text: 'After you hit it, X to run. The batters stop after each run: X again for another.' },
+          { hand: 'L', button: 'b', title: 'GO BACK', text: 'Y turns the batters back.' },
+          { hand: 'L', button: 'trigger', title: 'DIVE', text: 'Hold the left trigger to dive for the line.' },
+          { hand: 'R', button: 'a', title: 'REVIEW', text: 'Given out LBW? A sends it to the third umpire.' },
+          { hand: 'R', button: 'b', title: 'LAST BALL AGAIN', text: 'Between balls, B shows the last ball again.' },
+          { icon: 'ball', title: 'NO BALL', text: 'The next ball is a FREE HIT: you can only be run out off it.' },
         ]],
         ['Bowling', 'ball', [
-          'Pick your bowler at the start of each over.',
-          '[A] / [B]: next / previous delivery (shown on the card).',
-          '[L STICK]: move the target on the pitch.',
-          'Hold [GRIP] (or left trigger) to run in. Let go early to pull out;',
-          'near the crease you are committed.',
-          'Hold [TRIGGER], bowl overarm, let go in your stride.',
-          'Arm speed + run-up speed = pace.',
-          'Stay behind the crease, or it is a no-ball.',
-          '[R STICK]: look around. Click it: face forward.',
+          { hand: 'R', button: 'grip', title: 'RUN IN', text: 'Hold grip (or left trigger) to run in. Let go early to pull out.' },
+          { hand: 'R', button: 'trigger', title: 'BOWL', text: 'Hold the trigger, bowl overarm, let go in your stride. Arm + run-up = pace.' },
+          { hand: 'R', button: 'ab', title: 'DELIVERY', text: 'A / B: next / previous delivery, on the card. Pick your bowler each over.' },
+          { hand: 'L', button: 'stick', title: 'AIM', text: 'Move the target on the pitch.' },
+          { hand: 'R', button: 'stickX', title: 'LOOK', text: 'Right stick: look around. Click it to face forward.' },
+          { icon: 'stumps', title: 'THE CREASE', text: 'Land behind the popping crease, or it is a no-ball.' },
         ]],
         ['Fielding', 'glove', [
-          'Catch chance: time slows and you become the fielder.',
-          'Reach out and get a hand to the ball. No button.',
-          'A fielder picks up: [A] = throw to the keeper,',
-          "[B] = throw to the bowler's end.",
-          'Beat the batter home for a RUN OUT.',
-          'Bowl slow and batters come down the pitch:',
-          'beat the bat and the keeper STUMPS them.',
-          'Turned-down LBW? Press [A] to review.',
+          { hand: 'both', title: 'CATCH', text: 'Time slows and you are the fielder: get a hand to the ball. No button.' },
+          { hand: 'R', button: 'a', title: 'TO KEEPER', text: 'A fielder has it: A throws to the keeper.' },
+          { hand: 'R', button: 'b', title: "BOWLER'S END", text: "B throws to the bowler's end. Beat the batter home: run out." },
+          { icon: 'glove', title: 'STUMPING', text: 'Bowl slow and they come down the pitch: beat the bat and the keeper stumps them.' },
+          { hand: 'R', button: 'a', title: 'REVIEW', text: 'Turned-down LBW? A reviews it.' },
+          { hand: 'L', button: 'click', title: 'MENU', text: 'Click the left stick: the menu (play pauses).' },
         ]],
       ];
       const done = () => { s.seenHowTo = true; g.saveSettings(); this.go('main'); };
       header('How to play', 'help', done);
       const tw = (CW - 3 * 12) / 4;
       pages.forEach((pg, i) => btn('tab' + i, { x: M + i * (tw + 12), y: 110, w: tw, h: 56 }, pg[0], () => { this.howTab = i; this.go('howto'); }, { active: i === tab, variant: 'tab', icon: pg[1], size: 25 }));
-      const lines = pages[tab][2];
+      const tiles = pages[tab][2];
       custom((c) => {
-        surface(c, M, 182, CW, PH - 182 - 52, 18, { top: '#15223a', bottom: '#101a2d', lift: false });
-        const top = 200, rowH = Math.min(50, (PH - 52 - 18 - top) / lines.length);
-        lines.forEach((ln, i) => {
-          const y = top + i * rowH + rowH / 2, cont = /^[a-z]/.test(ln);
-          if (!cont) { c.beginPath(); c.arc(M + 30, y, 5, 0, Math.PI * 2); c.fillStyle = C.accent; c.fill(); }
-          drawRich(c, ln, M + 52, y, 27, CW - 76);
-        });
+        const top = 180, gap = 12, cols = 2, rows = Math.ceil(tiles.length / cols);
+        const tw2 = (CW - gap) / cols, th = (PH - 46 - top - gap * (rows - 1)) / rows;
+        tiles.forEach((t, i) => drawHowTile(c, M + (i % cols) * (tw2 + gap), top + Math.floor(i / cols) * (th + gap), tw2, th, t));
       });
       hint('Buttons are for the Touch controllers · the page beside the pitch says the desktop keys');
       P.set(W, '');
@@ -535,7 +553,7 @@ export class UI {
       const by = y0 + 5 * (rh + gap) + 14;
       tog('auto', { x: M, y: by, w: cw, h: 72 }, 'Auto-feed', s.autoFeed, () => g.actions.toggle('autoFeed'), { icon: 'refresh' });
       const inNets = g.session && g.session.kind === 'nets';
-      btn('go', { x: M + cw + 16, y: by, w: cw, h: 72 }, inNets ? 'Resume' : 'Nets now', () => (inNets ? this.closeMenu() : g.actions.start('nets')), { active: true, variant: 'primary', icon: 'play', size: 30 });
+      btn('go', { x: M + cw + 16, y: by, w: cw, h: 72 }, inNets ? 'Resume' : 'Nets now', () => (inNets ? this.closeMenu() : g.actions.play('nets')), { active: true, variant: 'primary', icon: 'play', size: 30 });
       hint('− / + step each setting · point at a row and pull the trigger to step it up');
       P.set(W, '');
     } else if (this.page === 'settings' || this.page === 'vision') {
@@ -560,8 +578,9 @@ export class UI {
         if (tab === 'gameplay') {
           add('step', 'diff', 'Difficulty', 'How good the bowlers, batters and fielders are', { value: s.difficulty, dec: () => g.actions.difficulty(-1), inc: () => g.actions.difficulty(1) });
           add('step', 'overs', 'Overs', 'Length of a run chase or match innings', { value: String(s.overs), dec: () => g.actions.setting('overs', -1, 1, 5), inc: () => g.actions.setting('overs', 1, 1, 5) });
-          add('step', 'replay', 'Replays', 'Highlights: wickets, boundaries and close calls', { value: REPLAY_NAMES[s.replay] || s.replay, dec: () => g.actions.cycle('replay', REPLAYS, -1), inc: () => g.actions.cycle('replay', REPLAYS, 1) });
-          add('tog', 'trail', 'Ball trail', 'A thin line along the hit ball’s path', { on: s.trail, fn: () => g.actions.toggle('trail') });
+          add('step', 'replay', 'Replays', 'A replay from the bowler’s end', { value: REPLAY_NAMES[s.replay] || s.replay, dec: () => g.actions.cycle('replay', REPLAYS, -1), inc: () => g.actions.cycle('replay', REPLAYS, 1) });
+          add('step', 'cere', 'Ceremonies', 'Toss, walk-out, wicket and result scenes', { value: CEREMONY_NAMES[s.ceremonies] || 'full', dec: () => g.actions.cycle('ceremonies', CEREMONIES, -1), inc: () => g.actions.cycle('ceremonies', CEREMONIES, 1) });
+          add('tog', 'trail', 'Ball trail', 'A streak behind the ball in flight', { on: s.trail, fn: () => g.actions.toggle('trail') });
           add('tog', 'boost', 'Big ball', 'The ball never looks smaller than a dot far away', { on: s.ballBoost, fn: () => g.actions.toggle('ballBoost') });
           add('tog', 'finder', 'Ball finder', 'Arrow, halo and landing ring after a hit', { on: s.ballFinder, fn: () => g.actions.toggle('ballFinder') });
         } else if (tab === 'batting') {
@@ -663,6 +682,7 @@ export class UI {
     } else if (this.page === 'result') {
       const r = g.resultInfo || { title: 'Done', lines: [] };
       const lines = r.lines.filter(Boolean);
+      if (r.compact) { this.buildCompact(W, r, btn, custom); P.set(W, ''); return; }
       // The innings just played (its scorecard), and in a match the other one.
       const ses = g.session, inn = ses && ses.innings && ses.innings.card ? ses.innings : null;
       let prev = null;
@@ -691,24 +711,64 @@ export class UI {
         void tr;
       });
       const bodyTop = sub ? 158 : 138, btnY = PH - 98;
-      const body = { x: M + 4, y: bodyTop, w: CW - 8, h: btnY - bodyTop - (cta ? 52 : 16) };
+      const foot = cta || r.potm ? 52 : 16;
+      const body = { x: M + 4, y: bodyTop, w: CW - 8, h: btnY - bodyTop - foot };
       const bodyLines = inn || prev ? [] : lines;
-      custom((c) => drawResultBody(c, body, { inn, prev, lines: bodyLines }));
+      if (r.toss && !inn && !prev) custom((c) => drawTossBody(c, body, r, lines));
+      else custom((c) => drawResultBody(c, body, { inn, prev, lines: bodyLines }));
       if (cta) label(PW / 2, btnY - 28, cta, { align: 'center', size: 27, weight: 800, bold: true, color: C.accentHi, maxW: CW });
+      else if (r.potm) custom((c) => {
+        // Player of the match: a gold tag, the name, the figures.
+        const y = btnY - 30, t = 'PLAYER OF THE MATCH', who = `${r.potm.name}  ·  ${r.potm.text}`;
+        c.font = font(900, 22); const tw = c.measureText(t).width + 40;
+        c.font = font(800, 28); const ww = Math.min(CW - tw - 30, c.measureText(who).width);
+        const x0 = PW / 2 - (tw + 18 + ww) / 2;
+        chipTag(c, t, x0, y, tw);
+        c.fillStyle = C.accentHi; c.textAlign = 'left'; c.textBaseline = 'middle';
+        fillFit(c, who, x0 + tw + 18, y, CW - tw - 30, 800, 28, 18, 'menu');
+      });
       const bh = 76;
       if (r.choices) {
         const n = Math.max(2, r.choices.length + 1), bw = (CW - (n - 1) * 14) / n;
         const Rr = (i) => ({ x: M + i * (bw + 14), y: btnY, w: bw, h: bh });
         r.choices.forEach((ch, i) => btn('choice' + i, Rr(i), ch.text, ch.fn, { active: true, variant: 'primary', size: 30 }));
         btn('menu', Rr(Math.max(1, r.choices.length)), 'Main menu', () => g.actions.quit(), { icon: 'home', size: 28 });
-      } else {
+      } else if (r.next) {
         const bw = (CW - 14) / 2;
-        if (r.next) btn('next', { x: M, y: btnY, w: bw, h: bh }, r.nextText || 'Continue', r.next, { active: true, variant: 'primary', icon: 'next', size: 30 });
-        else btn('again', { x: M, y: btnY, w: bw, h: bh }, 'Play again', () => g.actions.start(g.lastMode), { active: true, variant: 'primary', icon: 'refresh', size: 30 });
+        btn('next', { x: M, y: btnY, w: bw, h: bh }, r.nextText || 'Continue', r.next, { active: true, variant: 'primary', icon: 'next', size: 30 });
         btn('menu', { x: M + bw + 14, y: btnY, w: bw, h: bh }, 'Main menu', () => g.actions.quit(), { icon: 'home', size: 28 });
+      } else {
+        // The next actions: the same again, another mode, or the menu.
+        const bw = (CW - 2 * 14) / 3, nm = NEXT_MODE[g.lastMode] || 'chase';
+        btn('again', { x: M, y: btnY, w: bw, h: bh }, 'Rematch', () => g.actions.play(g.lastMode), { active: true, variant: 'primary', icon: 'refresh', size: 30 });
+        btn('mode', { x: M + bw + 14, y: btnY, w: bw, h: bh }, MODE_NAMES[nm], () => g.actions.play(nm), { icon: nm === 'match' ? 'trophy' : nm === 'over' ? 'over' : 'target', size: 27 });
+        btn('menu', { x: M + 2 * (bw + 14), y: btnY, w: bw, h: bh }, 'Main menu', () => g.actions.quit(), { icon: 'home', size: 28 });
       }
       P.set(W, '');
     }
+  }
+
+  // The toss in the middle (ceremony.js): a compact card under the other
+  // captain's face (placeMenu shrinks it): the coin, the call, two big buttons.
+  buildCompact(W, r, btn, custom) {
+    const g = this.game, P = this.menu, PW = P.W, PH = P.H, M = 30, CW = PW - 2 * M;
+    const lines = r.lines.filter(Boolean), call = r.toss === 'call';
+    const sub = call ? lines[1] || 'Call it.' : lines[lines.length - 1] || '';
+    custom((c) => {
+      surface(c, M, M, CW, 250, 26, { top: '#18263f', bottom: '#111c30', lift: false });
+      c.fillStyle = r.color || C.accent; c.fillRect(M, M + 246, CW, 4);
+      drawCoinIcon(c, M + 120, M + 125, 84, call ? 'heads' : r.toss);
+      const tx = M + 240, tw = CW - 250;
+      caps(c, call ? 'THE TOSS' : 'YOU WIN THE TOSS', tx, M + 62, 34, C.accent, { weight: 900, maxW: tw });
+      c.fillStyle = '#ffffff'; c.textAlign = 'left'; c.textBaseline = 'middle';
+      fillFit(c, call ? `${SQUADS.home.name} to call` : String(r.toss).toUpperCase(), tx, M + 130, tw, 900, 62, 34, 'menu');
+      c.fillStyle = C.text2;
+      fillFit(c, sub, tx, M + 198, tw, 600, 36, 22, 'menu');
+    });
+    const ch = r.choices || [], bw = (CW - 24) / Math.max(1, ch.length), by = M + 290, bh = 170;
+    ch.forEach((x, i) => btn('choice' + i, { x: M + i * (bw + 24), y: by, w: bw, h: bh }, x.text, x.fn, { active: true, variant: 'primary', size: 60 }));
+    btn('menu', { x: PW - M - 260, y: PH - M - 84, w: 260, h: 84 }, 'Main menu', () => g.actions.quit(), { icon: 'home', size: 32 });
+    W.push({ type: 'label', x: M + 6, y: PH - M - 42, text: g.input.xr ? 'Point and pull the trigger' : 'Click to choose', size: 32, color: C.text3 });
   }
 
   go(page) { this.page = page; this.buildPage(); }
@@ -795,8 +855,9 @@ export class UI {
   drawBoard() {
     const P = this.board, b = this.boardData, g = this.game;
     const sting = this.boardSting || (this._boardReplay ? { kind: 'replay', word: 'REPLAY', sub: null } : null);
-    const title = b.st ? b.lines[0] : '';
-    P.set([{ type: 'custom', draw: (c) => drawBigScreen(c, P.W, P.H, { lines: b.lines, st: b.st, title, sting }) }], '');
+    const over = !sting && this.boardOver;
+    const title = over ? over.lines[0] : b.st ? b.lines[0] : '';
+    P.set([{ type: 'custom', draw: (c) => drawBigScreen(c, P.W, P.H, over ? { lines: over.lines, st: null, title } : { lines: b.lines, st: b.st, title, sting }) }], '');
     void g;
   }
 
@@ -810,12 +871,46 @@ export class UI {
     this.hud.update();
     // The screen: a sting ends, a replay starts or ends: one redraw each.
     if (this.boardSting && this.clock >= this.boardSting.until) { this.boardSting = null; this.drawBoard(); }
+    if (this.boardOver && this.clock >= this.boardOver.until) { this.boardOver = null; this.drawBoard(); }
     if (replay !== this._boardReplay) { this._boardReplay = replay; this.drawBoard(); }
     this.board.update();
   }
 }
 
 function shadow2(c, fn) { c.save(); c.shadowColor = 'rgba(0,0,0,0.45)'; c.shadowBlur = 16; c.shadowOffsetY = 5; fn(); c.restore(); }
+
+// A small gold tag with dark caps (Player of the match), centred on y.
+function chipTag(c, text, x, y, w) {
+  c.save();
+  slant(c, x, y - 20, w, 40, 10); c.fillStyle = C.accent; c.fill();
+  c.restore();
+  caps(c, text, x + w / 2, y + 1, 22, '#16120a', { weight: 900, align: 'center', maxW: w - 20 });
+}
+
+// The toss card (on a monitor, or with the ceremonies off / cards only): the
+// two sides, the coin between them (its face once it has landed), the call or
+// the choice under it.
+function drawTossBody(c, rect, r, lines) {
+  const { x, y, w, h } = rect, cx = x + w / 2;
+  const home = teamByName(SQUADS.home.name), away = teamByName(SQUADS.away.name);
+  surface(c, x, y, w, h, 20, { top: '#15223a', bottom: '#101a2d', lift: false });
+  const cy = y + Math.min(130, h * 0.36), bw = 210, bh = 120;
+  teamBlock(c, home, cx - 120 - bw, cy - bh / 2, bw, bh, 62);
+  teamBlock(c, away, cx + 120, cy - bh / 2, bw, bh, 62);
+  caps(c, `${home.name} (you)`, cx - 120 - bw / 2, cy + bh / 2 + 28, 24, C.text2, { align: 'center', maxW: 300 });
+  caps(c, away.name, cx + 120 + bw / 2, cy + bh / 2 + 28, 24, C.text2, { align: 'center', maxW: 300 });
+  const face = r.toss === 'heads' || r.toss === 'tails' ? r.toss : 'heads';
+  c.save(); c.shadowColor = 'rgba(0,0,0,0.5)'; c.shadowBlur = 18; c.shadowOffsetY = 6;
+  drawCoinIcon(c, cx, cy, 74, face);
+  c.restore();
+  if (r.toss === 'heads' || r.toss === 'tails') caps(c, r.toss.toUpperCase(), cx, cy + 108, 30, C.accent, { align: 'center', weight: 900 });
+  const rest = lines.slice(1);
+  const y0 = y + h - 34 - (rest.length - 1) * 44;
+  rest.forEach((ln, i) => {
+    c.fillStyle = i === rest.length - 1 ? '#ffffff' : C.text2; c.textAlign = 'center'; c.textBaseline = 'middle';
+    fillFit(c, ln, cx, y0 + i * 44, w - 60, i === rest.length - 1 ? 800 : 600, i === rest.length - 1 ? 36 : 28, 18, 'menu');
+  });
+}
 
 // The whole HUD panel: the bug, the result bar, then the lower lines.
 function drawHud(g, W, H, d, st) {
@@ -843,12 +938,95 @@ function drawHud(g, W, H, d, st) {
   }
 }
 
+// How to play: one action -- the controller with its button lit (two for a
+// pair, both hands for a catch, or an icon), its name, what it does.
+function drawHowTile(c, x, y, w, h, t) {
+  surface(c, x, y, w, h, 16, { top: '#1a2944', bottom: '#122038', lift: false });
+  c.fillStyle = 'rgba(255,201,60,0.55)'; c.fillRect(x + 16, y, 4, h);
+  const pw = Math.min(118, h * 0.95), pcx = x + 26 + pw / 2, pcy = y + h / 2;
+  if (t.icon) {
+    c.beginPath(); c.arc(pcx, pcy, pw * 0.36, 0, Math.PI * 2); c.fillStyle = 'rgba(255,201,60,0.14)'; c.fill();
+    drawIcon(c, t.icon, pcx, pcy, pw * 0.42, C.accent, { weight: 2.4 });
+  } else if (t.hand === 'both') {
+    drawController(c, pcx - pw * 0.24, pcy, pw * 0.62, 'L', null);
+    drawController(c, pcx + pw * 0.24, pcy, pw * 0.62, 'R', null);
+  } else if (t.button2) {
+    drawController(c, pcx - pw * 0.22, pcy - 4, pw * 0.66, t.hand, t.button);
+    drawController(c, pcx + pw * 0.24, pcy + 4, pw * 0.66, t.hand, t.button2);
+  } else drawController(c, pcx, pcy, pw * 0.92, t.hand, t.button || null);
+  const tx = x + 40 + pw, tw = w - (tx - x) - 16;
+  caps(c, t.title, tx, y + h * 0.27, 26, C.accent, { weight: 900, maxW: tw });
+  const r = fitText(c, t.text, { maxW: tw, maxH: h * 0.56, size: 23, min: 16, weight: 500, wrap: true });
+  if (!r.fits) reportOverflow('menu', t.text, r.width, tw);
+  c.fillStyle = C.text; c.textAlign = 'left'; c.textBaseline = 'middle';
+  r.lines.forEach((ln, i) => c.fillText(ln, tx, y + h * 0.54 + i * r.lh));
+}
+
+// Bat calibration, drawn: you side-on in your stance, the controller in your
+// hands as the bat's handle, the blade hanging straight down from it, your
+// eyes level toward the bowler. adjustDeg: the fine-tune step (the blade tilted
+// by it, an arc and the angle) or null.
+function drawCalibPose(c, x, y, w, h, adjustDeg) {
+  const fx = x + w * 0.38, gy = y + h - 40, k = (h - 70) / 300;    // feet, ground line, scale (300 units: a 1.8 m figure)
+  c.save();
+  c.strokeStyle = 'rgba(255,255,255,0.18)'; c.lineWidth = 3;
+  c.beginPath(); c.moveTo(x + 24, gy); c.lineTo(x + w - 24, gy); c.stroke();
+  // the crease line under the feet and the stumps behind
+  c.strokeStyle = 'rgba(255,255,255,0.5)'; c.beginPath(); c.moveTo(fx - 60 * k, gy + 6); c.lineTo(fx + 80 * k, gy + 6); c.stroke();
+  c.fillStyle = 'rgba(255,255,255,0.35)';
+  for (const sx of [-74, -66, -58]) c.fillRect(fx + sx * k, gy - 72 * k, 4 * k, 72 * k);
+  const P = (px, py) => [fx + px * k, gy - py * k];
+  const line = (pts, width, col) => { c.strokeStyle = col; c.lineWidth = width * k; c.lineCap = 'round'; c.lineJoin = 'round'; c.beginPath(); pts.forEach(([a, b], i) => (i ? c.lineTo(a, b) : c.moveTo(a, b))); c.stroke(); };
+  const body = '#9fb3cc';
+  // legs (knees a little bent), back, head
+  line([P(-18, 0), P(-12, 70), P(-4, 140)], 15, body);
+  line([P(30, 0), P(22, 72), P(10, 140)], 15, body);
+  line([P(3, 140), P(16, 225)], 22, body);
+  c.fillStyle = body; c.beginPath(); c.arc(...P(24, 258), 22 * k, 0, Math.PI * 2); c.fill();
+  // eye line to the bowler
+  const [ex, ey] = P(40, 262);
+  c.setLineDash([10 * k, 8 * k]); line([[ex, ey], [x + w - 34, ey]], 3, 'rgba(255,201,60,0.8)'); c.setLineDash([]);
+  c.fillStyle = C.accent; c.beginPath(); c.moveTo(x + w - 30, ey); c.lineTo(x + w - 46, ey - 9); c.lineTo(x + w - 46, ey + 9); c.closePath(); c.fill();
+  caps(c, 'BOWLER', x + w - 30, ey - 26, 18, C.accent, { align: 'right' });
+  // arms down to the hands at the top of the handle
+  const hand = P(40, 150);
+  line([P(16, 215), [hand[0] - 4 * k, hand[1] - 6 * k]], 11, body);
+  line([P(12, 210), [hand[0] + 2 * k, hand[1] + 8 * k]], 11, '#8da2bd');
+  // the bat from the hands: straight down (tilted by the fine-tune)
+  const tilt = (adjustDeg || 0) * Math.PI / 180, len = 150;
+  const bx = hand[0] + Math.sin(tilt) * len * k, by = hand[1] + Math.cos(tilt) * len * k;
+  c.save(); c.translate(hand[0], hand[1]); c.rotate(-tilt);
+  c.fillStyle = '#e8d3a0'; rr(c, -9 * k, 34 * k, 18 * k, (len - 34) * k, 6 * k); c.fill();
+  c.fillStyle = '#3a4250'; rr(c, -4 * k, 0, 8 * k, 38 * k, 3 * k); c.fill();
+  c.restore();
+  void bx; void by;
+  // the controller in the hands (a small Touch controller, ring up)
+  c.save(); c.translate(hand[0], hand[1] - 2 * k);
+  c.fillStyle = '#232a33'; c.strokeStyle = '#8a96a3'; c.lineWidth = 2;
+  c.beginPath(); c.ellipse(0, -14 * k, 20 * k, 13 * k, 0, 0, Math.PI * 2); c.fill(); c.stroke();
+  rr(c, -8 * k, -6 * k, 16 * k, 30 * k, 6 * k); c.fill(); c.stroke();
+  c.restore();
+  c.strokeStyle = 'rgba(255,201,60,0.85)'; c.lineWidth = 2.5; c.beginPath(); c.arc(hand[0], hand[1] - 4 * k, 34 * k, 0, Math.PI * 2); c.stroke();
+  if (adjustDeg == null) {
+    // a plumb line beside the blade: straight down
+    c.setLineDash([6 * k, 6 * k]); line([[hand[0] + 30 * k, hand[1] + 30 * k], [hand[0] + 30 * k, hand[1] + len * k]], 2, 'rgba(255,255,255,0.45)'); c.setLineDash([]);
+    caps(c, 'BLADE STRAIGHT DOWN', hand[0] + 40 * k, hand[1] + len * k * 0.75, 16, C.text3, { maxW: x + w - 16 - (hand[0] + 40 * k) });
+  } else {
+    // the fine-tune: an arc from straight down to the blade, and the angle
+    c.strokeStyle = C.accent; c.lineWidth = 3; c.beginPath();
+    const a0 = Math.PI / 2, a1 = Math.PI / 2 - tilt;
+    c.arc(hand[0], hand[1], 110 * k, Math.min(a0, a1), Math.max(a0, a1)); c.stroke();
+    caps(c, `${adjustDeg > 0 ? '+' : ''}${Math.round(adjustDeg)}°`, hand[0] + 70 * k, hand[1] + 132 * k, 30, C.accentHi, { weight: 900 });
+  }
+  c.restore();
+}
+
 // A line with [KEY] tokens drawn as key caps, shrunk together to fit maxW.
-function drawRich(g, text, x, y, size, maxW) {
+function drawRich(g, text, x, y, size, maxW, weight = 500) {
   const parts = String(text).split(/(\[[^\]]+\])/).filter(Boolean);
   const measure = (s) => parts.reduce((t, p) => {
     if (p[0] === '[') { g.font = font(800, s * 0.74); return t + g.measureText(p.slice(1, -1)).width + s * 0.9; }
-    g.font = font(500, s); return t + g.measureText(p).width;
+    g.font = font(weight, s); return t + g.measureText(p).width;
   }, 0);
   let s = size;
   while (measure(s) > maxW && s > 16) s -= 1;
@@ -866,7 +1044,7 @@ function drawRich(g, text, x, y, size, maxW) {
       g.fillStyle = C.accentHi; g.fillText(k, cx + s * 0.38, y + 1);
       cx += w + s * 0.3;
     } else {
-      g.font = font(500, s); g.fillStyle = C.text;
+      g.font = font(weight, s); g.fillStyle = C.text;
       g.fillText(p, cx, y);
       cx += g.measureText(p).width;
     }

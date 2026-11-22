@@ -546,3 +546,12 @@ turned away sees grass until it comes back; that is unchanged. The first replay 
 the frame was made: 10.4% of the picture lit (the wedge) -> 0%. At every cut both the last frame on the old angle
 and the first on the new one are drawn fully dark (fade opacity 1.0): the camera's jumps (what `rev_fp_bat`'s
 "maxStep / maxSpeed" report, on the tape's clock) are never seen.
+the frame was made: 10.4% of the picture lit (the wedge) -> 0%.
+
+## Presentation beats (round four)
+
+| # | Decision | Why |
+|---|----------|-----|
+| PB1 | The beats between pieces of play (intro from the pavilion side with the title card, the toss in the middle with a 3-D coin, the teams taking the field, the wicket walk-off, the over summary, the innings break, the result with player of the match) are data tables in `src/game/ceremony.js` (BEATS: timed cues). Settings -> Gameplay -> **Ceremonies**: full / cards only / off. | One small table per beat is easy to tune; 'off' takes the old code paths in modes.js, so a beat can never change play. |
+| PB2 | A beat moves you only by fade + cut (`beginViewOverride` under the replay's ViewFade), to fixed spots; it is skipped by the off-hand trigger (N / Space / Enter on a monitor) and ends by itself. A holding beat holds only the session's first step of a delivery (`holdSession`: batting `prepare`, bowling `nextBall` / the bowler page) and the play inputs; the field keeps walking. | VR comfort; nothing in the rules or the scoring sees a beat (tests/ceremony.test.js plays a match on / cards only / off / skipped and compares). |
+| PB3 | Menu starts (`actions.play`) get the intro; direct starts (`actions.start`, the harness) do not. In-play beats run whenever Ceremonies are not off and time out (<= 6 s). The beats run on real time and never touch `game.rng` (the coin has its own dice). | Headless scenarios keep driving games with `__step`. |
