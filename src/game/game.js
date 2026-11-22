@@ -16,7 +16,8 @@ import { Sfx } from '../audio/sfx.js';
 import { loadSettings, saveSettings, loadCalibration, saveCalibration } from './settings.js';
 import { computeBatOffset, defaultBatOffset, computeRig, computeRigFacing, headForward } from './calibration.js';
 import { LENGTH_PRESETS, LINE_PRESETS } from '../physics/bowlingMachine.js';
-import { createSession, startMatch } from './modes.js';
+import { createSession, startMatch, startWithIntro } from './modes.js';
+import { Ceremony, ceremonyMode } from './ceremony.js';
 import { buildHelmetGrille, PlayerBowlerActor, NearCull } from '../render/viewModes.js';
 import { PLAYER_BOWLER_ORDER } from './bowlerTypes.js';
 import { Replay, tailFor } from './replay.js';
@@ -135,6 +136,7 @@ export class Game {
     this.commentary.setEnabled(this.settings.commentary && this.settings.sound);
     this.audio = new AudioDirector(this);     // where every sound comes from (director.js)
     this.ui = new UI(this);
+    this.ceremony = new Ceremony(this);   // the beats between pieces of play: intro, toss, wickets, the result (ceremony.js)
     this.timeScale = 1;              // current game-time scale (slow motion)
     this.timeScaleTarget = 1;
     // The hand with the bat and the ball. The game reads both from the right controller
@@ -713,6 +715,7 @@ export class Game {
     this.env.stadium.visible = !this.mr;
     this.ui.board.mesh.visible = !this.mr;
     if (this.session) this.endSession();
+    this.ceremony.stop();
     this.ui.closeMenu();
     this.pendingRecenter = 2;          // after a couple of frames of valid pose
     if (this.mr) {
@@ -757,6 +760,7 @@ export class Game {
     if (this.mrPlacer) { this.mrPlacer.dispose(); this.mrPlacer = null; }
     this.env.root.position.set(0, 0, 0);
     if (this.session) this.endSession();
+    this.ceremony.stop();
     this.state = 'menu';
     this.setEnd('batting');
     this.ui.openMenu('main');
@@ -780,10 +784,13 @@ export class Game {
   }
 
   // ------------------------------------------------------------- sessions
-  startSession(kind) {
+  // intro: started from the menu (the intro and the toss when Ceremonies are on); a direct start has none.
+  startSession(kind, { intro = false } = {}) {
     if (this.session) this.endSession();
+    this.ceremony.stop();
     this.lastMode = kind;
     this.coachSeen.clear();                 // a new game: show each control hint again
+    if (intro && ceremonyMode(this) !== 'off') { this.state = 'play'; this.ui.closeMenu(); startWithIntro(this, kind); return; }
     if (kind === 'match') { this.state = 'menu'; this.setEnd('batting'); startMatch(this); return; }
     this.startSessionObj(createSession(this, kind));
   }
@@ -827,7 +834,7 @@ export class Game {
       if (this.xrManager && this.input.xr) this.xrManager.checkPerformance(this.stats.fps);
     }
 
-    const paused = this.ui.menuOpen && this.state === 'play';
+    const paused = this.ui.menuOpen && this.state === 'play' && !!this.session;   // (no session: a beat before the game, e.g. the toss's call, goes on round the card)
     // Game-time scale (slow motion for easier difficulties and catching).
     this.timeScale += (this.timeScaleTarget - this.timeScale) * Math.min(1, dt * 10);
     if (Math.abs(this.timeScale - this.timeScaleTarget) < 0.005) this.timeScale = this.timeScaleTarget;
@@ -848,6 +855,7 @@ export class Game {
       if (--this.pendingRecenter <= 0) { this.pendingRecenter = null; this.recenter(); this.afterXRSettled(); }
     }
 
+    this.ceremony.input();                   // (a beat's skip press first, then the skip to the next ball: each uses its press up)
     this.quickSkip.update(realDt);           // (first: a press it uses is gone before anything else reads it)
     this.handleGlobalInput(dt);
     this.updateRigDrop(realDt);
@@ -894,6 +902,7 @@ export class Game {
       if (this.session && this.state === 'play' && !paused) this.recordForReplay();
       this.replay.placeOverlays(this.eye, realDt);
     }
+    this.ceremony.update(realDt);            // (after the eye: its cards and the coin; the beats on real time)
     this.ui.updatePointer(this.input);
     this.ui.update();
     this.env.update(dt, now);
@@ -1000,7 +1009,7 @@ export class Game {
       if (D.took('KeyC')) { this.desktopView++; this.placeDesktopCamera(); }
       if (D.took('KeyT')) { this.settings.trail = !this.settings.trail; this.saveSettings(); }
     }
-    if (this.session && this.state === 'play' && !this.ui.menuOpen && !(this.replay && this.replay.active)) this.session.handleInput(this.input);
+    if (this.session && this.state === 'play' && !this.ui.menuOpen && !(this.replay && this.replay.active) && !this.ceremony.holding) this.session.handleInput(this.input);
   }
 
   updatePlayerBat(paused) {
@@ -1102,7 +1111,7 @@ export class Game {
     }
     if (this.session && this.session.updateViews) this.session.updateViews(dt, paused);
     Humanoid.updateLods(this.input.headPose.p);
-    if (this.viewOverride) {
+    if (this.viewOverride && !this.viewOverride.scene) {
       const hs = this.playerHands();
       this.handMarkers.forEach((m, i) => { m.visible = i < hs.length; if (m.visible) m.position.set(hs[i].x, hs[i].y, hs[i].z); });
       this.catchMarker.lookAt(this.input.headPose.p.x, this.input.headPose.p.y, this.input.headPose.p.z);
@@ -1302,7 +1311,8 @@ function makeActions(game) {
   const persist = () => { g.saveSettings(); g.ui.refresh(); if (g.session && g.session.onSettingsChanged) g.session.onSettingsChanged(); };
   return {
     start: (kind) => { g.sfx.init(); g.startSession(kind); },
-    quit: () => { g.endSession(); g.state = 'menu'; g.setEnd('batting'); g.ui.openMenu('main'); g.ui.setHud({ title: 'Crease VR', score: '', sub: 'Choose a mode', big: '', last: '', detail: '' }); },
+    play: (kind) => { g.sfx.init(); g.startSession(kind, { intro: true }); },     // (from the menu: with its intro)
+    quit: () => { g.ceremony.stop(); g.endSession(); g.state = 'menu'; g.setEnd('batting'); g.ui.openMenu('main'); g.ui.setHud({ title: 'Crease VR', score: '', sub: 'Choose a mode', big: '', last: '', detail: '' }); },
     safetyOk: () => {
       g.settings.seenSafety = true; g.saveSettings();
       if (!g.calibration && g.input.xr) g.beginCalibration();

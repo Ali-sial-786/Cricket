@@ -47,6 +47,7 @@ export function defaultSettings() {
     sweepDrop: true,               // holding the sweep button lowers your view to a kneeling sweeper's
     ballFinder: true,              // arrow / halo / landing ring to find the ball after a hit
     replay: 'bowler',              // off | bowler: a replay after every ball, from the bowler's end
+    ceremonies: 'on',              // on | short (cards only) | off: the intro, toss, wicket, innings-break and result beats (ceremony.js)
     commentary: true,
     seenHowTo: false,
     paceMultiplier: CONFIG.bowling.paceMultiplier,
