@@ -75,6 +75,7 @@ export class FieldController {
     if (this.game.crew) this.game.crew.ballDead(info);
     this.deadT = 0;
     if (info.wicket && this.huddleOn !== false) this.huddle();
+    else if (this.logic.outcome && this.logic.outcome.kind === 'boundary') this.logic.reactBoundary(this.game.simTime);
   }
   // A wicket (decided): the fielding side gets together round the catcher, the
   // man who broke the stumps, or the bowler (the AI's figure, or you: they

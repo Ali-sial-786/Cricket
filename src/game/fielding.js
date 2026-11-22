@@ -151,7 +151,8 @@ const HUDDLE_NEAR = 21, HUDDLE_MAX = 5, HUDDLE_JOG = 5.2, HUDDLE_R = 1.15, HUDDL
 // s for a huddle trip of d m: there at the jog, the hold, back at a run, plus starting, stopping and turning.
 export const huddleTrip = (d) => d / HUDDLE_JOG + HUDDLE_HOLD + d / 4.2 + 2.0;
 const LOB_AFTER = 1.3;
-const RELAY_MAX = 22;         // m: the keeper tosses the ball to a man this close (else straight to the bowler)       // s after the ball is dead before it is tossed back (after the replay's tape ends: TAIL 1 s)        // m: a man with the ball this close to a set of stumps runs in and breaks them himself
+const RELAY_MAX = 22;
+const BOUNDARY_NEAR = 22;     // m: men this close to where a boundary went over walk after it (reactBoundary)         // m: the keeper tosses the ball to a man this close (else straight to the bowler)       // s after the ball is dead before it is tossed back (after the replay's tape ends: TAIL 1 s)        // m: a man with the ball this close to a set of stumps runs in and breaks them himself
 const RELEASE_SET = 4;       // m: a fielder this close to his mark at the release stops and gets set
 const BRAKE = 13;            // m/s^2 pulling up
 function angDiff(a, b) { let d = b - a; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI; return d; }
@@ -210,7 +211,7 @@ export class Fielding {
     this.outcome = null;
     this.fielded = false;
     this.caught = false;
-    this.boundary = null;
+    this.boundary = null; this.boundaryAt = null;
     this.throw = null;
     this.ballOverride = null;
     this.message = '';
@@ -248,7 +249,7 @@ export class Fielding {
   // their marks instead of teleporting.
   newBall() {
     this.hitT = null; this.boundaryT = null; this.plan = null; this.outcome = null; this.fielded = false; this.caught = false;
-    this.boundary = null; this.throw = null; this.ballOverride = null; this.message = ''; this.dropped = false;
+    this.boundary = null; this.boundaryAt = null; this.throw = null; this.ballOverride = null; this.message = ''; this.dropped = false;
     this.keeperHold = false; this.keeperMissed = null; this.keeperTookAt = null; this.shy = null; this.byes = false; this.fetchT0 = null;
     this.throwArrived = null;
     this.cover = { batting: null, bowling: null }; this.backer = null; this.overthrow = null; this.events = []; this.planT0 = null; this.lob = null; this.hitPending = null;
@@ -306,14 +307,14 @@ export class Fielding {
       if (c.d <= HUDDLE_NEAR && inner < HUDDLE_MAX && huddleTrip(c.d) <= budget) {
         const a = base + (inner % 2 ? 1 : -1) * (0.6 + Math.floor(inner / 2) * 1.0) + (inner === 0 ? 0.6 : 0);
         f.target.set(focus.x + Math.sin(a) * r, 0, focus.z + Math.cos(a) * r);
-        f.huddleInner = true;
+        f.huddleInner = true; f.huddleMood = null;
         f.huddleUntil = t + Math.max(1.2, c.d / HUDDLE_JOG) + HUDDLE_HOLD;
         inner++;
       } else {
         let k = Math.min(0.3, HUDDLE_DEEP / Math.max(1, c.d));
         while (k > 0.05 && huddleTrip(c.d * k) > budget) k *= 0.8;
         f.target.set(f.pos.x + (focus.x - f.pos.x) * k, 0, f.pos.z + (focus.z - f.pos.z) * k);
-        f.huddleInner = false;
+        f.huddleInner = false; f.huddleMood = null;
         f.huddleUntil = t + c.d * k / 3.2 + HUDDLE_HOLD * 0.8;
       }
       f.state = 'huddle';
@@ -326,6 +327,28 @@ export class Fielding {
     }
     this.huddle = { focus: { x: focus.x, z: focus.z }, t0: t, center };
     return inner;
+  }
+  // A boundary, the ball dead: the men near where it went over walk a few
+  // steps toward the rope after it, watching it, hands on head or hips
+  // (FielderActor); then back to their marks as always. Visual only.
+  reactBoundary(t) {
+    const B = this.boundaryAt;
+    if (!this.dead || !B) return 0;
+    let n = 0;
+    for (const f of this.fielders) {
+      if (f.playerControlled || f.bowler || f.keeper || f.action || (f.state !== 'set' && f.state !== 'return' && f.state !== 'chase')) continue;
+      const dx = B.x - f.pos.x, dz = B.z - f.pos.z, d = Math.hypot(dx, dz);
+      if (d > BOUNDARY_NEAR) continue;
+      const step = Math.min(4, Math.max(0, d - 2));
+      f.target = new Vec3(f.pos.x + dx / Math.max(d, 1e-3) * step, 0, f.pos.z + dz / Math.max(d, 1e-3) * step);
+      (f.huddleAt = f.huddleAt || new Vec3()).set(B.x, 0, B.z);
+      f.huddleInner = false; f.huddleMood = 'dejected'; f.huddleCenter = false;
+      f.huddleUntil = t + 1.2 + step / 2.5;
+      f.state = 'huddle';
+      n++;
+    }
+    this.boundaryAt = null;
+    return n;
   }
   // (once a frame while the ball is dead) Whoever has finished what he was
   // doing with the ball -- the throw, the take at the stumps, the catch and a
@@ -354,7 +377,7 @@ export class Fielding {
       // about with it, and it never hangs in the air at a hidden hand).
       if (this.ballOverride && this.ballOverride.holder === this.fielders.indexOf(f) && !this.lob && !(f.bowler && this.bowlerFields)) { if (this.deadFor >= LOB_AFTER) this.startLob(f, t); continue; }
       if (huddling) continue;
-      f.huddleUntil = null; f.huddleCenter = false;
+      f.huddleUntil = null; f.huddleCenter = false; f.huddleMood = null;
       f.action = null; f.leap = null; f.runIn = null; f.coverEnd = null; f.backEnd = null;
       if (Math.hypot(f.pos.x - f.home.x, f.pos.z - f.home.z) > 0.4) { f.state = 'return'; f.target = null; }
       else { f.state = 'set'; f.target = null; }
@@ -668,6 +691,7 @@ export class Fielding {
       return;
     }
     this.boundary = e.onFull && !this.byes ? 6 : 4;
+    if (e.pos) this.boundaryAt = { x: e.pos.x, z: e.pos.z };       // (where it went over: the nearest men turn to watch it, reactBoundary)
     this.outcome = { kind: 'boundary', runs: this.boundary };
     this.message = this.boundary === 6 ? 'SIX' : 'FOUR';
   }
@@ -1507,7 +1531,7 @@ export class Fielding {
       await: f.state === 'stumps' && !!f.target && Math.hypot(f.pos.x - f.target.x, f.pos.z - f.target.z) < 0.5 && !this.dead,
       armsUp: f.state === 'celebrate',
       // the wicket huddle: 1 in the ring, 2 come in from the deep, 3 the man in the middle
-      huddle: f.state === 'huddle' ? (f.huddleInner ? 1 : 2) : f.huddleCenter && f.huddleUntil != null ? 3 : 0,
+      huddle: f.state === 'huddle' ? (f.huddleMood === 'dejected' ? 4 : f.huddleInner ? 1 : 2) : f.huddleCenter && f.huddleUntil != null ? 3 : 0,
     }));
   }
 
