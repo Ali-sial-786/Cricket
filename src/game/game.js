@@ -948,12 +948,13 @@ export class Game {
       if (ses.field && ses.field.logic.caught) R.mark('caught', t);
       // The ball is dead once play leaves 'live' (to a review, or to its result).
       if (st === 'review' || st === 'settle') R.mark('dead', t);
+      R.observe(ses, t);                        // (the field's moments: a drop, a dive, a direct hit, overthrows)
     }
     // A review (the appeal, DRS, the third umpire) can outlast the tape: only
     // its first moments are recorded, so the ball is still there afterwards.
     if (!(st === 'review' && m.dead != null && t > m.dead + tailFor(m) + 0.2)) R.record(t);
-    // Every ball that was bowled gets its replay, after the result (and any review's verdict) is up.
-    if (st === 'settle' && this._prevSessState !== 'settle' && this.settings.replay !== 'off') R.schedule(t);
+    // The ball's replay, if what happened earns one (Settings -> Replays), after the result (and any review's verdict) is up.
+    if (st === 'settle' && this._prevSessState !== 'settle') R.schedule(t);
     this._prevSessState = st;
   }
 
@@ -1051,6 +1052,7 @@ export class Game {
     if (e.type === 'launch') { this.replay.mark('release', e.t); this.replay.marks.playerBatting = !!(this.session && !this.session.isBowling); }
     else if (e.type === 'bat') this.replay.mark('hit', e.t);
     else if (e.type === 'wicket') this.replay.mark('wicket', e.t);
+    this.replay.event(e);                       // (the ball's exact moments for slow motion; an edge, over the rope)
     if (e.type === 'bounce') {
       if (e.speedIn > 3) this.particles.dust(e.pos, e.speedIn, e.surface !== 'pitch', this.world.ball.vel);
       if (!e.batted && e.surface === 'pitch' && e.index === 1) this.pitchMark.show(e.pos, this.world.ball.vel);

@@ -46,7 +46,8 @@ export function defaultSettings() {
     ownBody: true,                 // see a faint body (legs, feet) when you look down
     sweepDrop: true,               // holding the sweep button lowers your view to a kneeling sweeper's
     ballFinder: true,              // arrow / halo / landing ring to find the ball after a hit
-    replay: 'bowler',              // off | bowler: a replay after every ball, from the bowler's end
+    replay: 'highlights',          // highlights (wickets, boundaries, close calls) | every (every ball) | off
+    replayV: 2,
     commentary: true,
     seenHowTo: false,
     paceMultiplier: CONFIG.bowling.paceMultiplier,
@@ -72,7 +73,10 @@ export function loadSettings() {
       else if (saved[k] !== undefined && (s[k] === null || typeof saved[k] === typeof s[k])) s[k] = saved[k];
     }
   }
-  if (s.replay !== 'off') s.replay = 'bowler';         // (the batter's-view replay is gone: one camera, from the bowler's end)
+  // v2 of replays: 'bowler' (a replay after every ball, the old default and the only "on") becomes
+  // highlights, once; "every ball" is a choice made from then on. Off stays off.
+  if (!saved || saved.replayV !== 2) { s.replay = saved && saved.replay === 'off' ? 'off' : 'highlights'; s.replayV = 2; }
+  else if (!['highlights', 'every', 'off'].includes(s.replay)) s.replay = 'highlights';
   // v3 of the aiming: the floor marker is the target again (once, for everyone).
   if (!saved || saved.aimV !== 3) { s.aimAssist = true; s.aimMarker = true; s.aimV = 3; }
   // v2 of turning: the stick turns you smoothly, like turning your body (once, for everyone).

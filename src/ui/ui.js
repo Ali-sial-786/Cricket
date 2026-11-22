@@ -19,8 +19,8 @@ const signed = (v, d = 2) => (v > 0 ? '+' : '') + v.toFixed(d);
 const CONTACT = ['off', 'low', 'normal', 'high'];
 const VIEWS = ['eyes', 'helmet', 'behind'];
 const VIEW_NAMES = { eyes: 'your eyes', helmet: 'eyes + helmet grille', behind: 'behind the player' };
-const REPLAYS = ['off', 'bowler'];
-const REPLAY_NAMES = { off: 'off', bowler: "after every ball" };
+const REPLAYS = ['off', 'highlights', 'every'];
+const REPLAY_NAMES = { off: 'off', highlights: 'highlights', every: 'every ball', bowler: 'highlights' };
 const TURNS = ['smooth', 'snap', 'off'];
 // Graphics setting: 'auto' shows the level the governor is on now.
 const qualityName = (g, q) => (q === 'auto' || !q ? `Auto · ${g.perf ? g.perf.spec.name : 'Ultra'}` : q[0].toUpperCase() + q.slice(1));
@@ -456,6 +456,7 @@ export class UI {
           'The batters stop after each run. [X] again for another.',
           '[Y] = turn back.  Hold left [TRIGGER] = DIVE for the line.',
           'Ball dead? Left [TRIGGER] skips to the next ball.',
+          'Between balls: [B] shows the last ball again.',
           'A throw that beats you home is a RUN OUT.',
           'Close run-outs and stumpings go to the third umpire.',
           'Given out LBW? Press [A] to review.',
@@ -545,7 +546,7 @@ export class UI {
         if (tab === 'gameplay') {
           add('step', 'diff', 'Difficulty', 'How good the bowlers, batters and fielders are', { value: s.difficulty, dec: () => g.actions.difficulty(-1), inc: () => g.actions.difficulty(1) });
           add('step', 'overs', 'Overs', 'Length of a run chase or match innings', { value: String(s.overs), dec: () => g.actions.setting('overs', -1, 1, 5), inc: () => g.actions.setting('overs', 1, 1, 5) });
-          add('step', 'replay', 'Replays', 'A replay from the bowler’s end', { value: REPLAY_NAMES[s.replay] || s.replay, dec: () => g.actions.cycle('replay', REPLAYS, -1), inc: () => g.actions.cycle('replay', REPLAYS, 1) });
+          add('step', 'replay', 'Replays', 'Highlights: wickets, boundaries and close calls', { value: REPLAY_NAMES[s.replay] || s.replay, dec: () => g.actions.cycle('replay', REPLAYS, -1), inc: () => g.actions.cycle('replay', REPLAYS, 1) });
           add('tog', 'trail', 'Ball trail', 'A streak behind the ball in flight', { on: s.trail, fn: () => g.actions.toggle('trail') });
           add('tog', 'boost', 'Big ball', 'The ball never looks smaller than a dot far away', { on: s.ballBoost, fn: () => g.actions.toggle('ballBoost') });
           add('tog', 'finder', 'Ball finder', 'Arrow, halo and landing ring after a hit', { on: s.ballFinder, fn: () => g.actions.toggle('ballFinder') });
