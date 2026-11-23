@@ -52,6 +52,7 @@ export class InterpolatedBatProvider {
   }
 }
 const _zero = new Vec3();
+const NO_EVENTS = Object.freeze([]);
 function makeSample() {
   return { t: 0, pose: new Pose(), grip: new Vec3(), lin: new Vec3(), ang: new Vec3() };
 }
@@ -90,6 +91,9 @@ export class PhysicsWorld {
     this.wickets = [new Wicket('batting', PITCH.battingStumpsZ), new Wicket('bowling', PITCH.bowlingStumpsZ)];
     this.events = [];
     this.substepCount = 0;
+    // (made once: a closure made every substep was garbage seven times a frame)
+    this._t1 = 0;
+    this._onBounce = (info, pos) => { const b = this.ball; this.emit({ type: 'bounce', t: this._t1, ...info, pos: pos.clone(), batted: b.batted, index: b.bounces }); };
     this.refresh();
   }
 
@@ -112,7 +116,8 @@ export class PhysicsWorld {
   getBat(id) { return this.bats.find((b) => b.id === id); }
 
   emit(e) { this.events.push(e); }
-  drainEvents() { const e = this.events; this.events = []; return e; }
+  // (nothing happened -- most frames: the one empty list, read only, not a new one a frame)
+  drainEvents() { const e = this.events; if (!e.length) return NO_EVENTS; this.events = []; return e; }
 
   launch({ pos, vel, spin, swing = 0, seamDeg = 0, seamRandomScale = 1 }) {
     const b = this.ball;
@@ -152,9 +157,8 @@ export class PhysicsWorld {
     const R = this.P.r;
     _pa.copy(b.pos);
 
-    integrateFlight(b, h, this.P, this.rng, (info, pos) => {
-      this.emit({ type: 'bounce', t: t1, ...info, pos: pos.clone(), batted: b.batted, index: b.bounces });
-    });
+    this._t1 = t1;
+    integrateFlight(b, h, this.P, this.rng, this._onBounce);
 
     // Bat contact (swept).
     for (const bat of this.bats) {
