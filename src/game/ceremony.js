@@ -423,12 +423,14 @@ export class Ceremony {
   watch(dt) {
     const g = this.g, s = g.session, inn = s && s.innings;
     if (!inn) { this.seen = null; this.queue.length = 0; return; }
-    if (!this.seen || this.seen.inn !== inn) { this.seen = { inn, w: inn.wickets, legal: inn.legal, batted: battedNames(inn.card) }; this.queue.length = 0; }
+    if (!this.seen || this.seen.inn !== inn) { this.seen = { inn, w: inn.wickets, legal: inn.legal, batted: battedNames(inn.card), bCard: inn.card, bN: battedCount(inn.card) }; this.queue.length = 0; }
     const S = this.seen;
     const skipAt = g.quickSkip && g.quickSkip.last ? g.quickSkip.last.at : null;
     if (inn.wickets > S.w && !inn.complete) this.queue.push({ name: s.isBowling ? 'wicketTaken' : 'wicket', ctx: this.wicketCtx(s, inn, S.batted), at: g.simTime + WICKET_DELAY, skipAt, born: g.clock });
     if (inn.legal > S.legal && inn.legal % 6 === 0 && !inn.complete) this.queue.push({ name: 'over', ctx: this.overCtx(s, inn), at: g.simTime, skipAt, born: g.clock });
-    S.w = inn.wickets; S.legal = inn.legal; S.batted = battedNames(inn.card);
+    S.w = inn.wickets; S.legal = inn.legal;
+    const bn = battedCount(inn.card);
+    if (inn.card !== S.bCard || bn !== S.bN) { S.batted = battedNames(inn.card); S.bCard = inn.card; S.bN = bn; }
     this.hurryIn();
     while (this.queue.length && g.clock - this.queue[0].born > 25) this.queue.shift();     // (never waiting for ever)
     const q = this.queue[0];
@@ -810,6 +812,9 @@ export class Ceremony {
 }
 
 function battedNames(card) { return new Set(card ? card.batters.filter((b) => b.batted).map((b) => b.name) : []); }
+// (a man only ever goes from not having batted to having batted: the names change only when this count does,
+// so watch() builds the set again only then, not every frame)
+function battedCount(card) { let n = 0; if (card) for (let i = 0; i < card.batters.length; i++) if (card.batters[i].batted) n++; return n; }
 
 // Where to stand to see a celebration behind you: down the pitch, looking back at it.
 function huddleSpot(f) {

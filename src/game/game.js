@@ -336,7 +336,7 @@ export class Game {
 
   // Unit vector out of the right palm (world), from the calibrated bat face.
   palmDir(out) {
-    const base = this.input.xr ? (this.calibration || defaultBatOffset()) : _identity;
+    const base = this.input.xr ? (this.calibration || _defaultOff) : _identity;
     return out.set(0, 0, 1).applyQuat(base).applyQuat(this.input.right.gripPose.q);
   }
 
@@ -365,7 +365,7 @@ export class Game {
 
   batOffset() {
     if (!this.input.xr) return _identity;
-    const base = this.calibration || defaultBatOffset();
+    const base = this.calibration || _defaultOff;
     _off.copy(base);
     if (this.settings.batAngleDeg) _off.multiply(_tilt.setFromAxisAngle(_xAxis, this.settings.batAngleDeg * DEG));
     return _off;
@@ -1285,6 +1285,7 @@ export class Game {
 }
 
 const _identity = new Quat();
+const _defaultOff = defaultBatOffset();     // (read only: built once, not on every frame it is asked for)
 const _off = new Quat(), _tilt = new Quat(), _xAxis = new Vec3(1, 0, 0);
 const _batPose = new Pose();
 const _swRef = { x: 0, y: 0, z: 0 }, _lin = new Vec3();

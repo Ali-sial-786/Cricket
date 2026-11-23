@@ -24,8 +24,11 @@
 
 export const FAMILIES = ['forward_defence', 'back_defence', 'straight_drive', 'cover_drive', 'lofted_drive', 'back_foot_punch', 'flick',
   'square_cut', 'late_cut', 'pull', 'hook', 'sweep', 'slog_sweep', 'reverse_sweep'];
+import { hypot2, hypot3 } from '../physics/math.js';
+
 const IX = Object.fromEntries(FAMILIES.map((n, i) => [n, i]));
 const NF = FAMILIES.length;
+const _rows = [];   // (spare velocity-history rows, ShotSense.update)
 const GAP = 0.2;     // s: a longer gap between frames and the velocity history starts again
 
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
@@ -157,9 +160,13 @@ export class ShotSense {
     const dx = -axis.x, dy = -axis.y, dz = -axis.z;                         // the blade, from the hands to the toe
     const sx = grip.x + dx * SENSE.sweet, sy = grip.y + dy * SENSE.sweet, sz = grip.z + dz * SENSE.sweet;
     const H = S.hist;
-    H.push([t, sx, sy, sz, dx, dy, dz, grip.x, grip.y, grip.z, head.x, head.y, head.z]);
-    while (H.length > 2 && t - H[1][0] >= 0.03) H.shift();
-    if (H.length > 12) H.shift();
+    // (the rows are recycled: one a frame otherwise)
+    const row = _rows.length ? _rows.pop() : [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    row[0] = t; row[1] = sx; row[2] = sy; row[3] = sz; row[4] = dx; row[5] = dy; row[6] = dz;
+    row[7] = grip.x; row[8] = grip.y; row[9] = grip.z; row[10] = head.x; row[11] = head.y; row[12] = head.z;
+    H.push(row);
+    while (H.length > 2 && t - H[1][0] >= 0.03) _rows.push(H.shift());
+    if (H.length > 12) _rows.push(H.shift());
     const p = H[0], lag = Math.max(1e-3, t - p[0]);
     // velocities over the lag: the middle of the bat, the hands, the head; the blade's turning (rad/s, a vector)
     // (the bat's and the hands' are taken against your head: walking down the pitch is not a swing)
@@ -168,13 +175,13 @@ export class ShotSense {
       const hvx = (head.x - p[10]) / lag, hvz = (head.z - p[12]) / lag;
       vx = (sx - p[1]) / lag - hvx; vy = (sy - p[2]) / lag; vz = (sz - p[3]) / lag - hvz;
       const cx = p[5] * dz - p[6] * dy, cy = p[6] * dx - p[4] * dz, cz = p[4] * dy - p[5] * dx;
-      const sl = Math.hypot(cx, cy, cz), ang = Math.atan2(sl, p[4] * dx + p[5] * dy + p[6] * dz), k = sl > 1e-9 ? ang / sl / lag : 0;
+      const sl = hypot3(cx, cy, cz), ang = Math.atan2(sl, p[4] * dx + p[5] * dy + p[6] * dz), k = sl > 1e-9 ? ang / sl / lag : 0;
       wx = cx * k; wy = cy * k; wz = cz * k;
       gvx = (grip.x - p[7]) / lag - hvx;
-      hv = Math.hypot(hvx, hvz);
+      hv = hypot2(hvx, hvz);
       dDown = (Math.acos(clamp(-dy, -1, 1)) - Math.acos(clamp(-p[5], -1, 1))) / lag;       // the blade coming down (-) or going up (+), rad/s
     }
-    const speed = Math.hypot(vx, vy, vz), wmag = Math.hypot(wx, wy, wz);
+    const speed = hypot3(vx, vy, vz), wmag = hypot3(wx, wy, wz);
     S.speed += (speed - S.speed) * Math.min(1, dt / 0.03);
     S.quiet = S.speed < SENSE.vQuiet ? S.quiet + dt : 0;
     S.headQuiet = hv < 0.25 ? S.headQuiet + dt : 0;
@@ -194,7 +201,7 @@ export class ShotSense {
     }
     // the other hand on the handle?
     if (off) {
-      const d = Math.hypot(off.x - (grip.x + axis.x * 0.105), off.y - (grip.y + axis.y * 0.105), off.z - (grip.z + axis.z * 0.105));
+      const d = hypot3(off.x - (grip.x + axis.x * 0.105), off.y - (grip.y + axis.y * 0.105), off.z - (grip.z + axis.z * 0.105));
       S.offOn += ((d < SENSE.offOn ? 1 : 0) - S.offOn) * Math.min(1, dt / 0.15);
     }
     // the backlift: how far round the blade is from hanging down, while it is behind / above the hands
@@ -206,7 +213,7 @@ export class ShotSense {
     const sweepBtn = ctx && ctx.sweep && ctx.sweep.k > 0.05 ? ctx.sweep : null;
     const blockOK = !(ctx && ctx.live === false);
     // which way the face looks, along the ground (+ off side): a cover drive opens it, an on drive closes it
-    const fc = ctx && ctx.face, fh = fc ? Math.hypot(fc.x, fc.z) : 0, faceX = fh > 0.3 ? fc.x / fh : 0;
+    const fc = ctx && ctx.face, fh = fc ? hypot2(fc.x, fc.z) : 0, faceX = fh > 0.3 ? fc.x / fh : 0;
     const simT = ctx && ctx.simT != null ? ctx.simT : t;
     const hitNow = ctx && ctx.hitT != null && ctx.hitT > simT - 0.1 && ctx.hitT <= simT + 1e-6;
     // into the ball: toward the bowler, downward, or across (not the pick-up: upward and back)
@@ -236,7 +243,7 @@ export class ShotSense {
       sw.ay = sw.ay * a + Math.abs(dy) * wa; sw.aw = sw.aw * a + wa;
       const feat = this.features(head, sweepBtn);
       // contact: the blade pointing down (upright bat) or square out to the off side (bat across the line)
-      const cx = mix(0, 0.97, feat.cross), cy = mix(-0.99, -0.05, feat.cross), cz = mix(-0.12, -0.24, feat.cross), cl = Math.hypot(cx, cy, cz);
+      const cx = mix(0, 0.97, feat.cross), cy = mix(-0.99, -0.05, feat.cross), cz = mix(-0.12, -0.24, feat.cross), cl = hypot3(cx, cy, cz);
       const rem = Math.acos(clamp((dx * cx + dy * cy + dz * cz) / cl, -1, 1));
       sw.remMin = Math.min(sw.remMin, rem);
       const prog = sw.prog = sw.th / (sw.th + rem + 1e-6);
@@ -273,12 +280,12 @@ export class ShotSense {
         sw.finish = { gx, gy, gz, dx, dy, dz };
       }
       const f = sw.finish, scale = S.stand / 1.62;
-      const leftFinish = f && (Math.hypot(gx - f.gx, gy - f.gy, gz - f.gz) > 0.085 * scale
+      const leftFinish = f && (hypot3(gx - f.gx, gy - f.gy, gz - f.gz) > 0.085 * scale
         || dx * f.dx + dy * f.dy + dz * f.dz < Math.cos(0.35));
       const bladeY = sy - head.y;
       sw.highBladeY = Math.max(sw.highBladeY ?? bladeY, bladeY);
       const g = S.guard;
-      const gripDistance = Math.hypot(gx - g.gx, gy - g.gy, gz - g.gz);
+      const gripDistance = hypot3(gx - g.gx, gy - g.gy, gz - g.gz);
       const atGuard = gripDistance < 0.13 * scale && dx * g.dx + dy * g.dy + dz * g.dz > Math.cos(0.55);
       // Also recognise someone resting the bat low in a new position after
       // playing the ball, without having stopped at the top to hold a finish.
@@ -323,7 +330,7 @@ export class ShotSense {
   // The features of the swing so far and the scores they give.
   features(head, sweepBtn) {
     const S = this.s, sw = S.sw, k = S.stand / 1.62, home = S.home;
-    const nl = Math.hypot(sw.nx, sw.ny, sw.nz) || 1, vl = Math.hypot(sw.vx, sw.vy, sw.vz) || 1, hl = Math.hypot(sw.vx, sw.vz) || 1;
+    const nl = hypot3(sw.nx, sw.ny, sw.nz) || 1, vl = hypot3(sw.vx, sw.vy, sw.vz) || 1, hl = hypot2(sw.vx, sw.vz) || 1;
     const ww = sw.ww || 1;
     // the swing plane: the blade turning about the vertical is a bat across the line; near contact the bat lying flat says so too
     const turn = Math.abs(sw.ny) / nl, flat = sw.aw > 1e-6 ? (1 - sw.ay / sw.aw) * sstep(0, 0.3, sw.aw / ww) : 0;
@@ -360,9 +367,12 @@ export class ShotSense {
     if (sum > 1e-6) for (let i = 0; i < NF; i++) S.w[i] /= sum;
   }
 
+  // (the same object every frame, refilled: read it before the next update)
   out() {
-    const S = this.s;
-    return this._out = { state: S.state, phase: S.phaseS, engage: S.E, weights: S.w, leader: this.leader, lift: S.lift, feat: S.feat, home: S.home, stand: S.stand, offOn: S.offOn, quiet: Math.min(S.quiet, S.headQuiet) };
+    const S = this.s, o = this._out || (this._out = { state: '', phase: 0, engage: 0, weights: null, leader: null, lift: 0, feat: null, home: null, stand: 0, offOn: 0, quiet: 0 });
+    o.state = S.state; o.phase = S.phaseS; o.engage = S.E; o.weights = S.w; o.leader = this.leader; o.lift = S.lift; o.feat = S.feat;
+    o.home = S.home; o.stand = S.stand; o.offOn = S.offOn; o.quiet = Math.min(S.quiet, S.headQuiet);
+    return o;
   }
 }
 
