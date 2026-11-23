@@ -83,7 +83,7 @@ export class UI {
 
     // Big stadium scoreboard: an opaque LED face, mipmapped (it is seen from
     // ~85 m: 1024 px across ~16°, so it must filter down cleanly).
-    this.board = new CanvasPanel({ width: 24, height: 9, ppm: 1024 / 24, name: 'scoreboard', bg: null, interactive: false });
+    this.board = new CanvasPanel({ width: 24, height: 9, ppm: 1024 / 24, name: 'scoreboard', bg: null, interactive: false, fog: true });
     { const t = this.board.tex, m = this.board.mesh.material;
       t.generateMipmaps = true; t.minFilter = THREE.LinearMipmapLinearFilter; t.anisotropy = 4;
       m.transparent = false; m.depthWrite = true; }

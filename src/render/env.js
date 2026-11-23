@@ -94,8 +94,9 @@ export function buildEnvironment(scene) {
   // bogies, so it reads as a screen and not as a hole in the world.
   const SW = 26, SH = 10.2, SB = 0.6;                         // face width, height, bottom edge
   const ssTex = sightscreenTexture();
-  // (a faint emissive lift: the screen in the stands' shade is a dark face, not a hole)
-  const ssFaceMat = new THREE.MeshLambertMaterial({ map: ssTex, color: 0xffffff, emissive: 0x0d1117 });
+  // (a faint emissive lift: the screen in the stands' shade is a dark face, not a hole; no fog on
+  // the screens: never 140 m from a camera, where the haze starts, so it only cost uniforms)
+  const ssFaceMat = new THREE.MeshLambertMaterial({ map: ssTex, color: 0xffffff, emissive: 0x0d1117, fog: false });
   const ss = [];
   for (const dir of [-1, 1]) {
     const z = CZ + dir * (CONFIG.field.boundaryRadius + 6);
@@ -124,7 +125,7 @@ export function buildEnvironment(scene) {
       for (const wz of [0.4, 3.9]) ss.push(part(new THREE.CylinderGeometry(0.28, 0.28, 0.16, 12), 0x1d2025, [x, 0.28, back + dir * wz], [0, 0, Math.PI / 2]));
     }
   }
-  stadium.add(new THREE.Mesh(merge(ss), vertexColorMat()));
+  stadium.add(new THREE.Mesh(merge(ss), vertexColorMat({ fog: false })));
 
   scene.add(root);
   // Nothing built here moves (the crowd and the LED boards move in their shaders; MR moves
