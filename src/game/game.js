@@ -1129,7 +1129,8 @@ export class Game {
     const pdt = paused ? 0 : dt;
     this.batterView.between = !!(this.session && this.session.isBowling && this.session.state === 'settle');     // (the AI striker out of his stance between balls)
     this.batterView.update(this.simTime, pdt || 1e-4, lookBall);
-    this.nonStrikerView.update(pdt || 1e-4, this.simTime, { backingUp: this.nonStrikerBacksUp(), ball: lookBall, watch: this.bowlerSpot(_watch) });
+    const nc = _nsCtx; nc.backingUp = this.nonStrikerBacksUp(); nc.ball = lookBall; nc.watch = this.bowlerSpot(_watch);   // (kept: read at once)
+    this.nonStrikerView.update(pdt || 1e-4, this.simTime, nc);
     if (!this.session || !this.session.field) {
       if (!this.session || this.session.isBowling || this.session.bowler !== 'ai') this.figures.bowler.show(false);
     }
@@ -1146,7 +1147,8 @@ export class Game {
       // Your figure is your height: sized from the tallest you have stood in the headset.
       if (this.input.xr) {
         this.standEye = Math.min(1.95, Math.max((this.standEye ?? 1.55) - (pdt || 0) * 0.002, this.input.headRef.p.y));   // (your real eyes: not the sweep's view drop)
-        for (const h of [this.playerBody.actor.h, this.playerBowler.h]) {
+        for (let i = 0; i < 2; i++) {
+          const h = i === 0 ? this.playerBody.actor.h : this.playerBowler.h;
           const k = clamp(this.standEye / (this.playerBody.actor.headRestY * h.baseScale + 0.11), 0.84, 1.12);
           if (Math.abs(h.root.scale.x - h.baseScale * k) > 0.002) h.root.scale.setScalar(h.baseScale * k);
         }
@@ -1155,7 +1157,7 @@ export class Game {
         if (this.input.xr) this.poseBatMesh();
         this.playerBody.update(pdt || 1e-4, this.simTime, this.batMesh.position, this.batMesh.quaternion, lookBall, this.input.xr ? this.input.headPose : null,
           this.session && this.session.bodyState ? this.session.bodyState() : null, this.offHandPos(), this.input.xr ? this.lookYaw || 0 : 0,
-          { t: this.realNow ?? this.clock, dt: paused ? 1e-4 : this.realDt || pdt || 1e-4, drop: this.input.xr ? this.rigDrop : 0 });
+          motionNow(this.realNow ?? this.clock, paused ? 1e-4 : this.realDt || pdt || 1e-4, this.input.xr ? this.rigDrop : 0));
       }
       // Through your own eyes you see a faint body below you (no head), so you
       // know where your feet are in the crease.
@@ -1286,6 +1288,9 @@ export class Game {
 
 const _identity = new Quat();
 const _defaultOff = defaultBatOffset();     // (read only: built once, not on every frame it is asked for)
+// (updateViews hands these to the figures every frame: kept and refilled, read at once)
+const _nsCtx = { backingUp: false, ball: null, watch: null }, _motion = { t: 0, dt: 0, drop: 0 };
+function motionNow(t, dt, drop) { _motion.t = t; _motion.dt = dt; _motion.drop = drop; return _motion; }
 const _off = new Quat(), _tilt = new Quat(), _xAxis = new Vec3(1, 0, 0);
 const _batPose = new Pose();
 const _swRef = { x: 0, y: 0, z: 0 }, _lin = new Vec3();
