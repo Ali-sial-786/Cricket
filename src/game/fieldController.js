@@ -31,6 +31,7 @@ const BOWLER_CLEAR = 0.8;
 const PLAYER_PATH = 2.1;       // anyone running or walking past you gives you this much room
 const LANE_CLEAR = 1.5;        // half-width of your run-up lane kept empty between balls
 const BOWL_CREASE_Z = PITCH.bowlingStumpsZ + PITCH.poppingOffset;
+const THROW_HINTS = [HINTS.toKeeper, HINTS.toBowler];     // (asked for every frame: one list, not one a frame)
 const KEEPER_BREAK_REACH = 1.6;  // m from the stumps: the keeper can lunge in and take the bails off
 const DEAD_BALL_REACH = 4.0;    // m in front of the stumps: an unhit ball that dies this close is the keeper's to pick up
 const DEAD_BALL_SPEED = 0.8;    // m/s: ...once it is barely rolling
@@ -569,7 +570,7 @@ export class FieldController {
     // ---- the player picks the end to throw to ----
     const th = L.throw;
     if (this.playerFielding && th && !th.released && !this.outcome) {
-      g.hint([HINTS.toKeeper, HINTS.toBowler], 0.4);       // up until the throw is away
+      g.hint(THROW_HINTS, 0.4);       // up until the throw is away
       const R = g.input.right;
       if (R.buttons.a.down && L.setThrowEnd('batting')) g.ui.prompt('To the keeper!', 1.2);
       if (R.buttons.b.down && L.setThrowEnd('bowling')) g.ui.prompt("Bowler's end!", 1.2);

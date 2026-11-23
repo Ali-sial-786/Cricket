@@ -36,6 +36,7 @@ const PLAYER_PAD = { halfX: 0.15, front: 0, back: 0.36, top: 0.7, dx: -0.07 };  
 // In the headset your pads are the legs you see when you look down (pads()): each
 // from its ankle, a pad's width either way along the pitch, to past the knee (which bends toward the off side).
 const LEG_PAD = { halfX: 0.1, front: 0.12, back: 0.1, top: 0.7, dx: 0.02 };
+const RUNNING_HINTS = [HINTS.back, HINTS.dive];    // (asked for every frame while running: one list, not one a frame)
 import { Innings, runsText } from './scoring.js';
 
 const KMH = (v) => Math.round(msToKmh(v));
@@ -256,7 +257,7 @@ export class BattingSession {
       if (r.diveStarted) { r.diveStarted = false; g.ui.prompt('DIVE!', 0.8, '#ffd34d'); rb.diveHand.pulse(0.6, 60); g.sample('footstep', { gain: 0.9 }); }
       // The running controls stay up for as long as you can run.
       if (!r.running && !r.closed) g.hint(r.completed > 0 ? [HINTS.another] : [HINTS.run], 0.5);
-      else if (r.running) g.hint([HINTS.back, HINTS.dive], 0.5);
+      else if (r.running) g.hint(RUNNING_HINTS, 0.5);
     } else if (L.buttons.a.down || (input.xr && !L.connected && R.buttons.a.down)) this.requestNext();
   }
 
@@ -304,7 +305,7 @@ export class BattingSession {
       if (el >= cd) this.release(t);
     } else if (this.state === 'runup') {
       if (this.bowlerFig.update(dt, t)) this.release(t);
-      else if (this.bowlerFig.holdingBall()) { const o = this._held || (this._held = { pos: null }); o.pos = this.bowlerFig.handPos(_hand); g.ballOverride = o; g.ballView.setVisible(true); }
+      else if (this.bowlerFig.holdingBall()) { const o = this._inHand || (this._inHand = { pos: null }); o.pos = this.bowlerFig.handPos(_hand); g.ballOverride = o; g.ballView.setVisible(true); }
     } else if (this.state === 'live') {
       try { this.checkLive(t); } catch (e) { this.deadOnError(e); }
     } else if (this.state === 'review') {
