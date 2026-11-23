@@ -68,7 +68,7 @@ export function fillFit(g, text, x, y, maxW, weight, size, min = Math.min(size, 
 }
 
 export class CanvasPanel {
-  constructor({ width = 1.0, height = 0.62, ppm = 700, name = 'panel', bg = 'rgba(14,20,30,0.88)', interactive = true } = {}) {
+  constructor({ width = 1.0, height = 0.62, ppm = 700, name = 'panel', bg = 'rgba(14,20,30,0.88)', interactive = true, fog = false } = {}) {
     this.w = width; this.h = height;
     this.canvas = document.createElement('canvas');
     this.canvas.width = Math.round(width * ppm);
@@ -80,8 +80,9 @@ export class CanvasPanel {
     this.tex.minFilter = THREE.LinearFilter;
     this.mesh = new THREE.Mesh(
       new THREE.PlaneGeometry(width, height),
-      new THREE.MeshBasicMaterial({ map: this.tex, transparent: true, depthWrite: false, toneMapped: false }),
+      new THREE.MeshBasicMaterial({ map: this.tex, transparent: true, depthWrite: false, toneMapped: false, fog }),
     );
+    // (fog: a panel by the player is never 140 m away, where the haze starts; the stadium screen can be)
     this.mesh.name = name;
     this.mesh.renderOrder = 10;
     this.mesh.userData.panel = this;

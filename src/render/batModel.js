@@ -331,7 +331,7 @@ function batTexture(geo) {
 // up to MARKS cherries: faint round scuffs where the ball met the face.
 function batMaterial(tex) {
   const marks = Array.from({ length: MARKS }, () => new THREE.Vector4(0, 0, 0, 0));
-  const m = new THREE.MeshPhongMaterial({ map: tex, color: 0xffffff, specular: 0x302a22, shininess: 16 });
+  const m = new THREE.MeshPhongMaterial({ map: tex, color: 0xffffff, specular: 0x302a22, shininess: 16, fog: false });   // (no fog: a bat is never 140 m from a camera)
   m.userData.marks = marks;
   m.userData.next = 0;
   m.onBeforeCompile = (sh) => {
@@ -362,6 +362,10 @@ export function buildBatMesh(cfg = CONFIG.bat) {
   const geo = batGeometry(cfg);
   const mesh = new THREE.Mesh(geo, batMaterial(batTexture(geo)));
   mesh.name = 'bat';
+  // Drawn after the other opaque things, every bat together (opaque draws go in material order, and
+  // a bat made with a figure would split the figures' run: two program switches an eye). Opaque:
+  // the order changes no pixel.
+  mesh.renderOrder = 0.5;
   return mesh;
 }
 

@@ -56,6 +56,7 @@ renderer.toneMappingExposure = 1.0;
 container.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
+scene.matrixAutoUpdate = false;            // (never moves: else it forces every world matrix every frame, render/drawCost.js)
 const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.03, 700);
 const rig = new THREE.Group();
 rig.name = 'playerRig';

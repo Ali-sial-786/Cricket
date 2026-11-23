@@ -49,6 +49,7 @@ export function bailGeometry() {
 }
 
 // The hole each stump stands in: three dark, soft discs (one mesh per end).
+let _socketMat = null;
 export function socketMesh(xs) {
   const parts = [];
   for (const x of xs) {
@@ -60,7 +61,9 @@ export function socketMesh(xs) {
     parts.push(c);
   }
   const g = mergeSimple(parts);
-  const m = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 }));
+  // (one material for both ends; no fog: never 140 m from a camera)
+  _socketMat = _socketMat || new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, fog: false });
+  const m = new THREE.Mesh(g, _socketMat);
   m.renderOrder = 1;
   return m;
 }

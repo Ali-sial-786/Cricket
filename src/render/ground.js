@@ -469,10 +469,10 @@ const SURFACE_FRAG_TAIL = /* glsl */`
     #include <fog_fragment>
   }`;
 
-function surfaceMaterial(map, detail, x0, z0, w, l, extraUniforms, fragBody) {
+function surfaceMaterial(map, detail, x0, z0, w, l, extraUniforms, fragBody, fog = true) {
   const irr = flatIrradiance();
   return new THREE.ShaderMaterial({
-    fog: true,
+    fog,
     uniforms: {
       ...THREE.UniformsUtils.clone(THREE.UniformsLib.fog),
       uMap: { value: map }, uDetail: { value: detail },
@@ -564,7 +564,7 @@ export function buildGround(stadium, pitchGroup) {
   const pitchMat = surfaceMaterial(pitchMap, detail, -PM_HALF_W, PM_Z0, PM_HALF_W * 2, PM_Z1 - PM_Z0, {
     uCrease: { value: new THREE.Vector4(PITCH.battingStumpsZ, PITCH.bowlingStumpsZ, PITCH.poppingOffset, 0.025) },
     uCreaseX: { value: new THREE.Vector4(PITCH.returnCreaseX, PITCH.poppingHalfLength, PITCH.wideLineX, CZ) },
-  }, PITCH_FRAG);
+  }, PITCH_FRAG, false);          // (no fog: the pitch is never 140 m from a camera, where the haze starts)
   pitchMat.polygonOffset = true; pitchMat.polygonOffsetFactor = -1; pitchMat.polygonOffsetUnits = -2;
   const pitchMesh = new THREE.Mesh(pGeo, pitchMat);
   pitchMesh.position.set(0, 0.003, (PM_Z0 + PM_Z1) / 2);
@@ -590,9 +590,9 @@ export function buildGround(stadium, pitchGroup) {
     d.translate(Math.sin(a) * 27.4, 0.011, Math.cos(a) * 27.4);
     parts.push(d);
   }
-  const rope = new THREE.Mesh(mergeGeos(parts), new THREE.MeshLambertMaterial({ map: ropeTexture(), side: THREE.DoubleSide }));
+  const rope = new THREE.Mesh(mergeGeos(parts), new THREE.MeshLambertMaterial({ map: ropeTexture(), side: THREE.DoubleSide, fog: false }));
   rope.position.z = CZ;
-  rope.name = 'boundary';
+  rope.name = 'boundary';          // (no fog: cameras stay inside 60 m of the middle, the haze starts at 140 m)
   stadium.add(rope);
 
   return { ground, pitchMesh, rope };
