@@ -22,6 +22,29 @@ export function reportOverflow(panel, text, width, box) {
   console.warn(`[ui] text overflows its box on '${panel}': "${text}" is ${Math.round(width)} px, box ${Math.round(box)} px`);
 }
 
+// The canvas fonts the HUD, the prompts, the hints, the cards and the big
+// screen use in a match (weight -> px; taken from a batting chase and a
+// bowling over). The first time the browser meets a font it builds its
+// metrics: 2-6 ms each on a desktop CPU (several times that on the headset),
+// and a prompt that shrinks to fit meets four or five at once -- a long
+// frame the first time it comes up. prewarmFonts() meets them all at load.
+const WARM_FONTS = {
+  500: [18, 19, 20, 21, 22, 23, 25, 27],
+  600: [19, 21, 22, 23, 24, 25, 26, 27, 28, 29, 31, 32, 34, 36, 38],
+  700: [6, 11, 19, 21, 23, 24, 25, 26, 30, 44, 45, 47, 48, 50, 52],
+  800: [7, 13, 15, 16, 17, 18, 19, 20, 22, 24, 26, 28, 30, 32, 35, 36, 38, 40, 41, 44, 54, 84],
+  900: [19, 24, 25, 26, 27, 28, 30, 31, 32, 38, 39, 40, 42, 45, 46, 48, 49, 51, 52, 54, 64, 66, 74, 76, 80, 96, 140, 197, 210],
+};
+// Load time (render/warmup.js): returns how many fonts it met. A canvas of its own; nothing is drawn.
+export function prewarmFonts() {
+  if (typeof document === 'undefined') return 0;
+  const g = document.createElement('canvas').getContext('2d');
+  if (!g) return 0;
+  let n = 0;
+  for (const w of Object.keys(WARM_FONTS)) for (const px of WARM_FONTS[w]) { g.font = FONT(+w, px); g.measureText('Ag 0123 OUT — Six!'); n++; }
+  return n;
+}
+
 // Word-wrap one line of `text` to `maxW` px with the current font. A line
 // made of ' · '-separated items breaks between items, not inside one.
 export function wrapWords(g, text, maxW) {

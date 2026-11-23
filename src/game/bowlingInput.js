@@ -23,7 +23,7 @@
 // The resulting pitch point goes to the same launch solver as the machine, so
 // every ball obeys the real physics.
 
-import { Vec3, clamp, kmhToMs, msToKmh, DEG } from '../physics/math.js';
+import { Vec3, clamp, kmhToMs, msToKmh, DEG, hypot2 } from '../physics/math.js';
 import { PITCH, bowlingPoppingZ } from '../physics/pitch.js';
 import { pitchPointFor, spinVector, solveLaunch, solveThrough } from '../physics/bowlingMachine.js';
 import { CONFIG } from '../config.js';
@@ -79,7 +79,7 @@ export function mapRelease({ releasePos, handVel, handAngVel, palmDir = null, sw
   if (assist && aim) {
     const scale = 1 - clamp(B.assistStrength, 0, 1);
     const azAim = Math.atan2(aim.x - rel.x, aim.z - rel.z) / DEG;
-    const dist = Math.hypot(aim.x - rel.x, aim.z - rel.z);
+    const dist = hypot2(aim.x - rel.x, aim.z - rel.z);
     const lat = Math.tan((azDeg - azAim) * B.lineGain * DEG) * dist * scale;
     const lenErr = -dElev * B.lengthPerDeg * scale;
     const aimLen = PITCH.battingStumpsZ - aim.z;

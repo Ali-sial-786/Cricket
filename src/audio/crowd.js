@@ -22,6 +22,7 @@
 //   crowd.cue(kind, ctx)                                               the game's match events
 //   crowd.react(kind, strength, ballPos)                               see REACT below
 import { CrowdMood } from './crowdMood.js';
+import { hypot2 } from '../physics/math.js';
 
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const TAU = Math.PI * 2;
@@ -41,7 +42,7 @@ export function stand(az, r = 58, y = 9, out = _st) {
 export function azimuthOf(p) {
   if (!p) return null;
   const dx = p.x, dz = p.z - MID_Z;
-  return Math.hypot(dx, dz) < 24 ? null : Math.atan2(dx, dz);
+  return hypot2(dx, dz) < 24 ? null : Math.atan2(dx, dz);
 }
 
 // The reactions: layers [clip | group, gain, delay s, place]. place: 'ball' (where the ball went;
@@ -123,7 +124,8 @@ export class CrowdAudio {
     const c = this.ctx;
     if (!this.bed || !c) return;
     const o = this.mood.out, on = this.present ? 1 : 0;
-    for (const e of this.bed) {
+    for (let i = 0; i < this.bed.length; i++) {       // (every frame: no iterator)
+      const e = this.bed[i];
       e.next -= dt;
       if (e.next <= 0) { e.wander = 0.8 + this.rng() * 0.4; e.next = 2 + this.rng() * 3; }
     }

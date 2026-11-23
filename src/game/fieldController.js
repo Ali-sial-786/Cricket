@@ -9,12 +9,18 @@ import * as THREE from 'three';
 import { Fielding, PLAYER_CLEAR, STUMP_CLEAR } from './fielding.js';
 import { planRuns, planMoreRuns, RUNNER_CLEAR } from './running.js';
 import { overthrowRuns } from './throwing.js';
-import { Vec3, clamp, smoothstep as sstep } from '../physics/math.js';
+import { Vec3, clamp, smoothstep as sstep, hypot2, hypot3 } from '../physics/math.js';
 import { PITCH } from '../physics/pitch.js';
 import { CONFIG } from '../config.js';
 import { HINTS } from '../ui/controllerHint.js';
 
 const _v = new THREE.Vector3(), _w = new THREE.Vector3(), _g = new THREE.Vector3(), _lob = new THREE.Vector3();
+// A kept circle {x, z, r, soft} from pool[i], refilled.
+function circle(pool, i, x, z, r, soft) {
+  const o = pool[i] || (pool[i] = { x: 0, z: 0, r: 0, soft: false });
+  o.x = x; o.z = z; o.r = r; o.soft = soft;
+  return o;
+}
 
 // The player's space: no fielder, keeper or umpire's feet within PLAYER_CLEAR
 // of your head (on the ground), no runner within RUNNER_CLEAR.
@@ -25,6 +31,7 @@ const BOWLER_CLEAR = 0.8;
 const PLAYER_PATH = 2.1;       // anyone running or walking past you gives you this much room
 const LANE_CLEAR = 1.5;        // half-width of your run-up lane kept empty between balls
 const BOWL_CREASE_Z = PITCH.bowlingStumpsZ + PITCH.poppingOffset;
+const THROW_HINTS = [HINTS.toKeeper, HINTS.toBowler];     // (asked for every frame: one list, not one a frame)
 const KEEPER_BREAK_REACH = 1.6;  // m from the stumps: the keeper can lunge in and take the bails off
 const DEAD_BALL_REACH = 4.0;    // m in front of the stumps: an unhit ball that dies this close is the keeper's to pick up
 const DEAD_BALL_SPEED = 0.8;    // m/s: ...once it is barely rolling
@@ -88,13 +95,13 @@ export class FieldController {
     let focus = center >= 0 ? L.fielders[center].pos : null, r, budget = 11;
     // (how long the next ball waits anyway: the AI bowler's walk back to his mark, and 2 s of grace)
     const bw0 = g.figures && g.figures.bowler.actor;
-    if (bw0 && bw0.visible) budget = Math.hypot(bw0.home.x - bw0.pos.x, bw0.home.z - bw0.pos.z) / 2.6 + 3.5;
+    if (bw0 && bw0.visible) budget = hypot2(bw0.home.x - bw0.pos.x, bw0.home.z - bw0.pos.z) / 2.6 + 3.5;
     else if (g.session && g.session.isBowling) budget = 11.5;          // (you bowl: the new batter has to walk out from the gate first)
     if (L.outcome && L.outcome.by === 'you') r = 1.9;          // (you took it: they stand round the edge of your space)
     if (!focus) {
       const bw = g.figures && g.figures.bowler.actor;
       // (the AI bowler: where he is, a few steps toward the pitch -- he walks on toward his mark, the side comes to meet him)
-      if (bw && bw.visible) { const dz = PITCH.centerZ - bw.pos.z, dx = -bw.pos.x, d = Math.hypot(dx, dz), k = d > 1e-3 ? Math.min(3.5, d) / d : 0; focus = { x: bw.pos.x + dx * k, z: bw.pos.z + dz * k }; }
+      if (bw && bw.visible) { const dz = PITCH.centerZ - bw.pos.z, dx = -bw.pos.x, d = hypot2(dx, dz), k = d > 1e-3 ? Math.min(3.5, d) / d : 0; focus = { x: bw.pos.x + dx * k, z: bw.pos.z + dz * k }; }
       else if (g.session && g.session.isBowling) { const p = this.playerSpot(); if (p) { focus = p; r = 1.9; } }
     }
     if (focus) L.celebrateWicket(t, focus, center, r, budget);
@@ -230,8 +237,8 @@ export class FieldController {
     const fit = (s) => {
       if (s.t < C.minTime) return false;
       if (!bat) return true;
-      const hv = Math.hypot(s.vx, s.vz) || 1;
-      return Math.hypot(s.x + s.vx / hv * C.standOff - bat.x, s.z + s.vz / hv * C.standOff - bat.z) >= C.minGap;
+      const hv = hypot2(s.vx, s.vz) || 1;
+      return hypot2(s.x + s.vx / hv * C.standOff - bat.x, s.z + s.vz / hv * C.standOff - bat.z) >= C.minGap;
     };
     let best = null, first = null;
     for (const s of this.pred.samples) {
@@ -254,7 +261,7 @@ export class FieldController {
     }
     const s = best ? best.s : { x: p.x, y: p.y, z: p.z, vx: 0, vz: 1, t: p.t };
     if (!fit(s)) return;
-    const hv = Math.hypot(s.vx, s.vz) || 1;
+    const hv = hypot2(s.vx, s.vz) || 1;
     const dir = { x: s.vx / hv, z: s.vz / hv };
     this.catch = {
       f: L.fielders[p.fi], fi: p.fi, state: 'pending',
@@ -283,7 +290,7 @@ export class FieldController {
     if (c.state !== 'live') return;
     if (b.active) {
       for (const h of g.playerHands()) {
-        if (Math.hypot(h.x - b.pos.x, h.y - b.pos.y, h.z - b.pos.z) < C.handRadius) {
+        if (hypot3(h.x - b.pos.x, h.y - b.pos.y, h.z - b.pos.z) < C.handRadius) {
           g.world.removeBall();
           this.logic.playerCaught(c.f);
           this.logic.ballOverride = { pos: new Vec3(h.x, h.y, h.z), hand: h };
@@ -331,7 +338,7 @@ export class FieldController {
     else if (a && a.type === 'break') { if (a.at < t) a.at = t + delay; }
     // (the keeper sweeps the bails off only if he is at the stumps: off chasing
     // the ball, a throw that runs a batter out has hit them on its own)
-    else if (holder && end === 'batting' && holder.keeper && Math.hypot(holder.pos.x, holder.pos.z - PITCH.battingStumpsZ) < KEEPER_BREAK_REACH) L.keeperBreak(t, t + delay);
+    else if (holder && end === 'batting' && holder.keeper && hypot2(holder.pos.x, holder.pos.z - PITCH.battingStumpsZ) < KEEPER_BREAK_REACH) L.keeperBreak(t, t + delay);
     this.pendingBreak = { end, t: t + delay };
   }
 
@@ -390,50 +397,62 @@ export class FieldController {
     return g.input.headPose ? g.input.headPose.p : null;
   }
 
+  // (Every frame: so it all goes into kept objects and lists, refilled --
+  // nothing here is made new each frame. The lists are cut to length.)
   keepClear(dt) {
     const g = this.game, L = this.logic, r = this.runs;
     const hp = this.playerSpot();
     // (nobody stands within PLAYER_CLEAR of you; anyone on the move passes PLAYER_PATH wide)
-    L.keepOut = hp ? { x: hp.x, z: hp.z, r: PLAYER_CLEAR, path: PLAYER_PATH } : null;
-    r.keepOut = hp ? { x: hp.x, z: hp.z, r: RUNNER_CLEAR, striker: this.playerBatting } : null;
+    const ko = this._ko || (this._ko = { x: 0, z: 0, r: PLAYER_CLEAR, path: PLAYER_PATH });
+    const rko = this._rko || (this._rko = { x: 0, z: 0, r: RUNNER_CLEAR, striker: false });
+    if (hp) { ko.x = rko.x = hp.x; ko.z = rko.z = hp.z; rko.striker = this.playerBatting; }
+    L.keepOut = hp ? ko : null;
+    r.keepOut = hp ? rko : null;
     g.nonStrikerView.avoid = hp;
     g.batterView.avoid = hp;
     if (g.umpires.keepClear) g.umpires.keepClear(g.umpires.visible ? hp : null, dt, PLAYER_CLEAR);
-    const obs = g.umpires.visible ? g.umpires.spots().map((u) => ({ x: u.x, z: u.z, r: UMPIRE_CLEAR })) : [];
+    const ump = g.umpires.visible ? g.umpires.spots() : null;
+    const obs = this._fObs || (this._fObs = []), P = this._fPool || (this._fPool = []);
+    let n = 0;
+    if (ump) for (let i = 0; i < ump.length; i++) obs[n] = circle(P, n++, ump[i].x, ump[i].z, UMPIRE_CLEAR, false);
     const bv = g.batterView, ns = g.nonStrikerView;
-    if (bv.shown && bv.actor.visible) obs.push({ x: bv.actor.pos.x, z: bv.actor.pos.z, r: BATTER_CLEAR });
-    if (ns.visible) obs.push({ x: ns.actor.pos.x, z: ns.actor.pos.z, r: BATTER_CLEAR });
+    if (bv.shown && bv.actor.visible) obs[n] = circle(P, n++, bv.actor.pos.x, bv.actor.pos.z, BATTER_CLEAR, false);
+    if (ns.visible) obs[n] = circle(P, n++, ns.actor.pos.x, ns.actor.pos.z, BATTER_CLEAR, false);
     // The AI bowler walking back (not running in: his line is his own) is in everyone's way too.
     const bw = g.figures && g.figures.bowler.actor;
-    if (bw && bw.visible && bw.state !== 'runup') obs.push({ x: bw.pos.x, z: bw.pos.z, r: BOWLER_CLEAR });
+    if (bw && bw.visible && bw.state !== 'runup') obs[n] = circle(P, n++, bw.pos.x, bw.pos.z, BOWLER_CLEAR, false);
     // Your run-up is yours: between balls and while you run in nobody walks
     // or stands in the lane from your mark to the crease.
     const ses = g.session;
     if (this.playerFielding && ses && ses.run && hp && (L.dead || ses.state === 'ready')) {
       const z1 = BOWL_CREASE_Z, z0 = Math.min(hp.z, z1 - (ses.run.spec ? ses.run.spec.length : 0));
-      for (let z = z0 - 1; z <= z1 + 1.01; z += 1.5) obs.push({ x: hp.x, z, r: LANE_CLEAR, soft: true });     // (steered round; nobody is shoved out of it)
+      for (let z = z0 - 1; z <= z1 + 1.01; z += 1.5) obs[n] = circle(P, n++, hp.x, z, LANE_CLEAR, true);     // (steered round; nobody is shoved out of it)
     }
     // a batter on his way off or in
-    if (g.crew) for (const a of g.crew.leaving) obs.push({ x: a.pos.x, z: a.pos.z, r: BATTER_CLEAR });
+    if (g.crew) { const lv = g.crew.leaving; for (let i = 0; i < lv.length; i++) obs[n] = circle(P, n++, lv[i].pos.x, lv[i].pos.z, BATTER_CLEAR, false); }
+    obs.length = n;
     L.obstacles = obs;
     // (a walking umpire goes round the bowler and the batters)
-    const uo = this._umpObs || (this._umpObs = []);
-    uo.length = 0;
-    if (g.figures && g.figures.bowler.actor.visible) uo.push({ x: g.figures.bowler.actor.pos.x, z: g.figures.bowler.actor.pos.z, r: 0.9 });
-    if (bv.shown && bv.actor.visible) uo.push({ x: bv.actor.pos.x, z: bv.actor.pos.z, r: BATTER_CLEAR });
-    if (ns.visible) uo.push({ x: ns.actor.pos.x, z: ns.actor.pos.z, r: BATTER_CLEAR });
-    uo.push({ x: 0, z: PITCH.bowlingStumpsZ, r: STUMP_CLEAR + 0.2 });
-    if (hp) uo.push({ x: hp.x, z: hp.z, r: PLAYER_CLEAR });
+    const uo = this._umpObs || (this._umpObs = []), UP = this._umpPool || (this._umpPool = []);
+    n = 0;
+    if (g.figures && g.figures.bowler.actor.visible) uo[n] = circle(UP, n++, g.figures.bowler.actor.pos.x, g.figures.bowler.actor.pos.z, 0.9, false);
+    if (bv.shown && bv.actor.visible) uo[n] = circle(UP, n++, bv.actor.pos.x, bv.actor.pos.z, BATTER_CLEAR, false);
+    if (ns.visible) uo[n] = circle(UP, n++, ns.actor.pos.x, ns.actor.pos.z, BATTER_CLEAR, false);
+    uo[n] = circle(UP, n++, 0, PITCH.bowlingStumpsZ, STUMP_CLEAR + 0.2, false);
+    if (hp) uo[n] = circle(UP, n++, hp.x, hp.z, PLAYER_CLEAR, false);
+    uo.length = n;
     g.umpires.obstacles = uo;
     // ... and he walks round the umpire, the batters and both sets of stumps.
     if (bw) {
-      const bo = bw.obstacles || (bw.obstacles = []);
-      bo.length = 0;
-      if (g.umpires.visible) for (const u of g.umpires.spots()) bo.push({ x: u.x, z: u.z, r: UMPIRE_CLEAR });
-      if (bv.shown && bv.actor.visible) bo.push({ x: bv.actor.pos.x, z: bv.actor.pos.z, r: BATTER_CLEAR });
-      if (ns.visible) bo.push({ x: ns.actor.pos.x, z: ns.actor.pos.z, r: BATTER_CLEAR });
-      bo.push({ x: 0, z: PITCH.bowlingStumpsZ, r: STUMP_CLEAR }, { x: 0, z: PITCH.battingStumpsZ, r: STUMP_CLEAR });
-      if (hp) bo.push({ x: hp.x, z: hp.z, r: PLAYER_CLEAR });
+      const bo = bw.obstacles || (bw.obstacles = []), BP = this._bwPool || (this._bwPool = []);
+      n = 0;
+      if (ump) for (let i = 0; i < ump.length; i++) bo[n] = circle(BP, n++, ump[i].x, ump[i].z, UMPIRE_CLEAR, false);
+      if (bv.shown && bv.actor.visible) bo[n] = circle(BP, n++, bv.actor.pos.x, bv.actor.pos.z, BATTER_CLEAR, false);
+      if (ns.visible) bo[n] = circle(BP, n++, ns.actor.pos.x, ns.actor.pos.z, BATTER_CLEAR, false);
+      bo[n] = circle(BP, n++, 0, PITCH.bowlingStumpsZ, STUMP_CLEAR, false);
+      bo[n] = circle(BP, n++, 0, PITCH.battingStumpsZ, STUMP_CLEAR, false);
+      if (hp) bo[n] = circle(BP, n++, hp.x, hp.z, PLAYER_CLEAR, false);
+      bo.length = n;
     }
   }
 
@@ -463,10 +482,13 @@ export class FieldController {
     if (L.bowlerFields) {
       const fb = L.fielders[L.fielders.length - 1], A = fb.out ? g.fieldView.actors[L.fielders.length - 1] : g.figures.bowler.actor;
       A.handPos(_lob);
-      L.lobTarget = { x: _lob.x, y: _lob.y, z: _lob.z, roll: false };
+      const lt = this._lt || (this._lt = { x: 0, y: 0, z: 0, roll: false });
+      lt.x = _lob.x; lt.y = _lob.y; lt.z = _lob.z; lt.roll = false;
+      L.lobTarget = lt;
     } else {
-      const hp = this.playerSpot();
-      L.lobTarget = hp ? { x: hp.x, y: 0, z: hp.z + 0.6, roll: true } : null;
+      const hp = this.playerSpot(), lt = this._lt || (this._lt = { x: 0, y: 0, z: 0, roll: false });
+      if (hp) { lt.x = hp.x; lt.y = 0; lt.z = hp.z + 0.6; lt.roll = true; }
+      L.lobTarget = hp ? lt : null;
     }
     // A broken wicket is put back up once the ball is dead and its replay has
     // played (the view comes back in from dark then); with no replay, before the next ball.
@@ -488,7 +510,7 @@ export class FieldController {
       // It has died short of him (a ball that stopped on the pitch, or one that
       // came to rest beside him out of the way of his gloves): he walks up and
       // picks it up -- the ball is dead (or, the batter out of his ground, a stumping).
-      else if (!got && L.started && b.bounces > 0 && b.pos.z > PITCH.battingStumpsZ - DEAD_BALL_REACH && Math.hypot(b.vel.x, b.vel.z) < DEAD_BALL_SPEED && b.pos.y < 0.3) {
+      else if (!got && L.started && b.bounces > 0 && b.pos.z > PITCH.battingStumpsZ - DEAD_BALL_REACH && hypot2(b.vel.x, b.vel.z) < DEAD_BALL_SPEED && b.pos.y < 0.3) {
         if (L.keeperFetch(b, t) === 'take') { w.removeBall(); g.replay.mark('held', t); }
       }
     }
@@ -499,7 +521,7 @@ export class FieldController {
       else L.shyMissed(w, t);
     }
     // What the throws did this frame: the stumps hit, a throw got away (overthrows).
-    for (const e of L.events.splice(0)) this.onThrowEvent(e, t);
+    if (L.events.length) { const ev = L.events; L.events = []; for (const e of ev) this.onThrowEvent(e, t); }
 
     // ---- running ----
     if (r.active && !this.outcome) {
@@ -548,7 +570,7 @@ export class FieldController {
     // ---- the player picks the end to throw to ----
     const th = L.throw;
     if (this.playerFielding && th && !th.released && !this.outcome) {
-      g.hint([HINTS.toKeeper, HINTS.toBowler], 0.4);       // up until the throw is away
+      g.hint(THROW_HINTS, 0.4);       // up until the throw is away
       const R = g.input.right;
       if (R.buttons.a.down && L.setThrowEnd('batting')) g.ui.prompt('To the keeper!', 1.2);
       if (R.buttons.b.down && L.setThrowEnd('bowling')) g.ui.prompt("Bowler's end!", 1.2);
@@ -592,13 +614,18 @@ export class FieldController {
     // (everyone else whose body a lunging fielder must not go into)
     const others = this._others || (this._others = []);
     others.length = 0;
-    if (g.umpires.visible) for (const u of g.umpires.spots()) others.push(u);
-    for (const a of [g.batterView.shown && g.batterView.actor, g.nonStrikerView.visible && g.nonStrikerView.actor, g.figures.bowler.actor]) if (a && a.visible) others.push(a.h.root.position);
+    if (g.umpires.visible) { const us = g.umpires.spots(); for (let i = 0; i < us.length; i++) others.push(us[i]); }
+    const ba = g.batterView.shown && g.batterView.actor, na = g.nonStrikerView.visible && g.nonStrikerView.actor, wa = g.figures.bowler.actor;
+    if (ba && ba.visible) others.push(ba.h.root.position);
+    if (na && na.visible) others.push(na.h.root.position);
+    if (wa && wa.visible) others.push(wa.h.root.position);
     const hp = this.playerSpot();
     if (hp) others.push(hp);                             // (nor into you)
     // (ready and crouched while the ball is on its way: not once the keeper has taken it or it has beaten him)
     const ready = this.delivering && !L.keeperHold && !L.keeperMissed;
-    g.fieldView.update(dt, states, { t, ball: ballPos, delivering: ready, cam: g.input.headPose.p, others });
+    const vc = this._viewCtx || (this._viewCtx = { t: 0, ball: null, delivering: false, cam: null, others: null });
+    vc.t = t; vc.ball = ballPos; vc.delivering = ready; vc.cam = g.input.headPose.p; vc.others = others;
+    g.fieldView.update(dt, states, vc);
     g.particles.pollDives(states, t);                    // (grass flecks where a fielder dives)
 
     // Stumps broken by a glove: they fly when the hand gets there.
@@ -653,7 +680,9 @@ export class FieldController {
           }
         }
       }
-      g.ballOverride = { pos: { x: _w.x, y: _w.y, z: _w.z } };
+      const bo = this._ballO || (this._ballO = { pos: { x: 0, y: 0, z: 0 } });
+      bo.pos.x = _w.x; bo.pos.y = _w.y; bo.pos.z = _w.z;
+      g.ballOverride = bo;
       g.ballView.setVisible(true);
       this.ownOverride = true;
     } else if (!b.active && this.ownOverride) {

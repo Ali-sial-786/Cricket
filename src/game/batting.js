@@ -12,7 +12,7 @@
 //   A / Z                   review a decision against you (LBW, caught off an edge)
 import * as THREE from 'three';
 import { CONFIG } from '../config.js';
-import { Vec3, msToKmh, clamp } from '../physics/math.js';
+import { Vec3, msToKmh, clamp, hypot2, hypot3 } from '../physics/math.js';
 import { PITCH, lengthName, lineName, groundDistance, battingPoppingZ } from '../physics/pitch.js';
 import { machineDelivery } from '../physics/bowlingMachine.js';
 import { predict, crossingAtZ } from '../physics/trajectory.js';
@@ -36,10 +36,11 @@ const PLAYER_PAD = { halfX: 0.15, front: 0, back: 0.36, top: 0.7, dx: -0.07 };  
 // In the headset your pads are the legs you see when you look down (pads()): each
 // from its ankle, a pad's width either way along the pitch, to past the knee (which bends toward the off side).
 const LEG_PAD = { halfX: 0.1, front: 0.12, back: 0.1, top: 0.7, dx: 0.02 };
+const RUNNING_HINTS = [HINTS.back, HINTS.dive];    // (asked for every frame while running: one list, not one a frame)
 import { Innings, runsText } from './scoring.js';
 
 const KMH = (v) => Math.round(msToKmh(v));
-const _hand = new THREE.Vector3();
+const _hand = new THREE.Vector3(), _padAt = new THREE.Vector3();
 const STANCE = { x: -0.4, z: -1.05 };
 const ANNOUNCE = 1.8;            // s a new bowler's card / a free hit is up before the bowler sets off
 const SKIP_ANNOUNCE = 1.0;       // ... after a skip to the next ball (skipToNext)
@@ -57,9 +58,9 @@ const SWEEP_IN = 4.5, SWEEP_OUT = 3.5;   // 1/s: the sweep button's hold on your
 // left the bat (whichever way it went); where: which way it went, as a
 // fielding position (a right-hander's: off side +x, the bowler -z), so a top
 // edge that climbs over your shoulder reads "41° · fine leg", not a low drive.
-export function launchAngle(v) { return Math.atan2(v.y, Math.hypot(v.x, v.z)) * 180 / Math.PI; }
+export function launchAngle(v) { return Math.atan2(v.y, hypot2(v.x, v.z)) * 180 / Math.PI; }
 export function shotWhere(v) {
-  if (Math.hypot(v.x, v.z) < 0.15 * Math.hypot(v.x, v.y, v.z) + 1e-6) return v.y > 0 ? 'straight up' : 'into the ground';
+  if (hypot2(v.x, v.z) < 0.15 * hypot3(v.x, v.y, v.z) + 1e-6) return v.y > 0 ? 'straight up' : 'into the ground';
   const a = Math.atan2(v.x, -v.z) * 180 / Math.PI, d = Math.abs(a), off = a > 0;   // 0: back past the bowler, 90: square, 180: behind
   if (d < 12) return 'straight';
   if (d > 168) return 'over the keeper';
@@ -208,6 +209,16 @@ export class BattingSession {
     return [S.L, S.R].map((f) => ({ x: f.x, z: f.z, box: LEG_PAD }));
   }
 
+  // pads(), into kept objects: for the check every frame a ball is on its way (read at once, not kept).
+  padsNow() {
+    const g = this.game, S = g.input.xr && g.playerBody && g.playerBody.feet ? g.playerBody.feet.s : null;
+    const K = this._padsK || (this._padsK = { one: [{ x: 0, z: 0, box: PLAYER_PAD }], two: [{ x: 0, z: 0, box: LEG_PAD }, { x: 0, z: 0, box: LEG_PAD }] });
+    if (!S || !S.init) { const p = this.body(), o = K.one[0]; o.x = p.x; o.z = p.z; return K.one; }
+    const a = K.two[0], b = K.two[1];
+    a.x = S.L.x; a.z = S.L.z; b.x = S.R.x; b.z = S.R.z;
+    return K.two;
+  }
+
   // ------------------------------------------------------------- input (real time)
   handleInput(input) {
     const g = this.game, L = input.left, R = input.right, B = CONFIG.bat, dt = g.realDt || 0.016;
@@ -218,7 +229,7 @@ export class BattingSession {
       let fx = 0, fz = -1;
       if (input.xr && L.connected) {
         _fw.set(0, 0, -1).applyQuat(L.rayPose.q);
-        if (Math.hypot(_fw.x, _fw.z) > 0.2) { const n = Math.hypot(_fw.x, _fw.z); fx = _fw.x / n; fz = _fw.z / n; }
+        if (hypot2(_fw.x, _fw.z) > 0.2) { const n = hypot2(_fw.x, _fw.z); fx = _fw.x / n; fz = _fw.z / n; }
       }
       const mx = fx * -L.stick.y + -fz * L.stick.x, mz = fz * -L.stick.y + fx * L.stick.x;
       this.crease.x = clamp(this.crease.x + mx * B.creaseMoveSpeed * dt, -B.creaseBox[0], B.creaseBox[0]);
@@ -256,7 +267,7 @@ export class BattingSession {
       if (r.diveStarted) { r.diveStarted = false; g.ui.prompt('DIVE!', 0.8, '#ffd34d'); rb.diveHand.pulse(0.6, 60); g.sample('footstep', { gain: 0.9 }); }
       // The running controls stay up for as long as you can run.
       if (!r.running && !r.closed) g.hint(r.completed > 0 ? [HINTS.another] : [HINTS.run], 0.5);
-      else if (r.running) g.hint([HINTS.back, HINTS.dive], 0.5);
+      else if (r.running) g.hint(RUNNING_HINTS, 0.5);
     } else if (L.buttons.a.down || (input.xr && !L.connected && R.buttons.a.down)) this.requestNext();
   }
 
@@ -304,7 +315,7 @@ export class BattingSession {
       if (el >= cd) this.release(t);
     } else if (this.state === 'runup') {
       if (this.bowlerFig.update(dt, t)) this.release(t);
-      else if (this.bowlerFig.holdingBall()) { g.ballOverride = { pos: this.bowlerFig.handPos(_hand) }; g.ballView.setVisible(true); }
+      else if (this.bowlerFig.holdingBall()) { const o = this._inHand || (this._inHand = { pos: null }); o.pos = this.bowlerFig.handPos(_hand); g.ballOverride = o; g.ballView.setVisible(true); }
     } else if (this.state === 'live') {
       try { this.checkLive(t); } catch (e) { this.deadOnError(e); }
     } else if (this.state === 'review') {
@@ -534,8 +545,11 @@ export class BattingSession {
         }
       } else if (!this.hit && !this.padDone) {
         const body = this.body();
-        const was = this.path.length > 1 ? this.path[this.path.length - 2] : null, at = b.pos.clone();
-        if (this.pads().some((p) => padHit(b, p.x, p.z, p.box, was))) {
+        const was = this.path.length > 1 ? this.path[this.path.length - 2] : null, at = _padAt.copy(b.pos);
+        const pads = this.padsNow();
+        let met = false;
+        for (let i = 0; i < pads.length && !met; i++) met = padHit(b, pads[i].x, pads[i].z, pads[i].box, was);
+        if (met) {
           this.padDone = true;                               // (one meeting with the pads a ball)
           const impact = b.clone(), padAt = b.padAt, path = this.path.slice();
           b.pos.copy(at); b.padAt = null;
@@ -647,7 +661,7 @@ export class BattingSession {
     const midY = pose.p.y + _lever.y * _sweetY - (g.rig ? g.rig.position.y : 0);     // (its real height: the view drop moves the bat too)
     pose.dirToWorld(_lever.set(0, _sweetY, 0), _lever);
     pointVelocity(_bv, g.input.right.linVel, g.input.right.angVel, _lever);
-    const round = Math.hypot(_bv.x, _bv.z);
+    const round = hypot2(_bv.x, _bv.z);
     if (S.on) {
       S.hi = midY > stand * LOW.high ? S.hi + dt : 0;
       if (y > stand * LOW.off || S.hi >= LOW.highFor) { S.on = false; S.t = 0; S.hi = 0; }
@@ -711,7 +725,7 @@ export class BattingSession {
       if (this.sweepHeld()) this.applySweep(e);
       const pred = predict(b, { maxTime: 9, h: 1 / 240 });
       const land = pred.bounces[0];
-      const carry = land ? Math.hypot(land.pos.x - b.pos.x, land.pos.z - b.pos.z) : 0;
+      const carry = land ? hypot2(land.pos.x - b.pos.x, land.pos.z - b.pos.z) : 0;
       const v = b.vel;
       const launch = launchAngle(v);
       this.hit = {
@@ -730,7 +744,7 @@ export class BattingSession {
       // Struck again (the bat came round into it): the read-out is of the ball
       // as it finally left the bat, not of the first touch.
       const b = g.world.ball, v = b.vel, land = predict(b, { maxTime: 9, h: 1 / 240 }).bounces[0];
-      Object.assign(this.hit, { exit: v.length(), launch: launchAngle(v), dir: { x: v.x, y: v.y, z: v.z }, carry: land ? Math.hypot(land.pos.x - b.pos.x, land.pos.z - b.pos.z) : 0, again: true });
+      Object.assign(this.hit, { exit: v.length(), launch: launchAngle(v), dir: { x: v.x, y: v.y, z: v.z }, carry: land ? hypot2(land.pos.x - b.pos.x, land.pos.z - b.pos.z) : 0, again: true });
     }
     // (a fielder's throw into the stumps is a run-out chance, never "bowled")
     if (e.type === 'wicket' && e.thrown) { if (this.field && this.state === 'live') this.field.onThrownWicket(e); }

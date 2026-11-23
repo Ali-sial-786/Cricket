@@ -9,10 +9,13 @@
 // off or a context that won't start, every call is a quiet no-op.
 import { MIX, groupGains, airCutoff, travelDelay, clipCurve, SPACE } from './mix.js';
 import { VoicePool, VoiceBudget } from './pool.js';
+import { hypot3 } from '../physics/math.js';
 
 const rnd = (a, b) => a + Math.random() * (b - a);
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const mtof = (m) => 440 * 2 ** ((m - 69) / 12);
+// One of the listener's params (Sfx.listen's cache), set only if it would change; the last value kept after it is set.
+function setIf(P, i, x) { if (P.v[i] !== x) { P.p[i].value = x; P.v[i] = x; } }
 // Vowel formants (F1, F2, F3 Hz) for the voices of the ground.
 const VOWEL = { a: [730, 1090, 2440], e: [530, 1840, 2480], i: [300, 2200, 2950], o: [570, 840, 2410], u: [320, 870, 2240], uh: [640, 1190, 2390] };
 
@@ -119,13 +122,15 @@ export class Sfx {
     const ux = 2 * (x * y - w * z), uy = 1 - 2 * (x * x + z * z), uz = 2 * (y * z + w * x);
     try {
       if (L.positionX) {
-        L.positionX.value = pos.x; L.positionY.value = pos.y; L.positionZ.value = pos.z;
-        L.forwardX.value = fx; L.forwardY.value = fy; L.forwardZ.value = fz; L.upX.value = ux; L.upY.value = uy; L.upZ.value = uz;
+        // (every frame: the params fetched once, and only a value that has changed is sent -- each
+        // read of a param and each write of its value is a call into the browser)
+        const P = this._lp || (this._lp = { p: [L.positionX, L.positionY, L.positionZ, L.forwardX, L.forwardY, L.forwardZ, L.upX, L.upY, L.upZ], v: new Float64Array(9).fill(NaN) });
+        setIf(P, 0, pos.x); setIf(P, 1, pos.y); setIf(P, 2, pos.z); setIf(P, 3, fx); setIf(P, 4, fy); setIf(P, 5, fz); setIf(P, 6, ux); setIf(P, 7, uy); setIf(P, 8, uz);
       } else { L.setPosition(pos.x, pos.y, pos.z); L.setOrientation(fx, fy, fz, ux, uy, uz); }
     } catch { /* a non-finite pose: keep the last */ }
   }
 
-  dist(pos) { const e = this.ear; return Math.hypot(pos.x - e.x, pos.y - e.y, pos.z - e.z); }
+  dist(pos) { const e = this.ear; return hypot3(pos.x - e.x, pos.y - e.y, pos.z - e.z); }
 
   /**
    * Where a sound at `pos` goes in: { out, delay } (delay: the time sound takes to get to you).
@@ -408,15 +413,17 @@ export class Sfx {
       const ng = c.createGain(); ng.gain.value = kind === 'machine' ? 0.08 : 0.5;
       n.connect(bp).connect(ng).connect(v.g); srcs.push(n);
       for (const s of srcs) s.start(c.currentTime, s === n ? Math.random() * 3 : undefined);
-      let gone = false, lv = 0, fq = bp.frequency.value;
+      let gone = false, lv = 0, fq = bp.frequency.value, px = NaN, py = NaN, pz = NaN;
       h.set = (pos, level, freq = 0) => {
         if (gone) return;
-        const t = c.currentTime;
         level = clamp(level, 0, 1);
-        if (pos) Sfx.place(v.p, pos.x, pos.y, pos.z);
-        // (called every frame: schedule only a real change)
-        if (Math.abs(level - lv) > 0.004) { lv = level; v.g.gain.cancelScheduledValues(t); v.g.gain.setTargetAtTime(level, t, 0.06); }
-        if (freq && Math.abs(freq - fq) > fq * 0.02) { fq = freq; bp.frequency.cancelScheduledValues(t); bp.frequency.setTargetAtTime(freq, t, 0.06); }
+        // (called every frame: the panner moved, and the clock read, only for a real change -- each is a call into the browser)
+        if (pos && (pos.x !== px || pos.y !== py || pos.z !== pz)) { px = pos.x; py = pos.y; pz = pos.z; Sfx.place(v.p, px, py, pz); }
+        const lvl = Math.abs(level - lv) > 0.004, frq = freq && Math.abs(freq - fq) > fq * 0.02;
+        if (!lvl && !frq) return;
+        const t = c.currentTime;
+        if (lvl) { lv = level; v.g.gain.cancelScheduledValues(t); v.g.gain.setTargetAtTime(level, t, 0.06); }
+        if (frq) { fq = freq; bp.frequency.cancelScheduledValues(t); bp.frequency.setTargetAtTime(freq, t, 0.06); }
       };
       h.stop = () => {
         if (gone) return; gone = true;

@@ -10,6 +10,7 @@
 import * as THREE from 'three';
 import { SUN_BLOCKERS } from './stadium.js';
 import { PITCH } from '../physics/pitch.js';
+import { hypot2 } from '../physics/math.js';
 
 const N = 512;
 const PUFF = 0, FLECK = 1, RING = 2, SPARK = 3;
@@ -126,7 +127,7 @@ export class Particles {
   dust(p, speed, outfield = false, vel = null) {
     const k = Math.min(1, speed / 30), R = Math.random;
     let fx = 0, fz = 1;
-    if (vel) { const h = Math.hypot(vel.x, vel.z); if (h > 0.5) { fx = vel.x / h; fz = vel.z / h; } }
+    if (vel) { const h = hypot2(vel.x, vel.z); if (h > 0.5) { fx = vel.x / h; fz = vel.z / h; } }
     if (outfield) {
       for (let i = 0; i < 9; i++) {
         const a = R() * Math.PI * 2, s = (0.4 + R() * 1.2) * (0.5 + k);
@@ -247,7 +248,8 @@ export class Particles {
   // Fielders' dives (fielding.js states): flecks as each one lands, once a dive.
   pollDives(states, t) {
     if (!states) return;
-    for (const s of states) {
+    for (let i = 0; i < states.length; i++) {       // (every frame: no iterator)
+      const s = states[i];
       const a = s.action;
       if (!a || a.type !== 'catch' || !a.dive || s.hidden || this._dived.has(a)) continue;
       const ta = t - a.t0;

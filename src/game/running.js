@@ -8,6 +8,7 @@
 // progress runs out the batter heading for that end.
 import { CONFIG } from '../config.js';
 import { PITCH } from '../physics/pitch.js';
+import { hypot2 } from '../physics/math.js';
 
 const CREASE_TO_CREASE = PITCH.length - 2 * PITCH.poppingOffset;     // 17.68 m
 const Z_BAT = -PITCH.poppingOffset + 0.35, Z_BOWL = PITCH.bowlingStumpsZ + PITCH.poppingOffset - 0.35;
@@ -222,7 +223,7 @@ export class Runs {
     // Never through the player: pushed out to the edge of his space.
     const ko = this.keepOut;
     if (ko && !(striker && ko.striker)) {
-      const dx = x - ko.x, dz = z - ko.z, d = Math.hypot(dx, dz), r = ko.r ?? RUNNER_CLEAR;
+      const dx = x - ko.x, dz = z - ko.z, d = hypot2(dx, dz), r = ko.r ?? RUNNER_CLEAR;
       if (d < r) {
         const ux = d > 1e-6 ? dx / d : (lane >= ko.x ? 1 : -1), uz = d > 1e-6 ? dz / d : 0;
         x = ko.x + ux * r; z = ko.z + uz * r;

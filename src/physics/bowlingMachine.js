@@ -4,7 +4,7 @@
 // asked. The same solver is used for the AI bowler and for player deliveries.
 // Pure JS.
 
-import { Vec3, clamp, kmhToMs, msToKmh } from './math.js';
+import { Vec3, clamp, kmhToMs, msToKmh, hypot2 } from './math.js';
 import { BallState, aeroParams, integrateFlight } from './ball.js';
 import { firstBounce } from './trajectory.js';
 import { PITCH } from './pitch.js';
@@ -30,7 +30,7 @@ export function solveLaunch({ releasePos, speed, target, spin = _zero, swing = 0
   };
 
   const dx = target.x - releasePos.x, dz = target.z - releasePos.z;
-  const dist = Math.hypot(dx, dz);
+  const dist = hypot2(dx, dz);
   let az = Math.atan2(dx, dz);
   const T = dist / Math.max(speed, 1);
   let el = Math.atan2(cfg.ball.radius - releasePos.y, dist) + 0.5 * cfg.physics.gravity * T / Math.max(speed, 1);
@@ -41,7 +41,7 @@ export function solveLaunch({ releasePos, speed, target, spin = _zero, swing = 0
   for (; iterations < maxIter; iterations++) {
     if (!p) { el -= 0.05; p = evalDir(el, az); continue; }
     const ex = target.x - p.x, ez = target.z - p.z;
-    err = Math.hypot(ex, ez);
+    err = hypot2(ex, ez);
     if (err < tol) break;
     const de = 1e-3, da = 1e-3;
     const pe = evalDir(el + de, az);
@@ -58,7 +58,7 @@ export function solveLaunch({ releasePos, speed, target, spin = _zero, swing = 0
     el += dEl; az += dAz;
     p = evalDir(el, az);
   }
-  if (p) err = Math.hypot(target.x - p.x, target.z - p.z);
+  if (p) err = hypot2(target.x - p.x, target.z - p.z);
   const vel = new Vec3(Math.cos(el) * Math.sin(az), Math.sin(el), Math.cos(el) * Math.cos(az)).scale(speed);
   return { vel, error: err, bounce: p ? p.clone() : null, iterations, elevation: el, azimuth: az };
 }
@@ -168,14 +168,14 @@ export function solveThrough({ releasePos, speed, at, spin = _zero, swing = 0, c
     }
     return null;
   };
-  const dx = at.x - releasePos.x, dz = at.z - releasePos.z, dist = Math.hypot(dx, dz);
+  const dx = at.x - releasePos.x, dz = at.z - releasePos.z, dist = hypot2(dx, dz);
   let az = Math.atan2(dx, dz);
   const T = dist / Math.max(speed, 1);
   let el = clamp(Math.atan2(at.y - releasePos.y, dist) + 0.5 * cfg.physics.gravity * T / Math.max(speed, 1), -1.0, 0.9);
   let p = evalDir(el, az), err = Infinity, iterations = 0;
   for (; iterations < maxIter && p; iterations++) {
     const ex = at.x - p.x, ey = at.y - p.y;
-    err = Math.hypot(ex, ey);
+    err = hypot2(ex, ey);
     if (err < tol) break;
     const pe = evalDir(el + 1e-3, az), pa = evalDir(el, az + 1e-3);
     if (!pe || !pa) break;

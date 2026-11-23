@@ -124,7 +124,7 @@ export class UI {
     this.hintPanel.mesh.visible = false;
     this.hintPanel.mesh.renderOrder = 11;
     this.scene.add(this.hintPanel.mesh);
-    this.hintList = []; this.hintKey = ''; this.hintUntil = 0;
+    this.hintList = []; this.hintKey = ''; this.hintUntil = 0; this._hintAsked = null;
     // Delivery card (bowling, at your mark): bowler, deliveries, target, controls.
     // ~30 px text subtends ~1.1° at 1.15 m (ppm 1300).
     this.card = new CanvasPanel({ width: 900 / 1300, height: 640 / 1300, ppm: 1300, name: 'bowlCard', bg: 'rgba(9,14,25,0.88)', interactive: false });
@@ -132,7 +132,7 @@ export class UI {
     this.card.mesh.renderOrder = 10;
     this.scene.add(this.card.mesh);
     this.cardData = null;
-    this._pt = new THREE.Vector3(); this._pq = new THREE.Quaternion(); this._pf = new THREE.Vector3();
+    this._pt = new THREE.Vector3(); this._pq = new THREE.Quaternion(); this._pf = new THREE.Vector3(); this._fdt = 0;
     this.clock = 0;
     this.hudOn = true;           // the HUD panel is wanted (a review board takes its place for a while)
     this.anchorYaw = null;       // where the floating panels were put (see updatePrompt): [left side, right side]
@@ -203,8 +203,11 @@ export class UI {
 
   // Show control hints (up to three) for `secs`. Same set again just extends it.
   hints(list, secs = 4) {
-    const key = list.map((h) => h.label + h.button + h.hand).join('|');
     this.hintUntil = this.clock + secs;
+    // (asked for every frame while it applies: the very same hints again need no key built to know it)
+    if (sameRefs(list, this._hintAsked)) return;
+    const key = list.map((h) => h.label + h.button + h.hand).join('|');
+    this._hintAsked = list.slice();
     if (key === this.hintKey) return;
     this.hintKey = key; this.hintList = list.slice(0, 3);
     this.hintRunning = this.hintList.every((h) => RUN_HINTS.has(h.label));
@@ -269,20 +272,8 @@ export class UI {
       if (d < lo) A[k] += d - lo; else if (d > hi) A[k] += d - hi;
     }
     const L = LAYOUT[bowling ? 'bowling' : 'batting'];
-    const follow = (panel, show, at, side = at[0] < 0 ? 0 : 1) => {
-      const m = panel.mesh, wasShown = m.visible;
-      m.visible = show;
-      if (!show) return;
-      const [yd, el, dist] = at, a = this.anchorYaw[side] + yd * DEG, c = Math.cos(el * DEG);
-      this._pt.set(eye.x + Math.sin(a) * c * dist, eye.y + Math.sin(el * DEG) * dist, eye.z - Math.cos(a) * c * dist);
-      // (it comes in with a short rise from a little below its place, and slides when it follows)
-      if (!wasShown || m.position.distanceTo(this._pt) > 3) { m.position.copy(this._pt); m.position.y -= 0.035 * dist; panel.shownAt = this.clock; }
-      else m.position.lerp(this._pt, Math.min(1, dt * 6));
-      // Square on to your eyes (no roll): upright and easy to read.
-      m.lookAt(eye.x, eye.y, eye.z);
-      panel.update();
-    };
-    follow(this.promptPanel, prompt, L.prompt);
+    this._fdt = dt;
+    this.follow(this.promptPanel, prompt, L.prompt, eye);
     const small = ses && ses.state === 'live' ? LIVE_SCALE : 1;
     if (prompt) {
       // The sting comes in (a quick pop, transform only: no texture work) and
@@ -293,7 +284,7 @@ export class UI {
       m.material.opacity = Math.min(1, t / 0.18) * Math.min(1, Math.max(0, (this.promptUntil - this.clock) / 0.3));
     }
     // The card already shows the bowling controls: no hint row while it is up.
-    follow(this.hintPanel, hints, L.hints);
+    this.follow(this.hintPanel, hints, L.hints, eye);
     if (hints) {
       const m = this.hintPanel.mesh;
       m.scale.set(small, small, 1);
@@ -301,8 +292,23 @@ export class UI {
     }
     // Low and to the left: from the bowler's mark the pitch (and the HUD) are to your right.
     // Upright: turned only about the vertical toward you, not tipped to face the eye, which reads as tilted.
-    follow(this.card, card, L.card || LAYOUT.bowling.card, 2);
+    this.follow(this.card, card, L.card || LAYOUT.bowling.card, eye, 2);
     if (card) this.card.mesh.rotation.set(0, Math.atan2(eye.x - this.card.mesh.position.x, eye.z - this.card.mesh.position.z), 0);
+  }
+
+  // (updatePrompt's) A panel shown where its anchor puts it, at `at` [yaw offset, elevation (deg), distance] from the eye.
+  follow(panel, show, at, eye, side = at[0] < 0 ? 0 : 1) {
+    const m = panel.mesh, wasShown = m.visible, dt = this._fdt;
+    m.visible = show;
+    if (!show) return;
+    const [yd, el, dist] = at, a = this.anchorYaw[side] + yd * DEG, c = Math.cos(el * DEG);
+    this._pt.set(eye.x + Math.sin(a) * c * dist, eye.y + Math.sin(el * DEG) * dist, eye.z - Math.cos(a) * c * dist);
+    // (it comes in with a short rise from a little below its place, and slides when it follows)
+    if (!wasShown || m.position.distanceTo(this._pt) > 3) { m.position.copy(this._pt); m.position.y -= 0.035 * dist; panel.shownAt = this.clock; }
+    else m.position.lerp(this._pt, Math.min(1, dt * 6));
+    // Square on to your eyes (no roll): upright and easy to read.
+    m.lookAt(eye.x, eye.y, eye.z);
+    panel.update();
   }
 
   get menuOpen() { return this.menu.mesh.visible; }
@@ -883,6 +889,12 @@ export class UI {
     if (replay !== this._boardReplay) { this._boardReplay = replay; this.drawBoard(); }
     this.board.update();
   }
+}
+
+function sameRefs(a, b) {
+  if (!a || !b || a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
 }
 
 function shadow2(c, fn) { c.save(); c.shadowColor = 'rgba(0,0,0,0.45)'; c.shadowBlur = 16; c.shadowOffsetY = 5; fn(); c.restore(); }

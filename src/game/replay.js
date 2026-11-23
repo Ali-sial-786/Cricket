@@ -28,7 +28,7 @@ import * as THREE from 'three';
 import { font, rr } from '../ui/theme.js';
 import { Humanoid } from '../render/humanoid.js';
 import { computeRigFacing, headForward } from './calibration.js';
-import { Vec3 } from '../physics/math.js';
+import { Vec3, hypot2, hypot3 } from '../physics/math.js';
 import { PITCH } from '../physics/pitch.js';
 import { CONFIG } from '../config.js';
 import { pathStats, replayAt, tailFor, TAIL } from './replayFraming.js';
@@ -158,7 +158,9 @@ export class Replay {
       B[o++] = (h.replayVisible ?? r.visible) ? 1 : 0;
       o = put(B, o, r.position, r.quaternion); B[o++] = r.scale.x;
       const hp2 = h.bones.hips.position; B[o++] = hp2.x; B[o++] = hp2.y; B[o++] = hp2.z;
-      for (let i = 0; i < bl.length; i++) { const q = bl[i].quaternion; B[o++] = q.x; B[o++] = q.y; B[o++] = q.z; B[o++] = q.w; }
+      // (THREE.Quaternion's own fields, not its x/y/z/w getters: ~2000 reads a frame, each a call
+      // while this runs below the top tier)
+      for (let i = 0; i < bl.length; i++) { const q = bl[i].quaternion; B[o++] = q._x; B[o++] = q._y; B[o++] = q._z; B[o++] = q._w; }
     }
     for (let k = 0; k < this.extras.length; k++) { const x = this.extras[k]; o = put(B, o, x.position, x.quaternion); B[o++] = x.visible ? 1 : 0; }
     for (let k = 0; k < this.pieces.length; k++) { const m = this.pieces[k]; o = put(B, o, m.position, m.quaternion); }
@@ -556,7 +558,7 @@ export class Replay {
   moveCamera(dt) {
     const g = this.g, c = _cam;
     const prev = this.camPrev;
-    const speed = prev && dt > 0 ? Math.hypot(c.x - prev.x, c.z - prev.z) / dt : 0;
+    const speed = prev && dt > 0 ? hypot2(c.x - prev.x, c.z - prev.z) / dt : 0;
     const turn = prev && dt > 0 ? Math.abs(c.yaw - prev.yaw) / dt : 0;
     const cp = this.camPrev || (this.camPrev = { x: 0, z: 0, yaw: 0 });          // (no allocation per frame)
     cp.x = c.x; cp.z = c.z; cp.yaw = c.yaw;
@@ -587,7 +589,7 @@ export class Replay {
     }
     // The ball is drawn at least a minimum size from where the camera is (as it is live from where you stand).
     if (g.settings.ballBoost && g.ballView.visible) {
-      const d = Math.hypot(bm.x - c.x, bm.y - c.y, bm.z - c.z);
+      const d = hypot3(bm.x - c.x, bm.y - c.y, bm.z - c.z);
       g.ballView.mesh.scale.setScalar(clamp(d * Math.tan((CONFIG.render.ballMinAngleDeg * Math.PI) / 360) / CONFIG.ball.radius, 1, 2.2));
     }
     // What the camera did (for the harness and the tests): real time, tape time, the shot.

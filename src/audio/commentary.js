@@ -1,3 +1,4 @@
+import { hypot2 } from '../physics/math.js';
 // The TV commentary box: two fictional commentators calling the match. Kate Marsden ("pbp")
 // calls the ball; Geoff Hollins ("col"), the old pro, picks up on what she said. A JS port of
 // courtside's game/cricket/commentary.gd; every utterance is a clip in assets/commentary and
@@ -129,7 +130,7 @@ export class Commentary {
     this.voices = [];                  // clips sounding: {h: backend handle, end}
     this.fading = -1;                  // when the interrupted exchange began fading (-1 none)
     this.overlapUntil = -Infinity;     // two voices at once by design until then
-    this._cap = ':';                   // the caption last reported (voice:text)
+    this._capText = ''; this._capVoice = '';   // the caption last reported
     // What the match has told us this ball / innings.
     this._newBall();
     this.hitSpeed = 0;
@@ -427,7 +428,7 @@ export class Commentary {
     if (this.edged) return six ? '' : 'edge';
     if (this.shotName === 'hook') return 'hook';
     const d = this.hitDir;
-    const a = d && Math.hypot(d.x, d.z) > 0.5 ? Math.atan2(d.x, d.z) * 180 / Math.PI : NaN;
+    const a = d && hypot2(d.x, d.z) > 0.5 ? Math.atan2(d.x, d.z) * 180 / Math.PI : NaN;
     if (six) {
       if (this.shotName === 'pull') return 'pull';
       if (this.hitSpeed > 42 && this.rng() < 0.6) return 'big';
@@ -816,7 +817,7 @@ export class Commentary {
   update(dt) {
     this.now += dt > 0 ? dt : 0;
     if (!this.manifest) return;
-    this.voices = this.voices.filter((v) => v.end > this.now);
+    if (someEnded(this.voices, this.now)) this.voices = this.voices.filter((v) => v.end > this.now);   // (a new list only when one has: this runs every frame)
     // The interrupted exchange fading out (the backend ramps it down; the new one waits).
     if (this.fading >= 0 && (this.now - this.fading) / FADE >= 1) { this.fading = -1; this.overlapUntil = -Infinity; }
     const c = this.cur;
@@ -828,7 +829,7 @@ export class Commentary {
       } else if (this.now >= c.endAt) this._finished();
     }
     if (!this.cur) {
-      this.queue = this.queue.filter((u) => u.until >= this.now);
+      if (someStale(this.queue, this.now)) this.queue = this.queue.filter((u) => u.until >= this.now);
       if (this.queue.length) this._start(this.queue.shift(), this.now + QUEUE_DELAY);
     }
     this._caption();
@@ -842,13 +843,15 @@ export class Commentary {
   // Tell the page when the line on screen changes.
   _caption() {
     const c = this.cur, text = c && c.text ? c.text : '', voice = text ? c.voice : '';
-    const key = `${voice}:${text}`;
-    if (key === this._cap) return;
-    this._cap = key;
+    if (text === this._capText && voice === this._capVoice) return;      // (no string built every frame to find nothing changed)
+    this._capText = text; this._capVoice = voice;
     if (typeof this.onCaption !== 'function') return;
     try { this.onCaption(text, text ? (this.manifest?.voices?.[voice] || voice) : '', voice); } catch (e) { console.warn(e); }
   }
 }
+
+function someEnded(voices, now) { for (let i = 0; i < voices.length; i++) if (!(voices[i].end > now)) return true; return false; }
+function someStale(queue, now) { for (let i = 0; i < queue.length; i++) if (!(queue[i].until >= now)) return true; return false; }
 
 // The default backend: clips fetched and decoded on first use through sfx.ctx (an LRU of decoded
 // buffers), each played BufferSource -> its own gain (for the fade-out) -> the voices' bus ->

@@ -6,7 +6,7 @@
 // friction (spin couples into the contact), plus seam deflection and an
 // energy-neutral spin-turn exaggeration for game feel.
 
-import { Vec3, smoothstep } from './math.js';
+import { Vec3, smoothstep, hypot2 } from './math.js';
 import { CONFIG } from '../config.js';
 import { surfaceAt } from './pitch.js';
 
@@ -88,7 +88,7 @@ export function acceleration(out, v, w, swing, P) {
 
   // Conventional swing: horizontal force perpendicular to velocity.
   if (swing !== 0) {
-    const hl = Math.hypot(v.x, v.z);
+    const hl = hypot2(v.x, v.z);
     if (hl > 1e-6) {
       const f = P.kSwing * swing * smoothstep(P.swingLow, P.swingHigh, speed) * speed * speed;
       // up x v_hat = (vz, 0, -vx) / |v_h|
@@ -124,12 +124,12 @@ export function applyBounce(ball, surfaceName, P, rng) {
   const speedIn = v.length();
   const vn = v.y;                       // < 0 when moving into the ground
   const angIn = Math.atan2(v.x, v.z);
-  const hIn = Math.hypot(v.x, v.z);
+  const hIn = hypot2(v.x, v.z);
 
   // Contact point velocity: v + w x (-R n), n = +Y  =>  (vx + wz R, 0, vz - wx R)
   const cx = v.x + w.z * R;
   const cz = v.z - w.x * R;
-  const ct = Math.hypot(cx, cz);
+  const ct = hypot2(cx, cz);
   const Jn = (1 + e) * Math.max(0, -vn);
   if (ct > 1e-6) {
     const rollLimit = (k / (1 + k)) * ct;           // impulse that reaches pure rolling
@@ -183,7 +183,7 @@ export function integrateFlight(ball, dt, P, rng, onBounce) {
   if (ball.rolling) {
     const surf = surfaceAt(ball.pos.x, ball.pos.z);
     const decel = (surf === 'pitch' ? P.cfg.surfaces.outfield.rollingDecel * 1.2 : P.cfg.surfaces.outfield.rollingDecel);
-    const sp = Math.hypot(ball.vel.x, ball.vel.z);
+    const sp = hypot2(ball.vel.x, ball.vel.z);
     const dv = (decel + P.kDrag * sp * sp) * dt;
     if (sp <= dv || sp < 0.05) {
       ball.vel.set(0, 0, 0);

@@ -3,7 +3,7 @@
 // hand fades near your eyes.
 import { CONFIG } from '../config.js';
 import { PITCH } from '../physics/pitch.js';
-import { clamp } from '../physics/math.js';
+import { clamp, hypot3 } from '../physics/math.js';
 import { lbwDecision, isMarginal } from './lbw.js';
 
 // The ball in your hand, drawn at true size: fully there beyond heldBallFade[1]
@@ -11,7 +11,7 @@ import { lbwDecision, isMarginal } from './lbw.js';
 // put a giant ball in front of the eyes or inside the near clip).
 export function heldBallAlpha(ball, eye, cfg = CONFIG) {
   const [n, f] = cfg.bowling.heldBallFade;
-  const d = Math.hypot(ball.x - eye.x, ball.y - eye.y, ball.z - eye.z);
+  const d = hypot3(ball.x - eye.x, ball.y - eye.y, ball.z - eye.z);
   return clamp((d - n) / (f - n), 0, 1);
 }
 

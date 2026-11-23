@@ -10,11 +10,10 @@
 import { CONFIG } from '../config.js';
 import { MIX } from './mix.js';
 import { surfaceAt } from '../physics/pitch.js';
-import { Vec3 } from '../physics/math.js';
+import { Vec3, hypot2, hypot3, distGT, distLT } from '../physics/math.js';
 
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const rr = (k = 0.04) => 1 - k + Math.random() * 2 * k;
-const SIDES = ['L', 'R'], ANKLE = { L: 'ankleL', R: 'ankleR' };
 const UI_SAMPLES = new Set(['umpire_out', 'umpire_not_out', 'chime', 'drs_stinger', 'coin', 'cam_whoosh']);
 
 // A bat contact, by its quality and speed: sweet | mistimed | edge | toe | block | handle.
@@ -78,7 +77,7 @@ export class AudioDirector {
     switch (name) {
       case 'whoosh': return this.release();
       case 'gloves': case 'catch': {
-        const sp = this.g.world.ball ? Math.hypot(this.g.world.ball.vel.x, this.g.world.ball.vel.y, this.g.world.ball.vel.z) : 20;
+        const sp = this.g.world.ball ? hypot3(this.g.world.ball.vel.x, this.g.world.ball.vel.y, this.g.world.ball.vel.z) : 20;
         S.play(name, { gain: gain * 0.5, pos: B, rate: rr(), prio: 2 });
         s.gloves(B, sp);
         return true;
@@ -128,7 +127,7 @@ export class AudioDirector {
       case 'bounce': {
         if (e.speedIn <= 1.5) break;
         const v = this.g.world.ball.vel, pitch = e.surface === 'pitch';
-        const skid = pitch && !e.batted ? clamp((Math.hypot(v.x, v.z) / (Math.abs(v.y) + 0.5) - 4) / 6, 0, 1) : 0;
+        const skid = pitch && !e.batted ? clamp((hypot2(v.x, v.z) / (Math.abs(v.y) + 0.5) - 4) / 6, 0, 1) : 0;
         s.bounce(e.speedIn, pitch ? 'pitch' : 'turf', e.pos, skid);
         break;
       }
@@ -150,7 +149,7 @@ export class AudioDirector {
       }
       case 'boundary':
         // Along the ground (or bounced) into the boards a couple of metres past the rope.
-        if (!e.onFull) { const v = this.g.world.ball.vel, sp = Math.hypot(v.x, v.z); this.boardsAt = { t: this.t + clamp(2.5 / Math.max(sp, 3), 0.05, 0.6), pos: { x: e.pos.x, y: 0.3, z: e.pos.z }, speed: sp }; }
+        if (!e.onFull) { const v = this.g.world.ball.vel, sp = hypot2(v.x, v.z); this.boardsAt = { t: this.t + clamp(2.5 / Math.max(sp, 3), 0.05, 0.6), pos: { x: e.pos.x, y: 0.3, z: e.pos.z }, speed: sp }; }
         break;
       default:
     }
@@ -180,7 +179,7 @@ export class AudioDirector {
     let best = null, bd = 1e9;
     for (const a of this.g.fieldView.actors) {
       if (!a.visible) continue;
-      const d = Math.hypot(a.pos.x - this.ball.x, a.pos.z - this.ball.z);
+      const d = hypot2(a.pos.x - this.ball.x, a.pos.z - this.ball.z);
       if (d < bd) { bd = d; best = a; }
     }
     if (!best) return;
@@ -235,7 +234,7 @@ export class AudioDirector {
     if (b.active) {
       B.x = b.pos.x; B.y = b.pos.y; B.z = b.pos.z;
       if (P.ok && dt > 0 && !replay) {
-        const sp = Math.hypot(B.x - P.x, B.z - P.z) / dt;     // (from what it did, so a pause is silent)
+        const sp = hypot2(B.x - P.x, B.z - P.z) / dt;     // (from what it did, so a pause is silent)
         if (B.y < R + 0.02 && Math.abs(B.y - P.y) < 0.01 && sp > 0.4 && sp < 60) { level = clamp(sp / 18, 0, 1) * 0.3; freq = 300 + sp * 45; }
       }
       P.x = B.x; P.y = B.y; P.z = B.z; P.ok = true;
@@ -246,24 +245,29 @@ export class AudioDirector {
   // Footfalls from the figures' ankles: a foot that was coming down and has stopped is on the
   // ground. The bowler (his last stride before the release lands hard), the fielders, the
   // batters running: the near ones.
+  // (Every frame, for every figure: no lists, iterators or boxed numbers made here.)
   footfalls(dt) {
-    const g = this.g, e = g.eye.p, bow = g.figures && g.figures.bowler.actor, list = this._who || (this._who = []);
-    list.length = 0;
-    list.push(bow, g.batterView && g.batterView.actor, g.nonStrikerView && g.nonStrikerView.actor);
-    if (g.fieldView) for (const a of g.fieldView.actors) list.push(a);
-    for (const a of list) {
+    const g = this.g, e = g.eye.p, bow = g.figures && g.figures.bowler.actor, fa = g.fieldView ? g.fieldView.actors : null;
+    const n = 3 + (fa ? fa.length : 0);
+    for (let i = 0; i < n; i++) {
+      const a = i === 0 ? bow : i === 1 ? g.batterView && g.batterView.actor : i === 2 ? g.nonStrikerView && g.nonStrikerView.actor : fa[i - 3];
       if (!a || !a.visible || !a.h) continue;
-      const far = Math.hypot(a.pos.x - e.x, a.pos.z - e.z);
-      if (far > (a === bow ? 45 : 28)) continue;
+      const ex = a.pos.x - e.x, ez = a.pos.z - e.z;
+      if (distGT(ex, ez, a === bow ? 45 : 28)) continue;
       let st = this.feet.get(a);
-      if (!st) { st = { L: { y: 1, vy: 0, t: -9 }, R: { y: 1, vy: 0, t: -9 }, x: a.pos.x, z: a.pos.z, speed: 0 }; this.feet.set(a, st); }
-      st.speed = dt > 0 ? Math.hypot(a.pos.x - st.x, a.pos.z - st.z) / dt : 0; st.x = a.pos.x; st.z = a.pos.z;
-      for (const side of SIDES) {
-        const p = this.bonePos(a, ANKLE[side]);
-        if (!p) continue;
-        const f = st[side], vy = dt > 0 ? (p.y - f.y) / dt : 0;
+      if (!st) { st = { L: { y: 1, vy: 0, t: -9 }, R: { y: 1, vy: 0, t: -9 }, x: a.pos.x, z: a.pos.z, speed: 0, bones: null, bL: null, bR: null }; this.feet.set(a, st); }
+      // (the ankle bones looked up again only if the figure's skeleton is a new one)
+      const bones = a.h.bones;
+      if (st.bones !== bones) { st.bones = bones; st.bL = bones ? bones.ankleL || null : null; st.bR = bones ? bones.ankleR || null : null; }
+      st.speed = dt > 0 ? hypot2(a.pos.x - st.x, a.pos.z - st.z) / dt : 0; st.x = a.pos.x; st.z = a.pos.z;
+      for (let k = 0; k < 2; k++) {
+        const bn = k === 0 ? st.bL : st.bR;
+        if (!bn) continue;
+        const m = bn.matrixWorld.elements, p = this._p;
+        p.x = m[12]; p.y = m[13]; p.z = m[14];
+        const f = k === 0 ? st.L : st.R, vy = dt > 0 ? (p.y - f.y) / dt : 0;
         // (a walk is heard only close by; running, from further off)
-        if (f.vy < -0.25 && vy > -0.05 && p.y < 0.25 && this.t - f.t > 0.18 && (st.speed > 2.2 || (st.speed > 0.5 && far < 9))) {
+        if (f.vy < -0.25 && vy > -0.05 && p.y < 0.25 && this.t - f.t > 0.18 && (st.speed > 2.2 || (st.speed > 0.5 && distLT(ex, ez, 9)))) {
           f.t = this.t;
           let w = clamp(0.3 + st.speed / 6, 0.3, 1.2) * (a === bow ? 1.4 : 0.6);
           const run = a === bow && a.run;
@@ -281,7 +285,7 @@ export class AudioDirector {
     const o = this.own, e = this.g.eye.p;
     if (!ses || !ses.isBowling || dt <= 0) { o.ok = false; return; }
     if (o.ok) {
-      const sp = Math.hypot(e.x - o.x, e.z - o.z) / dt;
+      const sp = hypot2(e.x - o.x, e.z - o.z) / dt;
       o.speed += (sp - o.speed) * Math.min(1, dt * 8);
     }
     o.x = e.x; o.z = e.z; o.ok = true;

@@ -2,6 +2,7 @@
 // bowling machine with release-cue lights, pitch markers.
 import * as THREE from 'three';
 import { CONFIG } from '../config.js';
+import { hypot3 } from '../physics/math.js';
 import { PITCH, STUMP_X } from '../physics/pitch.js';
 import { vertexColorMat, toV3 } from './util.js';
 import { buildBatMesh, addBatMark } from './batModel.js';
@@ -62,7 +63,7 @@ export class BallView {
   update(pos, dt, spin = null, showTrail = false) {
     toV3(this.mesh.position, pos);
     if (spin && dt > 0) {
-      const w = Math.hypot(spin.x, spin.y, spin.z);
+      const w = hypot3(spin.x, spin.y, spin.z);
       if (w > 1e-3) {
         _axis.set(spin.x / w, spin.y / w, spin.z / w);
         _q.setFromAxisAngle(_axis, w * dt);
@@ -130,11 +131,11 @@ export class BallTrail {
     let n = this.count;
     const y = Math.max(p.y, 0.03);
     if (n >= 1) {
-      const j = (n - 1) * 3, moved = Math.hypot(p.x - P[j], y - P[j + 1], p.z - P[j + 2]);
+      const j = (n - 1) * 3, moved = hypot3(p.x - P[j], y - P[j + 1], p.z - P[j + 2]);
       if (moved > 0.004) { this.still = 0; this.fade = 1; }          // (still moving: not dead yet)
     }
     if (n >= 2) {
-      const i = (n - 2) * 3, d = Math.hypot(p.x - P[i], y - P[i + 1], p.z - P[i + 2]);
+      const i = (n - 2) * 3, d = hypot3(p.x - P[i], y - P[i + 1], p.z - P[i + 2]);
       if (d < this.step) { const j = (n - 1) * 3; P[j] = p.x; P[j + 1] = y; P[j + 2] = p.z; L[n - 1] = L[n - 2] + d; T[n - 1] = this.t; return; }
     }
     if (n >= this.max) {                       // full: keep every other point (the shape stays; the spacing doubles)
@@ -143,7 +144,7 @@ export class BallTrail {
       n = w; this.step *= 2;
     }
     const j = (n - 1) * 3;
-    L[n] = n ? L[n - 1] + Math.hypot(p.x - P[j], y - P[j + 1], p.z - P[j + 2]) : 0;
+    L[n] = n ? L[n - 1] + hypot3(p.x - P[j], y - P[j + 1], p.z - P[j + 2]) : 0;
     P[n * 3] = p.x; P[n * 3 + 1] = y; P[n * 3 + 2] = p.z; T[n] = this.t;
     this.count = n + 1;
     this.mesh.visible = this.count >= 2 && this.fade > 0;
@@ -158,13 +159,14 @@ export class BallTrail {
     if (this.still > 1.6) { this.fade = Math.max(0, 1 - (this.still - 1.6) / 0.9); if (this.fade <= 0) { this.mesh.visible = false; return; } }
     if (!this.mesh.visible) return;
     const P = this.pts, L = this.len, T = this.tim, V = this.pos.array, C = this.col.array;
-    const [r1, g1, b1] = this.rgb, [r0, g0, b0] = this.rgbTail, now = this.t, H = this.head, F = this.fade;
+    // (indexed, not destructured: no iterators made every frame below the top tier)
+    const RGB = this.rgb, TAIL = this.rgbTail, r1 = RGB[0], g1 = RGB[1], b1 = RGB[2], r0 = TAIL[0], g0 = TAIL[1], b0 = TAIL[2], now = this.t, H = this.head, F = this.fade;
     for (let i = 0; i < n; i++) {
       const a = Math.max(0, i - 1) * 3, c = Math.min(n - 1, i + 1) * 3, o = i * 3;
       const tx = P[c] - P[a], ty = P[c + 1] - P[a + 1], tz = P[c + 2] - P[a + 2];
       const ex = eye.x - P[o], ey = eye.y - P[o + 1], ez = eye.z - P[o + 2];
       let sx = ty * ez - tz * ey, sy = tz * ex - tx * ez, sz = tx * ey - ty * ex;
-      const sl = Math.hypot(sx, sy, sz) || 1, dist = Math.hypot(ex, ey, ez);
+      const sl = hypot3(sx, sy, sz) || 1, dist = hypot3(ex, ey, ez);
       // the head: 1 at the ball, 0 by `head` seconds back along the path
       const age = now - T[i], h = age < H ? 1 - age / H : 0, hh = h * h;
       // width as an angle: ~5 px at the head down to ~2 px for the old path (a ball-width line far away, never more)
@@ -280,7 +282,7 @@ export class StumpsView {
     if (this.broken) return;
     this.broken = true;
     this.flash = FLASH_SEC;
-    const sp = Math.min(40, Math.hypot(ballVel.x, ballVel.y, ballVel.z));
+    const sp = Math.min(40, hypot3(ballVel.x, ballVel.y, ballVel.z));
     const dirZ = Math.sign(ballVel.z) || 1;
     const R = Math.random;
     for (let i = 0; i < this.pieces.length; i++) {

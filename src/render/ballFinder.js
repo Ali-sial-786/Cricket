@@ -4,6 +4,7 @@
 //   * a halo of constant size round the ball once it's far away
 //   * a ring on the ground where it will come down (while it's in the air)
 import * as THREE from 'three';
+import { hypot2 } from '../physics/math.js';
 
 const _q = new THREE.Quaternion(), _qi = new THREE.Quaternion(), _d = new THREE.Vector3(), _p = new THREE.Vector3();
 // Broadcast style shared by all three: an amber body, a white inner rule, a
@@ -16,7 +17,8 @@ export class BallFinder {
     // the same shape offset outward (even width all round), behind it.
     const pts = [[0, 0.019], [0.017, 0.001], [0.0085, 0.001], [0.0085, -0.015], [-0.0085, -0.015], [-0.0085, 0.001], [-0.017, 0.001]];
     const mk = (p) => { const s = new THREE.Shape(); s.moveTo(p[0][0], p[0][1]); for (let i = 1; i < p.length; i++) s.lineTo(p[i][0], p[i][1]); s.closePath(); return new THREE.ShapeGeometry(s); };
-    const flat = (color, opacity) => new THREE.MeshBasicMaterial({ color, transparent: true, opacity, depthTest: false, depthWrite: false, side: THREE.DoubleSide, toneMapped: false });
+    // (flat cards: one pass for both faces -- a transparent DoubleSide material is otherwise drawn twice, back then front)
+    const flat = (color, opacity) => new THREE.MeshBasicMaterial({ color, transparent: true, opacity, depthTest: false, depthWrite: false, side: THREE.DoubleSide, forceSinglePass: true, toneMapped: false });
     this.arrow = new THREE.Mesh(mk(pts), flat(0xffc531, 0.97));
     const edge = new THREE.Mesh(mk(offsetPoly(pts, 0.0028)), flat(0x0c0e12, 0.72));
     edge.position.z = -0.0005; edge.renderOrder = 29;
@@ -77,7 +79,7 @@ export class BallFinder {
     this.ring.visible = !!landing;
     if (landing) {
       this.ring.position.set(landing.x, 0.03, landing.z);
-      const far = Math.hypot(landing.x - eye.p.x, landing.z - eye.p.z);
+      const far = hypot2(landing.x - eye.p.x, landing.z - eye.p.z);
       this.ring.scale.setScalar(Math.max(1, far / 12) * (1 + 0.08 * Math.sin(this.t * 6)));   // stays visible far away
     }
   }
@@ -98,7 +100,7 @@ function offsetPoly(p, d) {
   }
   return out;
 }
-const norm = (x, y) => { const l = Math.hypot(x, y) || 1; return [x / l, y / l]; };
+const norm = (x, y) => { const l = hypot2(x, y) || 1; return [x / l, y / l]; };
 
 function haloTexture() {
   const S = 128, c = document.createElement('canvas'); c.width = c.height = S;

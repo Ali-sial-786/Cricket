@@ -3,7 +3,7 @@
 //   input -> session logic -> physics advanceTo(simTime) -> events -> views -> UI -> render
 import * as THREE from 'three';
 import { CONFIG } from '../config.js';
-import { Vec3, Quat, Pose, DEG, clamp, makeRng } from '../physics/math.js';
+import { Vec3, Quat, Pose, DEG, clamp, makeRng, hypot2, hypot3 } from '../physics/math.js';
 import { PhysicsWorld, InterpolatedBatProvider } from '../physics/world.js';
 import { SwingLoad } from '../physics/swingLoad.js';
 import { PITCH } from '../physics/pitch.js';
@@ -336,7 +336,7 @@ export class Game {
 
   // Unit vector out of the right palm (world), from the calibrated bat face.
   palmDir(out) {
-    const base = this.input.xr ? (this.calibration || defaultBatOffset()) : _identity;
+    const base = this.input.xr ? (this.calibration || _defaultOff) : _identity;
     return out.set(0, 0, 1).applyQuat(base).applyQuat(this.input.right.gripPose.q);
   }
 
@@ -365,7 +365,7 @@ export class Game {
 
   batOffset() {
     if (!this.input.xr) return _identity;
-    const base = this.calibration || defaultBatOffset();
+    const base = this.calibration || _defaultOff;
     _off.copy(base);
     if (this.settings.batAngleDeg) _off.multiply(_tilt.setFromAxisAngle(_xAxis, this.settings.batAngleDeg * DEG));
     return _off;
@@ -480,10 +480,10 @@ export class Game {
     if (!this.areaMark) return;
     const sst = this.session ? this.session.state : null;
     const calm = this.state === 'safety' || this.state === 'calibrate' || this.state === 'menu' || (this.state === 'play' && sst !== 'live' && sst !== 'review');
-    const show = !!A && calm && !this.viewOverride && !(this.replay && this.replay.active) && Math.hypot(p.x - A.spot.x, p.z - A.spot.z) > 0.25;
+    const show = !!A && calm && !this.viewOverride && !(this.replay && this.replay.active) && hypot2(p.x - A.spot.x, p.z - A.spot.z) > 0.25;
     // (the ring is only a suggestion: walk into it and your place comes with you -- re-centred there, not mid-ball)
     if (A && calm && !this.viewOverride && !(this.replay && this.replay.active) && this.pendingRecenter == null && this.homeRef
-      && Math.hypot(p.x - A.spot.x, p.z - A.spot.z) < 0.2 && Math.hypot(this.homeRef.x - p.x, this.homeRef.z - p.z) > 0.3) this.recenter();
+      && hypot2(p.x - A.spot.x, p.z - A.spot.z) < 0.2 && hypot2(this.homeRef.x - p.x, this.homeRef.z - p.z) > 0.3) this.recenter();
     this.areaMark.visible = show;
     if (show) this.areaMark.position.set(A.spot.x, this.rigDrop + 0.005, A.spot.z);
   }
@@ -494,7 +494,7 @@ export class Game {
   driftCheck(sst) {
     if (!this.input.xr || this.mr || !this.homeRef || this.state !== 'play' || !this.session || this.viewOverride) return;
     if (sst === 'live' || sst === 'review' || this.ui.menuOpen) return;
-    const p = this.input.headRef.p, d = Math.hypot(p.x - this.homeRef.x, p.z - this.homeRef.z);
+    const p = this.input.headRef.p, d = hypot2(p.x - this.homeRef.x, p.z - this.homeRef.z);
     const now = this.clock;
     const A = this.playArea, near = A && edgeDistance(A.poly, p.x, p.z) < Math.min(1.0, A.spot.room - 0.25);
     if ((d > CONFIG.xr.driftWarn || near) && !(now < (this._driftT || 0))) {
@@ -759,6 +759,7 @@ export class Game {
     this.ui.board.mesh.visible = true;
     if (this.mrPlacer) { this.mrPlacer.dispose(); this.mrPlacer = null; }
     this.env.root.position.set(0, 0, 0);
+    this.env.root.updateMatrix(); this.env.root.updateMatrixWorld(true);   // (the environment's matrices are frozen: render/drawCost.js freezeStatic)
     if (this.session) this.endSession();
     this.ceremony.stop();
     this.state = 'menu';
@@ -1110,7 +1111,7 @@ export class Game {
     const inHand = !!(this.session && this.session.isBowling && this.session.state === 'ready');   // true size in your hand
     if (this.settings.ballBoost && this.ballView.visible && !inHand) {
       const hp = this.input.headPose.p, bp = this.ballView.mesh.position;
-      const d = Math.hypot(bp.x - hp.x, bp.y - hp.y, bp.z - hp.z);
+      const d = hypot3(bp.x - hp.x, bp.y - hp.y, bp.z - hp.z);
       const want = d * Math.tan((CONFIG.render.ballMinAngleDeg * Math.PI) / 360);
       k = Math.max(1, Math.min(2.2, want / CONFIG.ball.radius));
     }
@@ -1135,7 +1136,8 @@ export class Game {
     const pdt = paused ? 0 : dt;
     this.batterView.between = !!(this.session && this.session.isBowling && this.session.state === 'settle');     // (the AI striker out of his stance between balls)
     this.batterView.update(this.simTime, pdt || 1e-4, lookBall);
-    this.nonStrikerView.update(pdt || 1e-4, this.simTime, { backingUp: this.nonStrikerBacksUp(), ball: lookBall, watch: this.bowlerSpot(_watch) });
+    const nc = _nsCtx; nc.backingUp = this.nonStrikerBacksUp(); nc.ball = lookBall; nc.watch = this.bowlerSpot(_watch);   // (kept: read at once)
+    this.nonStrikerView.update(pdt || 1e-4, this.simTime, nc);
     if (!this.session || !this.session.field) {
       if (!this.session || this.session.isBowling || this.session.bowler !== 'ai') this.figures.bowler.show(false);
     }
@@ -1152,7 +1154,8 @@ export class Game {
       // Your figure is your height: sized from the tallest you have stood in the headset.
       if (this.input.xr) {
         this.standEye = Math.min(1.95, Math.max((this.standEye ?? 1.55) - (pdt || 0) * 0.002, this.input.headRef.p.y));   // (your real eyes: not the sweep's view drop)
-        for (const h of [this.playerBody.actor.h, this.playerBowler.h]) {
+        for (let i = 0; i < 2; i++) {
+          const h = i === 0 ? this.playerBody.actor.h : this.playerBowler.h;
           const k = clamp(this.standEye / (this.playerBody.actor.headRestY * h.baseScale + 0.11), 0.84, 1.12);
           if (Math.abs(h.root.scale.x - h.baseScale * k) > 0.002) h.root.scale.setScalar(h.baseScale * k);
         }
@@ -1161,7 +1164,7 @@ export class Game {
         if (this.input.xr) this.poseBatMesh();
         this.playerBody.update(pdt || 1e-4, this.simTime, this.batMesh.position, this.batMesh.quaternion, lookBall, this.input.xr ? this.input.headPose : null,
           this.session && this.session.bodyState ? this.session.bodyState() : null, this.offHandPos(), this.input.xr ? this.lookYaw || 0 : 0,
-          { t: this.realNow ?? this.clock, dt: paused ? 1e-4 : this.realDt || pdt || 1e-4, drop: this.input.xr ? this.rigDrop : 0 });
+          motionNow(this.realNow ?? this.clock, paused ? 1e-4 : this.realDt || pdt || 1e-4, this.input.xr ? this.rigDrop : 0));
       }
       // Through your own eyes you see a faint body below you (no head), so you
       // know where your feet are in the crease.
@@ -1291,6 +1294,10 @@ export class Game {
 }
 
 const _identity = new Quat();
+const _defaultOff = defaultBatOffset();     // (read only: built once, not on every frame it is asked for)
+// (updateViews hands these to the figures every frame: kept and refilled, read at once)
+const _nsCtx = { backingUp: false, ball: null, watch: null }, _motion = { t: 0, dt: 0, drop: 0 };
+function motionNow(t, dt, drop) { _motion.t = t; _motion.dt = dt; _motion.drop = drop; return _motion; }
 const _off = new Quat(), _tilt = new Quat(), _xAxis = new Vec3(1, 0, 0);
 const _batPose = new Pose();
 const _swRef = { x: 0, y: 0, z: 0 }, _lin = new Vec3();

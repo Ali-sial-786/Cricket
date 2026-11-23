@@ -8,7 +8,7 @@
 // the same swept collision as the player's bat: it can middle it, edge it,
 // miss it or be bowled. After the bounce it gets one late, partial correction.
 
-import { Vec3, Quat, Pose, clamp, smoothstep, angularVelocityFromQuats } from '../physics/math.js';
+import { Vec3, Quat, Pose, clamp, smoothstep, angularVelocityFromQuats, hypot3 } from '../physics/math.js';
 import { BatGeometry } from '../physics/bat.js';
 import { predict, crossingAtZ } from '../physics/trajectory.js';
 import { CONFIG } from '../config.js';
@@ -177,7 +177,7 @@ export class AIBatter {
       return plan;
     }
     // Down the pitch to a slow, flighted ball (risk: beaten in the flight and stumped).
-    const speed = Math.hypot(state.vel.x, state.vel.y, state.vel.z);
+    const speed = hypot3(state.vel.x, state.vel.y, state.vel.z);
     const chance = (opts.charge ?? 0) * (0.25 + 0.75 * this.aggression);
     if (chance > 0 && speed < 27.5 && info.length > 2.6 && info.length < 8 && Math.abs(info.xb) < 0.45 && r() < chance) {
       plan.adv = clamp(info.length - 2.0, 0.6, 1.5);

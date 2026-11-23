@@ -29,7 +29,7 @@ import { coinToss, nod, offerHand, TOSS_AT } from '../render/ceremonyPoses.js';
 import { decisionPending } from './quickSkip.js';
 import { SQUADS } from './squad.js';
 import { PITCH } from '../physics/pitch.js';
-import { makeRng } from '../physics/math.js';
+import { makeRng, hypot2 } from '../physics/math.js';
 
 export const CEREMONIES = ['on', 'short', 'off'];
 export const CEREMONY_NAMES = { on: 'full', short: 'cards only', off: 'off' };
@@ -39,7 +39,7 @@ const CZ = PITCH.centerZ;
 const PI = Math.PI;
 
 // Where a beat puts you (x, z: your head; dx, dz: the way you face).
-const toward = (x, z, tx, tz) => { const dx = tx - x, dz = tz - z, d = Math.hypot(dx, dz) || 1; return { x, z, dx: dx / d, dz: dz / d }; };
+const toward = (x, z, tx, tz) => { const dx = tx - x, dz = tz - z, d = hypot2(dx, dz) || 1; return { x, z, dx: dx / d, dz: dz / d }; };
 export const SPOTS = {
   // on the pavilion side, on a low riser above the outfield (a fade cut takes you there): the square laid
   // out below you with its figures and the stands round it -- at standing height it read as a flat field
@@ -423,12 +423,14 @@ export class Ceremony {
   watch(dt) {
     const g = this.g, s = g.session, inn = s && s.innings;
     if (!inn) { this.seen = null; this.queue.length = 0; return; }
-    if (!this.seen || this.seen.inn !== inn) { this.seen = { inn, w: inn.wickets, legal: inn.legal, batted: battedNames(inn.card) }; this.queue.length = 0; }
+    if (!this.seen || this.seen.inn !== inn) { this.seen = { inn, w: inn.wickets, legal: inn.legal, batted: battedNames(inn.card), bCard: inn.card, bN: battedCount(inn.card) }; this.queue.length = 0; }
     const S = this.seen;
     const skipAt = g.quickSkip && g.quickSkip.last ? g.quickSkip.last.at : null;
     if (inn.wickets > S.w && !inn.complete) this.queue.push({ name: s.isBowling ? 'wicketTaken' : 'wicket', ctx: this.wicketCtx(s, inn, S.batted), at: g.simTime + WICKET_DELAY, skipAt, born: g.clock });
     if (inn.legal > S.legal && inn.legal % 6 === 0 && !inn.complete) this.queue.push({ name: 'over', ctx: this.overCtx(s, inn), at: g.simTime, skipAt, born: g.clock });
-    S.w = inn.wickets; S.legal = inn.legal; S.batted = battedNames(inn.card);
+    S.w = inn.wickets; S.legal = inn.legal;
+    const bn = battedCount(inn.card);
+    if (inn.card !== S.bCard || bn !== S.bN) { S.batted = battedNames(inn.card); S.bCard = inn.card; S.bN = bn; }
     this.hurryIn();
     while (this.queue.length && g.clock - this.queue[0].born > 25) this.queue.shift();     // (never waiting for ever)
     const q = this.queue[0];
@@ -476,11 +478,12 @@ export class Ceremony {
   hurryIn() {
     const cr = this.g.crew;
     if (!cr || !cr.pool) return;
-    for (const a of cr.pool) {
-      const k = a.task;
+    const P = cr.pool;
+    for (let i = 0; i < P.length; i++) {        // (every frame: no iterator)
+      const a = P[i], k = a.task;
       if (!k || k.kind !== 'in' || k.age > 0.15 || k._near) continue;
       k._near = true;
-      const dx = a.pos.x - k.to.x, dz = a.pos.z - k.to.z, d = Math.hypot(dx, dz);
+      const dx = a.pos.x - k.to.x, dz = a.pos.z - k.to.z, d = hypot2(dx, dz);
       if (d <= WALK_OUT + 1) continue;
       a.place(k.to.x + dx / d * WALK_OUT, k.to.z + dz / d * WALK_OUT, Math.atan2(-dx, -dz));
     }
@@ -578,7 +581,7 @@ export class Ceremony {
     for (const b of S.breaks) if (!b.done && (b.at -= dt) <= 0) { b.done = true; const f = b.f; f.state = 'return'; f.target = null; f.huddleUntil = null; f.huddleInner = false; }
     for (const w of S.walkers) {
       w.x += w.vx * dt; w.z += w.vz * dt;
-      const sp = Math.hypot(w.vx, w.vz), hd = Math.atan2(w.vx, w.vz);
+      const sp = hypot2(w.vx, w.vz), hd = Math.atan2(w.vx, w.vz);
       if (w.kind === 'fielder') { const st = w.st; st.x = w.x; st.z = w.z; st.speed = sp; st.face = hd; w.a.update(Math.max(dt, 1e-4), st, { t, ball: null, delivering: false, cam: g.eye ? g.eye.p : null, others: [] }); }
       else {
         w.a.pos.set(w.x, 0, w.z); w.a.speed = sp; w.a.heading = hd;
@@ -810,11 +813,14 @@ export class Ceremony {
 }
 
 function battedNames(card) { return new Set(card ? card.batters.filter((b) => b.batted).map((b) => b.name) : []); }
+// (a man only ever goes from not having batted to having batted: the names change only when this count does,
+// so watch() builds the set again only then, not every frame)
+function battedCount(card) { let n = 0; if (card) for (let i = 0; i < card.batters.length; i++) if (card.batters[i].batted) n++; return n; }
 
 // Where to stand to see a celebration behind you: down the pitch, looking back at it.
 function huddleSpot(f) {
   if (!f) return null;
-  const x = f.x * 0.5, z = Math.min(f.z - 7.5, -6), dx = f.x - x, dz = f.z - z, d = Math.hypot(dx, dz) || 1;
+  const x = f.x * 0.5, z = Math.min(f.z - 7.5, -6), dx = f.x - x, dz = f.z - z, d = hypot2(dx, dz) || 1;
   return { x, z, dx: dx / d, dz: dz / d };
 }
 
@@ -864,7 +870,7 @@ class Coin {
   toss(from, to, face, rng) {
     const h = 0.75 + 0.2 * rng(), vy = Math.sqrt(2 * G * h);
     const down = from.y + h - REST, T = vy / G + Math.sqrt(2 * down / G);
-    const dx = to.x - from.x, dz = to.z - from.z, L = Math.hypot(dx, dz) || 1;
+    const dx = to.x - from.x, dz = to.z - from.z, L = hypot2(dx, dz) || 1;
     const turns = Math.round(T * (9 + 3 * rng()));
     this.s = {
       p: new THREE.Vector3(from.x, from.y, from.z), v: new THREE.Vector3(dx / T, vy, dz / T), t: 0, T,

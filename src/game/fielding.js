@@ -12,7 +12,7 @@
 // their stumps and a fielder backs up behind the end being thrown to; a
 // throw nobody takes runs on as a live ball (overthrows).
 
-import { Vec3, clamp, makeRng } from '../physics/math.js';
+import { Vec3, clamp, makeRng, hypot2 as hyp, distGT, distGE, distLT } from '../physics/math.js';
 import { PITCH, groundDistance } from '../physics/pitch.js';
 import { predict } from '../physics/trajectory.js';
 import { CONFIG } from '../config.js';
@@ -42,6 +42,7 @@ export const STUMP_CLEAR = 0.55;
 // Extra room round the keeper (pads, gloves, a wide crouch), on top of the usual gap.
 export const KEEPER_PADS = 0.4;
 const STUMPS = [{ x: 0, z: PITCH.battingStumpsZ }, { x: 0, z: PITCH.bowlingStumpsZ }];
+const BOWL_Z = PITCH.bowlingStumpsZ;
 
 // Where the man taking a throw at `end` stands: just behind the stumps on the
 // side the throw comes from (side +1 / -1), close enough to sweep the bails
@@ -52,13 +53,21 @@ export function receiverSpot(end, side = 1) {
     ? new Vec3(0.35 * s, 0, PITCH.battingStumpsZ + 0.6)
     : new Vec3(0.35 * s, 0, PITCH.bowlingStumpsZ - 0.6);
 }
+// receiverSpot into `out` (to measure to, not to keep).
+function receiverSpotInto(end, side, out) {
+  const s = side < 0 ? -1 : 1;
+  return end === 'batting' ? out.set(0.35 * s, 0, PITCH.battingStumpsZ + 0.6) : out.set(0.35 * s, 0, PITCH.bowlingStumpsZ - 0.6);
+}
+// How far receiverSpot(end, side) is from p (on the ground).
+function spotFrom(end, side, p) { const q = receiverSpotInto(end, side, _spot2); return hyp(q.x - p.x, q.z - p.z); }
+const _spot = new Vec3(), _spot2 = new Vec3();
 
 // A goal inside a no-go circle {x, z, r} is moved to its edge (on the side
 // the mover is coming from), so nobody runs on the spot trying to reach it.
 function clampGoal(gx, gz, px, pz, o, out) {
-  let dx = gx - o.x, dz = gz - o.z, d = Math.hypot(dx, dz);
+  let dx = gx - o.x, dz = gz - o.z, d = hyp(dx, dz);
   if (d >= o.r) return out.set(gx, 0, gz);
-  if (d < 1e-3) { dx = px - o.x; dz = pz - o.z; d = Math.hypot(dx, dz); if (d < 1e-3) { dx = 1; dz = 0; d = 1; } }
+  if (d < 1e-3) { dx = px - o.x; dz = pz - o.z; d = hyp(dx, dz); if (d < 1e-3) { dx = 1; dz = 0; d = 1; } }
   return out.set(o.x + dx / d * o.r, 0, o.z + dz / d * o.r);
 }
 
@@ -67,12 +76,12 @@ function clampGoal(gx, gz, px, pz, o, out) {
 // tangent on the side nearer the goal.
 export function steerAround(px, pz, gx, gz, o, out = { x: 0, z: 0 }) {
   let dx = gx - px, dz = gz - pz;
-  const d = Math.hypot(dx, dz);
+  const d = hyp(dx, dz);
   if (d < 1e-6) { out.x = 0; out.z = 0; return out; }
   dx /= d; dz /= d;
   out.x = dx; out.z = dz;
   if (!o) return out;
-  const cx = o.x - px, cz = o.z - pz, cd = Math.hypot(cx, cz);
+  const cx = o.x - px, cz = o.z - pz, cd = hyp(cx, cz);
   const R = o.r + 0.15;
   const along = cx * dx + cz * dz;
   if (along <= 0 || cd - R > d) return out;                       // behind him, or the goal comes first
@@ -87,6 +96,19 @@ export function steerAround(px, pz, gx, gz, o, out = { x: 0, z: 0 }) {
   return out;
 }
 const _goal = new Vec3(), _dir = { x: 0, z: 0 };
+const _circ = { x: 0, z: 0, r: 0, set(x, z, r) { this.x = x; this.z = z; this.r = r; return this; } };
+// f's feet out of the circle (ox, oz, r), straight away from its middle.
+// (The test small enough to be inlined at every call in separate(): a call
+// that is not inlined boxes its number arguments, every time.)
+function pushOut(f, ox, oz, r) {
+  if (!distGE(f.pos.x - ox, f.pos.z - oz, r)) pushInside(f, ox, oz, r);
+}
+function pushInside(f, ox, oz, r) {
+  let dx = f.pos.x - ox, dz = f.pos.z - oz, d = hyp(dx, dz);
+  if (d >= r) return;
+  if (d < 1e-6) { dx = f.pos.x - f.home.x || 1; dz = f.pos.z - f.home.z; d = hyp(dx, dz); }
+  f.pos.x = ox + dx / d * r; f.pos.z = oz + dz / d * r;
+}
 
 // Heading (unit {x, z}) from (px, pz) toward (gx, gz) among several circles
 // {x, z, r} (null entries skipped): straight if that is clear, otherwise the
@@ -96,48 +118,88 @@ const _goal = new Vec3(), _dir = { x: 0, z: 0 };
 // at each other don't both step the same way. Circles the mover is already
 // inside, or that hold the goal, don't block (separate() / clearGoal() deal
 // with those).
-const LOOK = 3.0, _cand = [];
+const LOOK = 3.0, _candT = [], _candR = [];
 export function steerAmong(px, pz, gx, gz, obs, out = { x: 0, z: 0 }) {
-  const dx = gx - px, dz = gz - pz, d = Math.hypot(dx, dz);
+  _sp.x = px; _sp.z = pz; _sg.x = gx; _sg.z = gz;
+  return steerAmongN(_sp, _sg, obs, obs ? obs.length : 0, out);
+}
+const _sp = { x: 0, z: 0 }, _sg = { x: 0, z: 0 };
+// The circles that count (not one he is inside, nor one holding the goal),
+// relative to the mover, packed for clearance(); _arg: its direction and
+// look-ahead in, the answer out. (Numbers handed to or returned from a call
+// the optimiser does not inline are boxed, every call: this one runs for
+// every candidate heading of every moving fielder every frame.)
+let _nLive = 0, _ox = new Float64Array(32), _oz = new Float64Array(32), _or = new Float64Array(32), _okr = new Uint8Array(32);
+const _arg = new Float64Array(4);
+function liveRoom(n) {
+  if (n <= _ox.length) return;
+  const k = Math.max(n, _ox.length * 2);
+  _ox = new Float64Array(k); _oz = new Float64Array(k); _or = new Float64Array(k); _okr = new Uint8Array(k);
+}
+// clearance of the path along (_arg[0], _arg[1]) over the look-ahead _arg[2] (< 0: it cuts a circle) -> _arg[3]
+function clearance() {
+  const cx = _arg[0], cz = _arg[1], reach = _arg[2];
+  let m = Infinity;
+  for (let i = 0; i < _nLive; i++) {
+    const ox = _ox[i], oz = _oz[i], t = Math.max(0, Math.min(reach, ox * cx + oz * cz));
+    m = Math.min(m, hyp(ox - cx * t, oz - cz * t) - (_or[i] + 0.12));
+  }
+  _arg[3] = m;
+}
+// (steerAmong from p toward g over the first n entries of obs: the per-frame
+// caller keeps one list and never shrinks it. No closures, no candidate
+// objects: it runs for every moving fielder every frame.)
+function steerAmongN(p, g, obs, n, out) {
+  const px = p.x, pz = p.z, gx = g.x, gz = g.z;
+  const dx = gx - px, dz = gz - pz, d = hyp(dx, dz);
   out.x = 0; out.z = 0;
   if (d < 1e-6) return out;
   const ux = dx / d, uz = dz / d, reach = Math.min(d, LOOK);
-  const live = (o) => o && Math.hypot(px - o.x, pz - o.z) > o.r && Math.hypot(gx - o.x, gz - o.z) >= o.r;
-  // clearance of the path along (cx, cz) over the look-ahead (< 0: it cuts a circle)
-  const clear = (cx, cz) => {
-    let m = Infinity;
-    for (const o of obs) {
-      if (!live(o)) continue;
-      const ox = o.x - px, oz = o.z - pz, t = Math.max(0, Math.min(reach, ox * cx + oz * cz));
-      m = Math.min(m, Math.hypot(ox - cx * t, oz - cz * t) - (o.r + 0.12));
-    }
-    return m;
-  };
-  if (!obs || clear(ux, uz) >= 0) { out.x = ux; out.z = uz; return out; }
-  _cand.length = 0;
+  if (!obs) { out.x = ux; out.z = uz; return out; }
+  // (a circle he is inside, or that holds the goal, does not block)
+  liveRoom(n);
+  let nl = 0;
+  for (let i = 0; i < n; i++) {
+    const o = obs[i];
+    if (!o || !distGT(px - o.x, pz - o.z, o.r) || !distGE(gx - o.x, gz - o.z, o.r)) continue;
+    _ox[nl] = o.x - px; _oz[nl] = o.z - pz; _or[nl] = o.r; _okr[nl++] = o.keepRight ? 1 : 0;
+  }
+  _nLive = nl;
+  _arg[0] = ux; _arg[1] = uz; _arg[2] = reach;
+  clearance();
+  if (_arg[3] >= 0) { out.x = ux; out.z = uz; return out; }
+  let nc = 0;
   const tg = Math.atan2(ux, uz);
-  for (const o of obs) {
-    if (!live(o)) continue;
-    const ox = o.x - px, oz = o.z - pz, cd = Math.hypot(ox, oz);
-    if (cd - o.r > reach + 0.5) continue;
-    const tc = Math.atan2(ox, oz), a = Math.asin(Math.min(1, (o.r + 0.15) / cd));
-    _cand.push({ t: tc + a, right: !o.keepRight }, { t: tc - a, right: true });
+  for (let i = 0; i < nl; i++) {
+    const ox = _ox[i], oz = _oz[i], r = _or[i], cd = hyp(ox, oz);
+    if (cd - r > reach + 0.5) continue;
+    const tc = Math.atan2(ox, oz), a = Math.asin(Math.min(1, (r + 0.15) / cd));
+    _candT[nc] = tc + a; _candR[nc++] = !_okr[i];
+    _candT[nc] = tc - a; _candR[nc++] = true;
   }
-  let best = null, bestScore = Infinity, fall = null, fallClear = -Infinity;
-  for (const c of _cand) {
-    const cx = Math.sin(c.t), cz = Math.cos(c.t), cl = clear(cx, cz);
-    const dev = Math.abs(Math.atan2(Math.sin(c.t - tg), Math.cos(c.t - tg)));
+  let best = -1, bestScore = Infinity, fall = -1, fallClear = -Infinity;
+  for (let k = 0; k < nc; k++) {
+    const ct = _candT[k], cx = Math.sin(ct), cz = Math.cos(ct);
+    _arg[0] = cx; _arg[1] = cz;
+    clearance();
+    const cl = _arg[3];
+    const dev = Math.abs(Math.atan2(Math.sin(ct - tg), Math.cos(ct - tg)));
     if (cl >= -1e-3 && dev < Math.PI * 0.75) {
-      const score = dev + (c.right ? 0 : 0.6);
-      if (score < bestScore) { bestScore = score; best = c; }
-    } else if (cl > fallClear) { fallClear = cl; fall = c; }
+      const score = dev + (_candR[k] ? 0 : 0.6);
+      if (score < bestScore) { bestScore = score; best = k; }
+    } else if (cl > fallClear) { fallClear = cl; fall = k; }
   }
-  const c = best || fall;
-  if (!c) { out.x = ux; out.z = uz; return out; }
-  out.x = Math.sin(c.t); out.z = Math.cos(c.t);
+  const c = best >= 0 ? best : fall;
+  if (c < 0) { out.x = ux; out.z = uz; return out; }
+  out.x = Math.sin(_candT[c]); out.z = Math.cos(_candT[c]);
   return out;
 }
-const _obs = [];
+// The circles a moving fielder steers round, rebuilt every frame from pooled
+// objects (slot 0: the player's space; then the umpires, batters and stumps,
+// the same for everyone in a frame; then the men near him).
+const _step = new Float64Array(6);      // (Fielding.update -> moveOne -> driveOne: dt, t, want, ux, uz, d)
+const _obs = [], _obsPool = [], _koObs = { x: 0, z: 0, r: 0, keepRight: false };
+const pooledObs = (i) => _obsPool[i] || (_obsPool[i] = { x: 0, z: 0, r: 0, keepRight: false });
 const ARRIVE = 0.05;         // m: there
 const BACKPEDAL = 3.0;       // m: closer to his mark than this, a fielder steps back to it still facing in
 const FETCH_REACH = 0.85;     // m: a dead ball the keeper walks up to is picked up from this close
@@ -155,7 +217,9 @@ const RELAY_MAX = 22;
 const BOUNDARY_NEAR = 22;     // m: men this close to where a boundary went over walk after it (reactBoundary)         // m: the keeper tosses the ball to a man this close (else straight to the bowler)       // s after the ball is dead before it is tossed back (after the replay's tape ends: TAIL 1 s)        // m: a man with the ball this close to a set of stumps runs in and breaks them himself
 const RELEASE_SET = 4;       // m: a fielder this close to his mark at the release stops and gets set
 const BRAKE = 13;            // m/s^2 pulling up
-function angDiff(a, b) { let d = b - a; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI; return d; }
+// (the wrap out of line: small enough to be inlined everywhere)
+function angDiff(a, b) { const d = b - a; return d > Math.PI || d < -Math.PI ? wrapAngle(d) : d; }
+function wrapAngle(d) { while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI; return d; }
 
 export class Fielding {
   constructor({ cfg = CONFIG, rng = makeRng(99), catchSkill = 0.72, throwSkill = 1, spinner = false, bowlerFields = true } = {}) {
@@ -172,8 +236,15 @@ export class Fielding {
     // Every throw (for measurement): counts by kind and what became of them.
     this.tally = { throws: 0, direct: 0, gloves: 0, return: 0, self: 0, oneBounce: 0, held: 0, runIn: 0, hits: 0, missed: 0, takes: 0, fumbles: 0, overthrows: 0, coverThere: 0, coverAway: 0 };
     this.throwLog = [];
+    // (everything set on it later, here from the start: one shape for the
+    // whole life of the object, so the per-frame code that reads it stays fast)
+    this.keepOut = undefined; this.obstacles = undefined; this.lobTarget = undefined; this.lobFrom = undefined;
+    this.keeperUp = undefined; this.keeperHow = undefined; this.attack = undefined; this.pendingRuns = undefined;
+    this.lastThrower = undefined; this.huddle = undefined; this.hitPending = undefined; this._states = null; this.nStatic = -1;
+    // (every field a fielder ever has, from the start and in this order: one
+    // shape for all eleven, so the per-frame loops over them stay monomorphic)
     this.fielders = FIELD.map((f) => ({
-      ...f,
+      name: f.name, x: f.x, z: f.z, keeper: !!f.keeper, bowler: !!f.bowler,
       home: new Vec3(f.x, 0, f.z),
       pos: new Vec3(f.x, 0, f.z),
       vel: new Vec3(),
@@ -181,7 +252,11 @@ export class Fielding {
       yaw: 0,                    // where he does face: turns toward `face` at a body's pace
       state: 'set',
       target: null,
+      ballAim: new Vec3(),       // (his target while he goes after a loose ball: re-aimed every frame, so kept)
       speed: 0,
+      playerControlled: false, prevDist: Infinity, action: null, leap: null, out: false, runIn: null, coverEnd: null, backEnd: null,
+      coverSide: 0, noGatherUntil: 0, stopTried: false, prevStop: Infinity, _way: null,
+      huddleUntil: null, huddleCenter: false, huddleAt: null, huddleInner: undefined, huddleMood: null,
     }));
     this.setSpinner(spinner);
     this.reset();
@@ -241,8 +316,8 @@ export class Fielding {
   // Which way a fielder standing at his mark faces: the batter (the keeper:
   // the bowler, down the pitch).
   restFace(f) {
-    if (f.keeper) return Math.atan2(-f.pos.x * 0.3, PITCH.bowlingStumpsZ - f.pos.z);
-    return Math.atan2(0 - f.pos.x, -1.0 - f.pos.z);
+    const p = f.pos;
+    return f.keeper ? Math.atan2(-p.x * 0.3, BOWL_Z - p.z) : Math.atan2(0 - p.x, -1.0 - p.z);
   }
 
   // Next delivery: clear the ball's outcome but let fielders jog back to
@@ -262,7 +337,7 @@ export class Fielding {
       // (flat out if it is a long way, see update()).
       // (the AI bowler, back in his own figure, is walking to his mark as himself)
       if (f.bowler && this.bowlerFields && !f.out) { f.state = 'set'; f.target = null; continue; }
-      const far = Math.hypot(f.pos.x - f.home.x, f.pos.z - f.home.z);
+      const far = hyp(f.pos.x - f.home.x, f.pos.z - f.home.z);
       if (far > 0.4) { f.state = 'return'; f.target = null; }
       else { f.state = 'set'; f.target = null; }
     }
@@ -289,12 +364,12 @@ export class Fielding {
     const F = this.fielders, cand = [];
     // (they would take this long to get back anyway: whoever is furthest from his mark)
     let back = 0;
-    for (const f of F) if (!f.bowler) back = Math.max(back, Math.hypot(f.pos.x - f.home.x, f.pos.z - f.home.z) / 4.2 + 1.5);
+    for (const f of F) if (!f.bowler) back = Math.max(back, hyp(f.pos.x - f.home.x, f.pos.z - f.home.z) / 4.2 + 1.5);
     budget = Math.max(budget, back + HUDDLE_GRACE);
     F.forEach((f, i) => {
       // (not the bowler: his own figure walks back to his mark, the side comes to him on the way)
       if (f.playerControlled || f.bowler || i === center) return;
-      cand.push({ f, d: Math.hypot(f.pos.x - focus.x, f.pos.z - focus.z) });
+      cand.push({ f, d: hyp(f.pos.x - focus.x, f.pos.z - focus.z) });
     });
     cand.sort((a, b) => a.d - b.d);
     let inner = 0;
@@ -337,7 +412,7 @@ export class Fielding {
     let n = 0;
     for (const f of this.fielders) {
       if (f.playerControlled || f.bowler || f.keeper || f.action || (f.state !== 'set' && f.state !== 'return' && f.state !== 'chase')) continue;
-      const dx = B.x - f.pos.x, dz = B.z - f.pos.z, d = Math.hypot(dx, dz);
+      const dx = B.x - f.pos.x, dz = B.z - f.pos.z, d = hyp(dx, dz);
       if (d > BOUNDARY_NEAR) continue;
       const step = Math.min(4, Math.max(0, d - 2));
       f.target = new Vec3(f.pos.x + dx / Math.max(d, 1e-3) * step, 0, f.pos.z + dz / Math.max(d, 1e-3) * step);
@@ -355,11 +430,12 @@ export class Fielding {
   // moment's celebration -- sets off back to his mark.
   goHome(dt, t) {
     this.deadFor = (this.deadFor || 0) + dt;
-    for (const f of this.fielders) {
+    for (let fi = 0; fi < this.fielders.length; fi++) {          // (every frame the ball is dead: no iterator)
+      const f = this.fielders[fi];
       if (f.playerControlled || f.state === 'return') continue;
       // (standing still, nothing in hand: back to his mark if he is off it -- a ring fielder's walk-in, a man who pulled up where he was)
       if (f.state === 'set' && !f.action) {
-        if (!(f.bowler && (!this.bowlerFields || !f.out)) && Math.hypot(f.pos.x - f.home.x, f.pos.z - f.home.z) > 0.4) { f.state = 'return'; f.target = null; }
+        if (!(f.bowler && (!this.bowlerFields || !f.out)) && distGT(f.pos.x - f.home.x, f.pos.z - f.home.z, 0.4)) { f.state = 'return'; f.target = null; }
         continue;
       }
       if (f.bowler && (!this.bowlerFields || !f.out)) continue;
@@ -375,11 +451,11 @@ export class Fielding {
       const huddling = f.huddleUntil != null && t < f.huddleUntil && (f.state === 'huddle' || f.huddleCenter);
       // Holding the ball: he lobs it back toward the bowler first (nobody walks
       // about with it, and it never hangs in the air at a hidden hand).
-      if (this.ballOverride && this.ballOverride.holder === this.fielders.indexOf(f) && !this.lob && !(f.bowler && this.bowlerFields)) { if (this.deadFor >= LOB_AFTER) this.startLob(f, t); continue; }
+      if (this.ballOverride && this.ballOverride.holder === fi && !this.lob && !(f.bowler && this.bowlerFields)) { if (this.deadFor >= LOB_AFTER) this.startLob(f, t); continue; }
       if (huddling) continue;
       f.huddleUntil = null; f.huddleCenter = false; f.huddleMood = null;
       f.action = null; f.leap = null; f.runIn = null; f.coverEnd = null; f.backEnd = null;
-      if (Math.hypot(f.pos.x - f.home.x, f.pos.z - f.home.z) > 0.4) { f.state = 'return'; f.target = null; }
+      if (distGT(f.pos.x - f.home.x, f.pos.z - f.home.z, 0.4)) { f.state = 'return'; f.target = null; }
       else { f.state = 'set'; f.target = null; }
     }
   }
@@ -396,13 +472,13 @@ export class Fielding {
       let best = Infinity;
       for (const o of this.fielders) {
         if (o === f || o.bowler || o.keeper || o.playerControlled || o.state !== 'set' || o.action) continue;
-        const d = Math.hypot(o.pos.x - f.pos.x, o.pos.z - f.pos.z);
+        const d = hyp(o.pos.x - f.pos.x, o.pos.z - f.pos.z);
         if (d > 0.8 && d < RELAY_MAX && d < best) { best = d; relay = o; }
       }
     }
     const to = relay ? new Vec3(relay.pos.x, 1.2, relay.pos.z) : lt ? new Vec3(lt.x, roll ? this.cfg.ball.radius : lt.y, lt.z) : new Vec3(0.9, this.cfg.ball.radius, PITCH.bowlingStumpsZ + 1.5);
     if (relay) { roll = false; relay.face = Math.atan2(f.pos.x - relay.pos.x, f.pos.z - relay.pos.z); }
-    const from = new Vec3(f.pos.x, 1.1, f.pos.z), d = Math.hypot(to.x - from.x, to.z - from.z);
+    const from = new Vec3(f.pos.x, 1.1, f.pos.z), d = hyp(to.x - from.x, to.z - from.z);
     this.lob = { from, to, roll, relay, tStart: t + 0.35, tArrive: t + 0.35 + Math.max(0.5, d / (roll ? 11 : 13)), arc: roll ? Math.min(1.5, 0.3 + d * 0.04) : Math.min(5, 0.6 + d * 0.16), bounce: roll ? 0.3 : 0 };
     f.action = { type: 'throw', t0: t + 0.35 - THROW.windup, quick: true };
     f.face = Math.atan2(to.x - f.pos.x, to.z - f.pos.z);
@@ -428,12 +504,17 @@ export class Fielding {
   // Everyone within this distance of their mark? (the bowler's own figure
   // looks after itself while the fielding bowler is not out)
   inPosition(tol = 2.5) {
-    return this.fielders.every((f) => (f.bowler && (!this.bowlerFields || !f.out)) || Math.hypot(f.pos.x - f.home.x, f.pos.z - f.home.z) < tol);
+    for (let i = 0; i < this.fielders.length; i++) { const f = this.fielders[i]; if (!((f.bowler && (!this.bowlerFields || !f.out)) || distLT(f.pos.x - f.home.x, f.pos.z - f.home.z, tol))) return false; }
+    return true;
   }
   // …and standing still, facing the right way: ready for the bowler to run in.
   settled(tol = 0.6) {
-    return this.fielders.every((f) => (f.bowler && (!this.bowlerFields || !f.out))
-      || (Math.hypot(f.pos.x - f.home.x, f.pos.z - f.home.z) < tol && f.speed < 0.3 && !f.action && f.state === 'set' && Math.abs(angDiff(f.yaw, this.restFace(f))) < 0.1));
+    for (let i = 0; i < this.fielders.length; i++) {
+      const f = this.fielders[i];
+      if (!((f.bowler && (!this.bowlerFields || !f.out))
+        || (distLT(f.pos.x - f.home.x, f.pos.z - f.home.z, tol) && f.speed < 0.3 && !f.action && f.state === 'set' && Math.abs(angDiff(f.yaw, this.restFace(f))) < 0.1))) return false;
+    }
+    return true;
   }
 
   // Ring fielders walk in a few paces as the bowler runs up.
@@ -442,7 +523,7 @@ export class Fielding {
     for (const f of this.fielders) {
       if (f.keeper || f.name === 'slip' || f.bowler || f.state !== 'set') continue;
       const dx = 0 - f.home.x, dz = -1.0 - f.home.z;
-      const d = Math.hypot(dx, dz);
+      const d = hyp(dx, dz);
       const step = d > 45 ? 2.2 : 3.2;
       f.state = 'walkin';
       f.target = new Vec3(f.home.x + (dx / d) * step, 0, f.home.z + (dz / d) * step);
@@ -454,7 +535,7 @@ export class Fielding {
       if (f.state === 'walkin') f.state = 'set';
       // Still on his way back as the ball is bowled: he pulls up where he is
       // and gets set (only a man a long way from his mark keeps coming).
-      else if (f.state === 'return' && !f.playerControlled && Math.hypot(f.pos.x - f.home.x, f.pos.z - f.home.z) < RELEASE_SET) { f.state = 'set'; f.target = null; }
+      else if (f.state === 'return' && !f.playerControlled && hyp(f.pos.x - f.home.x, f.pos.z - f.home.z) < RELEASE_SET) { f.state = 'set'; f.target = null; }
     }
   }
 
@@ -485,7 +566,7 @@ export class Fielding {
       let n = null, nd = Infinity;
       for (const f of this.fielders) {
         if (f.state !== 'set' || f.keeper || (f.bowler && !this.bowlerFields)) continue;
-        const d = Math.hypot(end.x - f.home.x, end.z - f.home.z);
+        const d = hyp(end.x - f.home.x, end.z - f.home.z);
         if (d < nd) { nd = d; n = f; }
       }
       if (n && nd < 40) { n.state = 'backup'; n.target = new Vec3(end.x, 0, end.z); }
@@ -522,7 +603,7 @@ export class Fielding {
         const airborne = !byes && !ground && s.bouncesSinceBat === 0;
         const reachable = airborne ? s.y <= F.catchHeightMax && s.y >= 0.05 : s.y <= 1.2;
         if (!reachable) continue;
-        const d = Math.hypot(s.x - f.pos.x, s.z - f.pos.z);
+        const d = hyp(s.x - f.pos.x, s.z - f.pos.z);
         const reach = airborne ? F.diveReach : F.reach;
         const need = this.runTime(Math.max(0, d - reach), react);
         if (need <= s.t) {
@@ -547,7 +628,7 @@ export class Fielding {
     } else if (pred.boundary) {
       const p = pred.boundary.pos;
       let n = null, nd = Infinity;
-      for (const f of this.fielders) { if ((f.bowler && !this.bowlerFields) || f === exclude || f.playerControlled) continue; const d = Math.hypot(p.x - f.pos.x, p.z - f.pos.z); if (d < nd) { nd = d; n = f; } }
+      for (const f of this.fielders) { if ((f.bowler && !this.bowlerFields) || f === exclude || f.playerControlled) continue; const d = hyp(p.x - f.pos.x, p.z - f.pos.z); if (d < nd) { nd = d; n = f; } }
       if (n) { n.state = 'chase'; n.target = new Vec3(p.x, 0, p.z); n.coverEnd = null; n.backEnd = null; }
     }
     return best;
@@ -558,19 +639,19 @@ export class Fielding {
   // wicket where the batter is coming in.
   coverWay(f, spot) {
     const sz = STUMPS_Z[f.coverEnd], back = f.coverEnd === 'batting' ? 1 : -1, side = spot.x < 0 ? -1 : 1;
-    if (Math.hypot(f.pos.x - spot.x, f.pos.z - spot.z) < 0.9) return spot;
+    if (distLT(f.pos.x - spot.x, f.pos.z - spot.z, 0.9)) return spot;
     const inFront = (f.pos.z - sz) * back < 0.2;
     const w = f._way || (f._way = new Vec3());
     if (inFront && Math.abs(f.pos.x) < 1.3) return w.set(side * 1.35, 0, sz + back * 0.3);
     // (does the straight line pass close by the stumps?)
-    const dx = spot.x - f.pos.x, dz = spot.z - f.pos.z, L = Math.hypot(dx, dz) || 1;
+    const dx = spot.x - f.pos.x, dz = spot.z - f.pos.z, L = hyp(dx, dz) || 1;
     const u = clamp(((0 - f.pos.x) * dx + (sz - f.pos.z) * dz) / (L * L), 0, 1);
     const cx = f.pos.x + dx * u, cz = f.pos.z + dz * u;
-    if (Math.hypot(cx, cz - sz) < 0.85) return w.set(side * 0.85, 0, sz + back * 1.05);
+    if (distLT(cx, cz - sz, 0.85)) return w.set(side * 0.85, 0, sz + back * 1.05);
     return spot;
   }
 
-  nearerEnd(x, z) { return Math.hypot(x, z - STUMPS_Z.batting) <= Math.hypot(x, z - STUMPS_Z.bowling) ? 'batting' : 'bowling'; }
+  nearerEnd(x, z) { return hyp(x, z - STUMPS_Z.batting) <= hyp(x, z - STUMPS_Z.bowling) ? 'batting' : 'bowling'; }
 
   // Is he tied up with the ball (chasing it, holding it, throwing it, in a
   // catch or a dive he has not got up from)?
@@ -588,69 +669,80 @@ export class Fielding {
   // with the ball, the nearest man who is free. They sprint there (round
   // everyone in the way) and wait just behind the stumps, facing the ball.
   // side: the side of the pitch the throw will come from (+1 / -1).
+  // (every frame the ball is in play: methods, not closures; the spots it
+  // only measures to are worked out into scratch, not made new each time)
   assignCovers(t, side = null) {
     const F = this.fielders, k = F[0], bw = this.bowlerFields ? F[F.length - 1] : null;
-    const busy = (f) => this.busyWithBall(f, t) && !(f && f.coverEnd && this.ballOverride && this.ballOverride.holder === F.indexOf(f));
-    const th = this.throw;
-    const pick = (end, pref, taken) => {
-      // (a throw on its way to him: he stays the man at those stumps until it gets there)
-      if (th && th.released && !th.done && th.end === end && th.receiverF && th.receiverF !== taken) return th.receiverF;
-      const cur = this.cover[end];
-      const curOk = cur && cur !== taken && !busy(cur);
-      if (pref && !busy(pref) && pref !== taken) {
-        // (the man over the stumps keeps them until the keeper / bowler would be there sooner)
-        if (!curOk || cur === pref) return pref;
-        const spot = receiverSpot(end, cur.coverSide || 1);
-        return this.etaTo(pref, spot) <= this.etaTo(cur, spot) ? pref : cur;
-      }
-      if (curOk) return cur;                                    // (keeps whoever is on his way)
-      const spot = receiverSpot(end, 1);
-      let n = null, nd = Infinity;
-      for (const f of F) {
-        if (f === taken || f === pref || f.keeper || f.bowler || busy(f)) continue;
-        const d = Math.hypot(f.pos.x - spot.x, f.pos.z - spot.z) + (f.state === 'backstop' ? 12 : 0);
-        if (d < nd) { nd = d; n = f; }
-      }
-      return n;
-    };
-    const bat = pick('batting', k, null);
+    const bat = this.pickCover('batting', k, null, t);
     // (when you bowl, those stumps are yours: nobody comes to stand by you -- DECISIONS V4;
     // a throw there is at the stumps, with a man backing up behind them)
-    const bowl = this.bowlerFields ? pick('bowling', bw, bat) : null;
-    const sideOf = (end) => {
-      let s = side != null ? side : (this.cover[end] && this.cover[end].coverSide) || 1;
-      // (never into the player's space: he may be standing at those stumps)
-      const ko = this.keepOut;
-      if (ko) {
-        const dd = (q) => { const sp = receiverSpot(end, q); return Math.hypot(sp.x - ko.x, sp.z - ko.z); };
-        if (dd(s) < ko.r + 0.15 && dd(-s) > dd(s) + 0.05) s = -s;
-      }
-      return s;
-    };
-    for (const [end, f] of [['batting', bat], ['bowling', bowl]]) {
-      const old = this.cover[end];
-      if (old && old !== f && old.coverEnd === end && old.state === 'stumps') { old.state = 'return'; old.target = null; old.coverEnd = null; }
-      this.cover[end] = f;
-      if (!f) continue;
-      if (f.state === 'backstop' && this.backer === f) this.backer = null;
-      const s = sideOf(end);
-      const taking = f.action && (f.action.type === 'take' || f.action.type === 'break');
-      if (taking) { f.coverEnd = end; continue; }
-      if (f.state !== 'stumps' || f.coverEnd !== end || f.coverSide !== s) {
-        f.state = 'stumps'; f.coverEnd = end; f.coverSide = s; f.backEnd = null;
-        f.target = receiverSpot(end, s);
-      }
-    }
+    const bowl = this.bowlerFields ? this.pickCover('bowling', bw, bat, t) : null;
+    this.placeCover('batting', bat, side);
+    this.placeCover('bowling', bowl, side);
     // The keeper (or the AI bowler) free again but not the man over his stumps
     // (someone took them while he was busy): he comes back to them all the same,
     // to the other side, and takes them over once he is there.
-    for (const [end, own] of [['batting', k], ['bowling', bw]]) {
-      if (!own || this.cover[end] === own || own === bat || own === bowl || busy(own) || !this.cover[end]) continue;
-      if (own.action && (own.action.type === 'take' || own.action.type === 'break')) continue;
-      const s = -(this.cover[end].coverSide || 1);
-      if (own.state !== 'stumps' || own.coverEnd !== end || own.coverSide !== s) { own.state = 'stumps'; own.coverEnd = end; own.coverSide = s; own.backEnd = null; own.target = receiverSpot(end, s); }
-    }
+    this.ownStumps('batting', k, bat, bowl, t);
+    this.ownStumps('bowling', bw, bat, bowl, t);
     this.bowlEndReceiver = this.cover.bowling;
+  }
+  // Busy with the ball, for covering (assignCovers): a man holding it at his stumps is not.
+  coverBusy(f, t) { return this.busyWithBall(f, t) && !(f && f.coverEnd && this.ballOverride && this.ballOverride.holder === this.fielders.indexOf(f)); }
+  // Who covers the stumps at `end`: pref (the keeper / the AI bowler) if he is free, not `taken` (the other end's man).
+  pickCover(end, pref, taken, t) {
+    const F = this.fielders, th = this.throw;
+    // (a throw on its way to him: he stays the man at those stumps until it gets there)
+    if (th && th.released && !th.done && th.end === end && th.receiverF && th.receiverF !== taken) return th.receiverF;
+    const cur = this.cover[end];
+    const curOk = cur && cur !== taken && !this.coverBusy(cur, t);
+    if (pref && !this.coverBusy(pref, t) && pref !== taken) {
+      // (the man over the stumps keeps them until the keeper / bowler would be there sooner)
+      if (!curOk || cur === pref) return pref;
+      const spot = receiverSpotInto(end, cur.coverSide || 1, _spot);
+      return this.etaTo(pref, spot) <= this.etaTo(cur, spot) ? pref : cur;
+    }
+    if (curOk) return cur;                                    // (keeps whoever is on his way)
+    const spot = receiverSpotInto(end, 1, _spot);
+    let n = null, nd = Infinity;
+    for (let i = 0; i < F.length; i++) {
+      const f = F[i];
+      if (f === taken || f === pref || f.keeper || f.bowler || this.coverBusy(f, t)) continue;
+      const d = hyp(f.pos.x - spot.x, f.pos.z - spot.z) + (f.state === 'backstop' ? 12 : 0);
+      if (d < nd) { nd = d; n = f; }
+    }
+    return n;
+  }
+  // Which side of the stumps at `end` the man covering them waits (side: the throw's, else his own).
+  coverSideOf(end, side) {
+    let s = side != null ? side : (this.cover[end] && this.cover[end].coverSide) || 1;
+    // (never into the player's space: he may be standing at those stumps)
+    const ko = this.keepOut;
+    if (ko) {
+      const ds = spotFrom(end, s, ko);
+      if (ds < ko.r + 0.15 && spotFrom(end, -s, ko) > spotFrom(end, s, ko) + 0.05) s = -s;
+    }
+    return s;
+  }
+  // f is the man for the stumps at `end` (null: nobody); whoever had them and is still on his way goes back.
+  placeCover(end, f, side) {
+    const old = this.cover[end];
+    if (old && old !== f && old.coverEnd === end && old.state === 'stumps') { old.state = 'return'; old.target = null; old.coverEnd = null; }
+    this.cover[end] = f;
+    if (!f) return;
+    if (f.state === 'backstop' && this.backer === f) this.backer = null;
+    const s = this.coverSideOf(end, side);
+    const taking = f.action && (f.action.type === 'take' || f.action.type === 'break');
+    if (taking) { f.coverEnd = end; return; }
+    if (f.state !== 'stumps' || f.coverEnd !== end || f.coverSide !== s) {
+      f.state = 'stumps'; f.coverEnd = end; f.coverSide = s; f.backEnd = null;
+      f.target = receiverSpot(end, s);
+    }
+  }
+  ownStumps(end, own, bat, bowl, t) {
+    if (!own || this.cover[end] === own || own === bat || own === bowl || this.coverBusy(own, t) || !this.cover[end]) return;
+    if (own.action && (own.action.type === 'take' || own.action.type === 'break')) return;
+    const s = -(this.cover[end].coverSide || 1);
+    if (own.state !== 'stumps' || own.coverEnd !== end || own.coverSide !== s) { own.state = 'stumps'; own.coverEnd = end; own.coverSide = s; own.backEnd = null; own.target = receiverSpot(end, s); }
   }
 
   // One fielder backs up behind the stumps at `end`, in line with a throw
@@ -659,7 +751,7 @@ export class Fielding {
   assignBacker(end, fx, fz, t) {
     const sz = STUMPS_Z[end];
     let ux = -fx, uz = sz - fz;
-    const d = Math.hypot(ux, uz);
+    const d = hyp(ux, uz);
     if (d < 4) return;                              // (thrown from right by the stumps: nothing to back up)
     ux /= d; uz /= d;
     let bx = ux * THROW.backDist, bz = sz + uz * THROW.backDist;
@@ -671,7 +763,7 @@ export class Fielding {
     let n = null, nd = Infinity;
     for (const f of this.fielders) {
       if (!usable(f)) continue;
-      const dd = Math.hypot(f.pos.x - spot.x, f.pos.z - spot.z) - (f === cur ? 4 : 0);
+      const dd = hyp(f.pos.x - spot.x, f.pos.z - spot.z) - (f === cur ? 4 : 0);
       if (dd < nd) { nd = dd; n = f; }
     }
     if (cur && cur !== n && cur.state === 'backstop') { cur.state = 'return'; cur.target = null; cur.backEnd = null; }
@@ -756,7 +848,7 @@ export class Fielding {
     const k = this.fielders[0];
     if (this.keeperHold || this.keeperMissed) return null;
     const dx = ball.pos.x - k.pos.x, dz = ball.pos.z - k.pos.z;
-    if (Math.hypot(dx, dz) <= FETCH_REACH || (this.fetchT0 != null && t - this.fetchT0 > FETCH_GIVEUP)) {
+    if (hyp(dx, dz) <= FETCH_REACH || (this.fetchT0 != null && t - this.fetchT0 > FETCH_GIVEUP)) {
       const target = new Vec3(ball.pos.x, Math.max(ball.pos.y, 0.05), ball.pos.z);
       this.keeperHold = true;
       this.keeperTookAt = t;
@@ -788,7 +880,7 @@ export class Fielding {
   keeperAttack(t, rng = this.rng, hitChance = 0.5) {
     const k = this.fielders[0], K = this.cfg.keeper;
     if (!this.keeperHold) return null;
-    const dist = Math.hypot(k.pos.x, k.pos.z - PITCH.battingStumpsZ);
+    const dist = hyp(k.pos.x, k.pos.z - PITCH.battingStumpsZ);
     const slow = this.keeperHow === 'take' ? 0 : K.diveRecover;
     const t0 = Math.max(t, (this.keeperTookAt ?? t) + slow);
     if (dist < 1.6) {
@@ -813,7 +905,7 @@ export class Fielding {
     const k = this.fielders[0];
     k.state = 'set';
     k.action = { type: 'break', t0: t, at, stumps: new Vec3(0, 0.72, PITCH.battingStumpsZ), from: k.pos.clone() };
-    if (Math.hypot(k.pos.x, k.pos.z - PITCH.battingStumpsZ) > 0.05) k.face = Math.atan2(-k.pos.x, PITCH.battingStumpsZ - k.pos.z);
+    if (hyp(k.pos.x, k.pos.z - PITCH.battingStumpsZ) > 0.05) k.face = Math.atan2(-k.pos.x, PITCH.battingStumpsZ - k.pos.z);
     if (this.ballOverride) this.ballOverride.holder = 0;
   }
 
@@ -846,12 +938,12 @@ export class Fielding {
     const f = this.cover[end] || (end === 'batting' ? this.fielders[0] : this.bowlEndReceiver);
     if (!f) return null;
     const sz = end === 'batting' ? PITCH.battingStumpsZ + 0.6 : PITCH.bowlingStumpsZ - 0.6;
-    return Math.hypot(f.pos.x, f.pos.z - sz) < 2.5 ? f : null;
+    return hyp(f.pos.x, f.pos.z - sz) < 2.5 ? f : null;
   }
 
   // Seconds for `f` to get to `spot` from where he is.
   etaTo(f, spot) {
-    const d = Math.hypot(f.pos.x - spot.x, f.pos.z - spot.z);
+    const d = hyp(f.pos.x - spot.x, f.pos.z - spot.z);
     return d < 0.7 ? 0 : this.runTime(d - 0.5, f.speed > 2 ? 0 : 0.25);
   }
 
@@ -860,7 +952,7 @@ export class Fielding {
     const f = this.cover[end];
     if (!f) return Infinity;
     const spot = this.clearGoal(f.target && f.coverEnd === end ? f.target : receiverSpot(end, 1), f, this.keepOut);
-    const d = Math.hypot(f.pos.x - spot.x, f.pos.z - spot.z);
+    const d = hyp(f.pos.x - spot.x, f.pos.z - spot.z);
     if (d < 0.7) return 0;
     return this.runTime(d - 0.5, f.speed > 2 ? 0 : 0.25) * (f.speed > 2 ? 0.85 : 1);
   }
@@ -875,6 +967,108 @@ export class Fielding {
 
   result() { return this.outcome; }
 
+  // Fill the frame's shared obstacle slots (see _obs); returns the first free slot.
+  staticObstacles() {
+    const ko = this.keepOut, ob = this.obstacles;
+    if (ko) { _koObs.x = ko.x; _koObs.z = ko.z; _koObs.r = ko.path ?? ko.r; }
+    let n = 1;
+    if (ob) for (let i = 0; i < ob.length; i++) { const o = ob[i], q = pooledObs(n); q.x = o.x; q.z = o.z; q.r = o.r ?? 0.8; q.keepRight = false; _obs[n++] = q; }
+    for (let i = 0; i < STUMPS.length; i++) { const q = pooledObs(n); q.x = STUMPS[i].x; q.z = STUMPS[i].z; q.r = STUMP_CLEAR; q.keepRight = false; _obs[n++] = q; }
+    return n;
+  }
+
+  // One fielder's step (update()), in two halves: where he is going, then
+  // how he moves (dt and t in _step; what the first half works out handed on
+  // there too). Two methods because the optimiser's inlining budget is per
+  // function, and every small helper they call -- hypot, the distance tests,
+  // angDiff -- must be inlined or the call boxes its numbers, every time.
+  moveOne(f, watch) {
+    const F = this.cfg.field, FF = this.fielders, dt = _step[0], t = _step[1];
+    let goal = null, maxV = F.fielderSpeed;
+    if (f.state === 'chase' || f.state === 'backup' || f.state === 'stumps' || f.state === 'gather' || f.state === 'walkin' || f.state === 'backstop' || f.state === 'huddle') goal = f.target;
+    else if (f.state === 'return') goal = f.home;
+    else if (f.state === 'throwing' && f.runIn) goal = f.runIn;           // (running the ball in)
+    if (f.state === 'backup') maxV *= 0.7;
+    if (f.state === 'walkin') maxV = 1.6;
+    if (f.state === 'huddle') maxV = f.huddleInner ? HUDDLE_JOG : 3.2;
+    if (f.keeper && f.state === 'gather' && this.fetchT0 != null) maxV = 3.5;       // (walking up to a dead ball: brisk, no sprint)
+    if (f.state === 'throwing') maxV = 5.0;
+    const urgent = f.state === 'chase' || f.state === 'gather' || f.state === 'backup' || f.state === 'stumps' || f.state === 'backstop';
+    let want = 0, ux = 0, uz = 0, d = 0;
+    if (goal && f.state === 'stumps' && f.coverEnd) goal = this.coverWay(f, goal);
+    if (goal) {
+      // Never aim into the player or the stumps; go round the player.
+      const ko = this.keepOut && !(f.bowler && !this.bowlerFields) && !f.playerControlled ? this.keepOut : null;
+      goal = this.clearGoal(goal, f, ko);
+      const dx = goal.x - f.pos.x, dz = goal.z - f.pos.z;
+      d = hyp(dx, dz);
+      if (f.state === 'return') {
+        // Back to his mark: a jog; a run when it is a long way or the bowler is waiting.
+        maxV = d > 14 ? F.fielderSpeed : d > 5 ? 4.6 : 3.4;
+        if (this.hurry > 0) maxV = Math.max(maxV, Math.min(F.fielderSpeed, d / Math.max(0.4, this.hurry - 0.6)));
+      }
+      const react = f.keeper || f.name === 'slip' ? F.keeperReaction : F.fielderReaction;
+      const moving = this.hitT == null || t - this.hitT > react || f.state === 'return' || f.state === 'gather';
+      if (d > ARRIVE && moving) {
+        // Round the player, the umpires, the batters, the stumps and the other fielders.
+        if (this.nStatic < 0) this.nStatic = this.staticObstacles();
+        _obs[0] = ko ? _koObs : null;
+        let n = this.nStatic;
+        for (let j = 0; j < FF.length; j++) {
+          const o = FF[j];
+          if (o !== f && !(o.bowler && (!this.bowlerFields || !o.out)) && distLT(o.pos.x - f.pos.x, o.pos.z - f.pos.z, 4)) {
+            const q = pooledObs(n); q.x = o.pos.x; q.z = o.pos.z; q.r = 0.65 + (o.keeper || f.keeper ? KEEPER_PADS : 0); q.keepRight = true; _obs[n++] = q;
+          }
+        }
+        const u = steerAmongN(f.pos, goal, _obs, n, _dir);
+        ux = u.x; uz = u.z;
+        // (pulling up as he gets there; a man after the ball runs through it)
+        want = urgent && f.state !== 'stumps' && f.state !== 'backstop' ? maxV : Math.min(maxV, Math.sqrt(2 * BRAKE * Math.max(0, d - ARRIVE)) + 0.25);
+        // Turn before he goes: facing well away from where he is heading
+        // he only shuffles round, then sets off (no running backwards).
+        const sidestep = (f.keeper && f.state === 'gather') || (f.state === 'return' && d < BACKPEDAL);
+        if (!sidestep) {
+          const err = Math.abs(angDiff(f.yaw, Math.atan2(ux, uz)));
+          if (f.speed < 2.5) want *= clamp(1.15 - err / 1.6, urgent ? 0.3 : 0.12, 1);
+        }
+      } else if (d <= ARRIVE && (f.state === 'return' || f.state === 'walkin') && f.speed < 0.4) {
+        if (f.state === 'return') f.state = 'set';
+      }
+    }
+    _step[2] = want; _step[3] = ux; _step[4] = uz; _step[5] = d;
+    this.driveOne(f, goal, urgent, watch);
+  }
+  // ...and the second half: his velocity, his feet and his facing (want, ux, uz, d in _step).
+  driveOne(f, goal, urgent, watch) {
+    const F = this.cfg.field, dt = _step[0], want = _step[2], ux = _step[3], uz = _step[4], d = _step[5];
+    // steer the velocity
+    const tvx = ux * want, tvz = uz * want;
+    const dvx = tvx - f.vel.x, dvz = tvz - f.vel.z, dv = hyp(dvx, dvz);
+    const sp0 = hyp(f.vel.x, f.vel.z);
+    const acc = (!goal ? BRAKE * 1.5 : want < sp0 - 0.05 ? BRAKE : dv > sp0 * 0.6 && sp0 > 1.5 ? F.fielderAccel * 1.6 : F.fielderAccel) * dt;
+    if (dv > acc) { f.vel.x += dvx / dv * acc; f.vel.z += dvz / dv * acc; } else { f.vel.x = tvx; f.vel.z = tvz; }
+    let vx = f.vel.x, vz = f.vel.z;
+    f.speed = hyp(vx, vz);
+    if (goal && d > 1e-6 && f.speed * dt > d) { vx *= d / (f.speed * dt); vz *= d / (f.speed * dt); }   // (never past where he is going)
+    f.pos.x += vx * dt; f.pos.z += vz * dt;
+    // which way he faces
+    const taking = f.action && f.action.type === 'take';
+    const aiming = this.throw && this.throw.f === f && !this.throw.released;
+    if (aiming) f.face = Math.atan2(this.throw.to.x - f.pos.x, this.throw.to.z - f.pos.z);      // (picking up, turning to throw)
+    else if (f.speed > 0.7 && !(f.keeper && f.state === 'gather') && !(f.state === 'return' && d < BACKPEDAL) && !taking && f.state !== 'throwing') f.face = Math.atan2(f.vel.x, f.vel.z);
+    // setting off for somewhere well away: he turns to face where he is going first (else, slow, he would stay facing in and only shuffle)
+    else if (want > 0 && f.speed <= 0.7 && !f.action && (f.state === 'return' || f.state === 'walkin') && d >= BACKPEDAL) f.face = Math.atan2(ux, uz);
+    else if (!f.action && f.state !== 'celebrate' && f.state !== 'throwing' && f.speed <= 0.7) {
+      // standing: eyes on the ball while it is in play, else on the batter (the keeper: the bowler)
+      const live = !this.dead && this.hitT != null && watch && distGT(watch.x - f.pos.x, watch.z - f.pos.z, 1.2);
+      if (f.keeper && f.state === 'gather') f.face = Math.atan2(0, -1);
+      else if (f.state === 'huddle' && f.huddleAt) f.face = Math.atan2(f.huddleAt.x - f.pos.x, f.huddleAt.z - f.pos.z);       // (in the huddle: facing its middle)
+      else f.face = live ? Math.atan2(watch.x - f.pos.x, watch.z - f.pos.z) : this.restFace(f);
+    }
+    const turn = (f.speed > 3 ? 7.5 : urgent || f.action ? 6.5 : 4.2) * dt;
+    f.yaw += clamp(angDiff(f.yaw, f.face), -turn, turn);
+  }
+
   // dt step. ball = live BallState (physics), world provides removeBall().
   update(dt, t, ball = null, world = null) {
     const F = this.cfg.field;
@@ -885,81 +1079,10 @@ export class Fielding {
     if (this.hurry > 0) this.hurry = Math.max(0, this.hurry - dt);
     if (this.dead && this.started) this.goHome(dt, t);
     const watch = ball ? ball.pos : this.ballOverride ? this.ballOverride.pos : null;
-    for (const f of this.fielders) {
-      let goal = null, maxV = F.fielderSpeed;
-      if (f.state === 'chase' || f.state === 'backup' || f.state === 'stumps' || f.state === 'gather' || f.state === 'walkin' || f.state === 'backstop' || f.state === 'huddle') goal = f.target;
-      else if (f.state === 'return') goal = f.home;
-      else if (f.state === 'throwing' && f.runIn) goal = f.runIn;           // (running the ball in)
-      if (f.state === 'backup') maxV *= 0.7;
-      if (f.state === 'walkin') maxV = 1.6;
-      if (f.state === 'huddle') maxV = f.huddleInner ? HUDDLE_JOG : 3.2;
-      if (f.keeper && f.state === 'gather' && this.fetchT0 != null) maxV = 3.5;       // (walking up to a dead ball: brisk, no sprint)
-      if (f.state === 'throwing') maxV = 5.0;
-      const urgent = f.state === 'chase' || f.state === 'gather' || f.state === 'backup' || f.state === 'stumps' || f.state === 'backstop';
-      let want = 0, ux = 0, uz = 0, d = 0;
-      if (goal && f.state === 'stumps' && f.coverEnd) goal = this.coverWay(f, goal);
-      if (goal) {
-        // Never aim into the player or the stumps; go round the player.
-        const ko = this.keepOut && !(f.bowler && !this.bowlerFields) && !f.playerControlled ? this.keepOut : null;
-        goal = this.clearGoal(goal, f, ko);
-        const dx = goal.x - f.pos.x, dz = goal.z - f.pos.z;
-        d = Math.hypot(dx, dz);
-        if (f.state === 'return') {
-          // Back to his mark: a jog; a run when it is a long way or the bowler is waiting.
-          maxV = d > 14 ? F.fielderSpeed : d > 5 ? 4.6 : 3.4;
-          if (this.hurry > 0) maxV = Math.max(maxV, Math.min(F.fielderSpeed, d / Math.max(0.4, this.hurry - 0.6)));
-        }
-        const react = f.keeper || f.name === 'slip' ? F.keeperReaction : F.fielderReaction;
-        const moving = this.hitT == null || t - this.hitT > react || f.state === 'return' || f.state === 'gather';
-        if (d > ARRIVE && moving) {
-          // Round the player, the umpires, the batters, the stumps and the other fielders.
-          _obs.length = 0;
-          _obs.push(ko && { x: ko.x, z: ko.z, r: ko.path ?? ko.r });
-          for (const o of this.obstacles || []) _obs.push({ x: o.x, z: o.z, r: o.r ?? 0.8 });
-          for (const st of STUMPS) _obs.push({ x: st.x, z: st.z, r: STUMP_CLEAR });
-          for (const o of this.fielders) if (o !== f && !(o.bowler && (!this.bowlerFields || !o.out)) && Math.hypot(o.pos.x - f.pos.x, o.pos.z - f.pos.z) < 4) _obs.push({ x: o.pos.x, z: o.pos.z, r: 0.65 + (o.keeper || f.keeper ? KEEPER_PADS : 0), keepRight: true });
-          const u = steerAmong(f.pos.x, f.pos.z, goal.x, goal.z, _obs, _dir);
-          ux = u.x; uz = u.z;
-          // (pulling up as he gets there; a man after the ball runs through it)
-          want = urgent && f.state !== 'stumps' && f.state !== 'backstop' ? maxV : Math.min(maxV, Math.sqrt(2 * BRAKE * Math.max(0, d - ARRIVE)) + 0.25);
-          // Turn before he goes: facing well away from where he is heading
-          // he only shuffles round, then sets off (no running backwards).
-          const sidestep = (f.keeper && f.state === 'gather') || (f.state === 'return' && d < BACKPEDAL);
-          if (!sidestep) {
-            const err = Math.abs(angDiff(f.yaw, Math.atan2(ux, uz)));
-            if (f.speed < 2.5) want *= clamp(1.15 - err / 1.6, urgent ? 0.3 : 0.12, 1);
-          }
-        } else if (d <= ARRIVE && (f.state === 'return' || f.state === 'walkin') && f.speed < 0.4) {
-          if (f.state === 'return') f.state = 'set';
-        }
-      }
-      // steer the velocity
-      const tvx = ux * want, tvz = uz * want;
-      const dvx = tvx - f.vel.x, dvz = tvz - f.vel.z, dv = Math.hypot(dvx, dvz);
-      const sp0 = Math.hypot(f.vel.x, f.vel.z);
-      const acc = (!goal ? BRAKE * 1.5 : want < sp0 - 0.05 ? BRAKE : dv > sp0 * 0.6 && sp0 > 1.5 ? F.fielderAccel * 1.6 : F.fielderAccel) * dt;
-      if (dv > acc) { f.vel.x += dvx / dv * acc; f.vel.z += dvz / dv * acc; } else { f.vel.x = tvx; f.vel.z = tvz; }
-      let vx = f.vel.x, vz = f.vel.z;
-      f.speed = Math.hypot(vx, vz);
-      if (goal && d > 1e-6 && f.speed * dt > d) { vx *= d / (f.speed * dt); vz *= d / (f.speed * dt); }   // (never past where he is going)
-      f.pos.x += vx * dt; f.pos.z += vz * dt;
-      // which way he faces
-      const taking = f.action && f.action.type === 'take';
-      const aiming = this.throw && this.throw.f === f && !this.throw.released;
-      if (aiming) f.face = Math.atan2(this.throw.to.x - f.pos.x, this.throw.to.z - f.pos.z);      // (picking up, turning to throw)
-      else if (f.speed > 0.7 && !(f.keeper && f.state === 'gather') && !(f.state === 'return' && d < BACKPEDAL) && !taking && f.state !== 'throwing') f.face = Math.atan2(f.vel.x, f.vel.z);
-      // setting off for somewhere well away: he turns to face where he is going first (else, slow, he would stay facing in and only shuffle)
-      else if (want > 0 && f.speed <= 0.7 && !f.action && (f.state === 'return' || f.state === 'walkin') && d >= BACKPEDAL) f.face = Math.atan2(ux, uz);
-      else if (!f.action && f.state !== 'celebrate' && f.state !== 'throwing' && f.speed <= 0.7) {
-        // standing: eyes on the ball while it is in play, else on the batter (the keeper: the bowler)
-        const live = !this.dead && this.hitT != null && watch && Math.hypot(watch.x - f.pos.x, watch.z - f.pos.z) > 1.2;
-        if (f.keeper && f.state === 'gather') f.face = Math.atan2(0, -1);
-        else if (f.state === 'huddle' && f.huddleAt) f.face = Math.atan2(f.huddleAt.x - f.pos.x, f.huddleAt.z - f.pos.z);       // (in the huddle: facing its middle)
-        else f.face = live ? Math.atan2(watch.x - f.pos.x, watch.z - f.pos.z) : this.restFace(f);
-      }
-      const turn = (f.speed > 3 ? 7.5 : urgent || f.action ? 6.5 : 4.2) * dt;
-      f.yaw += clamp(angDiff(f.yaw, f.face), -turn, turn);
-    }
+    const FF = this.fielders;
+    this.nStatic = -1;
+    _step[0] = dt; _step[1] = t;
+    for (let fi = 0; fi < FF.length; fi++) this.moveOne(FF[fi], watch);
 
     this.separate();
     this.updateShy(t);
@@ -976,13 +1099,13 @@ export class Fielding {
       if (f.bowler && !this.bowlerFields) continue;
       if (f.playerControlled) continue;                  // the player is taking this one
       if (f.state !== 'chase' && f.state !== 'backup' && f.state !== 'gather' && f.state !== 'set' && f.state !== 'stumps' && f.state !== 'walkin' && f.state !== 'return' && f.state !== 'backstop') continue;
-      const dxz = Math.hypot(ball.pos.x - f.pos.x, ball.pos.z - f.pos.z);
+      const dxz = hyp(ball.pos.x - f.pos.x, ball.pos.z - f.pos.z);
       // A throw getting past him (an overthrow): he dives across to stop it.
       if (ball.thrown && this.tryStop(f, ball, dxz, t, world)) return;
       if (f.noGatherUntil > t) continue;                 // (it has just left his hands / gone past him)
       const airborne = ball.batted && ball.bouncesSinceBat === 0;
       // (it has already beaten him -- until it has all but stopped: then it is his to pick up like anyone's)
-      if (this.byes && f.keeper && Math.hypot(ball.vel.x, ball.vel.z) > LOOSE_SLOW) continue;
+      if (this.byes && f.keeper && hyp(ball.vel.x, ball.vel.z) > LOOSE_SLOW) continue;
       if (airborne) {
         const reach = f.state === 'chase' ? F.diveReach : F.reach;
         // Take the catch when the ball arrives (within normal reach), or dive
@@ -1020,19 +1143,19 @@ export class Fielding {
     // Ball stopped with nobody on it (or chaser re-targets a slow ball).
     if (ball.stopped || (this.dropped && ball.vel.length() < 8)) {
       let n = null, nd = Infinity;
-      for (const f of this.fielders) { if (f.bowler && !this.bowlerFields) continue; const d = Math.hypot(ball.pos.x - f.pos.x, ball.pos.z - f.pos.z); if (d < nd) { nd = d; n = f; } }
-      if (n) { n.state = 'gather'; n.target = new Vec3(ball.pos.x, 0, ball.pos.z); }
+      for (const f of this.fielders) { if (f.bowler && !this.bowlerFields) continue; const d = hyp(ball.pos.x - f.pos.x, ball.pos.z - f.pos.z); if (d < nd) { nd = d; n = f; } }
+      if (n) { n.state = 'gather'; n.target = n.ballAim.set(ball.pos.x, 0, ball.pos.z); }
     }
     // Keep the chaser attacking a ball on the ground once they have cut off
     // its line (rather than waiting for it to roll up to them).
     if (p && !airborne(ball)) {
       const f = this.fielders[p.fi];
-      const atTarget = f.target && Math.hypot(f.target.x - f.pos.x, f.target.z - f.pos.z) < 0.6;
-      if (f.state === 'chase' && (t - (this.planT0 ?? this.hitT) > p.t || atTarget)) f.target = new Vec3(ball.pos.x + ball.vel.x * 0.3, 0, ball.pos.z + ball.vel.z * 0.3);
+      const atTarget = f.target && hyp(f.target.x - f.pos.x, f.target.z - f.pos.z) < 0.6;
+      if (f.state === 'chase' && (t - (this.planT0 ?? this.hitT) > p.t || atTarget)) f.target = f.ballAim.set(ball.pos.x + ball.vel.x * 0.3, 0, ball.pos.z + ball.vel.z * 0.3);
     }
     // When the player is the bowler, a ball that dies near the bowler's end
     // is theirs to field.
-    if (!this.bowlerFields && ball.pos.z < -12.5 && Math.abs(ball.pos.x) < 4 && Math.hypot(ball.vel.x, ball.vel.z) < 2.5 && ball.pos.y < 0.3) {
+    if (!this.bowlerFields && ball.pos.z < -12.5 && Math.abs(ball.pos.x) < 4 && hyp(ball.vel.x, ball.vel.z) < 2.5 && ball.pos.y < 0.3) {
       const b = this.fielders[this.fielders.length - 1];
       b.pos.set(ball.pos.x, 0, ball.pos.z - 0.6);
       this.gather(b, ball, t, world);
@@ -1048,8 +1171,8 @@ export class Fielding {
   // (m beyond his normal reach; 0 for any other ball).
   reachIn(f, ball) {
     const ko = this.keepOut;
-    if (!ko || f.playerControlled || ball.pos.y > 0.3 || Math.hypot(ball.vel.x, ball.vel.z) > LOOSE_SLOW) return 0;
-    const kr = ko.r + (f.keeper ? KEEPER_PADS : 0), d = Math.hypot(ball.pos.x - ko.x, ball.pos.z - ko.z);
+    if (!ko || f.playerControlled || ball.pos.y > 0.3 || hyp(ball.vel.x, ball.vel.z) > LOOSE_SLOW) return 0;
+    const kr = ko.r + (f.keeper ? KEEPER_PADS : 0), d = hyp(ball.pos.x - ko.x, ball.pos.z - ko.z);
     return d < kr ? kr - d + 0.15 : 0;
   }
 
@@ -1060,7 +1183,7 @@ export class Fielding {
     const prev = f.prevStop ?? Infinity;
     f.prevStop = dxz;
     if (f.stopTried || f === (this.lastThrower || null) || dxz >= F.diveReach || dxz < F.reach * 0.6 || ball.pos.y > 0.7) return false;
-    const sp = Math.hypot(ball.vel.x, ball.vel.z);
+    const sp = hyp(ball.vel.x, ball.vel.z);
     if (sp < 3 || dxz <= prev) return false;          // (still coming: he waits for it; slow: he walks to it)
     f.stopTried = true;
     const p = clamp(0.85 - 0.4 * (dxz - F.reach) / (F.diveReach - F.reach), 0.4, 0.85) * Math.min(1.1, this.throwSkill);
@@ -1139,9 +1262,9 @@ export class Fielding {
     const th = this.throw, f = th.f, F = this.cfg.field;
     const ends = {};
     for (const E of ENDS) {
-      const self = Math.hypot(f.pos.x, f.pos.z - STUMPS_Z[E]) < SELF_RUN && (E === 'batting' || this.bowlerFields);
+      const self = hyp(f.pos.x, f.pos.z - STUMPS_Z[E]) < SELF_RUN && (E === 'batting' || this.bowlerFields);
       const b = this.backer;
-      const backed = !!(b && b.backEnd === E && b.target && Math.hypot(b.pos.x - b.target.x, b.pos.z - b.target.z) < 4);
+      const backed = !!(b && b.backEnd === E && b.target && hyp(b.pos.x - b.target.x, b.pos.z - b.target.z) < 4);
       ends[E] = { readyIn: this.cover[E] && this.cover[E] !== f ? this.coverEta(E) : Infinity, backed, self };
     }
     const d = decideThrow({ from: f.pos, release: Math.max(0, th.tStart - t), runner: this.runnerNow(), ends, speed: F.throwSpeed, skill: this.throwSkill, hurried: th.hurried, forced: th.forced, held: th.held });
@@ -1150,7 +1273,7 @@ export class Fielding {
     if (d.end !== th.end) { th.end = d.end; this.setReceiverSide(d.end, f.pos.x); }
     th.kind = d.kind; th.bounce = d.bounce; th.wait = d.wait;
     th.to = d.kind === 'direct' ? stumpsAim(d.end) : glovesPoint(d.end);
-    const dd = Math.hypot(th.to.x - f.pos.x, th.to.z - f.pos.z);
+    const dd = hyp(th.to.x - f.pos.x, th.to.z - f.pos.z);
     th.tArrive = th.tStart + dd / throwSpeedFor(dd, d.kind, F.throwSpeed);
     // (someone backs up behind the end it is going to, unless he is right there himself)
     if (!th.self && (!this.backer || this.backer.backEnd !== d.end)) this.assignBacker(d.end, f.pos.x, f.pos.z, t);
@@ -1169,7 +1292,7 @@ export class Fielding {
     if (th.self) { rf = f; receiver = { pos: f.pos, there: true, reach: THROW.reach }; }
     else if (c) {
       const spot = this.clearGoal(c.target && c.coverEnd === th.end ? c.target : receiverSpot(th.end, 1), c, this.keepOut);
-      const dist = Math.hypot(th.to.x - th.from.x, th.to.z - th.from.z);
+      const dist = hyp(th.to.x - th.from.x, th.to.z - th.from.z);
       rf = c; receiver = { pos: new Vec3(spot.x, 0, spot.z), there: this.coverEta(th.end) <= dist / throwSpeedFor(dist, th.kind, F.throwSpeed) + 0.1, reach: c.keeper ? THROW.keeperReach : THROW.reach };
     }
     aimThrow(th, this.rng, { skill: this.throwSkill, hurried: th.hurried, receiver, speed: F.throwSpeed });
@@ -1192,7 +1315,7 @@ export class Fielding {
   catchAction(f, ball, dist, t, success) {
     const dx = ball.pos.x - f.pos.x, dz = ball.pos.z - f.pos.z;
     const lx = dx * Math.cos(f.face) - dz * Math.sin(f.face);
-    const d = Math.max(1e-3, Math.hypot(dx, dz));
+    const d = Math.max(1e-3, hyp(dx, dz));
     return {
       type: 'catch', t0: t, success, dive: dist > this.cfg.field.reach,
       side: lx >= 0 ? 1 : -1, dir: { x: dx / d, z: dz / d }, lunge: Math.max(0, dist - 0.35),
@@ -1214,7 +1337,7 @@ export class Fielding {
         // Nobody running: it is settled in his hands where he is (dead ball).
         if (th.self && t >= th.tPick - THROW.windup) {
           const spot = receiverSpot(th.end, f.pos.x < 0 ? -1 : 1);
-          if (Math.hypot(f.pos.x - spot.x, f.pos.z - spot.z) > 0.6 && th.held < 2 && this.runnerNow()) { f.runIn = spot; th.tStart = t + dt; this.ballOverride.pos.set(f.pos.x, 0.9, f.pos.z); return; }
+          if (hyp(f.pos.x - spot.x, f.pos.z - spot.z) > 0.6 && th.held < 2 && this.runnerNow()) { f.runIn = spot; th.tStart = t + dt; this.ballOverride.pos.set(f.pos.x, 0.9, f.pos.z); return; }
           f.runIn = null; th.tStart = t; th.selfRun = true; th.kind = 'self';
           this.release(t);
         }
@@ -1224,7 +1347,7 @@ export class Fielding {
           if (th.wait > 1e-3) {
             th.tStart = t + THROW.windup + dt;
             const dz = STUMPS_Z[th.end];
-            const far = Math.hypot(f.pos.x, f.pos.z - dz);
+            const far = hyp(f.pos.x, f.pos.z - dz);
             if (far > THROW.runInFrom && (!f.action || f.action.type !== 'pickup' || t - f.action.t0 > f.action.dur)) {
               if (!f.runIn) this.tally.runIn++;
               const k = (far - THROW.runInFrom * 0.6) / far;
@@ -1254,7 +1377,7 @@ export class Fielding {
         const spot = th.receiver === f ? receiverSpot(th.end, th.from.x < 0 ? -1 : 1) : (th.receiver.target && th.receiver.coverEnd === th.end ? th.receiver.target : receiverSpot(th.end, th.from.x < 0 ? -1 : 1));
         // Not quite there: he keeps going to his spot beside the stumps
         // (never stops wherever he happens to be, e.g. in the stumps).
-        if (Math.hypot(th.receiver.pos.x - spot.x, th.receiver.pos.z - spot.z) > 0.3) { th.receiver.state = 'stumps'; th.receiver.target = spot; }
+        if (hyp(th.receiver.pos.x - spot.x, th.receiver.pos.z - spot.z) > 0.3) { th.receiver.state = 'stumps'; th.receiver.target = spot; }
         else { th.receiver.state = 'set'; }
         th.receiver.face = Math.atan2(th.from.x - th.receiver.pos.x, th.from.z - th.receiver.pos.z);
         th.receiver.action = { type: 'take', t0: t, target: th.to.clone(), stumps: new Vec3(0, 0.72, STUMPS_Z[th.end]), breakAt: null };
@@ -1270,7 +1393,7 @@ export class Fielding {
   arrive(t, world) {
     const th = this.throw, T = this.tally;
     const c = this.cover[th.end];
-    const there = th.self || (c && Math.hypot(c.pos.x, c.pos.z - STUMPS_Z[th.end]) < 1.6);
+    const there = th.self || (c && hyp(c.pos.x, c.pos.z - STUMPS_Z[th.end]) < 1.6);
     if (there) T.coverThere++; else T.coverAway++;
     th.coverThere = !!there;
     if (th.result === 'take') {
@@ -1378,9 +1501,9 @@ export class Fielding {
       // (already winding up: it goes there, as it is)
       th.end = end;
       th.to = th.kind === 'direct' ? stumpsAim(end) : glovesPoint(end);
-      const dd = Math.hypot(th.to.x - th.f.pos.x, th.to.z - th.f.pos.z);
+      const dd = hyp(th.to.x - th.f.pos.x, th.to.z - th.f.pos.z);
       th.tArrive = th.tStart + dd / throwSpeedFor(dd, th.kind, this.cfg.field.throwSpeed);
-      th.self = Math.hypot(th.f.pos.x, th.f.pos.z - STUMPS_Z[end]) < 2.2;
+      th.self = hyp(th.f.pos.x, th.f.pos.z - STUMPS_Z[end]) < 2.2;
       this.setReceiverSide(end, th.f.pos.x);
     } else this.decide(this.hitT ?? 0);
     th.f.face = Math.atan2(th.to.x - th.f.pos.x, th.to.z - th.f.pos.z);
@@ -1392,7 +1515,7 @@ export class Fielding {
   estimateBack(t) {
     const p = this.plan, F = this.cfg.field;
     if (!p) return Infinity;
-    const d = Math.min(Math.hypot(p.x, p.z), Math.hypot(p.x, p.z - PITCH.bowlingStumpsZ));
+    const d = Math.min(hyp(p.x, p.z), hyp(p.x, p.z - PITCH.bowlingStumpsZ));
     return Math.max(0, (this.planT0 ?? t) + p.t - t) + F.pickupTime + d / F.throwSpeed;
   }
 
@@ -1402,7 +1525,7 @@ export class Fielding {
     const p = this.plan, F = this.cfg.field;
     if (!p) return Infinity;
     if (p.airborne && !this.byes) return 0;         // a catch is on: don't run
-    const d = Math.min(Math.hypot(p.x, p.z), Math.hypot(p.x, p.z - PITCH.bowlingStumpsZ));
+    const d = Math.min(hyp(p.x, p.z), hyp(p.x, p.z - PITCH.bowlingStumpsZ));
     return p.t + F.pickupTime + d / F.throwSpeed;
   }
 
@@ -1439,24 +1562,19 @@ export class Fielding {
   // Nor in the stumps, nor in a batter; and nobody comes near the player's
   // head (keepOut {x, z, r}, set by the controller every frame).
   separate(min = 0.85) {
-    const F = this.fielders;
-    const push = (f, ox, oz, r) => {
-      let dx = f.pos.x - ox, dz = f.pos.z - oz, d = Math.hypot(dx, dz);
-      if (d >= r) return;
-      if (d < 1e-6) { dx = f.pos.x - f.home.x || 1; dz = f.pos.z - f.home.z; d = Math.hypot(dx, dz); }
-      f.pos.x = ox + dx / d * r; f.pos.z = oz + dz / d * r;
-    };
-    const skip = (f) => f.playerControlled || (f.bowler && (!this.bowlerFields || !f.out));
-    for (const o of this.obstacles || []) if (!o.soft) for (const f of F) if (!skip(f)) push(f, o.x, o.z, o.r ?? min);
-    for (const s of STUMPS) for (const f of F) if (!skip(f)) push(f, s.x, s.z, STUMP_CLEAR);
+    const F = this.fielders, ob = this.obstacles;
+    if (ob) for (let i = 0; i < ob.length; i++) { const o = ob[i]; if (!o.soft) for (let j = 0; j < F.length; j++) if (!this.unpushed(F[j])) pushOut(F[j], o.x, o.z, o.r ?? min); }
+    for (let i = 0; i < STUMPS.length; i++) { const s = STUMPS[i]; for (let j = 0; j < F.length; j++) if (!this.unpushed(F[j])) pushOut(F[j], s.x, s.z, STUMP_CLEAR); }
     for (let i = 0; i < F.length; i++) {
       const a = F[i];
       if (a.bowler && (!this.bowlerFields || !a.out)) continue;
       for (let j = i + 1; j < F.length; j++) {
         const b = F[j];
         if (b.bowler && (!this.bowlerFields || !b.out)) continue;
-        const dx = b.pos.x - a.pos.x, dz = b.pos.z - a.pos.z, d = Math.hypot(dx, dz);
+        const dx = b.pos.x - a.pos.x, dz = b.pos.z - a.pos.z;
         const need = min + (a.keeper || b.keeper ? KEEPER_PADS : 0);       // (the keeper is wider: pads, gloves, a low wide crouch)
+        if (distGE(dx, dz, need)) continue;
+        const d = hyp(dx, dz);
         if (d >= need || d < 1e-6) continue;
         // The one doing something (catching, holding the ball) stays put.
         const fixedA = a.playerControlled || !!a.action, fixedB = b.playerControlled || !!b.action;
@@ -1470,20 +1588,20 @@ export class Fielding {
     // The player's space wins over everything else (the keeper -- pads, gloves,
     // a wide crouch -- keeps a little further off).
     const ko = this.keepOut;
-    if (ko) for (const f of F) if (!skip(f)) push(f, ko.x, ko.z, ko.r + (f.keeper ? KEEPER_PADS : 0));
+    if (ko) for (let j = 0; j < F.length; j++) { const f = F[j]; if (!this.unpushed(f)) pushOut(f, ko.x, ko.z, ko.r + (f.keeper ? KEEPER_PADS : 0)); }
     // (pushed out of your space toward the stumps: round the stumps along your space's edge, never into them -
     // unless he is the man breaking them, his 'take' action)
-    if (ko) for (const s of STUMPS) for (const f of F) {
-      if (skip(f) || (f.action && f.action.type === 'take')) continue;
-      const dx = f.pos.x - s.x, dz = f.pos.z - s.z, d = Math.hypot(dx, dz);
-      if (d >= STUMP_CLEAR) continue;
-      push(f, s.x, s.z, STUMP_CLEAR);
+    if (ko) for (let si = 0; si < STUMPS.length; si++) for (let j = 0; j < F.length; j++) {
+      const s = STUMPS[si], f = F[j];
+      if (this.unpushed(f) || (f.action && f.action.type === 'take')) continue;
+      if (distGE(f.pos.x - s.x, f.pos.z - s.z, STUMP_CLEAR)) continue;
+      pushOut(f, s.x, s.z, STUMP_CLEAR);
       // (still in your space: slide him round your space's edge, away from the stumps, until he is out of both)
       const r = ko.r + (f.keeper ? KEEPER_PADS : 0);
-      for (let i = 0; i < 8 && Math.hypot(f.pos.x - ko.x, f.pos.z - ko.z) < r; i++) {
-        let ex = f.pos.x - ko.x, ez = f.pos.z - ko.z; const el = Math.hypot(ex, ez) || 1; ex /= el; ez /= el;
+      for (let i = 0; i < 8 && hyp(f.pos.x - ko.x, f.pos.z - ko.z) < r; i++) {
+        let ex = f.pos.x - ko.x, ez = f.pos.z - ko.z; const el = hyp(ex, ez) || 1; ex /= el; ez /= el;
         f.pos.x = ko.x + ex * r; f.pos.z = ko.z + ez * r;
-        if (Math.hypot(f.pos.x - s.x, f.pos.z - s.z) < STUMP_CLEAR) {
+        if (hyp(f.pos.x - s.x, f.pos.z - s.z) < STUMP_CLEAR) {
           const tx = -ez, tz = ex, sgn = (f.pos.x - s.x) * tx + (f.pos.z - s.z) * tz >= 0 ? 1 : -1;
           f.pos.x += tx * sgn * 0.1; f.pos.z += tz * sgn * 0.1;
         }
@@ -1491,12 +1609,15 @@ export class Fielding {
     }
   }
 
+  // Nobody shoves him (separate()): the player's own man, the AI bowler while his own figure is the body.
+  unpushed(f) { return f.playerControlled || (f.bowler && (!this.bowlerFields || !f.out)); }
+
   // A movement goal moved out of the player's space and out of the stumps.
   clearGoal(goal, f, ko) {
     let g = goal;
-    for (const s of STUMPS) if (Math.hypot(g.x - s.x, g.z - s.z) < STUMP_CLEAR) { g = clampGoal(g.x, g.z, f.pos.x, f.pos.z, { x: s.x, z: s.z, r: STUMP_CLEAR }, _goal); }
+    for (let i = 0; i < STUMPS.length; i++) { const s = STUMPS[i]; if (distLT(g.x - s.x, g.z - s.z, STUMP_CLEAR)) g = clampGoal(g.x, g.z, f.pos.x, f.pos.z, _circ.set(s.x, s.z, STUMP_CLEAR), _goal); }
     const kr = ko ? ko.r + (f.keeper ? KEEPER_PADS : 0) : 0;
-    if (ko && Math.hypot(g.x - ko.x, g.z - ko.z) < kr) g = clampGoal(g.x, g.z, f.pos.x, f.pos.z, { x: ko.x, z: ko.z, r: kr }, _goal);
+    if (ko && distLT(g.x - ko.x, g.z - ko.z, kr)) g = clampGoal(g.x, g.z, f.pos.x, f.pos.z, _circ.set(ko.x, ko.z, kr), _goal);
     return g;
   }
 
@@ -1521,18 +1642,22 @@ export class Fielding {
   }
 
   // For rendering.
+  // (the same objects every call, refilled: read them before the next call)
   states() {
-    return this.fielders.map((f) => ({
-      x: f.pos.x, z: f.pos.z, face: f.yaw, speed: f.speed,
-      hidden: f.bowler && (!this.bowlerFields || !f.out),      // (out: the fielding figure is standing in for the AI bowler's own)
-      state: f.state, action: f.action, leap: f.leap,
-      crouch: f.state === 'set' && (f.keeper || f.name === 'slip'),
+    const F = this.fielders, S = this._states || (this._states = F.map(() => ({ x: 0, z: 0, face: 0, speed: 0, hidden: false, state: 'set', action: null, leap: null, crouch: false, await: false, armsUp: false, huddle: 0 })));
+    for (let i = 0; i < F.length; i++) {
+      const f = F[i], s = S[i];
+      s.x = f.pos.x; s.z = f.pos.z; s.face = f.yaw; s.speed = f.speed;
+      s.hidden = f.bowler && (!this.bowlerFields || !f.out);      // (out: the fielding figure is standing in for the AI bowler's own)
+      s.state = f.state; s.action = f.action; s.leap = f.leap;
+      s.crouch = f.state === 'set' && (f.keeper || f.name === 'slip');
       // over the stumps, waiting for the throw: gloves up, a little crouched
-      await: f.state === 'stumps' && !!f.target && Math.hypot(f.pos.x - f.target.x, f.pos.z - f.target.z) < 0.5 && !this.dead,
-      armsUp: f.state === 'celebrate',
+      s.await = f.state === 'stumps' && !!f.target && distLT(f.pos.x - f.target.x, f.pos.z - f.target.z, 0.5) && !this.dead;
+      s.armsUp = f.state === 'celebrate';
       // the wicket huddle: 1 in the ring, 2 come in from the deep, 3 the man in the middle
-      huddle: f.state === 'huddle' ? (f.huddleMood === 'dejected' ? 4 : f.huddleInner ? 1 : 2) : f.huddleCenter && f.huddleUntil != null ? 3 : 0,
-    }));
+      s.huddle = f.state === 'huddle' ? (f.huddleMood === 'dejected' ? 4 : f.huddleInner ? 1 : 2) : f.huddleCenter && f.huddleUntil != null ? 3 : 0;
+    }
+    return S;
   }
 
   // Runs completed so far (for a live readout while the ball is in play).
