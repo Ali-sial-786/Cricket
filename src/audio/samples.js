@@ -27,6 +27,13 @@ const CROWD = ['crowd_aah_1', 'crowd_aah_2', 'crowd_aah_3', 'crowd_applause', 'c
 const GROUPS = { bat_sweet: 3, bat_edge: 2, bat_block: 2, applause_polite: 2, footstep: 2,
   crowd_aah: 3, crowd_gasp: 4, crowd_gasp_voiced: 2, crowd_laugh: 2, crowd_ooh: 3 };
 
+// _seamless's slices (samples): a copy of this many, or a crossfade of this many, is a few ms at most.
+const SEAM_COPY = 1 << 17, SEAM_FADE = 4096;
+const later = () => new Promise((r) => setTimeout(r, 0));
+function crossfade(a, b, len, n, i0, i1) {
+  for (let i = i0; i < i1; i++) { const u = i / n; b[i] = a[i] * Math.sqrt(u) + a[len + i] * Math.sqrt(1 - u); }
+}
+
 export class Samples {
   constructor(sfx) {
     this.sfx = sfx;
@@ -38,6 +45,7 @@ export class Samples {
     this.pending = new Map();          // name -> Promise<AudioBuffer | null>
     this.failed = new Set();           // names whose file is missing or won't decode
     this.last = {};                    // group -> the variant played last (not twice running)
+    this.seams = new Map();            // 'name~xf' -> Promise<AudioBuffer>: a loop's crossfaded copy (loop seamless)
   }
 
   get ctx() {
@@ -131,14 +139,16 @@ export class Samples {
   }
 
   // A loop that joins without a seam: the last `xf` s crossfaded (equal power) into the start.
-  _seamless(buf, xf) {
+  // Resolves to the new buffer. (In slices of a few ms, yielding between them: in one go it was
+  // a 70 ms stall -- a loop run once runs mostly in the interpreter -- just as the crowd came in.)
+  async _seamless(buf, xf) {
     const c = this.ctx, n = Math.floor(xf * buf.sampleRate);
     if (!c || n < 16 || buf.length < n * 4) return buf;
     const len = buf.length - n, out = c.createBuffer(buf.numberOfChannels, len, buf.sampleRate);
     for (let ch = 0; ch < buf.numberOfChannels; ch++) {
       const a = buf.getChannelData(ch), b = out.getChannelData(ch);
-      b.set(a.subarray(0, len));
-      for (let i = 0; i < n; i++) { const u = i / n; b[i] = a[i] * Math.sqrt(u) + a[len + i] * Math.sqrt(1 - u); }
+      for (let i0 = 0; i0 < len; i0 += SEAM_COPY) { b.set(a.subarray(i0, Math.min(len, i0 + SEAM_COPY)), i0); await later(); }
+      for (let i0 = 0; i0 < n; i0 += SEAM_FADE) { crossfade(a, b, len, n, i0, Math.min(n, i0 + SEAM_FADE)); await later(); }
     }
     return out;
   }
@@ -160,11 +170,12 @@ export class Samples {
       let src = null, stopped = false;
       this._load(v).then((buf) => {
         if (!buf || stopped) return;
-        if (seamless) {
-          const key = `${v}~${seamless}`;
-          if (!this.buffers.has(key)) this.buffers.set(key, this._seamless(buf, seamless));
-          buf = this.buffers.get(key);
-        }
+        if (!seamless) return buf;
+        const key = `${v}~${seamless}`;
+        if (!this.seams.has(key)) this.seams.set(key, this._seamless(buf, seamless));
+        return this.seams.get(key);
+      }).then((buf) => {
+        if (!buf || stopped) return;
         src = c.createBufferSource(); src.buffer = buf; src.loop = true; src.playbackRate.value = rate;
         src.connect(g); src.start(c.currentTime, offset % buf.duration);
       }).catch(() => {});
