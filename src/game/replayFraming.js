@@ -1,3 +1,4 @@
+import { hypot2, hypot3 } from '../physics/math.js';
 // Replay camera geometry and timing (no three.js, so it can be tested in node).
 // The cut itself (angles, tempo, which balls) is src/game/replayDirector.js.
 //
@@ -22,7 +23,7 @@ export function segParam(p, a, b) {
   return clamp(((p.x - a.x) * abx + (p.y - a.y) * aby + (p.z - a.z) * abz) / L, 0, 1);
 }
 function lerpP(a, b, u, out) { out.x = a.x + (b.x - a.x) * u; out.y = a.y + (b.y - a.y) * u; out.z = a.z + (b.z - a.z) * u; return out; }
-const dist = (p, q) => Math.hypot(p.x - q.x, p.y - q.y, p.z - q.z);
+const dist = (p, q) => hypot3(p.x - q.x, p.y - q.y, p.z - q.z);
 
 // The nearest point of a body to p (written into out).
 export function nearestOnBody(p, B, out = { x: 0, y: 0, z: 0 }) {
@@ -88,20 +89,20 @@ export function pathStats(frames, { jump = 0.5, turn = 0.2, cone = 20 * D2R } = 
     const f = frames[i];
     if (i > 0) {
       const p = frames[i - 1], dt = Math.max(1e-6, f.t - p.t);
-      const step = Math.hypot(f.x - p.x, f.y - p.y, f.z - p.z), dy = Math.abs(wrap(f.yaw - p.yaw));
+      const step = hypot3(f.x - p.x, f.y - p.y, f.z - p.z), dy = Math.abs(wrap(f.yaw - p.yaw));
       const v = step / dt, wr = dy / dt;
       s.maxStep = Math.max(s.maxStep, step); s.maxSpeed = Math.max(s.maxSpeed, v); s.maxYawRate = Math.max(s.maxYawRate, wr);
       s.maxRise = Math.max(s.maxRise, Math.abs(f.y - p.y));
       if (step > jump || dy > turn) s.cuts++;
       const vel = [(f.x - p.x) / dt, (f.z - p.z) / dt], wv = wrap(f.yaw - p.yaw) / dt;
-      if (pv) s.maxAccel = Math.max(s.maxAccel, Math.hypot(vel[0] - pv[0], vel[1] - pv[1]) / dt);
+      if (pv) s.maxAccel = Math.max(s.maxAccel, hypot2(vel[0] - pv[0], vel[1] - pv[1]) / dt);
       if (pw != null) s.maxYawAccel = Math.max(s.maxYawAccel, Math.abs(wv - pw) / dt);
       pv = vel; pw = wv;
     }
     if (f.ball) {
       const dx = f.bx - f.x, dz = f.bz - f.z;
-      s.minBall = Math.min(s.minBall, Math.hypot(dx, f.by - f.y, dz));
-      const off = Math.hypot(dx, dz) > 0.5 ? Math.abs(wrap(Math.atan2(dx, dz) - f.yaw)) : 0;
+      s.minBall = Math.min(s.minBall, hypot3(dx, f.by - f.y, dz));
+      const off = hypot2(dx, dz) > 0.5 ? Math.abs(wrap(Math.atan2(dx, dz) - f.yaw)) : 0;
       seen++; if (off <= cone) inside++;
       s.worstOff = Math.max(s.worstOff, off);
     }

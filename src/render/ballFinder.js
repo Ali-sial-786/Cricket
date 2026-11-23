@@ -4,6 +4,7 @@
 //   * a halo of constant size round the ball once it's far away
 //   * a ring on the ground where it will come down (while it's in the air)
 import * as THREE from 'three';
+import { hypot2 } from '../physics/math.js';
 
 const _q = new THREE.Quaternion(), _qi = new THREE.Quaternion(), _d = new THREE.Vector3(), _p = new THREE.Vector3();
 // Broadcast style shared by all three: an amber body, a white inner rule, a
@@ -77,7 +78,7 @@ export class BallFinder {
     this.ring.visible = !!landing;
     if (landing) {
       this.ring.position.set(landing.x, 0.03, landing.z);
-      const far = Math.hypot(landing.x - eye.p.x, landing.z - eye.p.z);
+      const far = hypot2(landing.x - eye.p.x, landing.z - eye.p.z);
       this.ring.scale.setScalar(Math.max(1, far / 12) * (1 + 0.08 * Math.sin(this.t * 6)));   // stays visible far away
     }
   }
@@ -98,7 +99,7 @@ function offsetPoly(p, d) {
   }
   return out;
 }
-const norm = (x, y) => { const l = Math.hypot(x, y) || 1; return [x / l, y / l]; };
+const norm = (x, y) => { const l = hypot2(x, y) || 1; return [x / l, y / l]; };
 
 function haloTexture() {
   const S = 128, c = document.createElement('canvas'); c.width = c.height = S;

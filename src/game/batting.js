@@ -12,7 +12,7 @@
 //   A / Z                   review a decision against you (LBW, caught off an edge)
 import * as THREE from 'three';
 import { CONFIG } from '../config.js';
-import { Vec3, msToKmh, clamp } from '../physics/math.js';
+import { Vec3, msToKmh, clamp, hypot2, hypot3 } from '../physics/math.js';
 import { PITCH, lengthName, lineName, groundDistance, battingPoppingZ } from '../physics/pitch.js';
 import { machineDelivery } from '../physics/bowlingMachine.js';
 import { predict, crossingAtZ } from '../physics/trajectory.js';
@@ -58,9 +58,9 @@ const SWEEP_IN = 4.5, SWEEP_OUT = 3.5;   // 1/s: the sweep button's hold on your
 // left the bat (whichever way it went); where: which way it went, as a
 // fielding position (a right-hander's: off side +x, the bowler -z), so a top
 // edge that climbs over your shoulder reads "41° · fine leg", not a low drive.
-export function launchAngle(v) { return Math.atan2(v.y, Math.hypot(v.x, v.z)) * 180 / Math.PI; }
+export function launchAngle(v) { return Math.atan2(v.y, hypot2(v.x, v.z)) * 180 / Math.PI; }
 export function shotWhere(v) {
-  if (Math.hypot(v.x, v.z) < 0.15 * Math.hypot(v.x, v.y, v.z) + 1e-6) return v.y > 0 ? 'straight up' : 'into the ground';
+  if (hypot2(v.x, v.z) < 0.15 * hypot3(v.x, v.y, v.z) + 1e-6) return v.y > 0 ? 'straight up' : 'into the ground';
   const a = Math.atan2(v.x, -v.z) * 180 / Math.PI, d = Math.abs(a), off = a > 0;   // 0: back past the bowler, 90: square, 180: behind
   if (d < 12) return 'straight';
   if (d > 168) return 'over the keeper';
@@ -229,7 +229,7 @@ export class BattingSession {
       let fx = 0, fz = -1;
       if (input.xr && L.connected) {
         _fw.set(0, 0, -1).applyQuat(L.rayPose.q);
-        if (Math.hypot(_fw.x, _fw.z) > 0.2) { const n = Math.hypot(_fw.x, _fw.z); fx = _fw.x / n; fz = _fw.z / n; }
+        if (hypot2(_fw.x, _fw.z) > 0.2) { const n = hypot2(_fw.x, _fw.z); fx = _fw.x / n; fz = _fw.z / n; }
       }
       const mx = fx * -L.stick.y + -fz * L.stick.x, mz = fz * -L.stick.y + fx * L.stick.x;
       this.crease.x = clamp(this.crease.x + mx * B.creaseMoveSpeed * dt, -B.creaseBox[0], B.creaseBox[0]);
@@ -661,7 +661,7 @@ export class BattingSession {
     const midY = pose.p.y + _lever.y * _sweetY - (g.rig ? g.rig.position.y : 0);     // (its real height: the view drop moves the bat too)
     pose.dirToWorld(_lever.set(0, _sweetY, 0), _lever);
     pointVelocity(_bv, g.input.right.linVel, g.input.right.angVel, _lever);
-    const round = Math.hypot(_bv.x, _bv.z);
+    const round = hypot2(_bv.x, _bv.z);
     if (S.on) {
       S.hi = midY > stand * LOW.high ? S.hi + dt : 0;
       if (y > stand * LOW.off || S.hi >= LOW.highFor) { S.on = false; S.t = 0; S.hi = 0; }
@@ -725,7 +725,7 @@ export class BattingSession {
       if (this.sweepHeld()) this.applySweep(e);
       const pred = predict(b, { maxTime: 9, h: 1 / 240 });
       const land = pred.bounces[0];
-      const carry = land ? Math.hypot(land.pos.x - b.pos.x, land.pos.z - b.pos.z) : 0;
+      const carry = land ? hypot2(land.pos.x - b.pos.x, land.pos.z - b.pos.z) : 0;
       const v = b.vel;
       const launch = launchAngle(v);
       this.hit = {
@@ -744,7 +744,7 @@ export class BattingSession {
       // Struck again (the bat came round into it): the read-out is of the ball
       // as it finally left the bat, not of the first touch.
       const b = g.world.ball, v = b.vel, land = predict(b, { maxTime: 9, h: 1 / 240 }).bounces[0];
-      Object.assign(this.hit, { exit: v.length(), launch: launchAngle(v), dir: { x: v.x, y: v.y, z: v.z }, carry: land ? Math.hypot(land.pos.x - b.pos.x, land.pos.z - b.pos.z) : 0, again: true });
+      Object.assign(this.hit, { exit: v.length(), launch: launchAngle(v), dir: { x: v.x, y: v.y, z: v.z }, carry: land ? hypot2(land.pos.x - b.pos.x, land.pos.z - b.pos.z) : 0, again: true });
     }
     // (a fielder's throw into the stumps is a run-out chance, never "bowled")
     if (e.type === 'wicket' && e.thrown) { if (this.field && this.state === 'live') this.field.onThrownWicket(e); }

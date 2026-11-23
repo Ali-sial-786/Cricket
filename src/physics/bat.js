@@ -13,7 +13,7 @@
 //   approximation of the relative path is accurate even for a fast-rotating
 //   bat meeting a 150 km/h ball.
 
-import { Vec3, smoothstep, DEG } from './math.js';
+import { Vec3, smoothstep, DEG, hypot2 } from './math.js';
 import { CONFIG } from '../config.js';
 
 export class BatGeometry {
@@ -227,7 +227,7 @@ export function resolveBatContact(geom, ball, pose, cLocal, batLinVel, batAngVel
     const power = (mods.power || 1);
     if (power !== 1) ball.vel.scale(1 + (power - 1) * q.quality);
     if (mods.faceLed > 0) {
-      const sp = ball.vel.length(), h = Math.hypot(ball.vel.x, ball.vel.z);
+      const sp = ball.vel.length(), h = hypot2(ball.vel.x, ball.vel.z);
       if (sp > 1e-3 && h > 1e-3) {
         const cur = Math.atan2(ball.vel.y, h);
         const faceEl = Math.asin(Math.max(-1, Math.min(1, _nw.y))) * (c.loftGain ?? 1);

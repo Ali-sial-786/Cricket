@@ -30,6 +30,7 @@
 import { predict, crossingAtZ } from '../physics/trajectory.js';
 import { PITCH } from '../physics/pitch.js';
 import { CONFIG } from '../config.js';
+import { hypot2 } from '../physics/math.js';
 
 export const LBW = {
   far: 3.0,              // m from the stumps: 'hitting' becomes umpire's call
@@ -60,7 +61,7 @@ export function wicketZone(x, y, r = CONFIG.ball.radius) {
   const dx = Math.max(0, Math.abs(x) - zoneHalf());
   const dy = Math.max(0, -y, y - zoneHeight());
   if (dx === 0 && dy === 0) return 'hitting';
-  return Math.hypot(dx, dy) <= r ? 'umpires_call' : 'missing';
+  return hypot2(dx, dy) <= r ? 'umpires_call' : 'missing';
 }
 
 // Share (0..1) of the ball's cross-section that lies inside the wicket zone.
@@ -149,7 +150,7 @@ export function trackLbw({ impactState, pitchPos = null, cfg = CONFIG } = {}) {
   let wickets = wicketZone(stumpsPos.x, stumpsPos.y, r);
   // A long way from the stumps: the prediction is too uncertain to overturn.
   const distance = stumpsZ - impactPos.z;
-  const pitchToImpact = fullToss ? Infinity : Math.hypot(pitch.x - impactPos.x, pitch.z - impactPos.z);
+  const pitchToImpact = fullToss ? Infinity : hypot2(pitch.x - impactPos.x, pitch.z - impactPos.z);
   if (wickets === 'hitting' && (distance >= LBW.far || (distance >= LBW.farShort && pitchToImpact <= LBW.farShortPitch))) {
     wickets = 'umpires_call';
   }

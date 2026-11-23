@@ -11,7 +11,7 @@
 //     takes it (continuation): the session hands it back to the ball physics,
 //     so a missed throw runs on (overthrows) instead of stopping dead;
 //   - overthrow scoring by the Laws (overthrowRuns, boundaryOverthrowRuns).
-import { Vec3, clamp } from '../physics/math.js';
+import { Vec3, clamp, hypot2 } from '../physics/math.js';
 import { PITCH } from '../physics/pitch.js';
 import { Wicket } from '../physics/wicket.js';
 import { CONFIG } from '../config.js';
@@ -86,7 +86,7 @@ export function throwScatter(dist, { kind = 'gloves', hurried = false, skill = 1
 // wicket is as wide as it looks along the throw (23 cm square on to the
 // pitch, one stump's width side on) and as tall as the stumps.
 export function directHitChance(from, end, sig) {
-  const dx = -from.x, dz = STUMPS_Z[end] - from.z, d = Math.hypot(dx, dz) || 1;
+  const dx = -from.x, dz = STUMPS_Z[end] - from.z, d = hypot2(dx, dz) || 1;
   const across = Math.abs(dz / d) * (PITCH.wicketHalfWidth - PITCH.stumpRadius) + PITCH.stumpRadius + R;
   const halfH = (PITCH.stumpHeight + PITCH.bailRise + 2 * R) / 2;
   return erf(across / (sig.lat * Math.SQRT2)) * erf(halfH / (sig.ver * Math.SQRT2));
@@ -120,7 +120,7 @@ export function decideThrow({ from, release = 0, runner = null, ends, speed = CO
   const T = THROW, opt = {};
   for (const E of ENDS) {
     const e = ends[E] || { readyIn: Infinity };
-    const d = Math.hypot(from.x, from.z - STUMPS_Z[E]);
+    const d = hypot2(from.x, from.z - STUMPS_Z[E]);
     const arrive = release + d / throwSpeedFor(d, 'return', speed);      // a safe return
     const arriveD = release + d / throwSpeedFor(d, 'direct', speed);     // a shy
     const arriveG = release + d / throwSpeedFor(d, 'gloves', speed);     // hard, into the gloves
@@ -226,7 +226,7 @@ export function deflectOffStumps(vel, end, fromZ, out = new Vec3()) {
 export function aimThrow(th, rng, { skill = 1, hurried = false, receiver = null, speed = CONFIG.field.throwSpeed } = {}) {
   const T = THROW;
   const aim = th.kind === 'direct' ? stumpsAim(th.end) : glovesPoint(th.end);
-  const dx = aim.x - th.from.x, dz = aim.z - th.from.z, d = Math.hypot(dx, dz) || 1, ux = dx / d, uz = dz / d;
+  const dx = aim.x - th.from.x, dz = aim.z - th.from.z, d = hypot2(dx, dz) || 1, ux = dx / d, uz = dz / d;
   const sig = throwScatter(d, { kind: th.kind === 'direct' ? 'direct' : 'gloves', hurried, skill });
   const el = gauss(rng) * sig.lat, ev = gauss(rng) * sig.ver;
   th.to = new Vec3(aim.x - uz * el, Math.max(R, aim.y + ev), aim.z + ux * el);

@@ -28,6 +28,7 @@
 //    routine ball ("every ball") 2.5 s.
 // Everything is laid out once, when the replay starts (~1-3 ms), from the tape.
 import { keepClear, blocksSight, nearestOnBody, CLEAR } from './replayFraming.js';
+import { hypot2, hypot3 } from '../physics/math.js';
 
 const D2R = Math.PI / 180;
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
@@ -139,7 +140,7 @@ function recipe(story, tier, m, tape) {
   // (crossing that point on its way down: before the release the tape may hold the ball anywhere)
   const lineFrom = () => { let was = false; return clamp(firstWhen(tape, rel, arr, (p) => { const past = p.z > DIRECTOR.line.z + DIRECTOR.line.gap; if (!past) was = true; return past && was; }) ?? arr - 0.22, rel + 0.15, arr - 0.1); };
   // …and leaves before a ball hit back down the pitch gets near it
-  const lineUntil = (t1) => { const L = DIRECTOR.line, t = hit != null ? firstWhen(tape, hit, t1, (p) => Math.hypot(p.x, p.y - L.y, p.z - L.z) < L.gap) : null; return t != null ? Math.max(hit + 0.04, t - 0.03) : t1; };
+  const lineUntil = (t1) => { const L = DIRECTOR.line, t = hit != null ? firstWhen(tape, hit, t1, (p) => hypot3(p.x, p.y - L.y, p.z - L.z) < L.gap) : null; return t != null ? Math.max(hit + 0.04, t - 0.03) : t1; };
 
   if (story === 'routine') {
     // One angle from behind the arm, following the ball once it is played; no slow motion.
@@ -156,7 +157,7 @@ function recipe(story, tier, m, tape) {
     const slowEnd = key + (story === 'edge' ? 0.3 : 0.35);
     let after = story === 'edge' ? Math.min((m.caught ?? m.held ?? dead) + 0.5, slowEnd + 1.6) : slowEnd + 0.8;
     // (a ball knocked back off the stumps or the pad does not come at your head: it ends first)
-    const L = DIRECTOR.line, back = firstWhen(tape, key, after, (p) => Math.hypot(p.x, p.y - L.y, p.z - L.z) < L.gap);
+    const L = DIRECTOR.line, back = firstWhen(tape, key, after, (p) => hypot3(p.x, p.y - L.y, p.z - L.z) < L.gap);
     if (back != null) after = Math.max(key + 0.15, back - 0.03);
     let pre = 0.9;
     const build = (rate) => { segs.length = 0; seg(rel - pre, tB, 1, k0); seg(tB, Math.min(slowEnd, after), rate, k1); seg(slowEnd, after, 1, k1); };
@@ -289,11 +290,11 @@ function creaseShot(tape, cz, sz, kb) {
     let bad = 0;
     for (const b of bodies) {
       const q = nearestOnBody(pos, b);
-      if (Math.hypot(pos.x - q.x, pos.y - q.y, pos.z - q.z) < CLEAR + 0.2) bad += 3;
+      if (hypot3(pos.x - q.x, pos.y - q.y, pos.z - q.z) < CLEAR + 0.2) bad += 3;
       if (Math.abs(b.b.x) > 1.2 && blocksSight(pos, at, b)) bad += 1;     // (the batters at the crease are what you are watching)
     }
     bad += (d - C.d) * 0.08 + (side < 0 ? 0.01 : 0) + (Math.abs(from.x) > 1 && Math.sign(from.x) !== side ? 0.6 : 0);
-    for (const o of path) if (Math.hypot(o.x - pos.x, o.y - pos.y, o.z - pos.z) < 4) { bad += 5; break; }   // (never a throw past your head)
+    for (const o of path) if (hypot3(o.x - pos.x, o.y - pos.y, o.z - pos.z) < 4) { bad += 5; break; }   // (never a throw past your head)
     if (!best || bad < best.bad) best = { bad, pos };
   }
   return { kind: 'crease', fov: DIRECTOR.fov.crease, pos: best.pos, face: at, fixed: true };
@@ -316,7 +317,7 @@ function landingAfter(tape, cross, last) {
     if (py != null) {
       const v = (o.y - py) * 60;
       if (vy != null && vy < -1 && v > vy * 0.5) return t;                     // (a bounce, or caught by the stand)
-      if (Math.hypot(o.x - p.x, o.y - p.y, o.z - p.z) * 60 < 1.0) return t;   // (stopped)
+      if (hypot3(o.x - p.x, o.y - p.y, o.z - p.z) * 60 < 1.0) return t;   // (stopped)
       vy = v;
     }
     py = o.y; p.x = o.x; p.y = o.y; p.z = o.z;
@@ -347,7 +348,7 @@ export function chooseSpot(samples, sh, bodies, lim) {
   let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
   for (const s of samples) if (s.vis) { x0 = Math.min(x0, s.x); x1 = Math.max(x1, s.x); z0 = Math.min(z0, s.z); z1 = Math.max(z1, s.z); }
   if (!sh.rope && (x0 < x1 || z0 < z1)) {
-    const mx = (x0 + x1) / 2, mz = (z0 + z1) / 2, half = Math.hypot(x1 - x0, z1 - z0) / 2;
+    const mx = (x0 + x1) / 2, mz = (z0 + z1) / 2, half = hypot2(x1 - x0, z1 - z0) / 2;
     for (const d of [half + 10, half * 1.4 + 14]) for (let k = 0; k < 16; k++) {
       const a = k / 16 * 2 * Math.PI;
       cands.push({ x: mx + Math.sin(a) * d, y: sh.heights[0], z: mz + Math.cos(a) * d });
@@ -355,10 +356,10 @@ export function chooseSpot(samples, sh, bodies, lim) {
   }
   const endBodies = bodies.filter((b) => b.t === bodies.end);
   let nearest = null, nd = Infinity;
-  for (const b of endBodies) { const d = Math.hypot(b.b.x - E.x, b.b.z - E.z); if (d < nd) { nd = d; nearest = b; } }
+  for (const b of endBodies) { const d = hypot2(b.b.x - E.x, b.b.z - E.z); if (d < nd) { nd = d; nearest = b; } }
   let best = null;
   for (const c of cands) {
-    if (Math.hypot(c.x, c.z - CZ) > (sh.rope ? DIRECTOR.rim + 2.5 : DIRECTOR.rim)) continue;
+    if (hypot2(c.x, c.z - CZ) > (sh.rope ? DIRECTOR.rim + 2.5 : DIRECTOR.rim)) continue;
     if (Math.abs(c.x) < 2.2 && c.z > -23 && c.z < 2.5 && !sh.near) continue;     // (not on the pitch, in the way of play)
     const cost = spotCost(c, samples, sh, lim) + crowdCost(c, bodies, endBodies, nearest, E);
     if (!best || cost < best.cost) best = { cost, c };
@@ -386,13 +387,13 @@ function spotCost(c, S, sh, lim) {
       w += clamp(ws - w, -lim.wAcc * du, lim.wAcc * du); yaw += w * du;
     }
     if (!s.vis) continue;
-    const ex = s.x - c.x, ey = s.y - c.y, ez = s.z - c.z, h = Math.hypot(ex, ez);
+    const ex = s.x - c.x, ey = s.y - c.y, ez = s.z - c.z, h = hypot2(ex, ez);
     const off = Math.abs(wrap(Math.atan2(ex, ez) - yaw));
     n++; if (off > DIRECTOR.cone) miss++;
-    minD = Math.min(minD, Math.hypot(h, ey));
+    minD = Math.min(minD, hypot2(h, ey));
     maxEl = Math.max(maxEl, Math.atan2(ey, Math.max(0.5, h)));
   }
-  const dE = Math.hypot(sh.subj.x - c.x, sh.subj.z - c.z);
+  const dE = hypot2(sh.subj.x - c.x, sh.subj.z - c.z);
   let cost = (n ? miss / n : 0) * 20;
   cost += Math.max(0, sh.endDist[0] - dE) * 0.4 + Math.max(0, dE - sh.endDist[1]) * 0.25;
   cost += Math.max(0, 4 - minD) * 3 + Math.max(0, maxEl - (sh.rope ? 50 : 38) * D2R) / D2R * 0.12;
@@ -406,12 +407,12 @@ function spotCost(c, S, sh, lim) {
     if (Math.min(deg, 360 - deg) < 14 || Math.abs(deg - 180) < 14) cost += 2.5;
   }
   // (a six: from inside the ground looking out, so the stands and the crowd are behind the landing)
-  if (sh.wide) { const out = (sh.subj.x * (sh.subj.x - c.x) + (sh.subj.z - CZ) * (sh.subj.z - c.z)) / Math.max(1, Math.hypot(sh.subj.x, sh.subj.z - CZ) * dE); cost += (1 - out) * 1.5; }
+  if (sh.wide) { const out = (sh.subj.x * (sh.subj.x - c.x) + (sh.subj.z - CZ) * (sh.subj.z - c.z)) / Math.max(1, hypot2(sh.subj.x, sh.subj.z - CZ) * dE); cost += (1 - out) * 1.5; }
   return cost;
 }
 function crowdCost(c, bodies, endBodies, nearest, E) {
   let cost = 0;
-  for (const b of bodies) { const q = nearestOnBody(c, b); if (Math.hypot(c.x - q.x, c.y - q.y, c.z - q.z) < CLEAR + 0.4) { cost += 3; break; } }
+  for (const b of bodies) { const q = nearestOnBody(c, b); if (hypot3(c.x - q.x, c.y - q.y, c.z - q.z) < CLEAR + 0.4) { cost += 3; break; } }
   for (const b of endBodies) if (b !== nearest && blocksSight(c, E, b)) cost += 1.2;
   return cost;
 }
@@ -488,7 +489,7 @@ function track(sh, bx, by, bz, X, Y, Z, W, P, lead, lim, du, xr) {
   for (let j = 0; j < m; j++) {
     const i = i0 + j, k = Math.min(i1, i + lead);
     const dx = bx[k] - X[i], dz = bz[k] - Z[i];
-    let a = Math.hypot(dx, dz) > 1.5 || prev == null ? Math.atan2(dx, dz) : prev;
+    let a = hypot2(dx, dz) > 1.5 || prev == null ? Math.atan2(dx, dz) : prev;
     if (prev != null) a = prev + wrap(a - prev);
     b[j] = prev = a;
   }
@@ -503,7 +504,7 @@ function track(sh, bx, by, bz, X, Y, Z, W, P, lead, lim, du, xr) {
     if (j) { w += clamp(ws - w, -lim.wAcc * du, lim.wAcc * du); yaw += w * du; }
     W[i] = yaw;
     if (!xr) {
-      const el = Math.atan2(by[i] - Y[i], Math.max(3, Math.hypot(bx[i] - X[i], bz[i] - Z[i])));
+      const el = Math.atan2(by[i] - Y[i], Math.max(3, hypot2(bx[i] - X[i], bz[i] - Z[i])));
       pitch = pitch == null ? el : pitch + (el - pitch) * Math.min(1, du * 5);
       P[i] = clamp(pitch, -50 * D2R, 50 * D2R);
     }

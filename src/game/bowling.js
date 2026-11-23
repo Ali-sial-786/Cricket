@@ -2,7 +2,7 @@
 // Pick the delivery (A / B), run in (hold right GRIP or left TRIGGER), hold the
 // right trigger (ball in hand), bowl overarm and let go in the delivery stride.
 import { CONFIG } from '../config.js';
-import { Vec3, clamp, DEG } from '../physics/math.js';
+import { Vec3, clamp, DEG, hypot2, hypot3 } from '../physics/math.js';
 
 // After the result is shown, wait this long (s) at most for the batters and fielders to be in place.
 const UNHIT_DEAD = 6;           // s of game time after the release: a ball nobody hit and nobody is doing anything with is dead
@@ -346,7 +346,7 @@ export class BowlingSession {
     for (let i = R.history.length - 1; i >= 0; i--) {
       const h = R.history[i];
       if (last.t - h.t > CONFIG.bowling.peakWindowMs / 1000) break;     // (the history is on the real clock: relative to its last sample)
-      const sp = Math.hypot(h.v.x, h.v.y, h.v.z - vz);
+      const sp = hypot3(h.v.x, h.v.y, h.v.z - vz);
       if (sp > pkS) { pkS = sp; pk = h; }
     }
     const rel = (v) => new Vec3(v.x, v.y, v.z - vz);
@@ -363,7 +363,7 @@ export class BowlingSession {
     let from = last;
     for (let i = R.history.length - 1; i >= 0; i--) { from = R.history[i]; if (last.t - from.t >= 0.12) break; }
     const dx = last.p.x - from.p.x, dz = last.p.z - from.p.z - runV * (last.t - from.t);
-    const aimAzDeg = Math.hypot(dx, dz) > 0.05 ? Math.atan2(dx, dz) / DEG : null;
+    const aimAzDeg = hypot2(dx, dz) > 0.05 ? Math.atan2(dx, dz) / DEG : null;
     const pos = R.gripPose.p.clone().add(new Vec3(...CONFIG.bowling.ballHoldOffset).applyQuat(R.gripPose.q));
     pos.z += this.rigShift;
     this.bowl({ releasePos: pos, handVel: dir, handAngVel: pk.w.clone(), palmDir: g.palmDir(_palm).clone(), paceSpeed: pkS, aimAzDeg });
@@ -700,7 +700,7 @@ export class BowlingSession {
   // Without fielders (bowling nets): estimate runs from where the ball went.
   estimateRuns(b) {
     if (b.crossedBoundary) return { kind: 'boundary', runs: this.hit && this.hit.sixOnFull ? 6 : 4 };
-    const d = Math.hypot(b.pos.x, b.pos.z + 1.2);
+    const d = hypot2(b.pos.x, b.pos.z + 1.2);
     return { kind: 'runs', runs: d < 18 ? 0 : d < 35 ? 1 : d < 52 ? 2 : 3 };
   }
 

@@ -17,6 +17,7 @@
 // (no dice). Pure JS; tested in tests/sweep.test.js. World frame: the bowler
 // is toward -Z, the off side of a right-hander is +X.
 import { CONFIG } from '../config.js';
+import { hypot2, hypot3 } from '../physics/math.js';
 
 export const SWEEP = {
   help: 0.5,                 // how far the bearing / launch are moved toward the sweeper's arc
@@ -31,9 +32,9 @@ export const SWEEP = {
 // Returns the shot's name, or null when it is left as it came off the bat.
 export function sweepShot(vel, ev, { slog = false, reverse = false } = {}, cfg = CONFIG) {
   if (!ev || ev.isEdge || ev.face !== 'front') return null;
-  const sp = Math.hypot(vel.x, vel.y, vel.z);
+  const sp = hypot3(vel.x, vel.y, vel.z);
   if (sp < 0.5) return null;
-  const S = SWEEP, h = Math.hypot(vel.x, vel.z);
+  const S = SWEEP, h = hypot2(vel.x, vel.z);
   let az = Math.atan2(vel.x, -vel.z), el = Math.atan2(vel.y, h);
   const off = Math.abs(az) > S.clear ? az > 0 : !!reverse, side = off ? 1 : -1;
   // the bearing: into the arc on its side, by HELP (from the wrong side: from the arc's near end)

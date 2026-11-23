@@ -1,3 +1,4 @@
+import { hypot2 } from '../physics/math.js';
 // The TV commentary box: two fictional commentators calling the match. Kate Marsden ("pbp")
 // calls the ball; Geoff Hollins ("col"), the old pro, picks up on what she said. A JS port of
 // courtside's game/cricket/commentary.gd; every utterance is a clip in assets/commentary and
@@ -427,7 +428,7 @@ export class Commentary {
     if (this.edged) return six ? '' : 'edge';
     if (this.shotName === 'hook') return 'hook';
     const d = this.hitDir;
-    const a = d && Math.hypot(d.x, d.z) > 0.5 ? Math.atan2(d.x, d.z) * 180 / Math.PI : NaN;
+    const a = d && hypot2(d.x, d.z) > 0.5 ? Math.atan2(d.x, d.z) * 180 / Math.PI : NaN;
     if (six) {
       if (this.shotName === 'pull') return 'pull';
       if (this.hitSpeed > 42 && this.rng() < 0.6) return 'big';

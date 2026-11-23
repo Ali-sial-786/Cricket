@@ -1,3 +1,4 @@
+import { hypot2 } from '../physics/math.js';
 // The Quest's Roomscale play area (WebXR 'bounded-floor' boundsGeometry), in
 // the local-floor space the game uses. Pure JS. The Quest draws its boundary
 // lines when your head or hands come near the edge; a full swing reaches about
@@ -11,7 +12,7 @@ export function edgeDistance(poly, x, z) {
     const a = poly[j], b = poly[i];
     const ex = b.x - a.x, ez = b.z - a.z, L2 = ex * ex + ez * ez || 1e-9;
     const u = Math.max(0, Math.min(1, ((x - a.x) * ex + (z - a.z) * ez) / L2));
-    d = Math.min(d, Math.hypot(x - a.x - u * ex, z - a.z - u * ez));
+    d = Math.min(d, hypot2(x - a.x - u * ex, z - a.z - u * ez));
     if ((a.z > z) !== (b.z > z) && x < a.x + (z - a.z) / (b.z - a.z) * ex) inside = !inside;
   }
   return inside ? d : -d;
@@ -33,7 +34,7 @@ export function bestSpot(poly, step = 0.1) {
   // (as good as the best to 2 cm: the one nearest the middle -- a long room's centre, not one end of its ridge)
   const cx = (x0 + x1) / 2, cz = (z0 + z1) / 2;
   let best = null;
-  for (const p of pts) if (p.room > most - 0.02 && (!best || Math.hypot(p.x - cx, p.z - cz) < Math.hypot(best.x - cx, best.z - cz))) best = p;
+  for (const p of pts) if (p.room > most - 0.02 && (!best || hypot2(p.x - cx, p.z - cz) < hypot2(best.x - cx, best.z - cz))) best = p;
   const fine = step / 4, bx = best.x, bz = best.z;
   for (let x = bx - step; x <= bx + step + 1e-9; x += fine) {
     for (let z = bz - step; z <= bz + step + 1e-9; z += fine) { const d = edgeDistance(poly, x, z); if (d > best.room + 0.005) best = { x, z, room: d }; }

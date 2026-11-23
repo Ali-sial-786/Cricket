@@ -9,7 +9,7 @@ import * as THREE from 'three';
 import { Fielding, PLAYER_CLEAR, STUMP_CLEAR } from './fielding.js';
 import { planRuns, planMoreRuns, RUNNER_CLEAR } from './running.js';
 import { overthrowRuns } from './throwing.js';
-import { Vec3, clamp, smoothstep as sstep } from '../physics/math.js';
+import { Vec3, clamp, smoothstep as sstep, hypot2, hypot3 } from '../physics/math.js';
 import { PITCH } from '../physics/pitch.js';
 import { CONFIG } from '../config.js';
 import { HINTS } from '../ui/controllerHint.js';
@@ -95,13 +95,13 @@ export class FieldController {
     let focus = center >= 0 ? L.fielders[center].pos : null, r, budget = 11;
     // (how long the next ball waits anyway: the AI bowler's walk back to his mark, and 2 s of grace)
     const bw0 = g.figures && g.figures.bowler.actor;
-    if (bw0 && bw0.visible) budget = Math.hypot(bw0.home.x - bw0.pos.x, bw0.home.z - bw0.pos.z) / 2.6 + 3.5;
+    if (bw0 && bw0.visible) budget = hypot2(bw0.home.x - bw0.pos.x, bw0.home.z - bw0.pos.z) / 2.6 + 3.5;
     else if (g.session && g.session.isBowling) budget = 11.5;          // (you bowl: the new batter has to walk out from the gate first)
     if (L.outcome && L.outcome.by === 'you') r = 1.9;          // (you took it: they stand round the edge of your space)
     if (!focus) {
       const bw = g.figures && g.figures.bowler.actor;
       // (the AI bowler: where he is, a few steps toward the pitch -- he walks on toward his mark, the side comes to meet him)
-      if (bw && bw.visible) { const dz = PITCH.centerZ - bw.pos.z, dx = -bw.pos.x, d = Math.hypot(dx, dz), k = d > 1e-3 ? Math.min(3.5, d) / d : 0; focus = { x: bw.pos.x + dx * k, z: bw.pos.z + dz * k }; }
+      if (bw && bw.visible) { const dz = PITCH.centerZ - bw.pos.z, dx = -bw.pos.x, d = hypot2(dx, dz), k = d > 1e-3 ? Math.min(3.5, d) / d : 0; focus = { x: bw.pos.x + dx * k, z: bw.pos.z + dz * k }; }
       else if (g.session && g.session.isBowling) { const p = this.playerSpot(); if (p) { focus = p; r = 1.9; } }
     }
     if (focus) L.celebrateWicket(t, focus, center, r, budget);
@@ -237,8 +237,8 @@ export class FieldController {
     const fit = (s) => {
       if (s.t < C.minTime) return false;
       if (!bat) return true;
-      const hv = Math.hypot(s.vx, s.vz) || 1;
-      return Math.hypot(s.x + s.vx / hv * C.standOff - bat.x, s.z + s.vz / hv * C.standOff - bat.z) >= C.minGap;
+      const hv = hypot2(s.vx, s.vz) || 1;
+      return hypot2(s.x + s.vx / hv * C.standOff - bat.x, s.z + s.vz / hv * C.standOff - bat.z) >= C.minGap;
     };
     let best = null, first = null;
     for (const s of this.pred.samples) {
@@ -261,7 +261,7 @@ export class FieldController {
     }
     const s = best ? best.s : { x: p.x, y: p.y, z: p.z, vx: 0, vz: 1, t: p.t };
     if (!fit(s)) return;
-    const hv = Math.hypot(s.vx, s.vz) || 1;
+    const hv = hypot2(s.vx, s.vz) || 1;
     const dir = { x: s.vx / hv, z: s.vz / hv };
     this.catch = {
       f: L.fielders[p.fi], fi: p.fi, state: 'pending',
@@ -290,7 +290,7 @@ export class FieldController {
     if (c.state !== 'live') return;
     if (b.active) {
       for (const h of g.playerHands()) {
-        if (Math.hypot(h.x - b.pos.x, h.y - b.pos.y, h.z - b.pos.z) < C.handRadius) {
+        if (hypot3(h.x - b.pos.x, h.y - b.pos.y, h.z - b.pos.z) < C.handRadius) {
           g.world.removeBall();
           this.logic.playerCaught(c.f);
           this.logic.ballOverride = { pos: new Vec3(h.x, h.y, h.z), hand: h };
@@ -338,7 +338,7 @@ export class FieldController {
     else if (a && a.type === 'break') { if (a.at < t) a.at = t + delay; }
     // (the keeper sweeps the bails off only if he is at the stumps: off chasing
     // the ball, a throw that runs a batter out has hit them on its own)
-    else if (holder && end === 'batting' && holder.keeper && Math.hypot(holder.pos.x, holder.pos.z - PITCH.battingStumpsZ) < KEEPER_BREAK_REACH) L.keeperBreak(t, t + delay);
+    else if (holder && end === 'batting' && holder.keeper && hypot2(holder.pos.x, holder.pos.z - PITCH.battingStumpsZ) < KEEPER_BREAK_REACH) L.keeperBreak(t, t + delay);
     this.pendingBreak = { end, t: t + delay };
   }
 
@@ -510,7 +510,7 @@ export class FieldController {
       // It has died short of him (a ball that stopped on the pitch, or one that
       // came to rest beside him out of the way of his gloves): he walks up and
       // picks it up -- the ball is dead (or, the batter out of his ground, a stumping).
-      else if (!got && L.started && b.bounces > 0 && b.pos.z > PITCH.battingStumpsZ - DEAD_BALL_REACH && Math.hypot(b.vel.x, b.vel.z) < DEAD_BALL_SPEED && b.pos.y < 0.3) {
+      else if (!got && L.started && b.bounces > 0 && b.pos.z > PITCH.battingStumpsZ - DEAD_BALL_REACH && hypot2(b.vel.x, b.vel.z) < DEAD_BALL_SPEED && b.pos.y < 0.3) {
         if (L.keeperFetch(b, t) === 'take') { w.removeBall(); g.replay.mark('held', t); }
       }
     }

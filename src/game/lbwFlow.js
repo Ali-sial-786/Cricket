@@ -27,6 +27,7 @@ import { predict } from '../physics/trajectory.js';
 import { HINTS } from '../ui/controllerHint.js';
 import { trackLbw, umpireDecision, reviewOutcome, lawOut, isMarginal } from './lbw.js';
 import { shouldAppeal } from './bowlingRules.js';
+import { hypot2 } from '../physics/math.js';
 import {
   ContactLog, edgeTruth, edgeEvidence, edgeInvolved, umpireCaught, umpireHearsEdge, fieldersAppeal,
   appealWorthy, edgeQuestion, caughtReview, aiWillReview, EDGE,
@@ -158,7 +159,7 @@ export class LbwFlow {
     const log = this.snapshot();
     const truth = edgeTruth(log);
     const lb = log.lastBall;
-    const catchDist = lb ? Math.hypot(lb.x, lb.z - PITCH.battingStumpsZ) : 0;
+    const catchDist = lb ? hypot2(lb.x, lb.z - PITCH.battingStumpsZ) : 0;
     if (!edgeQuestion(truth, { catchDist })) return false;
     this._init({ kind: 'caught', path, playerIsBatter, outRes: res, notOutRes: notOut, log, behind: /keeper/i.test(res.by || '') });
     this.truthOut = truth.touched;

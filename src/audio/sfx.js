@@ -9,6 +9,7 @@
 // off or a context that won't start, every call is a quiet no-op.
 import { MIX, groupGains, airCutoff, travelDelay, clipCurve, SPACE } from './mix.js';
 import { VoicePool, VoiceBudget } from './pool.js';
+import { hypot3 } from '../physics/math.js';
 
 const rnd = (a, b) => a + Math.random() * (b - a);
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
@@ -129,7 +130,7 @@ export class Sfx {
     } catch { /* a non-finite pose: keep the last */ }
   }
 
-  dist(pos) { const e = this.ear; return Math.hypot(pos.x - e.x, pos.y - e.y, pos.z - e.z); }
+  dist(pos) { const e = this.ear; return hypot3(pos.x - e.x, pos.y - e.y, pos.z - e.z); }
 
   /**
    * Where a sound at `pos` goes in: { out, delay } (delay: the time sound takes to get to you).

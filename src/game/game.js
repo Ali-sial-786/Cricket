@@ -3,7 +3,7 @@
 //   input -> session logic -> physics advanceTo(simTime) -> events -> views -> UI -> render
 import * as THREE from 'three';
 import { CONFIG } from '../config.js';
-import { Vec3, Quat, Pose, DEG, clamp, makeRng } from '../physics/math.js';
+import { Vec3, Quat, Pose, DEG, clamp, makeRng, hypot2, hypot3 } from '../physics/math.js';
 import { PhysicsWorld, InterpolatedBatProvider } from '../physics/world.js';
 import { SwingLoad } from '../physics/swingLoad.js';
 import { PITCH } from '../physics/pitch.js';
@@ -480,10 +480,10 @@ export class Game {
     if (!this.areaMark) return;
     const sst = this.session ? this.session.state : null;
     const calm = this.state === 'safety' || this.state === 'calibrate' || this.state === 'menu' || (this.state === 'play' && sst !== 'live' && sst !== 'review');
-    const show = !!A && calm && !this.viewOverride && !(this.replay && this.replay.active) && Math.hypot(p.x - A.spot.x, p.z - A.spot.z) > 0.25;
+    const show = !!A && calm && !this.viewOverride && !(this.replay && this.replay.active) && hypot2(p.x - A.spot.x, p.z - A.spot.z) > 0.25;
     // (the ring is only a suggestion: walk into it and your place comes with you -- re-centred there, not mid-ball)
     if (A && calm && !this.viewOverride && !(this.replay && this.replay.active) && this.pendingRecenter == null && this.homeRef
-      && Math.hypot(p.x - A.spot.x, p.z - A.spot.z) < 0.2 && Math.hypot(this.homeRef.x - p.x, this.homeRef.z - p.z) > 0.3) this.recenter();
+      && hypot2(p.x - A.spot.x, p.z - A.spot.z) < 0.2 && hypot2(this.homeRef.x - p.x, this.homeRef.z - p.z) > 0.3) this.recenter();
     this.areaMark.visible = show;
     if (show) this.areaMark.position.set(A.spot.x, this.rigDrop + 0.005, A.spot.z);
   }
@@ -494,7 +494,7 @@ export class Game {
   driftCheck(sst) {
     if (!this.input.xr || this.mr || !this.homeRef || this.state !== 'play' || !this.session || this.viewOverride) return;
     if (sst === 'live' || sst === 'review' || this.ui.menuOpen) return;
-    const p = this.input.headRef.p, d = Math.hypot(p.x - this.homeRef.x, p.z - this.homeRef.z);
+    const p = this.input.headRef.p, d = hypot2(p.x - this.homeRef.x, p.z - this.homeRef.z);
     const now = this.clock;
     const A = this.playArea, near = A && edgeDistance(A.poly, p.x, p.z) < Math.min(1.0, A.spot.room - 0.25);
     if ((d > CONFIG.xr.driftWarn || near) && !(now < (this._driftT || 0))) {
@@ -1104,7 +1104,7 @@ export class Game {
     const inHand = !!(this.session && this.session.isBowling && this.session.state === 'ready');   // true size in your hand
     if (this.settings.ballBoost && this.ballView.visible && !inHand) {
       const hp = this.input.headPose.p, bp = this.ballView.mesh.position;
-      const d = Math.hypot(bp.x - hp.x, bp.y - hp.y, bp.z - hp.z);
+      const d = hypot3(bp.x - hp.x, bp.y - hp.y, bp.z - hp.z);
       const want = d * Math.tan((CONFIG.render.ballMinAngleDeg * Math.PI) / 360);
       k = Math.max(1, Math.min(2.2, want / CONFIG.ball.radius));
     }

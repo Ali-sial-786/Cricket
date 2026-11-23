@@ -1,3 +1,4 @@
+import { hypot3 } from '../physics/math.js';
 // Did you play at the ball? Read from the middle of your bat while the ball
 // comes to you, not from the controller alone: a wristy swing turns the
 // blade with hardly any movement of your hand, and lifting the bat out of the
@@ -32,10 +33,10 @@ export const OFFER = {
 // and a bat going mostly upward (picked up, lifted out of the way: as it comes over the top it also
 // goes forward) counts for nothing.
 export function intoSpeed(v) {
-  const sp = Math.hypot(v.x, v.y, v.z);
+  const sp = hypot3(v.x, v.y, v.z);
   if (sp < 1e-9) return 0;
   const u = (v.y / sp - 0.3) / 0.4, gate = u <= 0 ? 1 : u >= 1 ? 0 : 1 - u * u * (3 - 2 * u);
-  return Math.hypot(v.x, Math.min(0, v.y), Math.min(0, v.z)) * gate;
+  return hypot3(v.x, Math.min(0, v.y), Math.min(0, v.z)) * gate;
 }
 
 // Velocity (world) of a point on the bat: the controller's linear velocity
@@ -59,7 +60,7 @@ export class ShotEvidence {
     const rx = p.x - head.x, rz = p.z - head.z;
     if (!S.p0) S.p0 = { x: rx, y: p.y, z: rz };
     // (forward and across count in full, down by half: tapping the bat up and down is no block)
-    S.reach = Math.max(S.reach, Math.hypot(rx - S.p0.x, Math.min(0, rz - S.p0.z), 0.5 * Math.min(0, p.y - S.p0.y)));
+    S.reach = Math.max(S.reach, hypot3(rx - S.p0.x, Math.min(0, rz - S.p0.z), 0.5 * Math.min(0, p.y - S.p0.y)));
   }
   get peak() { return this.s.peak; }
   get offered() { const S = this.s; return S.peak >= OFFER.fast || (S.reach >= OFFER.reach && S.peak >= OFFER.slow); }
