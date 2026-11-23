@@ -13,6 +13,8 @@ import { VoicePool, VoiceBudget } from './pool.js';
 const rnd = (a, b) => a + Math.random() * (b - a);
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const mtof = (m) => 440 * 2 ** ((m - 69) / 12);
+// One of the listener's params (Sfx.listen's cache), set only if it would change; the last value kept after it is set.
+function setIf(P, i, x) { if (P.v[i] !== x) { P.p[i].value = x; P.v[i] = x; } }
 // Vowel formants (F1, F2, F3 Hz) for the voices of the ground.
 const VOWEL = { a: [730, 1090, 2440], e: [530, 1840, 2480], i: [300, 2200, 2950], o: [570, 840, 2410], u: [320, 870, 2240], uh: [640, 1190, 2390] };
 
@@ -119,8 +121,10 @@ export class Sfx {
     const ux = 2 * (x * y - w * z), uy = 1 - 2 * (x * x + z * z), uz = 2 * (y * z + w * x);
     try {
       if (L.positionX) {
-        L.positionX.value = pos.x; L.positionY.value = pos.y; L.positionZ.value = pos.z;
-        L.forwardX.value = fx; L.forwardY.value = fy; L.forwardZ.value = fz; L.upX.value = ux; L.upY.value = uy; L.upZ.value = uz;
+        // (every frame: the params fetched once, and only a value that has changed is sent -- each
+        // read of a param and each write of its value is a call into the browser)
+        const P = this._lp || (this._lp = { p: [L.positionX, L.positionY, L.positionZ, L.forwardX, L.forwardY, L.forwardZ, L.upX, L.upY, L.upZ], v: new Float64Array(9).fill(NaN) });
+        setIf(P, 0, pos.x); setIf(P, 1, pos.y); setIf(P, 2, pos.z); setIf(P, 3, fx); setIf(P, 4, fy); setIf(P, 5, fz); setIf(P, 6, ux); setIf(P, 7, uy); setIf(P, 8, uz);
       } else { L.setPosition(pos.x, pos.y, pos.z); L.setOrientation(fx, fy, fz, ux, uy, uz); }
     } catch { /* a non-finite pose: keep the last */ }
   }
