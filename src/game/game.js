@@ -759,6 +759,7 @@ export class Game {
     this.ui.board.mesh.visible = true;
     if (this.mrPlacer) { this.mrPlacer.dispose(); this.mrPlacer = null; }
     this.env.root.position.set(0, 0, 0);
+    this.env.root.updateMatrix(); this.env.root.updateMatrixWorld(true);   // (the environment's matrices are frozen: render/drawCost.js freezeStatic)
     if (this.session) this.endSession();
     this.ceremony.stop();
     this.state = 'menu';
