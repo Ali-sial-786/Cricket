@@ -40,7 +40,7 @@ const RUNNING_HINTS = [HINTS.back, HINTS.dive];    // (asked for every frame whi
 import { Innings, runsText } from './scoring.js';
 
 const KMH = (v) => Math.round(msToKmh(v));
-const _hand = new THREE.Vector3();
+const _hand = new THREE.Vector3(), _padAt = new THREE.Vector3();
 const STANCE = { x: -0.4, z: -1.05 };
 const ANNOUNCE = 1.8;            // s a new bowler's card / a free hit is up before the bowler sets off
 const SKIP_ANNOUNCE = 1.0;       // ... after a skip to the next ball (skipToNext)
@@ -207,6 +207,16 @@ export class BattingSession {
     const g = this.game, S = g.input.xr && g.playerBody && g.playerBody.feet ? g.playerBody.feet.s : null;
     if (!S || !S.init) { const p = this.body(); return [{ x: p.x, z: p.z, box: PLAYER_PAD }]; }
     return [S.L, S.R].map((f) => ({ x: f.x, z: f.z, box: LEG_PAD }));
+  }
+
+  // pads(), into kept objects: for the check every frame a ball is on its way (read at once, not kept).
+  padsNow() {
+    const g = this.game, S = g.input.xr && g.playerBody && g.playerBody.feet ? g.playerBody.feet.s : null;
+    const K = this._padsK || (this._padsK = { one: [{ x: 0, z: 0, box: PLAYER_PAD }], two: [{ x: 0, z: 0, box: LEG_PAD }, { x: 0, z: 0, box: LEG_PAD }] });
+    if (!S || !S.init) { const p = this.body(), o = K.one[0]; o.x = p.x; o.z = p.z; return K.one; }
+    const [a, b] = K.two;
+    a.x = S.L.x; a.z = S.L.z; b.x = S.R.x; b.z = S.R.z;
+    return K.two;
   }
 
   // ------------------------------------------------------------- input (real time)
@@ -535,8 +545,11 @@ export class BattingSession {
         }
       } else if (!this.hit && !this.padDone) {
         const body = this.body();
-        const was = this.path.length > 1 ? this.path[this.path.length - 2] : null, at = b.pos.clone();
-        if (this.pads().some((p) => padHit(b, p.x, p.z, p.box, was))) {
+        const was = this.path.length > 1 ? this.path[this.path.length - 2] : null, at = _padAt.copy(b.pos);
+        const pads = this.padsNow();
+        let met = false;
+        for (let i = 0; i < pads.length && !met; i++) met = padHit(b, pads[i].x, pads[i].z, pads[i].box, was);
+        if (met) {
           this.padDone = true;                               // (one meeting with the pads a ball)
           const impact = b.clone(), padAt = b.padAt, path = this.path.slice();
           b.pos.copy(at); b.padAt = null;

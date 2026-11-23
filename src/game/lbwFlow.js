@@ -42,12 +42,12 @@ import {
 export function padHit(ball, bx, bz, { halfX = 0.2, front = 0.24, back = 0.24, top = 0.74, dx = 0 } = {}, from = null) {
   if (!ball.active || ball.batted || ball.padded || ball.thrown || ball.vel.z <= 0) return false;
   const p = ball.pos, cx = bx + dx;
-  const inBox = (x, y, z) => y < top && Math.abs(x - cx) < halfX && z > bz - front && z < bz + back;
-  let hit = inBox(p.x, p.y, p.z);
+  // (in the box: written out, not a closure made on every call -- this runs every frame a ball is on its way)
+  let hit = p.y < top && Math.abs(p.x - cx) < halfX && p.z > bz - front && p.z < bz + back;
   if (!hit && from && from.z < bz - front && p.z > bz - front) {
     for (let k = 1; k < 8 && !hit; k++) {
       const u = k / 8, x = from.x + (p.x - from.x) * u, y = from.y + (p.y - from.y) * u, z = from.z + (p.z - from.z) * u;
-      if (inBox(x, y, z)) { hit = true; p.set(x, y, z); }
+      if (y < top && Math.abs(x - cx) < halfX && z > bz - front && z < bz + back) { hit = true; p.set(x, y, z); }
     }
   }
   if (hit) ball.padAt = { x: cx, z: bz, halfX };
