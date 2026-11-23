@@ -42,6 +42,7 @@ export const STUMP_CLEAR = 0.55;
 // Extra room round the keeper (pads, gloves, a wide crouch), on top of the usual gap.
 export const KEEPER_PADS = 0.4;
 const STUMPS = [{ x: 0, z: PITCH.battingStumpsZ }, { x: 0, z: PITCH.bowlingStumpsZ }];
+const BOWL_Z = PITCH.bowlingStumpsZ;
 
 // Where the man taking a throw at `end` stands: just behind the stumps on the
 // side the throw comes from (side +1 / -1), close enough to sweep the bails
@@ -109,48 +110,71 @@ function pushInside(f, ox, oz, r) {
 // at each other don't both step the same way. Circles the mover is already
 // inside, or that hold the goal, don't block (separate() / clearGoal() deal
 // with those).
-const LOOK = 3.0, _candT = [], _candR = [], _live = [];
+const LOOK = 3.0, _candT = [], _candR = [];
 export function steerAmong(px, pz, gx, gz, obs, out = { x: 0, z: 0 }) {
-  return steerAmongN(px, pz, gx, gz, obs, obs ? obs.length : 0, out);
+  _sp.x = px; _sp.z = pz; _sg.x = gx; _sg.z = gz;
+  return steerAmongN(_sp, _sg, obs, obs ? obs.length : 0, out);
 }
-// clearance of the path from (px, pz) along (cx, cz) over the look-ahead (< 0: it cuts a circle),
-// among the first n of obs whose _live flag is set
-function clearance(obs, n, px, pz, cx, cz, reach) {
+const _sp = { x: 0, z: 0 }, _sg = { x: 0, z: 0 };
+// The circles that count (not one he is inside, nor one holding the goal),
+// relative to the mover, packed for clearance(); _arg: its direction and
+// look-ahead in, the answer out. (Numbers handed to or returned from a call
+// the optimiser does not inline are boxed, every call: this one runs for
+// every candidate heading of every moving fielder every frame.)
+let _nLive = 0, _ox = new Float64Array(32), _oz = new Float64Array(32), _or = new Float64Array(32), _okr = new Uint8Array(32);
+const _arg = new Float64Array(4);
+function liveRoom(n) {
+  if (n <= _ox.length) return;
+  const k = Math.max(n, _ox.length * 2);
+  _ox = new Float64Array(k); _oz = new Float64Array(k); _or = new Float64Array(k); _okr = new Uint8Array(k);
+}
+// clearance of the path along (_arg[0], _arg[1]) over the look-ahead _arg[2] (< 0: it cuts a circle) -> _arg[3]
+function clearance() {
+  const cx = _arg[0], cz = _arg[1], reach = _arg[2];
   let m = Infinity;
-  for (let i = 0; i < n; i++) {
-    if (!_live[i]) continue;
-    const o = obs[i];
-    const ox = o.x - px, oz = o.z - pz, t = Math.max(0, Math.min(reach, ox * cx + oz * cz));
-    m = Math.min(m, hyp(ox - cx * t, oz - cz * t) - (o.r + 0.12));
+  for (let i = 0; i < _nLive; i++) {
+    const ox = _ox[i], oz = _oz[i], t = Math.max(0, Math.min(reach, ox * cx + oz * cz));
+    m = Math.min(m, hyp(ox - cx * t, oz - cz * t) - (_or[i] + 0.12));
   }
-  return m;
+  _arg[3] = m;
 }
-// (steerAmong over the first n entries of obs: the per-frame caller keeps one
-// list and never shrinks it. No closures, no candidate objects: it runs for
-// every moving fielder every frame.)
-function steerAmongN(px, pz, gx, gz, obs, n, out) {
+// (steerAmong from p toward g over the first n entries of obs: the per-frame
+// caller keeps one list and never shrinks it. No closures, no candidate
+// objects: it runs for every moving fielder every frame.)
+function steerAmongN(p, g, obs, n, out) {
+  const px = p.x, pz = p.z, gx = g.x, gz = g.z;
   const dx = gx - px, dz = gz - pz, d = hyp(dx, dz);
   out.x = 0; out.z = 0;
   if (d < 1e-6) return out;
   const ux = dx / d, uz = dz / d, reach = Math.min(d, LOOK);
   if (!obs) { out.x = ux; out.z = uz; return out; }
   // (a circle he is inside, or that holds the goal, does not block)
-  for (let i = 0; i < n; i++) { const o = obs[i]; _live[i] = !!o && distGT(px - o.x, pz - o.z, o.r) && distGE(gx - o.x, gz - o.z, o.r); }
-  if (clearance(obs, n, px, pz, ux, uz, reach) >= 0) { out.x = ux; out.z = uz; return out; }
+  liveRoom(n);
+  let nl = 0;
+  for (let i = 0; i < n; i++) {
+    const o = obs[i];
+    if (!o || !distGT(px - o.x, pz - o.z, o.r) || !distGE(gx - o.x, gz - o.z, o.r)) continue;
+    _ox[nl] = o.x - px; _oz[nl] = o.z - pz; _or[nl] = o.r; _okr[nl++] = o.keepRight ? 1 : 0;
+  }
+  _nLive = nl;
+  _arg[0] = ux; _arg[1] = uz; _arg[2] = reach;
+  clearance();
+  if (_arg[3] >= 0) { out.x = ux; out.z = uz; return out; }
   let nc = 0;
   const tg = Math.atan2(ux, uz);
-  for (let i = 0; i < n; i++) {
-    if (!_live[i]) continue;
-    const o = obs[i];
-    const ox = o.x - px, oz = o.z - pz, cd = hyp(ox, oz);
-    if (cd - o.r > reach + 0.5) continue;
-    const tc = Math.atan2(ox, oz), a = Math.asin(Math.min(1, (o.r + 0.15) / cd));
-    _candT[nc] = tc + a; _candR[nc++] = !o.keepRight;
+  for (let i = 0; i < nl; i++) {
+    const ox = _ox[i], oz = _oz[i], r = _or[i], cd = hyp(ox, oz);
+    if (cd - r > reach + 0.5) continue;
+    const tc = Math.atan2(ox, oz), a = Math.asin(Math.min(1, (r + 0.15) / cd));
+    _candT[nc] = tc + a; _candR[nc++] = !_okr[i];
     _candT[nc] = tc - a; _candR[nc++] = true;
   }
   let best = -1, bestScore = Infinity, fall = -1, fallClear = -Infinity;
   for (let k = 0; k < nc; k++) {
-    const ct = _candT[k], cx = Math.sin(ct), cz = Math.cos(ct), cl = clearance(obs, n, px, pz, cx, cz, reach);
+    const ct = _candT[k], cx = Math.sin(ct), cz = Math.cos(ct);
+    _arg[0] = cx; _arg[1] = cz;
+    clearance();
+    const cl = _arg[3];
     const dev = Math.abs(Math.atan2(Math.sin(ct - tg), Math.cos(ct - tg)));
     if (cl >= -1e-3 && dev < Math.PI * 0.75) {
       const score = dev + (_candR[k] ? 0 : 0.6);
@@ -165,6 +189,7 @@ function steerAmongN(px, pz, gx, gz, obs, n, out) {
 // The circles a moving fielder steers round, rebuilt every frame from pooled
 // objects (slot 0: the player's space; then the umpires, batters and stumps,
 // the same for everyone in a frame; then the men near him).
+const _step = new Float64Array(6);      // (Fielding.update -> moveOne -> driveOne: dt, t, want, ux, uz, d)
 const _obs = [], _obsPool = [], _koObs = { x: 0, z: 0, r: 0, keepRight: false };
 const pooledObs = (i) => _obsPool[i] || (_obsPool[i] = { x: 0, z: 0, r: 0, keepRight: false });
 const ARRIVE = 0.05;         // m: there
@@ -184,7 +209,9 @@ const RELAY_MAX = 22;
 const BOUNDARY_NEAR = 22;     // m: men this close to where a boundary went over walk after it (reactBoundary)         // m: the keeper tosses the ball to a man this close (else straight to the bowler)       // s after the ball is dead before it is tossed back (after the replay's tape ends: TAIL 1 s)        // m: a man with the ball this close to a set of stumps runs in and breaks them himself
 const RELEASE_SET = 4;       // m: a fielder this close to his mark at the release stops and gets set
 const BRAKE = 13;            // m/s^2 pulling up
-function angDiff(a, b) { let d = b - a; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI; return d; }
+// (the wrap out of line: small enough to be inlined everywhere)
+function angDiff(a, b) { const d = b - a; return d > Math.PI || d < -Math.PI ? wrapAngle(d) : d; }
+function wrapAngle(d) { while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI; return d; }
 
 export class Fielding {
   constructor({ cfg = CONFIG, rng = makeRng(99), catchSkill = 0.72, throwSkill = 1, spinner = false, bowlerFields = true } = {}) {
@@ -205,7 +232,7 @@ export class Fielding {
     // whole life of the object, so the per-frame code that reads it stays fast)
     this.keepOut = undefined; this.obstacles = undefined; this.lobTarget = undefined; this.lobFrom = undefined;
     this.keeperUp = undefined; this.keeperHow = undefined; this.attack = undefined; this.pendingRuns = undefined;
-    this.lastThrower = undefined; this.huddle = undefined; this.hitPending = undefined; this._states = null;
+    this.lastThrower = undefined; this.huddle = undefined; this.hitPending = undefined; this._states = null; this.nStatic = -1;
     // (every field a fielder ever has, from the start and in this order: one
     // shape for all eleven, so the per-frame loops over them stay monomorphic)
     this.fielders = FIELD.map((f) => ({
@@ -281,8 +308,8 @@ export class Fielding {
   // Which way a fielder standing at his mark faces: the batter (the keeper:
   // the bowler, down the pitch).
   restFace(f) {
-    if (f.keeper) return Math.atan2(-f.pos.x * 0.3, PITCH.bowlingStumpsZ - f.pos.z);
-    return Math.atan2(0 - f.pos.x, -1.0 - f.pos.z);
+    const p = f.pos;
+    return f.keeper ? Math.atan2(-p.x * 0.3, BOWL_Z - p.z) : Math.atan2(0 - p.x, -1.0 - p.z);
   }
 
   // Next delivery: clear the ball's outcome but let fielders jog back to
@@ -929,6 +956,98 @@ export class Fielding {
     return n;
   }
 
+  // One fielder's step (update()), in two halves: where he is going, then
+  // how he moves (dt and t in _step; what the first half works out handed on
+  // there too). Two methods because the optimiser's inlining budget is per
+  // function, and every small helper they call -- hypot, the distance tests,
+  // angDiff -- must be inlined or the call boxes its numbers, every time.
+  moveOne(f, watch) {
+    const F = this.cfg.field, FF = this.fielders, dt = _step[0], t = _step[1];
+    let goal = null, maxV = F.fielderSpeed;
+    if (f.state === 'chase' || f.state === 'backup' || f.state === 'stumps' || f.state === 'gather' || f.state === 'walkin' || f.state === 'backstop' || f.state === 'huddle') goal = f.target;
+    else if (f.state === 'return') goal = f.home;
+    else if (f.state === 'throwing' && f.runIn) goal = f.runIn;           // (running the ball in)
+    if (f.state === 'backup') maxV *= 0.7;
+    if (f.state === 'walkin') maxV = 1.6;
+    if (f.state === 'huddle') maxV = f.huddleInner ? HUDDLE_JOG : 3.2;
+    if (f.keeper && f.state === 'gather' && this.fetchT0 != null) maxV = 3.5;       // (walking up to a dead ball: brisk, no sprint)
+    if (f.state === 'throwing') maxV = 5.0;
+    const urgent = f.state === 'chase' || f.state === 'gather' || f.state === 'backup' || f.state === 'stumps' || f.state === 'backstop';
+    let want = 0, ux = 0, uz = 0, d = 0;
+    if (goal && f.state === 'stumps' && f.coverEnd) goal = this.coverWay(f, goal);
+    if (goal) {
+      // Never aim into the player or the stumps; go round the player.
+      const ko = this.keepOut && !(f.bowler && !this.bowlerFields) && !f.playerControlled ? this.keepOut : null;
+      goal = this.clearGoal(goal, f, ko);
+      const dx = goal.x - f.pos.x, dz = goal.z - f.pos.z;
+      d = hyp(dx, dz);
+      if (f.state === 'return') {
+        // Back to his mark: a jog; a run when it is a long way or the bowler is waiting.
+        maxV = d > 14 ? F.fielderSpeed : d > 5 ? 4.6 : 3.4;
+        if (this.hurry > 0) maxV = Math.max(maxV, Math.min(F.fielderSpeed, d / Math.max(0.4, this.hurry - 0.6)));
+      }
+      const react = f.keeper || f.name === 'slip' ? F.keeperReaction : F.fielderReaction;
+      const moving = this.hitT == null || t - this.hitT > react || f.state === 'return' || f.state === 'gather';
+      if (d > ARRIVE && moving) {
+        // Round the player, the umpires, the batters, the stumps and the other fielders.
+        if (this.nStatic < 0) this.nStatic = this.staticObstacles();
+        _obs[0] = ko ? _koObs : null;
+        let n = this.nStatic;
+        for (let j = 0; j < FF.length; j++) {
+          const o = FF[j];
+          if (o !== f && !(o.bowler && (!this.bowlerFields || !o.out)) && distLT(o.pos.x - f.pos.x, o.pos.z - f.pos.z, 4)) {
+            const q = pooledObs(n); q.x = o.pos.x; q.z = o.pos.z; q.r = 0.65 + (o.keeper || f.keeper ? KEEPER_PADS : 0); q.keepRight = true; _obs[n++] = q;
+          }
+        }
+        const u = steerAmongN(f.pos, goal, _obs, n, _dir);
+        ux = u.x; uz = u.z;
+        // (pulling up as he gets there; a man after the ball runs through it)
+        want = urgent && f.state !== 'stumps' && f.state !== 'backstop' ? maxV : Math.min(maxV, Math.sqrt(2 * BRAKE * Math.max(0, d - ARRIVE)) + 0.25);
+        // Turn before he goes: facing well away from where he is heading
+        // he only shuffles round, then sets off (no running backwards).
+        const sidestep = (f.keeper && f.state === 'gather') || (f.state === 'return' && d < BACKPEDAL);
+        if (!sidestep) {
+          const err = Math.abs(angDiff(f.yaw, Math.atan2(ux, uz)));
+          if (f.speed < 2.5) want *= clamp(1.15 - err / 1.6, urgent ? 0.3 : 0.12, 1);
+        }
+      } else if (d <= ARRIVE && (f.state === 'return' || f.state === 'walkin') && f.speed < 0.4) {
+        if (f.state === 'return') f.state = 'set';
+      }
+    }
+    _step[2] = want; _step[3] = ux; _step[4] = uz; _step[5] = d;
+    this.driveOne(f, goal, urgent, watch);
+  }
+  // ...and the second half: his velocity, his feet and his facing (want, ux, uz, d in _step).
+  driveOne(f, goal, urgent, watch) {
+    const F = this.cfg.field, dt = _step[0], want = _step[2], ux = _step[3], uz = _step[4], d = _step[5];
+    // steer the velocity
+    const tvx = ux * want, tvz = uz * want;
+    const dvx = tvx - f.vel.x, dvz = tvz - f.vel.z, dv = hyp(dvx, dvz);
+    const sp0 = hyp(f.vel.x, f.vel.z);
+    const acc = (!goal ? BRAKE * 1.5 : want < sp0 - 0.05 ? BRAKE : dv > sp0 * 0.6 && sp0 > 1.5 ? F.fielderAccel * 1.6 : F.fielderAccel) * dt;
+    if (dv > acc) { f.vel.x += dvx / dv * acc; f.vel.z += dvz / dv * acc; } else { f.vel.x = tvx; f.vel.z = tvz; }
+    let vx = f.vel.x, vz = f.vel.z;
+    f.speed = hyp(vx, vz);
+    if (goal && d > 1e-6 && f.speed * dt > d) { vx *= d / (f.speed * dt); vz *= d / (f.speed * dt); }   // (never past where he is going)
+    f.pos.x += vx * dt; f.pos.z += vz * dt;
+    // which way he faces
+    const taking = f.action && f.action.type === 'take';
+    const aiming = this.throw && this.throw.f === f && !this.throw.released;
+    if (aiming) f.face = Math.atan2(this.throw.to.x - f.pos.x, this.throw.to.z - f.pos.z);      // (picking up, turning to throw)
+    else if (f.speed > 0.7 && !(f.keeper && f.state === 'gather') && !(f.state === 'return' && d < BACKPEDAL) && !taking && f.state !== 'throwing') f.face = Math.atan2(f.vel.x, f.vel.z);
+    // setting off for somewhere well away: he turns to face where he is going first (else, slow, he would stay facing in and only shuffle)
+    else if (want > 0 && f.speed <= 0.7 && !f.action && (f.state === 'return' || f.state === 'walkin') && d >= BACKPEDAL) f.face = Math.atan2(ux, uz);
+    else if (!f.action && f.state !== 'celebrate' && f.state !== 'throwing' && f.speed <= 0.7) {
+      // standing: eyes on the ball while it is in play, else on the batter (the keeper: the bowler)
+      const live = !this.dead && this.hitT != null && watch && distGT(watch.x - f.pos.x, watch.z - f.pos.z, 1.2);
+      if (f.keeper && f.state === 'gather') f.face = Math.atan2(0, -1);
+      else if (f.state === 'huddle' && f.huddleAt) f.face = Math.atan2(f.huddleAt.x - f.pos.x, f.huddleAt.z - f.pos.z);       // (in the huddle: facing its middle)
+      else f.face = live ? Math.atan2(watch.x - f.pos.x, watch.z - f.pos.z) : this.restFace(f);
+    }
+    const turn = (f.speed > 3 ? 7.5 : urgent || f.action ? 6.5 : 4.2) * dt;
+    f.yaw += clamp(angDiff(f.yaw, f.face), -turn, turn);
+  }
+
   // dt step. ball = live BallState (physics), world provides removeBall().
   update(dt, t, ball = null, world = null) {
     const F = this.cfg.field;
@@ -940,87 +1059,9 @@ export class Fielding {
     if (this.dead && this.started) this.goHome(dt, t);
     const watch = ball ? ball.pos : this.ballOverride ? this.ballOverride.pos : null;
     const FF = this.fielders;
-    let nStatic = -1;
-    for (let fi = 0; fi < FF.length; fi++) {
-      const f = FF[fi];
-      let goal = null, maxV = F.fielderSpeed;
-      if (f.state === 'chase' || f.state === 'backup' || f.state === 'stumps' || f.state === 'gather' || f.state === 'walkin' || f.state === 'backstop' || f.state === 'huddle') goal = f.target;
-      else if (f.state === 'return') goal = f.home;
-      else if (f.state === 'throwing' && f.runIn) goal = f.runIn;           // (running the ball in)
-      if (f.state === 'backup') maxV *= 0.7;
-      if (f.state === 'walkin') maxV = 1.6;
-      if (f.state === 'huddle') maxV = f.huddleInner ? HUDDLE_JOG : 3.2;
-      if (f.keeper && f.state === 'gather' && this.fetchT0 != null) maxV = 3.5;       // (walking up to a dead ball: brisk, no sprint)
-      if (f.state === 'throwing') maxV = 5.0;
-      const urgent = f.state === 'chase' || f.state === 'gather' || f.state === 'backup' || f.state === 'stumps' || f.state === 'backstop';
-      let want = 0, ux = 0, uz = 0, d = 0;
-      if (goal && f.state === 'stumps' && f.coverEnd) goal = this.coverWay(f, goal);
-      if (goal) {
-        // Never aim into the player or the stumps; go round the player.
-        const ko = this.keepOut && !(f.bowler && !this.bowlerFields) && !f.playerControlled ? this.keepOut : null;
-        goal = this.clearGoal(goal, f, ko);
-        const dx = goal.x - f.pos.x, dz = goal.z - f.pos.z;
-        d = hyp(dx, dz);
-        if (f.state === 'return') {
-          // Back to his mark: a jog; a run when it is a long way or the bowler is waiting.
-          maxV = d > 14 ? F.fielderSpeed : d > 5 ? 4.6 : 3.4;
-          if (this.hurry > 0) maxV = Math.max(maxV, Math.min(F.fielderSpeed, d / Math.max(0.4, this.hurry - 0.6)));
-        }
-        const react = f.keeper || f.name === 'slip' ? F.keeperReaction : F.fielderReaction;
-        const moving = this.hitT == null || t - this.hitT > react || f.state === 'return' || f.state === 'gather';
-        if (d > ARRIVE && moving) {
-          // Round the player, the umpires, the batters, the stumps and the other fielders.
-          if (nStatic < 0) nStatic = this.staticObstacles();
-          _obs[0] = ko ? _koObs : null;
-          let n = nStatic;
-          for (let j = 0; j < FF.length; j++) {
-            const o = FF[j];
-            if (o !== f && !(o.bowler && (!this.bowlerFields || !o.out)) && distLT(o.pos.x - f.pos.x, o.pos.z - f.pos.z, 4)) {
-              const q = pooledObs(n); q.x = o.pos.x; q.z = o.pos.z; q.r = 0.65 + (o.keeper || f.keeper ? KEEPER_PADS : 0); q.keepRight = true; _obs[n++] = q;
-            }
-          }
-          const u = steerAmongN(f.pos.x, f.pos.z, goal.x, goal.z, _obs, n, _dir);
-          ux = u.x; uz = u.z;
-          // (pulling up as he gets there; a man after the ball runs through it)
-          want = urgent && f.state !== 'stumps' && f.state !== 'backstop' ? maxV : Math.min(maxV, Math.sqrt(2 * BRAKE * Math.max(0, d - ARRIVE)) + 0.25);
-          // Turn before he goes: facing well away from where he is heading
-          // he only shuffles round, then sets off (no running backwards).
-          const sidestep = (f.keeper && f.state === 'gather') || (f.state === 'return' && d < BACKPEDAL);
-          if (!sidestep) {
-            const err = Math.abs(angDiff(f.yaw, Math.atan2(ux, uz)));
-            if (f.speed < 2.5) want *= clamp(1.15 - err / 1.6, urgent ? 0.3 : 0.12, 1);
-          }
-        } else if (d <= ARRIVE && (f.state === 'return' || f.state === 'walkin') && f.speed < 0.4) {
-          if (f.state === 'return') f.state = 'set';
-        }
-      }
-      // steer the velocity
-      const tvx = ux * want, tvz = uz * want;
-      const dvx = tvx - f.vel.x, dvz = tvz - f.vel.z, dv = hyp(dvx, dvz);
-      const sp0 = hyp(f.vel.x, f.vel.z);
-      const acc = (!goal ? BRAKE * 1.5 : want < sp0 - 0.05 ? BRAKE : dv > sp0 * 0.6 && sp0 > 1.5 ? F.fielderAccel * 1.6 : F.fielderAccel) * dt;
-      if (dv > acc) { f.vel.x += dvx / dv * acc; f.vel.z += dvz / dv * acc; } else { f.vel.x = tvx; f.vel.z = tvz; }
-      let vx = f.vel.x, vz = f.vel.z;
-      f.speed = hyp(vx, vz);
-      if (goal && d > 1e-6 && f.speed * dt > d) { vx *= d / (f.speed * dt); vz *= d / (f.speed * dt); }   // (never past where he is going)
-      f.pos.x += vx * dt; f.pos.z += vz * dt;
-      // which way he faces
-      const taking = f.action && f.action.type === 'take';
-      const aiming = this.throw && this.throw.f === f && !this.throw.released;
-      if (aiming) f.face = Math.atan2(this.throw.to.x - f.pos.x, this.throw.to.z - f.pos.z);      // (picking up, turning to throw)
-      else if (f.speed > 0.7 && !(f.keeper && f.state === 'gather') && !(f.state === 'return' && d < BACKPEDAL) && !taking && f.state !== 'throwing') f.face = Math.atan2(f.vel.x, f.vel.z);
-      // setting off for somewhere well away: he turns to face where he is going first (else, slow, he would stay facing in and only shuffle)
-      else if (want > 0 && f.speed <= 0.7 && !f.action && (f.state === 'return' || f.state === 'walkin') && d >= BACKPEDAL) f.face = Math.atan2(ux, uz);
-      else if (!f.action && f.state !== 'celebrate' && f.state !== 'throwing' && f.speed <= 0.7) {
-        // standing: eyes on the ball while it is in play, else on the batter (the keeper: the bowler)
-        const live = !this.dead && this.hitT != null && watch && distGT(watch.x - f.pos.x, watch.z - f.pos.z, 1.2);
-        if (f.keeper && f.state === 'gather') f.face = Math.atan2(0, -1);
-        else if (f.state === 'huddle' && f.huddleAt) f.face = Math.atan2(f.huddleAt.x - f.pos.x, f.huddleAt.z - f.pos.z);       // (in the huddle: facing its middle)
-        else f.face = live ? Math.atan2(watch.x - f.pos.x, watch.z - f.pos.z) : this.restFace(f);
-      }
-      const turn = (f.speed > 3 ? 7.5 : urgent || f.action ? 6.5 : 4.2) * dt;
-      f.yaw += clamp(angDiff(f.yaw, f.face), -turn, turn);
-    }
+    this.nStatic = -1;
+    _step[0] = dt; _step[1] = t;
+    for (let fi = 0; fi < FF.length; fi++) this.moveOne(FF[fi], watch);
 
     this.separate();
     this.updateShy(t);
