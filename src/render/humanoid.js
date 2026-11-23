@@ -1074,7 +1074,10 @@ const FOOT_ONLY = {}, HAND_ONLY = {};
 const LOW_NAMES = ['ankleL', 'ankleR', 'kneeL', 'kneeR', 'handL', 'handR', 'hipL', 'hipR', 'hips', 'elbowL', 'elbowR', 'spine', 'head', 'neck', 'chest', 'shoulderL', 'shoulderR'];
 let LOW_ORDER = null;
 const _fq = new THREE.Quaternion();
-const _wl = new THREE.Matrix4(), _om = new THREE.Matrix4();
+const _wl = new THREE.Matrix4(), _om = new THREE.Matrix4(), _rw = new THREE.Matrix4();
+// The bones whose position (not only rotation) the animation moves: the hips, and the
+// elbows and hands (an arm lengthened to keep the gloves on the bat). Humanoid.update compares these.
+const MOVABLE = ['hips', 'elbowL', 'handL', 'elbowR', 'handR'];
 // c[o..o+2] = v? If not, it is now (an input of update() changed).
 function same3(c, o, v) {
   if (c[o] === v.x && c[o + 1] === v.y && c[o + 2] === v.z) return true;
@@ -1389,21 +1392,27 @@ export class Humanoid {
   }
 
   // The figure's matrices (root, mesh, bones), made fresh only where an input has changed
-  // since they were last made: a bone's rotation (its quaternion's change callback), any
-  // bone's position, the root's place, turn and size. Everything that refreshes or reads
-  // a world matrix (updateMatrixWorld, updateWorldMatrix, getWorldPosition / Quaternion,
-  // worldToLocal: ours, the IK's, three's own scene pass) comes here, so a figure is
-  // posed once and its matrices made once, not the whole figure again at every read.
-  // _rel: each bone relative to the mesh (what the skin needs: see trackMatrices);
-  // _lv / _wv: versions of the pose (bones relative to the mesh) and of the world matrices.
+  // since they were last made: a bone's rotation (its quaternion's change callback), the
+  // position of a bone that can move (the hips; the elbows and hands, an arm's stretch:
+  // MOVABLE), the root's place, turn and size. Everything that refreshes or reads a world
+  // matrix (updateMatrixWorld, updateWorldMatrix, getWorldPosition / Quaternion,
+  // worldToLocal: ours, the IK's, three's own scene pass) comes here, so a figure is posed
+  // once and its matrices made once, not the whole figure again at every read; with
+  // nothing changed it is a few comparisons. The mesh never moves on its root, and the
+  // scene above is not moved (its matrix is compared where a move would show: scale, place).
+  // _lv / _wv: versions of the pose (bones on the root) and of the world matrices.
   update() {
-    const r = this.root, m = this.mesh, c = this._in, P = r.parent;
+    const r = this.root, c = this._in, P = r.parent;
     let all = this._all;
     if (!same3(c, 0, r.position)) all = true;
     if (!same3(c, 3, r.scale)) all = true;
     { const q = r.quaternion; if (c[6] !== q._x || c[7] !== q._y || c[8] !== q._z || c[9] !== q._w) { c[6] = q._x; c[7] = q._y; c[8] = q._z; c[9] = q._w; all = true; } }
-    if (!same3(c, 10, m.position)) all = true;
-    if (P) { const e = P.matrixWorld.elements; for (let k = 0; k < 16; k++) if (c[13 + k] !== e[k]) { c[13 + k] = e[k]; all = true; } }
+    if (P) { const e = P.matrixWorld.elements; if (c[10] !== e[0] || c[11] !== e[5] || c[12] !== e[10] || c[13] !== e[12] || c[14] !== e[13] || c[15] !== e[14]) { c[10] = e[0]; c[11] = e[5]; c[12] = e[10]; c[13] = e[12]; c[14] = e[13]; c[15] = e[14]; all = true; } }
+    const B = this.boneList, MV = this._mv;
+    let dm = this._dm;
+    for (let k = 0; k < MV.length; k++) if (!same3(c, 16 + 3 * k, B[MV[k]].position)) dm |= 1 << MV[k];
+    if (!all && dm === 0) return;
+    const m = this.mesh;
     if (all) {
       r.matrix.compose(r.position, r.quaternion, r.scale);
       if (P) r.matrixWorld.multiplyMatrices(P.matrixWorld, r.matrix); else r.matrixWorld.copy(r.matrix);
@@ -1412,22 +1421,20 @@ export class Humanoid {
       r.matrixWorldNeedsUpdate = m.matrixWorldNeedsUpdate = false;
       this._all = false;
     }
-    const B = this.boneList, R = this._rel, pi = this._pi, W = m.matrixWorld;
-    let dm = this._dm, moved = 0;
-    for (let i = 0, o = 29; i < B.length; i++, o += 3) {
-      const b = B[i];
-      if (!same3(c, o, b.position)) dm |= 1 << i;
-      const p = pi[i];
-      if ((dm >> i) & 1) { b.matrix.compose(b.position, b.quaternion, b.scale); }
-      if (((dm >> i) & 1) || (p >= 0 && ((moved >> p) & 1))) {
-        if (p < 0) R[i].copy(b.matrix); else R[i].multiplyMatrices(R[p], b.matrix);
-        moved |= 1 << i;
+    const pi = this._pi, W = m.matrixWorld;
+    let moved = 0;
+    for (let i = 0; i < B.length; i++) {
+      const b = B[i], p = pi[i], bit = 1 << i, own = (dm & bit) !== 0;
+      if (own) b.matrix.compose(b.position, b.quaternion, b.scale);
+      if (own || all || (p >= 0 && (moved & (1 << p)) !== 0)) {
+        b.matrixWorld.multiplyMatrices(p < 0 ? W : B[p].matrixWorld, b.matrix);
+        b.matrixWorldNeedsUpdate = false;
+        moved |= bit;
       }
-      if (all || ((moved >> i) & 1)) { b.matrixWorld.multiplyMatrices(W, R[i]); b.matrixWorldNeedsUpdate = false; }
     }
     this._dm = 0;
-    if (moved) this._lv++;
-    if (moved || all) this._wv++;
+    if (dm !== 0) this._lv++;
+    this._wv++;
   }
 
   // Route every matrix refresh of this figure through update() (see there), and skin from
@@ -1436,32 +1443,46 @@ export class Humanoid {
   // figure is a child of a bone (gear is merged into the mesh; bats are scene objects).
   trackMatrices() {
     const B = this.boneList;
-    this._in = new Float64Array(29 + B.length * 3).fill(NaN);
-    this._rel = B.map(() => new THREE.Matrix4());
+    this._mv = Int8Array.from(MOVABLE, (n) => RIG.index[n]);
+    this._in = new Float64Array(16 + this._mv.length * 3).fill(NaN);
     this._pi = Int8Array.from(B, (b) => B.indexOf(b.parent));
     this._dm = (1 << B.length) - 1; this._all = true; this._lv = 0; this._wv = 0;
     B.forEach((b, i) => b.quaternion._onChange(() => { this._dm |= 1 << i; }));   // (no Euler kept in step: nothing reads a bone's .rotation)
     const up = () => this.update(), root = this.root;
     for (const o of [root, this.mesh, ...B]) {
       o.updateMatrixWorld = up;
-      o.updateWorldMatrix = up;              // (the scene above is never moved: the figure's parent's matrix is read as it is)
+      o.updateWorldMatrix = up;
       o.worldToLocal = (v) => { up(); return v.applyMatrix4(_wl.copy(o.matrixWorld).invert()); };
       o.localToWorld = (v) => { up(); return v.applyMatrix4(o.matrixWorld); };
+      // (a world rotation is the rotations up the chain, multiplied: no matrices made or taken
+      // apart for it, so the IK turning one bone after another needs none in between; sizes are uniform)
+      o.getWorldQuaternion = (q) => { q.copy(o.quaternion); for (let p = o.parent; p !== null; p = p.parent) q.premultiply(p.quaternion); return q.normalize(); };
     }
-    const sk = this.mesh.skeleton, R = this._rel;
+    // (each bone on the mesh: its world matrix seen from the mesh's; at most once a pose)
+    const m = this.mesh, sk = m.skeleton, R = B.map(() => new THREE.Matrix4());
+    let rv = -1;
+    const rel = () => {
+      up();
+      if (rv === this._wv) return R;
+      rv = this._wv;
+      _rw.copy(m.matrixWorld).invert();
+      for (let i = 0; i < B.length; i++) R[i].multiplyMatrices(_rw, B[i].matrixWorld);
+      return R;
+    };
     let sv = -1;
     sk.update = () => {
       up();
       if (sv === this._lv) return;
       sv = this._lv;
+      rel();
       const M = sk.boneMatrices, I = sk.boneInverses;
       for (let i = 0; i < R.length; i++) _om.multiplyMatrices(R[i], I[i]).toArray(M, i * 16);
       if (sk.boneTexture !== null) sk.boneTexture.needsUpdate = true;
     };
     // (a vertex skinned on the CPU, in the mesh's space as three's own: the bones relative to the mesh)
-    const m = this.mesh, sI = new THREE.Vector4(), sW = new THREE.Vector4(), b0 = new THREE.Vector3(), t = new THREE.Vector3();
+    const sI = new THREE.Vector4(), sW = new THREE.Vector4(), b0 = new THREE.Vector3(), t = new THREE.Vector3();
     m.applyBoneTransform = (index, v) => {
-      up();
+      rel();
       sI.fromBufferAttribute(m.geometry.attributes.skinIndex, index);
       sW.fromBufferAttribute(m.geometry.attributes.skinWeight, index);
       b0.copy(v); v.set(0, 0, 0);
