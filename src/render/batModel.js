@@ -362,6 +362,10 @@ export function buildBatMesh(cfg = CONFIG.bat) {
   const geo = batGeometry(cfg);
   const mesh = new THREE.Mesh(geo, batMaterial(batTexture(geo)));
   mesh.name = 'bat';
+  // Drawn after the other opaque things, every bat together (opaque draws go in material order, and
+  // a bat made with a figure would split the figures' run: two program switches an eye). Opaque:
+  // the order changes no pixel.
+  mesh.renderOrder = 0.5;
   return mesh;
 }
 
