@@ -14,6 +14,7 @@ import { buildSky } from './sky.js';
 import { buildGround } from './ground.js';
 import { buildStadium } from './stadium.js';
 import { buildCrowd } from './crowd.js';
+import { freezeStatic } from './drawCost.js';
 
 const CZ = PITCH.centerZ;
 const rand = mulberry(7);
@@ -126,6 +127,10 @@ export function buildEnvironment(scene) {
   stadium.add(new THREE.Mesh(merge(ss), vertexColorMat()));
 
   scene.add(root);
+  // Nothing built here moves (the crowd and the LED boards move in their shaders; MR moves
+  // the rig, not this): matrices once, not every frame (drawCost.js). Things added later
+  // (the stumps, the machine, the scoreboard) keep their own updates.
+  freezeStatic(root);
   const env = {
     root, stadium, pitchGroup, crowd, sky, ground,
     screen: { pos: screenPos, look: new THREE.Vector3(0, screenPos.y - 5, CZ) },
