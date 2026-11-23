@@ -412,15 +412,17 @@ export class Sfx {
       const ng = c.createGain(); ng.gain.value = kind === 'machine' ? 0.08 : 0.5;
       n.connect(bp).connect(ng).connect(v.g); srcs.push(n);
       for (const s of srcs) s.start(c.currentTime, s === n ? Math.random() * 3 : undefined);
-      let gone = false, lv = 0, fq = bp.frequency.value;
+      let gone = false, lv = 0, fq = bp.frequency.value, px = NaN, py = NaN, pz = NaN;
       h.set = (pos, level, freq = 0) => {
         if (gone) return;
-        const t = c.currentTime;
         level = clamp(level, 0, 1);
-        if (pos) Sfx.place(v.p, pos.x, pos.y, pos.z);
-        // (called every frame: schedule only a real change)
-        if (Math.abs(level - lv) > 0.004) { lv = level; v.g.gain.cancelScheduledValues(t); v.g.gain.setTargetAtTime(level, t, 0.06); }
-        if (freq && Math.abs(freq - fq) > fq * 0.02) { fq = freq; bp.frequency.cancelScheduledValues(t); bp.frequency.setTargetAtTime(freq, t, 0.06); }
+        // (called every frame: the panner moved, and the clock read, only for a real change -- each is a call into the browser)
+        if (pos && (pos.x !== px || pos.y !== py || pos.z !== pz)) { px = pos.x; py = pos.y; pz = pos.z; Sfx.place(v.p, px, py, pz); }
+        const lvl = Math.abs(level - lv) > 0.004, frq = freq && Math.abs(freq - fq) > fq * 0.02;
+        if (!lvl && !frq) return;
+        const t = c.currentTime;
+        if (lvl) { lv = level; v.g.gain.cancelScheduledValues(t); v.g.gain.setTargetAtTime(level, t, 0.06); }
+        if (frq) { fq = freq; bp.frequency.cancelScheduledValues(t); bp.frequency.setTargetAtTime(freq, t, 0.06); }
       };
       h.stop = () => {
         if (gone) return; gone = true;
