@@ -592,6 +592,7 @@ export class UI {
         } else if (tab === 'batting') {
           add('step', 'contact', 'Contact assist', 'Helps the bat find the ball', { value: s.contactAssist, dec: () => g.actions.cycle('contactAssist', CONTACT, -1), inc: () => g.actions.cycle('contactAssist', CONTACT, 1) });
           add('step', 'batAngle', 'Bat angle', 'Tilt of the bat in your hand', { value: `${signed(s.batAngleDeg, 0)}°`, dec: () => g.actions.setting('batAngleDeg', -2, -30, 30), inc: () => g.actions.setting('batAngleDeg', 2, -30, 30) });
+          add('step', 'batReach', 'Bat reach', 'How far the bat sits out from your body', { value: `${Math.round((s.batReach || 0) * 100)} cm`, dec: () => g.actions.setting('batReach', -0.02, 0, 0.2), inc: () => g.actions.setting('batReach', 0.02, 0, 0.2) });
           add('step', 'batSpeed', 'Bat power', 'How hard your swing hits the ball', { value: `×${s.batSpeedMultiplier.toFixed(2)}`, dec: () => g.actions.setting('batSpeedMultiplier', -0.05, 0.7, 2.5), inc: () => g.actions.setting('batSpeedMultiplier', 0.05, 0.7, 2.5) });
           const gx = s.guardX;
           const guardName = gx < -0.08 ? 'leg' : gx < -0.02 ? 'mid-leg' : gx < 0.03 ? 'middle' : 'mid-off';

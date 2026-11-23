@@ -1044,6 +1044,12 @@ export class Game {
     if (!R.connected || !R.tracked) return;
     _batPose.p.copy(R.gripPose.p);
     _batPose.q.multiplyQuats(R.gripPose.q, this.batOffset()).normalize();
+    // Bat reach (Settings -> Batting): the bat sits this far out in front of your chest from your real
+    // hand (your stance is side-on, chest to the off side; it turns with the stick as your body does).
+    // A controller is held closer to the body than a bat is: without it the blade hangs by your pads.
+    // A fixed shift: it adds no bat speed, and your drawn hands go with the handle.
+    const reach = this.input.xr ? this.settings.batReach || 0 : 0;
+    if (reach > 0) { _batPose.p.x += reach * Math.cos(this.lookYaw); _batPose.p.z -= reach * Math.sin(this.lookYaw); }
     // (the sweep's view drop takes your hands down too: a bat that would go into the turf rides on it
     // instead - lifted by no more than the drop, so a real bat is never moved)
     if (this.rigDrop > 0) {

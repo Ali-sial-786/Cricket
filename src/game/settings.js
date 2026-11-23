@@ -25,6 +25,7 @@ export function defaultSettings() {
     machine: { ...DEFAULT_MACHINE },
     autoFeed: true,
     batAngleDeg: 0,                // extra tilt of the bat relative to calibration
+    batReach: 0.08,                // m: the bat this far out in front of your chest from your real hand (0 - 0.2)
     guardX: -0.05,                 // where your hand sits in stance (x, m): middle-and-leg
     aimAssist: true,               // pull deliveries toward the floor marker (off: the ball goes where you throw it)
     aimMarker: true,               // the floor target (left stick moves it)
