@@ -158,7 +158,9 @@ export class Replay {
       B[o++] = (h.replayVisible ?? r.visible) ? 1 : 0;
       o = put(B, o, r.position, r.quaternion); B[o++] = r.scale.x;
       const hp2 = h.bones.hips.position; B[o++] = hp2.x; B[o++] = hp2.y; B[o++] = hp2.z;
-      for (let i = 0; i < bl.length; i++) { const q = bl[i].quaternion; B[o++] = q.x; B[o++] = q.y; B[o++] = q.z; B[o++] = q.w; }
+      // (THREE.Quaternion's own fields, not its x/y/z/w getters: ~2000 reads a frame, each a call
+      // while this runs below the top tier)
+      for (let i = 0; i < bl.length; i++) { const q = bl[i].quaternion; B[o++] = q._x; B[o++] = q._y; B[o++] = q._z; B[o++] = q._w; }
     }
     for (let k = 0; k < this.extras.length; k++) { const x = this.extras[k]; o = put(B, o, x.position, x.quaternion); B[o++] = x.visible ? 1 : 0; }
     for (let k = 0; k < this.pieces.length; k++) { const m = this.pieces[k]; o = put(B, o, m.position, m.quaternion); }
