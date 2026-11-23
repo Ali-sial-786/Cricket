@@ -8,7 +8,7 @@
 //                   rotation with the bat, hands IK'd to the bat handle, head
 //                   tracking the ball, running between the wickets with the bat
 import * as THREE from 'three';
-import { Humanoid } from './humanoid.js';
+import { Humanoid, ANIM_LOD } from './humanoid.js';
 import { buildBatMesh } from './objects.js';
 import { swingAt } from './swingProfile.js';
 import { battingGripAngle } from './gear.js';
@@ -30,6 +30,9 @@ const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3
 const _q = new THREE.Quaternion();
 const _reach = new THREE.Vector3();
 const _fwd = new THREE.Vector3(), _left = new THREE.Vector3();
+const _cm = new THREE.Matrix4(), _cp = new THREE.Vector3(), _cq = new THREE.Quaternion();
+// The fielders' states in which a far man may be posed less often (FielderActor.calm).
+const CALM_STATES = { set: 1, walkin: 1, return: 1, backup: 1, stumps: 1, backstop: 1 };
 
 function copySnap(src, out = { q: [], hipsY: 0, hipsP: new THREE.Vector3() }) {
   for (let i = 0; i < src.q.length; i++) (out.q[i] ||= new THREE.Quaternion()).copy(src.q[i]);
@@ -56,7 +59,9 @@ export class Actor {
     this._from = null; this._raw = null; this._shown = null; this._key = undefined; this._bt = 0; this._fd = 0; this.slowNext = 0;
     this._react = null; this._moodW = 0; this._mood = null; this._idleK = 1; this.folded = 0;
     this.far = false; this.off = null; this._dlv = 0; this.ready = 0; this.kCrouch = null; this._hw = 0; this._hkind = null; this.task = undefined;
-    this._lodAcc = 0;                          // s since the pose was last made (pose LOD: FieldView, Umpires)
+    // (pose LOD: the keyposes either side of this frame and their times, what he carries on his root at each;
+    // the version of the last pose he was given, and its time)
+    this._lod = { on: false, was: false, k0: null, k1: null, t0: 0, t1: 0, x0: [], x1: [] }; this._poseLv = -1; this._poseT = null; this._hd = 0;
     this.visible = true;
   }
   set visible(v) { if (v && !this._vis) this.cut(); this._vis = v; if (this.h) this.h.visible = v; }
@@ -172,7 +177,8 @@ export class Actor {
   // body can move, blend over 0.18 s from where it was. Call after posing.
   // allow = false only records the pose (e.g. while a hand must hit an exact point).
   // A change of `poseKey` (e.g. clip -> procedural, run -> throw) always cross-fades.
-  smooth(dt, dur = 0.18, allow = true) {
+  // jdt: the frame time the jump is judged on (a pose LOD keypose comes dt after the last, a few frames).
+  smooth(dt, dur = 0.18, allow = true, jdt = dt) {
     const h = this.h;
     const raw = this._raw;
     const switched = this._key !== undefined && this.poseKey !== this._key;
@@ -183,7 +189,7 @@ export class Actor {
       let c = 1;
       for (let i = 0, L = h.boneList; i < L.length; i++) { const d = Math.abs(L[i].quaternion.dot(raw.q[i])); if (d < c) c = d; }
       const jump = 2 * Math.acos(c);
-      if (jump > Math.max(0.7, 25 * dt) || (switched && jump > 0.02)) { this._from = copySnap(this._shown || raw, this._from || undefined); this._bt = 0; this._fd = this.slowNext || dur; this.slowNext = 0; }
+      if (jump > Math.max(0.7, 25 * jdt) || (switched && jump > 0.02)) { this._from = copySnap(this._shown || raw, this._from || undefined); this._bt = 0; this._fd = this.slowNext || dur; this.slowNext = 0; }
     }
     this._raw = h.snapshot(this._raw || undefined);
     if (this._from) {
@@ -195,6 +201,68 @@ export class Actor {
     }
     this._shown = h.snapshot(this._shown || undefined);
   }
+
+  // ---- pose LOD (humanoid.js ANIM_LOD) ----
+  // Keyposes: made every div-th frame for the time they are shown at (a frame or two
+  // ahead), the frames between shown as the pose between the last two (lodShow).
+  // lodNext(div, k, t, dt) -> the time to make a pose for this frame, or null: none (show
+  // the in-between one). div: poseEvery(); k: this figure's place in the stagger. A plain
+  // pose (now) whenever div is 1, or something else has posed him since (a replay, a
+  // ceremony, a handover), or he has just been shown / cut.
+  lodNext(div, k, t, dt) {
+    const h = this.h, L = this._lod;
+    L.was = L.on;
+    if (div <= 1 || this._raw === null || h._dm !== 0 || h._lv !== this._poseLv) { L.on = false; return t; }
+    if (!L.on) return t + (k % div) * dt;             // (into the LOD: the first keypose staggered)
+    if (t < L.t1 + 0.5 * dt) return null;             // (up to the last keypose's time: shown between)
+    return t + (div - 1) * dt;
+  }
+  // Before a keypose is made: the pose on show now is where the frames up to it start from
+  // (entering the LOD; afterwards that is the last keypose).
+  lodBefore(t, dt) {
+    const L = this._lod;
+    if (L.on) { const k = L.k0; L.k0 = L.k1; L.k1 = k; L.t0 = L.t1; this.extrasOnRoot(L.x0, L.x1); }
+    else { L.k0 = this.h.snapshot(L.k0 || undefined); L.t0 = t - dt; this.extrasOnRoot(null, L.x0); }
+  }
+  // A keypose was made for time tk: kept, and this frame shown between.
+  lodKey(tk, t) {
+    const L = this._lod;
+    L.k1 = this.h.snapshot(L.k1 || undefined); L.t1 = tk; L.on = true;
+    this.extrasOnRoot(null, L.x1);
+    this.h.root.position.y -= this.h.guardLift;       // (back on the level: the guard lifts it for the pose shown)
+    this.lodShow(t);
+  }
+  // This frame's pose: between the last two keyposes, by time; the root placed already,
+  // on the level (the ground guard lifts it for this pose).
+  lodShow(t) {
+    const h = this.h, L = this._lod, B = h.boneList, f = L.t1 > L.t0 ? clamp((t - L.t0) / (L.t1 - L.t0), 0, 1) : 1;
+    for (let i = 0; i < B.length; i++) B[i].quaternion.slerpQuaternions(L.k0.q[i], L.k1.q[i], f);
+    h.bones.hips.position.lerpVectors(L.k0.hipsP, L.k1.hipsP, f);
+    h.syncShadow();
+    const X = h.extras;
+    if (X) for (let i = 0; i < X.length; i++) {
+      const a = L.x0[i], b = L.x1[i];
+      if (!a || !b) continue;
+      _cp.lerpVectors(a.p, b.p, f); _cq.slerpQuaternions(a.q, b.q, f);
+      X[i].position.copy(_cp).applyMatrix4(h.root.matrixWorld); X[i].quaternion.copy(h.root.quaternion).multiply(_cq);
+    }
+    this._poseLv = h._lv;
+  }
+  // Where each thing he carries (his bat) is on his root (into `out`; `from` given: just copied from it).
+  extrasOnRoot(from, out) {
+    const X = this.h.extras;
+    if (!X) return;
+    const r = this.h.root;
+    for (let i = 0; i < X.length; i++) {
+      const o = out[i] || (out[i] = { p: new THREE.Vector3(), q: new THREE.Quaternion() });
+      if (from) { if (from[i]) { o.p.copy(from[i].p); o.q.copy(from[i].q); } continue; }
+      r.updateMatrixWorld();
+      o.p.copy(X[i].position).applyMatrix4(_cm.copy(r.matrixWorld).invert());
+      o.q.copy(r.quaternion).invert().multiply(X[i].quaternion);
+    }
+  }
+  // After any pose this figure was given: what lodNext compares.
+  posed(t) { this._poseLv = this.h._lv; this._poseT = t; }
 
   handPos(out, side = 'R') {
     this.h.update();
@@ -213,17 +281,13 @@ export class FielderActor extends Actor {
   }
   // s = logic state {x, z, face, speed, state, action, crouch, armsUp}; ctx = {t, ball, delivering}
   update(dt, s, ctx) {
+    this.move(dt, s, ctx);
+    this.pose(dt, s, ctx, dt);
+  }
+  // The pose for ctx.t (pose LOD: perhaps a frame or two ahead), dt since the last pose was
+  // made (the pose's own rates); fdt: this frame's (what is walked off a lunge).
+  pose(dt, s, ctx, fdt) {
     const h = this.h, t = ctx.t;
-    this.pos.set(s.x, 0, s.z);
-    this.speed = s.speed;
-    this.turnToward(s.face, dt, 12);                 // (the logic turns him at a body's pace: Fielding f.yaw)
-    this.gait(dt);
-    // (set as the ball is bowled; over the stumps waiting for a throw, part way: gloves up, knees a little bent)
-    // (each man gets down in his own time, a little before or after the next: the field never drops as one)
-    this._dlv = ctx.delivering ? (this._dlv || 0) + dt : 0;
-    const lag = this.keeper ? 0 : 0.35 * hash01(this.seed, 3.3);
-    const wantReady = (s.state === 'set' || s.state === 'walkin' || s.state === 'ready') && ctx.delivering && this._dlv >= lag ? 1 : s.await && this.speed < 1.2 ? (this.keeper ? 0.32 : 0.45) : 0;
-    this.ready += clamp(wantReady - this.ready, -dt * 3, dt * 4);
     // A dive carries the body off its spot (offX / offZ). When the dive is over
     // the body is not put back: what is left of the offset is walked off.
     let offX = 0, offZ = 0, lunging = false, gest = false, idleOK = false;
@@ -409,13 +473,7 @@ export class FielderActor extends Actor {
     // gets there at a lunge's pace, never in one frame (the keeper's read of
     // the ball can change from a take to a dive, or its reach when the ball
     // arrives), and once the lunge is over what is left is walked off.
-    const O = this.off || (this.off = { x: 0, z: 0 });
-    {
-      const tx = lunging ? offX : 0, tz = lunging ? offZ : 0;
-      const ex = tx - O.x, ez = tz - O.z, d = Math.hypot(ex, ez), st = (lunging ? LUNGE_RATE : 1.6) * dt;
-      if (d <= st) { O.x = tx; O.z = tz; } else { O.x += ex / d * st; O.z += ez / d * st; }
-      h.root.position.x += O.x - offX; h.root.position.z += O.z - offZ;
-    }
+    this.walkOff(fdt, lunging, offX, offZ);
     // Reacting to what has happened, or idling between balls; eyes on the ball while it is live.
     const mood = gest ? this.bodyLanguage(t, dt, idleOK && !s.huddle, this.speed > 0.25) : null;
     // The wicket huddle (Fielding.celebrateWicket): high fives in the ring, arms up in the middle, a clap from the deep.
@@ -423,8 +481,52 @@ export class FielderActor extends Actor {
     if (s.huddle) this._hkind = s.huddle === 4 ? (this.seed % 2 ? 'head' : 'hips') : s.huddle === 2 ? 'clap' : s.huddle === 3 || this.seed % 3 === 0 ? 'arms' : 'highfive';
     if (this._hw > 0.001 && this._hkind) poseArms(h, this.forward(_fwd), this._hkind, this._hw, t + this.idleOff, this._gs);
     this.watch(ctx.ball, dt, mood);
-    this.smooth(dt);                 // (far ones too: a change of pose snapping in one frame shows even at 50 m)
+    this.smooth(dt, 0.18, true, fdt);  // (far ones too: a change of pose snapping in one frame shows even at 50 m)
     h.syncShadow();
+    this.posed(t);
+  }
+  // Every frame, posed or not: where he is, his turn and stride, how far down into his set he is.
+  move(dt, s, ctx) {
+    this.pos.set(s.x, 0, s.z);
+    this.speed = s.speed;
+    this.turnToward(s.face, dt, 12);                 // (the logic turns him at a body's pace: Fielding f.yaw)
+    this.gait(dt);
+    // (set as the ball is bowled; over the stumps waiting for a throw, part way: gloves up, knees a little bent)
+    // (each man gets down in his own time, a little before or after the next: the field never drops as one)
+    this._dlv = ctx.delivering ? (this._dlv || 0) + dt : 0;
+    const lag = this.keeper ? 0 : 0.35 * hash01(this.seed, 3.3);
+    const wantReady = (s.state === 'set' || s.state === 'walkin' || s.state === 'ready') && ctx.delivering && this._dlv >= lag ? 1 : s.await && this.speed < 1.2 ? (this.keeper ? 0.32 : 0.45) : 0;
+    this.ready += clamp(wantReady - this.ready, -dt * 3, dt * 4);
+  }
+  // The pose LOD's frame (FieldView): moved every frame; a keypose made for time tk (null:
+  // none this frame, the one between shown), its stride as it will be then.
+  lodFrame(dt, s, ctx, tk, lctx) {
+    this.move(dt, s, ctx);
+    this._hd = this.heading;
+    const t = ctx.t;
+    if (tk === null) { this.apply(); this.walkOff(dt, false, 0, 0); this.lodShow(t); return; }
+    this.lodBefore(t, dt);
+    // (his stride and how far down into his set he is, as they will be then)
+    const ph = this.phase, rd = this.ready, dl = this._dlv, ahead = tk - t;
+    if (ahead > 0) this.move(ahead, s, ctx);
+    this.pos.set(s.x, 0, s.z); this.heading = this._hd;
+    lctx.t = tk; lctx.ball = ctx.ball; lctx.delivering = ctx.delivering; lctx.cam = ctx.cam; lctx.others = ctx.others;
+    this.pose(Math.max(1e-4, tk - (this._poseT ?? t - dt)), s, lctx, dt);
+    this.phase = ph; this.ready = rd; this._dlv = dl;
+    this.lodKey(tk, t);
+  }
+  // Where the body is off its spot (dt: this frame's).
+  walkOff(dt, lunging, offX, offZ) {
+    const O = this.off || (this.off = { x: 0, z: 0 }), r = this.h.root.position;
+    const tx = lunging ? offX : 0, tz = lunging ? offZ : 0;
+    const ex = tx - O.x, ez = tz - O.z, d = Math.sqrt(ex * ex + ez * ez), st = (lunging ? LUNGE_RATE : 1.6) * dt;
+    if (d <= st) { O.x = tx; O.z = tz; } else { O.x += ex / d * st; O.z += ez / d * st; }
+    r.x += O.x - offX; r.z += O.z - offZ;
+  }
+  // Calm enough for the pose LOD: nothing to do with the ball, no reaction, standing or on his way at a jog.
+  calm(s, ctx) {
+    return !s.action && !s.leap && !s.await && !s.huddle && !s.armsUp && !s.ceremony && CALM_STATES[s.state] === 1 && s.speed < ANIM_LOD.calmSpeed
+      && !(this.keeper && (ctx.ball || ctx.delivering)) && this._moodW < 0.01 && this._hw < 0.001;
   }
   // Full length in a dive (k as poseDive): the trunk down on the turf, not
   // propped up on the lower leg; the legs bend to stay out of the ground.

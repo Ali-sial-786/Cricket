@@ -6,6 +6,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { Actor } from './actors.js';
+import { Humanoid } from './humanoid.js';
 import { plantFeet, heelFor, clamp, mix } from './anim.js';
 
 // ---------------------------------------------------------------- helmet
@@ -224,12 +225,13 @@ export class NearCull {
   // humans: Humanoid list; extras(h) -> extra objects that go with a figure (its bat).
   // keepExtras: leave the bats drawn (replays through a batter's eyes).
   update(eye, humans, radius = 0.6, keepExtras = false) {
+    if (eye) Humanoid.eye = eye;                  // (where your eyes are: the pose LOD's distances)
     for (const h of humans) {
       let near = false;
       if (h.root.visible && eye && !h.ghost) {
         h.bones.neck.getWorldPosition(_a);
         const dx = _a.x - eye.x, dz = _a.z - eye.z, dy = _a.y - eye.y;
-        near = Math.hypot(dx, dz) < radius && dy > -0.9 && dy < 0.5;
+        near = dx * dx + dz * dz < radius * radius && dy > -0.9 && dy < 0.5;
       }
       const key = near ? (keepExtras ? 1 : 2) : 0;
       if (key !== (this.hidden.get(h) || 0)) {

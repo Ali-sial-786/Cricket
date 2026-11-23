@@ -2,6 +2,7 @@
 import * as THREE from 'three';
 import { Pose } from '../physics/math.js';
 import { FielderActor, BowlerActor, BatterActor } from './actors.js';
+import { poseEvery } from './humanoid.js';
 import { toV3, toQ } from './util.js';
 import { sstep, clamp } from './anim.js';
 import { CONFIG } from '../config.js';
@@ -246,10 +247,13 @@ export class FieldView {
     if (!this.visible) return;
     for (let i = 0; i < this.actors.length && i < states.length; i++) {
       const a = this.actors[i], s = states[i];
-      a.far = ctx.cam ? Math.hypot(s.x - ctx.cam.x, s.z - ctx.cam.z) > CONFIG.render.animLodDistance && !s.action : false;
+      a.far = ctx.cam ? (s.x - ctx.cam.x) ** 2 + (s.z - ctx.cam.z) ** 2 > CONFIG.render.animLodDistance ** 2 && !s.action : false;
       a.visible = !s.hidden;
       if (!a.visible) { a.place(s.x, s.z, s.face); continue; }
-      a.update(dt, s, ctx);
+      // (a far, calm man: his pose made every 2nd / 3rd frame, a frame or two ahead, and shown between; ANIM_LOD)
+      const div = poseEvery(a.h.root.position, a.calm(s, ctx)), tk = a.lodNext(div, i, ctx.t, dt);
+      if (div > 1) a.lodFrame(dt, s, ctx, tk, _lctx);
+      else { a.move(dt, s, ctx); a.pose(a._lod.was ? Math.max(1e-4, ctx.t - a._poseT) : dt, s, ctx, dt); }
     }
     this.keepBodiesApart(ctx.others);
   }
@@ -317,6 +321,7 @@ export class FieldView {
   }
 }
 
+const _lctx = { t: 0, ball: null, delivering: false, cam: null, others: null };
 const BODY_PTS = ['hips', 'chest', 'head', 'kneeL', 'kneeR', 'ankleL', 'ankleR', 'handL', 'handR'];
 const _pts = BODY_PTS.map(() => new THREE.Vector3()), _bodies = [], _hipsW = [], _far = new THREE.Vector3(1e4, 0, 1e4);
 const BODY_GAP = 0.32;       // any joint of a lunging body to another's trunk axis (trunk ~0.17 + limb ~0.1 + a little)

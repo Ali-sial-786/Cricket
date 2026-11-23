@@ -1158,6 +1158,7 @@ export class Humanoid {
   // (h.lodNear: a figure the player watches closely keeps full detail further out).
   // (Humanoid.lodNear: the quality level's near distance, render/quality.js; a figure's own lodNear wins)
   static updateLods(viewer, nearDist = Humanoid.lodNear) {
+    Humanoid.frame = (Humanoid.frame + 1) | 0;    // (once a frame: the pose LOD's stagger)
     if (SHARED) SHARED.uTime.value = (performance.now() / 1000) % 1000;
     for (const h of Humanoid.all) {
       if (!h.root.visible) continue;
@@ -1275,11 +1276,15 @@ export class Humanoid {
   // turf (see groundGuard), and the contact shadow follows the hips.
   syncShadow() {
     this.groundGuard();                           // (hidden too: replays record the pose)
+    this.placeShadow();
+  }
+  // The contact shadow under the hips (the matrices fresh).
+  placeShadow() {
     if (!this.root.visible) return;
-    _v.setFromMatrixPosition(this.bones.hips.matrixWorld);      // (fresh: groundGuard)
+    this.update();
+    _v.setFromMatrixPosition(this.bones.hips.matrixWorld);
     ShadowPool.set(this.shadowSlot, _v.x, _v.z, true, this.root.scale.x * (0.8 + 0.4 * Math.min(1, (_v.y - this.root.position.y) / 1.0)) * (this.ghost ? 1 : this.fade ?? 1));
   }
-
   // Lowest point of the posed body (world y): every bone's hull points
   // (vertex extremes, gear included; see hullFor) carried rigidly by the bone.
   // Bones whose joint is higher above the ground than their hull reaches are skipped.
@@ -1583,3 +1588,24 @@ function setBoneWorld(bone, x, y, z) {
 }
 Humanoid.all = [];
 Humanoid.lodNear = 13;          // m: full detail inside this (the quality level sets it; render/quality.js)
+Humanoid.eye = null;            // your eyes (world; NearCull.update keeps it: the game's eye, the replay's or a ceremony's camera)
+Humanoid.frame = 0;
+
+// Pose LOD: a figure that is far from your eyes and calm (standing, walking in, jogging
+// back: nothing he is doing with the ball, no signal, no celebration) has his full-body
+// pose made every midDiv-th frame beyond `near` m and every farDiv-th beyond `far` m,
+// staggered across the figures, each made for the time it is reached (that many frames
+// ahead); every frame in between shows the pose between the last two, by time (Actor.lodShow),
+// and his root (place, turn, stride), ground guard and shadow are made every frame. So
+// what is drawn, and what the replay records, moves every frame. Never inside
+// ANIM_LOD_MIN m. on = false: every pose every frame. A lever for the quality governor
+// (render/perf.js): `near` / `far` nearer, the divisors larger, when the CPU is short.
+export const ANIM_LOD = { on: true, near: 18, far: 40, midDiv: 2, farDiv: 3, calmSpeed: 4.5 };
+export const ANIM_LOD_MIN = 12;
+// Every how many frames to pose a figure whose root is at p (x, z), calm or not.
+export function poseEvery(p, calm) {
+  const L = ANIM_LOD, e = Humanoid.eye;
+  if (!calm || !L.on || !e) return 1;
+  const dx = p.x - e.x, dz = p.z - e.z, d2 = dx * dx + dz * dz, n = Math.max(L.near, ANIM_LOD_MIN);
+  return d2 < n * n ? 1 : d2 < L.far * L.far ? L.midDiv : L.farDiv;
+}
