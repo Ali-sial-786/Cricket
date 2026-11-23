@@ -261,24 +261,25 @@ export class FieldView {
   // spot (a dive's lunge, a stumping lunge): if that would put any part of the
   // posed body into someone else (taken as a standing trunk round the hips),
   // the lunge is shortened until it doesn't.
-  keepBodiesApart(others = []) {
-    const B = _bodies; B.length = 0;
-    this.actors.forEach((a, i) => B.push(a.visible ? a.h.bones.hips.getWorldPosition(_hipsW[i] || (_hipsW[i] = new THREE.Vector3())) : _far));
-    for (const o of others) B.push(o);
-    this.actors.forEach((a, i) => {
-      if (!a.visible) return;
+  keepBodiesApart(others = NO_OBS) {
+    const B = _bodies, A = this.actors; B.length = 0;
+    for (let i = 0; i < A.length; i++) B.push(A[i].visible ? A[i].h.bones.hips.getWorldPosition(_hipsW[i] || (_hipsW[i] = new THREE.Vector3())) : _far);
+    for (let j = 0; j < others.length; j++) B.push(others[j]);
+    for (let i = 0; i < A.length; i++) {
+      const a = A[i];
+      if (!a.visible) continue;
       const r = a.h.root.position, ox = r.x - a.pos.x, oz = r.z - a.pos.z;
-      if (ox * ox + oz * oz < 1e-4) return;
+      if (ox * ox + oz * oz < 1e-4) continue;
       a.h.update();
-      const pts = BODY_PTS.map((n, j) => a.h.worldPos(n, _pts[j]));
+      for (let j = 0; j < BODY_PTS.length; j++) a.h.worldPos(BODY_PTS[j], _pts[j]);
       let k = 1;
       for (; k > 0; k -= 0.1) {
         const dx = ox * (k - 1), dz = oz * (k - 1);
         let hit = false;
         for (let j = 0; j < B.length && !hit; j++) {
-          if (j === i && j < this.actors.length) continue;
+          if (j === i && j < A.length) continue;
           const b = B[j];
-          for (const p of pts) if (p.y < 1.9 && hyp(p.x + dx - b.x, p.z + dz - b.z) < BODY_GAP) { hit = true; break; }
+          for (let n = 0; n < _pts.length; n++) { const p = _pts[n]; if (p.y < 1.9 && hyp(p.x + dx - b.x, p.z + dz - b.z) < BODY_GAP) { hit = true; break; } }
         }
         if (!hit) break;
       }
@@ -288,7 +289,7 @@ export class FieldView {
         a.h.root.updateMatrixWorld(true);
         a.h.syncShadow();
       }
-    });
+    }
   }
   // Everyone stood where the logic has him now, standing still (a skip to the next ball, in the dark).
   placeAll(states) {

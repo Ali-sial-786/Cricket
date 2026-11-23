@@ -90,12 +90,12 @@ function shadowMaterial() {
 const _bc = CONFIG.bat, _sh = _bc.gripFromHandleTop - _bc.handleLength;
 const BAT = { a: new THREE.Vector3(0, _sh - _bc.bladeLength, 0), b: new THREE.Vector3(0, _sh, 0), c: new THREE.Vector3(0, _bc.gripFromHandleTop, 0), r: _bc.bladeWidth * 0.36, rArm: _bc.handleRadius };
 const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3(), _m = new THREE.Vector3();
-// A bone's shadow on the turf into d[o + k], d[o + k + 1]; returns the bone's height (+ lift).
-// (a plain function: a closure made per figure per frame was garbage)
-function P(d, o, bone, k, lift = 0) {
-  const e = bone.matrixWorld.elements, y = e[13] + lift;
+// A bone's shadow on the turf into d[o + k], d[o + k + 1].
+// (a plain function: a closure made per figure per frame was garbage; nothing returned: a number
+// returned from a call that is not inlined is a heap number)
+function P(d, o, bone, k) {
+  const e = bone.matrixWorld.elements, y = e[13];
   d[o + k] = e[12] + y * SHADOW_X; d[o + k + 1] = e[14] + y * SHADOW_Z;
-  return y;
 }
 
 export const ShadowPool = {
@@ -147,7 +147,8 @@ export const ShadowPool = {
     }
     const s = h.root.scale.x, B = h.bones;
     const fade = h.ghost ? 1 : h.fade ?? 1;
-    const yl = P(d, o, B.ankleL, 0), yr = P(d, o, B.ankleR, 2);
+    P(d, o, B.ankleL, 0); P(d, o, B.ankleR, 2);
+    const yl = B.ankleL.matrixWorld.elements[13], yr = B.ankleR.matrixWorld.elements[13];
     P(d, o, B.kneeL, 4); P(d, o, B.kneeR, 6); P(d, o, B.hipL, 8); P(d, o, B.hipR, 10);
     P(d, o, B.hips, 12); P(d, o, B.neck, 14);
     // Head: up to near the crown, on along the neck's line from the head joint.

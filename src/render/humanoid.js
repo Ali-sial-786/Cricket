@@ -1147,7 +1147,7 @@ export class Humanoid {
     // shape, so the per-frame code that reads and writes them stays monomorphic and boxes nothing)
     this.guardLift = 0; this.lowBone = -1; this.ghost = false; this.fade = 1;
     this.replayVisible = undefined; this.lodNear = undefined; this.extras = null;
-    this._hullGeo = null; this._hull = null; this._low = 0; this._lowV = -1; this._lowB = -1;
+    this._hullGeo = null; this._hull = null; this._low = 0.5; this._lowV = -1; this._lowB = -1; this._lowOut = 0.5;
     this._clipRig = null; this._shotLeg = null; this._lieIdx = null; this._kneeIdx = null; this._diveIdx = null; this._shinIx = null;
     u.uGloved.value = gloves ? 1 : 0;
     this.setNumber(team === 'umpire' ? 0 : 1 + Math.floor(rnd(3) * 98));
@@ -1296,9 +1296,12 @@ export class Humanoid {
   // usually are), so for a figure on its feet the first few set `low` and every other
   // bone's joint is too high for its hull to reach under it. Unchanged since the
   // last call (the same world matrices): the same answer.
-  lowest(only = null) {
+  lowest(only = null) { this.lowestInto(only); return this._lowOut; }
+  // (the work: the answer left in _lowOut, not returned -- a number returned from a call
+  // that is not inlined is a new heap number, several a figure a frame)
+  lowestInto(only) {
     this.update();
-    if (!only && this._lowV === this._wv) { this.lowBone = this._lowB; return this._low; }
+    if (!only && this._lowV === this._wv) { this.lowBone = this._lowB; this._lowOut = this._low; return; }
     // (the full-detail mesh's hull, whatever LOD is drawn; looked up again only when the mesh changes:
     // geometryFor builds a key string, garbage every frame for every figure)
     if (this._hullGeo !== this.mesh.geometry) { this._hullGeo = this.mesh.geometry; this._hull = hullFor(geometryFor(this.opts, 0)); }
@@ -1325,7 +1328,7 @@ export class Humanoid {
       }
     }
     if (!only) { this._low = low; this._lowV = v; this._lowB = this.lowBone; }
-    return low;
+    this._lowOut = low;
   }
 
   // A swinging (not planted) foot that dips into the turf: bend that leg
@@ -1365,7 +1368,8 @@ export class Humanoid {
   // or a blend the animation code did not foresee), lift the whole figure so
   // its lowest point is on it. tol: what may go under (soles / pads press in).
   groundGuard(tol = 0.002) {
-    const low = this.lowest();
+    this.lowestInto(null);
+    const low = this._lowOut;
     this.lowY = low;
     this.guardLift = low < -tol ? -(low + tol) : 0;
     if (low < -tol) {
