@@ -11,6 +11,7 @@
 // leaves its feet when it jumps or dives, and sticks (bat, stumps) use the
 // shin slot alone.
 import * as THREE from 'three';
+import { hyp } from './anim.js';
 import { SHADOW_X, SHADOW_Z, shadeRatio, standShade } from './lighting.js';
 import { PITCH } from '../physics/pitch.js';
 import { CONFIG } from '../config.js';
@@ -222,7 +223,7 @@ export const ShadowPool = {
 // sharp on the ground, leaving the ball as it climbs and softening a little
 // with height (the sun's penumbra) but never fading out: it is the depth cue
 // for judging a catch or a bouncer.
-const _SUN_LEN = Math.hypot(SHADOW_X, SHADOW_Z), _SUN_YAW = Math.atan2(SHADOW_X, SHADOW_Z), _STRETCH = Math.sqrt(1 + _SUN_LEN * _SUN_LEN);
+const _SUN_LEN = hyp(SHADOW_X, SHADOW_Z), _SUN_YAW = Math.atan2(SHADOW_X, SHADOW_Z), _STRETCH = Math.sqrt(1 + _SUN_LEN * _SUN_LEN);
 export function ballShadowMesh() {
   const geo = new THREE.PlaneGeometry(2, 2);
   geo.rotateX(-Math.PI / 2);

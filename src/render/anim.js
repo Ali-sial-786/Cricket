@@ -10,6 +10,12 @@ import * as THREE from 'three';
 export const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 export const sstep = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
 export const mix = (a, b, t) => a + (b - a) * t;
+// Names by side without making a string a frame: nm('knee', 'L') === 'kneeL' (made once, then looked up).
+const NM = {};
+export const nm = (p, s) => (NM[p] || (NM[p] = { L: p + 'L', R: p + 'R' }))[s];
+// (Math.hypot makes garbage in V8; these are the same lengths for the sizes here)
+export const hyp = (x, y) => Math.sqrt(x * x + y * y), hyp3 = (x, y, z) => Math.sqrt(x * x + y * y + z * z);
+export const SIDES = ['L', 'R'], SIDES_RL = ['R', 'L'], SIDE_SG = [['L', 1], ['R', -1]];
 // Piecewise-linear-in-time keyframes with smooth easing: keys = [[t, value], ...]
 export function keys(k, t) {
   if (t <= k[0][0]) return k[0][1];
@@ -84,9 +90,10 @@ const _ft = new THREE.Vector3(), _pole = new THREE.Vector3(), _fq = new THREE.Qu
 // shins lean so far forward that flat feet would put the pads into the turf).
 export function plantFeet(h, footL, footR, kneeForward, heel = 0) {
   h.update();
-  for (const [side, target] of [['L', footL], ['R', footR]]) {
+  for (let n = 0; n < 2; n++) {
+    const side = n ? 'R' : 'L', target = n ? footR : footL;
     if (!target) continue;
-    h.worldPos('knee' + side, _pole).add(kneeForward);
+    h.worldPos(nm('knee', side), _pole).add(kneeForward);
     _ft.copy(target);
     _ft.y += (h.ankleHeight + heel) * h.root.scale.y;      // ankle height above the sole
     h.ikLeg(side, _ft, _pole);

@@ -11,6 +11,7 @@
 // The model's bind pose is an A-pose; the skeleton's inverse bind matrices
 // carry the difference, so animation never needs to know.
 import * as THREE from 'three';
+import { nm, hyp, hyp3 } from './anim.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { buildGear } from './gear.js';
 import { TEAMS, SKIN_TONES, HAIR, lookFor, lookTextures, ATLAS, glyphOf } from './playerLook.js';
@@ -229,7 +230,7 @@ function adultFace(lods, meta) {
       // a brow ridge over the eyes, a real bridge to the nose, a slightly larger nose
       z += 0.0045 * g((y - eyeY - 0.024) / 0.011) * ss(0.065, 0.04, ax) * ss(0.11, 0.15, z);
       z += 0.005 * g(ax / 0.009) * ss(noseY - 0.005, noseY + 0.01, y) * ss(eyeY + 0.015, eyeY - 0.002, y) * ss(0.13, 0.16, z);
-      z += 0.003 * g(Math.hypot(ax / 0.014, (y - noseY - 0.004) / 0.012)) * ss(0.14, 0.165, z);
+      z += 0.003 * g(hyp(ax / 0.014, (y - noseY - 0.004) / 0.012)) * ss(0.14, 0.165, z);
       // neck: a little thicker between the collar and the jaw
       const neck = ss(1.455, 1.485, y) * ss(1.54, 1.51, y) * (1 - cheek);
       x *= 1 + 0.03 * neck;
@@ -301,7 +302,7 @@ function hairEdge(g) {
   const E = [...edge];
   for (let v = 0; v < P.count; v++) {
     let d = Infinity;
-    for (const e of E) d = Math.min(d, Math.hypot(P.getX(v) - P.getX(e), P.getY(v) - P.getY(e), P.getZ(v) - P.getZ(e)));
+    for (const e of E) d = Math.min(d, hyp3(P.getX(v) - P.getX(e), P.getY(v) - P.getY(e), P.getZ(v) - P.getZ(e)));
     C.setX(v, Math.min(1, (E.length ? d : 1) / 0.03));
   }
 }
@@ -341,13 +342,13 @@ function weldNormals(g, cosMin, recompute = true, smooth = 0) {
       for (let v = 0; v < P.count; v++) {
         let x = prev[v * 3] * 2, y = prev[v * 3 + 1] * 2, z = prev[v * 3 + 2] * 2;
         for (const w of nb[v]) { const d = prev[v * 3] * prev[w * 3] + prev[v * 3 + 1] * prev[w * 3 + 1] + prev[v * 3 + 2] * prev[w * 3 + 2]; if (d > cosMin) { x += prev[w * 3]; y += prev[w * 3 + 1]; z += prev[w * 3 + 2]; } }
-        const l = Math.hypot(x, y, z) || 1; out[v * 3] = x / l; out[v * 3 + 1] = y / l; out[v * 3 + 2] = z / l;
+        const l = hyp3(x, y, z) || 1; out[v * 3] = x / l; out[v * 3 + 1] = y / l; out[v * 3 + 2] = z / l;
       }
       // (vertices at one place keep one normal)
       const acc = new Float32Array(G * 3);
       for (let v = 0; v < P.count; v++) for (let k = 0; k < 3; k++) acc[gid[v] * 3 + k] += out[v * 3 + k];
       for (let v = 0; v < P.count; v++) {
-        const q = gid[v] * 3, l = Math.hypot(acc[q], acc[q + 1], acc[q + 2]) || 1;
+        const q = gid[v] * 3, l = hyp3(acc[q], acc[q + 1], acc[q + 2]) || 1;
         const d = (acc[q] * out[v * 3] + acc[q + 1] * out[v * 3 + 1] + acc[q + 2] * out[v * 3 + 2]) / l;
         if (d > cosMin) for (let k = 0; k < 3; k++) out[v * 3 + k] = acc[q + k] / l;
       }
@@ -1331,32 +1332,32 @@ export class Humanoid {
   // (IK, same knee direction, same foot orientation) so the sole clears it.
   // pole: the knee's IK pole to keep (default: out along the knee's current direction).
   clearFoot(side, pole = null) {
-    const ia = RIG.index['ankle' + side], ik = RIG.index['knee' + side];
+    const ia = RIG.index[nm('ankle', side)], ik = RIG.index[nm('knee', side)];
     const low = this.lowest(FOOT_ONLY[side] || (FOOT_ONLY[side] = [ia, ik]));
     if (low >= 0) return 0;
-    const ank = this.bones['ankle' + side];
+    const ank = this.bones[nm('ankle', side)];
     ank.getWorldQuaternion(_bq);
     ank.getWorldPosition(_T); _T.y -= low;
-    this.bones['knee' + side].getWorldPosition(_v);
-    this.bones['hip' + side].getWorldPosition(_v2);
+    this.bones[nm('knee', side)].getWorldPosition(_v);
+    this.bones[nm('hip', side)].getWorldPosition(_v2);
     _v.add(_v.clone().sub(_v2).setY(0).multiplyScalar(2));       // pole: out along the knee's current direction
     this.ikLeg(side, _T, pole || _v);
-    this.setWorldQuat('ankle' + side, _bq);
+    this.setWorldQuat(nm('ankle', side), _bq);
     return -low;
   }
 
   // The same for an arm (a dive's leading arm stretched along the turf):
   // bend it so the hand and forearm stay on top of the turf.
   clearHand(side) {
-    const ih = RIG.index['hand' + side], ie = RIG.index['elbow' + side];
+    const ih = RIG.index[nm('hand', side)], ie = RIG.index[nm('elbow', side)];
     const low = this.lowest(HAND_ONLY[side] || (HAND_ONLY[side] = [ih, ie]));
     if (low >= 0) return 0;
-    const hand = this.bones['hand' + side];
+    const hand = this.bones[nm('hand', side)];
     hand.getWorldQuaternion(_bq);
     hand.getWorldPosition(_T); _T.y -= low;
-    this.bones['elbow' + side].getWorldPosition(_v); _v.y -= 0.3;
+    this.bones[nm('elbow', side)].getWorldPosition(_v); _v.y -= 0.3;
     this.ikArm(side, _T, _v);
-    this.setWorldQuat('hand' + side, _bq);
+    this.setWorldQuat(nm('hand', side), _bq);
     return -low;
   }
 
@@ -1515,7 +1516,7 @@ export class Humanoid {
     neck.getWorldPosition(_v);
     _v2.subVectors(target, _v).applyQuaternion(_pq);
     const yaw = clamp(Math.atan2(_v2.x, _v2.z), -maxYaw, maxYaw) * amount;
-    const pitch = clamp(Math.atan2(-_v2.y, Math.hypot(_v2.x, _v2.z)), -0.7, 0.8) * amount;
+    const pitch = clamp(Math.atan2(-_v2.y, hyp(_v2.x, _v2.z)), -0.7, 0.8) * amount;
     this.rot('neck', pitch * 0.4, yaw * 0.45, 0, 'YXZ');
     this.rot('head', pitch * 0.6, yaw * 0.55, 0, 'YXZ');
   }
@@ -1525,11 +1526,11 @@ export class Humanoid {
   // Two-bone IK: limb = 'L' | 'R' arm, or 'legL' | 'legR'.
   ikArm(side, target, pole) {
     const b = this.bones;
-    solveTwoBone(b['shoulder' + side], b['elbow' + side], b['hand' + side], target, pole, 1);
+    solveTwoBone(b[nm('shoulder', side)], b[nm('elbow', side)], b[nm('hand', side)], target, pole, 1);
   }
   ikLeg(side, target, pole) {
     const b = this.bones;
-    solveTwoBone(b['hip' + side], b['knee' + side], b['ankle' + side], target, pole, -1);
+    solveTwoBone(b[nm('hip', side)], b[nm('knee', side)], b[nm('ankle', side)], target, pole, -1);
   }
 
   // Set a bone's world orientation.

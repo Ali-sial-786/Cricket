@@ -12,10 +12,7 @@ import { Humanoid, ANIM_LOD } from './humanoid.js';
 import { buildBatMesh } from './objects.js';
 import { swingAt } from './swingProfile.js';
 import { battingGripAngle } from './gear.js';
-import {
-  poseIdle, poseLocomotion, plantFeet, heelFor, poseReady, poseThrow, poseDive, posePickup,
-  poseCelebrate, strideFor, keys, sstep, clamp, mix,
-} from './anim.js';
+import { poseIdle, poseLocomotion, plantFeet, heelFor, poseReady, poseThrow, poseDive, posePickup, poseCelebrate, strideFor, keys, sstep, clamp, mix, nm, SIDES, SIDES_RL, SIDE_SG, hyp } from './anim.js';
 import { clipsReady, applyClip, applyLocomotion, strideAt, clipInfo, settle, MASK_ALL, MASK_LEGS } from './clips.js';
 import { shotFor, poseShot } from './shots.js';
 import { steadyKnees, legsNow, legsBlend, kneeWay, footYaw } from './legs.js';
@@ -31,6 +28,7 @@ const _q = new THREE.Quaternion();
 const _reach = new THREE.Vector3();
 const _fwd = new THREE.Vector3(), _left = new THREE.Vector3();
 const _cm = new THREE.Matrix4(), _cp = new THREE.Vector3(), _cq = new THREE.Quaternion();
+const TRUNK_SHARE = [['spine', 0.45], ['chest', 0.55]], TRUNK_SHARE2 = [['spine', 0.55], ['chest', 0.45]];   // (a turn of the trunk shared out)
 // The fielders' states in which a far man may be posed less often (FielderActor.calm).
 const CALM_STATES = { set: 1, walkin: 1, return: 1, backup: 1, stumps: 1, backstop: 1 };
 
@@ -137,7 +135,7 @@ export class Actor {
     this._moodW = 0; this._mood = null;
     if (!md) return null;
     let r = this._react;
-    if (!r || r.n !== md.n) r = this._react = Object.assign(reactionFor(md.mood, this.seed, md.n, Math.hypot(this.pos.x, this.pos.z - PITCH.battingStumpsZ)), { n: md.n });
+    if (!r || r.n !== md.n) r = this._react = Object.assign(reactionFor(md.mood, this.seed, md.n, hyp(this.pos.x, this.pos.z - PITCH.battingStumpsZ)), { n: md.n });
     const w = envelope(md.age - r.delay, MOOD_DUR[md.mood] - r.delay, 0.38, 0.5) * r.amt;
     let kind = r.kind;
     if (moving && kind === 'knees') kind = 'head';            // (nobody walks bent double)
@@ -266,8 +264,8 @@ export class Actor {
 
   handPos(out, side = 'R') {
     this.h.update();
-    this.h.worldPos('hand' + side, out);
-    return out.add(_d.set(0, -0.06 * this.h.root.scale.y, 0).applyQuaternion(this.h.bones['hand' + side].getWorldQuaternion(_q)));
+    this.h.worldPos(nm('hand', side), out);
+    return out.add(_d.set(0, -0.06 * this.h.root.scale.y, 0).applyQuaternion(this.h.bones[nm('hand', side)].getWorldQuaternion(_q)));
   }
 }
 
@@ -384,7 +382,7 @@ export class FielderActor extends Actor {
       // Stumping: lunge in and sweep the gloves (ball in the right) into the bails.
       const at = act.at, k = sstep(at - 0.3, at - 0.06, t), back = sstep(at + 0.25, at + 0.8, t);
       poseReady(h, 0.65 * (1 - back * 0.7), true);
-      const sx = act.stumps.x - this.pos.x, sz = act.stumps.z - this.pos.z, sd = Math.max(1e-3, Math.hypot(sx, sz));
+      const sx = act.stumps.x - this.pos.x, sz = act.stumps.z - this.pos.z, sd = Math.max(1e-3, hyp(sx, sz));
       const lunge = Math.max(0, sd - 0.62) * k * (1 - back);          // hips (and the front pad) stop short of the stumps, the gloves do the rest
       offX = sx / sd * lunge; offZ = sz / sd * lunge; lunging = true;
       this.apply(offX, offZ);
@@ -570,15 +568,15 @@ export class FielderActor extends Actor {
     const hw = halfWidth + 0.08 * deep, toe = 0.55 * deep, heel = Math.max(heelFor(h), 0.075 * deep);
     const pitch = Math.asin(Math.min(0.9, heel / (h.toeLength || 0.2)));
     h.root.getWorldQuaternion(_q2);
-    for (const [side, sg] of [['L', 1], ['R', -1]]) {
+    for (const [side, sg] of SIDE_SG) {
       this.footWorld(_a, sg * hw, side === 'L' ? 0.02 : -0.02);
       _a.y += (h.ankleHeight + heel) * sc;
-      h.worldPos('knee' + side, _c).addScaledVector(_fwd, 0.45).addScaledVector(_left, sg * 0.6 * deep);
+      h.worldPos(nm('knee', side), _c).addScaledVector(_fwd, 0.45).addScaledVector(_left, sg * 0.6 * deep);
       h.ikLeg(side, _a, _c);
     }
-    for (const [side, sg] of [['L', 1], ['R', -1]]) {
+    for (const [side, sg] of SIDE_SG) {
       _q.copy(_q2).multiply(_kq.setFromAxisAngle(_up, sg * toe)).multiply(_kq2.setFromAxisAngle(_xAx, pitch));
-      h.setWorldQuat('ankle' + side, _q);
+      h.setWorldQuat(nm('ankle', side), _q);
     }
   }
   // The keeper's gloves together in front of him, low between his knees (w: how much).
@@ -811,7 +809,7 @@ export class BowlerActor extends Actor {
     if (this.state === 'idle') this.state = 'walkback';
   }
   atMark() {
-    return this.state === 'idle' && Math.hypot(this.home.x - this.pos.x, this.home.z - this.pos.z) < 0.4 && Math.abs(angDiff(this.heading, 0)) < 0.12;
+    return this.state === 'idle' && hyp(this.home.x - this.pos.x, this.home.z - this.pos.z) < 0.4 && Math.abs(angDiff(this.heading, 0)) < 0.12;
   }
 
   // Start the run-up: the ball in the bowling hand passes through `releasePos`
@@ -827,7 +825,7 @@ export class BowlerActor extends Actor {
     this.style = run.style;
     this.side = run.side;
     h.root.scale.setScalar(run.scale);
-    const onMark = Math.hypot(run.rootX - this.pos.x, run.prof[0].z - this.pos.z) < 0.45;
+    const onMark = hyp(run.rootX - this.pos.x, run.prof[0].z - this.pos.z) < 0.45;
     this.pos.set(run.rootX, 0, run.prof[0].z);
     this.home.set(run.rootX, 0, run.prof[0].z);
     this.heading = 0;
@@ -924,29 +922,29 @@ export class BowlerActor extends Actor {
       const J = LEG_J[side], fk = this._fkLeg || (this._fkLeg = J.map(() => new THREE.Quaternion()));
       J.forEach((b, i) => fk[i].copy(h.bones[b].quaternion));
       h.update();
-      const fkA = h.bones['ankle' + side].getWorldQuaternion(this._fkA || (this._fkA = new THREE.Quaternion()));
+      const fkA = h.bones[nm('ankle', side)].getWorldQuaternion(this._fkA || (this._fkA = new THREE.Quaternion()));
       _pl.set(r.rootX + fx + this.wideOff(land), h.ankleHeight * h.root.scale.y, this.zAt(land) + fz);
       // (the knee over the toes: a pole from the planted foot's direction, not
       // from the FK knee, which crosses the hip-foot line as the leg straightens)
-      const pole = h.worldPos('hip' + side, _c).lerp(_pl, 0.5).add(_d.set(Math.sin(yaw * 0.7) * 0.8, 0.1, Math.cos(yaw * 0.7) * 0.8));
+      const pole = h.worldPos(nm('hip', side), _c).lerp(_pl, 0.5).add(_d.set(Math.sin(yaw * 0.7) * 0.8, 0.1, Math.cos(yaw * 0.7) * 0.8));
       h.ikLeg(side, _pl, pole);
       _q2.setFromAxisAngle(_up, yaw);
-      h.setWorldQuat('ankle' + side, _q2);
+      h.setWorldQuat(nm('ankle', side), _q2);
       // Out of the leg's reach (up on the toes to reach the release): the heel
       // comes up and the ball of the foot stays on the turf.
       // (only once the foot is down: in the air it is just out of reach)
       // (it comes in over the first tenth on the ground and stays through the
       // lift: a foot leaves the turf off its toes)
-      const up = h.worldPos('ankle' + side, _a).y - _pl.y, onToes = sstep(land - 0.02, land + 0.1, u);
-      if (up > 0.004 && onToes > 0) h.addRot('ankle' + side, Math.asin(Math.min(0.95, up / (h.toeLength * h.root.scale.y))) * onToes, 0, 0);
+      const up = h.worldPos(nm('ankle', side), _a).y - _pl.y, onToes = sstep(land - 0.02, land + 0.1, u);
+      if (up > 0.004 && onToes > 0) h.addRot(nm('ankle', side), Math.asin(Math.min(0.95, up / (h.toeLength * h.root.scale.y))) * onToes, 0, 0);
       this.liftFoot(side, pole, false);
       if (w < 1 || wA < 1) {
         // the solved leg blended in from the FK leg (rotations, not the target:
         // the knee would jump to the IK's plane as the plant starts or ends)
-        const ikA = h.bones['ankle' + side].getWorldQuaternion(this._ikA || (this._ikA = new THREE.Quaternion()));
+        const ikA = h.bones[nm('ankle', side)].getWorldQuaternion(this._ikA || (this._ikA = new THREE.Quaternion()));
         for (let i = 0; i < 2; i++) { _q.copy(h.bones[J[i]].quaternion); h.bones[J[i]].quaternion.copy(fk[i]).slerp(_q, w); }
         h.update();
-        h.setWorldQuat('ankle' + side, _q.copy(fkA).slerp(ikA, wA));
+        h.setWorldQuat(nm('ankle', side), _q.copy(fkA).slerp(ikA, wA));
         this.liftFoot(side, pole, true);
       }
     }
@@ -959,17 +957,17 @@ export class BowlerActor extends Actor {
     const h = this.h;
     h.update();
     const fi = this._footIdx || (this._footIdx = {});
-    const under = h.lowest(fi[side] || (fi[side] = ['ankle' + side, 'knee' + side].map((n) => h.boneList.indexOf(h.bones[n]))));
+    const under = h.lowest(fi[side] || (fi[side] = [nm('ankle', side), nm('knee', side)].map((n) => h.boneList.indexOf(h.bones[n]))));
     if (under >= -0.001) return;
-    const hip = h.worldPos('hip' + side, _a), knee = h.worldPos('knee' + side, _b), ank = h.worldPos('ankle' + side, _e);
+    const hip = h.worldPos(nm('hip', side), _a), knee = h.worldPos(nm('knee', side), _b), ank = h.worldPos(nm('ankle', side), _e);
     const bend = _v1.copy(knee).sub(_v2.copy(hip).lerp(ank, 0.5));
     let P = pole;
     if (keepPlane && bend.length() > 0.06) P = _v2.copy(knee).addScaledVector(bend.normalize(), 0.5);
     else if (!P) P = _v2.copy(hip).lerp(ank, 0.5).addScaledVector(this.forward(_fwd), 0.6);
-    h.bones['ankle' + side].getWorldQuaternion(_q2);
+    h.bones[nm('ankle', side)].getWorldQuaternion(_q2);
     _pl.copy(ank); _pl.y -= under;
     h.ikLeg(side, _pl, P);
-    h.setWorldQuat('ankle' + side, _q2);
+    h.setWorldQuat(nm('ankle', side), _q2);
   }
 
   // Straight-arm circle in the vertical plane through the shoulder, accelerating
@@ -1069,7 +1067,7 @@ export class BowlerActor extends Actor {
     // Run off the pitch, ease up, turn and walk back to the mark (moving along
     // the way he faces, so the turn is a curve, not a spin on the spot).
     const dx = this.home.x - this.pos.x, dz = this.home.z - this.pos.z;
-    const dist = Math.hypot(dx, dz);
+    const dist = hyp(dx, dz);
     h.reset();
     // Who / what to walk round (umpire, batters, stumps; set by the game each frame).
     const obs = this.obstacles || NO_OBS;
@@ -1100,7 +1098,7 @@ export class BowlerActor extends Actor {
       this.pos.x += Math.sin(this.heading) * this.speed * dt;
       this.pos.z += Math.cos(this.heading) * this.speed * dt;
       for (const o of obs) {                     // (never inside one, whatever the turn rate allowed)
-        const ox = this.pos.x - o.x, oz = this.pos.z - o.z, d = Math.hypot(ox, oz);
+        const ox = this.pos.x - o.x, oz = this.pos.z - o.z, d = hyp(ox, oz);
         if (d < o.r && d > 1e-4) { this.pos.x = o.x + ox / d * o.r; this.pos.z = o.z + oz / d * o.r; }
       }
       this.gait(dt);
@@ -1339,17 +1337,17 @@ export class BatterActor extends Actor {
     steadyKnees(h, this._kd || (this._kd = { L: null, R: null }), dt, 7, 0.12 * sc, 0.3 * sc);
     // (and the feet: a capture's foot turns are rough, from video)
     const F = this._ft || (this._ft = { L: null, R: null });
-    for (const sd of ['L', 'R']) {
-      h.bones['ankle' + sd].getWorldQuaternion(_ql);
+    for (const sd of SIDES) {
+      h.bones[nm('ankle', sd)].getWorldQuaternion(_ql);
       if (F[sd] && dt > 0 && dt < 0.1) {
         const a = F[sd].angleTo(_ql), m = 9 * dt;
         if (a > m) {
-          _ql.copy(F[sd].slerp(_ql, m / a)); h.setWorldQuat('ankle' + sd, _ql);
+          _ql.copy(F[sd].slerp(_ql, m / a)); h.setWorldQuat(nm('ankle', sd), _ql);
           // (a foot turned less than the capture's may put its toe in the turf: the leg bends, its knee the way it was)
           h.update();
-          const k = h.worldPos('knee' + sd, _a), mid = _b.addVectors(h.worldPos('hip' + sd, _c), h.worldPos('ankle' + sd, _d)).multiplyScalar(0.5);
+          const k = h.worldPos(nm('knee', sd), _a), mid = _b.addVectors(h.worldPos(nm('hip', sd), _c), h.worldPos(nm('ankle', sd), _d)).multiplyScalar(0.5);
           h.clearFoot(sd, _e.subVectors(k, mid).multiplyScalar(3).add(k));
-          h.bones['ankle' + sd].getWorldQuaternion(_ql);
+          h.bones[nm('ankle', sd)].getWorldQuaternion(_ql);
         }
       }
       (F[sd] ||= new THREE.Quaternion()).copy(_ql);
@@ -1361,7 +1359,7 @@ export class BatterActor extends Actor {
   mocapFor(p) {
     if (this._mPlan === p && this._mType === p.shot.type && this._mT0 === p.t0) return this._mUse;
     this._mPlan = p; this._mType = p.shot.type; this._mT0 = p.t0;
-    const stride = Math.hypot(p.feet.L[0] - STANCE.footL[0], p.feet.L[1] - STANCE.footL[1]);
+    const stride = hyp(p.feet.L[0] - STANCE.footL[0], p.feet.L[1] - STANCE.footL[1]);
     this._mUse = shotFor(p.shot.type, { stride, loft: p.shot.loft, ang: p.shot.ang, yb: p.info && p.info.yb });
     return this._mUse;
   }
@@ -1447,12 +1445,12 @@ export class BatterActor extends Actor {
     M.sL.copy(ref.sL).applyMatrix4(h.root.matrixWorld); M.sR.copy(ref.sR).applyMatrix4(h.root.matrixWorld);
     M.cL.copy(ref.cL).applyMatrix4(h.root.matrixWorld); M.cR.copy(ref.cR).applyMatrix4(h.root.matrixWorld);
     // Knee poles: the way the capture bends them.
-    for (const sd of ['L', 'R']) {
-      const k = M['k' + sd], hip = h.worldPos('hip' + sd, _a);
+    for (const sd of SIDES) {
+      const k = M[nm('k', sd)], hip = h.worldPos(nm('hip', sd), _a);
       _b.addVectors(hip, M[sd]).multiplyScalar(0.5);
       k.addScaledVector(_d.subVectors(k, _b), 1.0);
       // (a leg the capture has straight has no bend direction of its own: out over its toes)
-      _d.set(0, 0, 1).applyQuaternion(M['q' + sd]); _d.y = 0;
+      _d.set(0, 0, 1).applyQuaternion(M[nm('q', sd)]); _d.y = 0;
       if (_d.lengthSq() > 1e-6) k.addScaledVector(_d.normalize(), 0.2);
     }
     // The plan's feet: from the stance to where it puts them at contact. Each
@@ -1463,10 +1461,10 @@ export class BatterActor extends Actor {
     const k1 = sstep(p.tCommit, front ? tLand : mix(p.tCommit, tLand, 0.62), t);
     const k2 = sstep(mix(p.tCommit, tLand, front ? 0.55 : 0.3), tLand + (front ? 0.12 : 0), t);
     const ankleY = h.ankleHeight * sc;
-    for (const sd of ['L', 'R']) {
+    for (const sd of SIDES) {
       const g0x = sd === 'L' ? STANCE.footL[0] : STANCE.footR[0], g0z = sd === 'L' ? STANCE.footL[1] : STANCE.footR[1];
-      const gx = p.feet[sd][0] - g0x, gz = p.feet[sd][1] - g0z, gl = Math.hypot(gx, gz);
-      const m = M[sd], m0 = M['s' + sd], mc = M['c' + sd];
+      const gx = p.feet[sd][0] - g0x, gz = p.feet[sd][1] - g0z, gl = hyp(gx, gz);
+      const m = M[sd], m0 = M[nm('s', sd)], mc = M[nm('c', sd)];
       const Dx = mc.x - m0.x, Dz = mc.z - m0.z, Dl2 = Dx * Dx + Dz * Dz;
       const dx = m.x - m0.x, dz = m.z - m0.z;
       let k, rx, rz, lift = 0;
@@ -1483,17 +1481,17 @@ export class BatterActor extends Actor {
       // (up first, then along: the step eases out of and into the turf)
       lift = Math.max(lift, 0.05 * Math.sin(Math.PI * clamp(k, 0, 1)) * Math.min(1, gl / 0.15));
       const kh = k > 0 && k < 1 ? k * k * (3 - 2 * k) : k;
-      const F = M['F' + sd];
+      const F = M[nm('F', sd)];
       F.set(g0x + kh * gx + rx, Math.max(ankleY * 0.95, m.y) + lift, g0z + kh * gz + rz);
     }
     // Pelvis: where the capture has it between its feet (along and across the
     // line of the feet), and as high.
-    const lx = M.L.x - M.R.x, lz = M.L.z - M.R.z, ll = Math.hypot(lx, lz);
+    const lx = M.L.x - M.R.x, lz = M.L.z - M.R.z, ll = hyp(lx, lz);
     const Hg = _hp;
     if (ll > 0.12) {
       // (clamped: with the capture's feet close together a small sway would throw the pelvis far out)
       const a = clamp(((M.H.x - M.R.x) * lx + (M.H.z - M.R.z) * lz) / (ll * ll), -0.3, 1.3), b = clamp(((M.H.x - M.R.x) * -lz + (M.H.z - M.R.z) * lx) / ll, -0.3, 0.3);
-      const gxl = M.FL.x - M.FR.x, gzl = M.FL.z - M.FR.z, gll = Math.hypot(gxl, gzl) || 1;
+      const gxl = M.FL.x - M.FR.x, gzl = M.FL.z - M.FR.z, gll = hyp(gxl, gzl) || 1;
       Hg.set(M.FR.x + a * gxl + b * -gzl / gll, M.H.y, M.FR.z + a * gzl + b * gxl / gll);
     } else Hg.set(M.H.x + (M.FL.x + M.FR.x - M.L.x - M.R.x) / 2, M.H.y, M.H.z + (M.FL.z + M.FR.z - M.L.z - M.R.z) / 2);
     // Legs too short for the plan's (longer) stride: sit lower.
@@ -1501,8 +1499,8 @@ export class BatterActor extends Actor {
     for (let pass = 0; pass < 2; pass++) {
       const shiftX = Hg.x - M.H.x, shiftY = Hg.y - M.H.y, shiftZ = Hg.z - M.H.z;
       let drop = 0;
-      for (const sd of ['L', 'R']) {
-        const hj = h.worldPos('hip' + sd, _a).add(_b.set(shiftX, shiftY, shiftZ)), F = M['F' + sd];
+      for (const sd of SIDES) {
+        const hj = h.worldPos(nm('hip', sd), _a).add(_b.set(shiftX, shiftY, shiftZ)), F = M[nm('F', sd)];
         const d = hj.distanceTo(F), over = d - legLen * 0.992;
         if (over > 0) drop = Math.max(drop, over * d / Math.max(0.3, hj.y - F.y));
       }
@@ -1515,9 +1513,9 @@ export class BatterActor extends Actor {
     M.kL.add(_d); M.kR.add(_d);
     h.bones.hips.position.copy(h.bones.hips.parent.worldToLocal(_e.copy(Hg)));
     h.update();
-    for (const sd of ['L', 'R']) {
-      h.ikLeg(sd, M['F' + sd], M['k' + sd]);
-      h.setWorldQuat('ankle' + sd, M['q' + sd]);
+    for (const sd of SIDES) {
+      h.ikLeg(sd, M[nm('F', sd)], M[nm('k', sd)]);
+      h.setWorldQuat(nm('ankle', sd), M[nm('q', sd)]);
     }
     // A deep stride (the pelvis sat lower to reach the plan's feet) can put the
     // front knee into the turf: up by that much, the feet staying where they are.
@@ -1527,7 +1525,7 @@ export class BatterActor extends Actor {
       Hg.y -= kneeLow;
       h.bones.hips.position.copy(h.bones.hips.parent.worldToLocal(_e.copy(Hg)));
       h.update();
-      for (const sd of ['L', 'R']) { h.ikLeg(sd, M['F' + sd], M['k' + sd]); h.setWorldQuat('ankle' + sd, M['q' + sd]); }
+      for (const sd of SIDES) { h.ikLeg(sd, M[nm('F', sd)], M[nm('k', sd)]); h.setWorldQuat(nm('ankle', sd), M[nm('q', sd)]); }
     }
     // (the capture's toes pointed down / rolled: up onto them, not into the turf)
     h.update(); h.clearFoot('L'); h.clearFoot('R');
@@ -1540,7 +1538,7 @@ export class BatterActor extends Actor {
     _f.set(0, 0, 1).applyQuaternion(_ql);
     const want = Math.atan2(batPos.x - ch.x, batPos.z - ch.z), have = Math.atan2(_f.x, _f.z);
     const dyaw = clamp(angDiff(have, want), -1.2, 1.2) * 0.45;
-    for (const [b, f] of [['spine', 0.45], ['chest', 0.55]]) {
+    for (const [b, f] of TRUNK_SHARE) {
       h.bones[b].getWorldQuaternion(_ql);
       h.setWorldQuat(b, _ql.premultiply(_q.setFromAxisAngle(_up, dyaw * f)));
     }
@@ -1597,7 +1595,7 @@ export class BatterActor extends Actor {
         const k1 = sstep(p.tCommit, front ? tLand : mix(p.tCommit, tLand, 0.62), t);
         const k2 = sstep(mix(p.tCommit, tLand, front ? 0.55 : 0.3), tLand + (front ? 0.12 : 0), t);
         const kL = front ? k1 : k2, kR = front ? k2 : k1;
-        const dL = Math.hypot(p.feet.L[0] - fl.x, p.feet.L[1] - fl.z), dR = Math.hypot(p.feet.R[0] - fr.x, p.feet.R[1] - fr.z);
+        const dL = hyp(p.feet.L[0] - fl.x, p.feet.L[1] - fl.z), dR = hyp(p.feet.R[0] - fr.x, p.feet.R[1] - fr.z);
         fl.x = mix(fl.x, p.feet.L[0], kL); fl.z = mix(fl.z, p.feet.L[1], kL);
         fr.x = mix(fr.x, p.feet.R[0], kR); fr.z = mix(fr.z, p.feet.R[1], kR);
         fl.y = 0.085 * Math.sin(Math.PI * kL) * Math.min(1, dL / 0.3);       // feet are picked up, not slid
@@ -1659,9 +1657,9 @@ export class BatterActor extends Actor {
       open = this.step.open;
       pinBack(fr, opts.crease);
       // (your back foot held where it really is while you lean far out: the front foot comes no further than a real stride)
-      const st = Math.hypot(fl.x - fr.x, fl.z - fr.z);
+      const st = hyp(fl.x - fr.x, fl.z - fr.z);
       if (st > MAX_STRIDE) { fl.x = fr.x + (fl.x - fr.x) * MAX_STRIDE / st; fl.z = fr.z + (fl.z - fr.z) * MAX_STRIDE / st; }
-      const wide = Math.hypot(fl.x - fr.x, fl.z - fr.z) || 1;
+      const wide = hyp(fl.x - fr.x, fl.z - fr.z) || 1;
       weight = clamp(0.5 + ((H.x - (fl.x + fr.x) / 2) * (fl.x - fr.x) + (H.z - (fl.z + fr.z) / 2) * (fl.z - fr.z)) / (wide * wide) * 0.9, 0.2, 0.8);
     } else {
       // No headset (the AI, or you on a monitor): the head goes where the stance puts it.
@@ -1706,13 +1704,13 @@ export class BatterActor extends Actor {
     if (!S.init || _iL.distanceTo(S.L) > 1.5 || _iR.distanceTo(S.R) > 1.5) { S.L.copy(_iL); S.R.copy(_iR); S.mL = S.mR = null; S.init = true; }
     if (!hold && !S.mL && !S.mR) {
       const eL = _iL.distanceTo(S.L) / 0.11, eR = _iR.distanceTo(S.R) / 0.24;
-      const wide = Math.hypot(S.L.x - S.R.x, S.L.z - S.R.z);
+      const wide = hyp(S.L.x - S.R.x, S.L.z - S.R.z);
       if (eL > 1 || eR > 1 || wide > 1.0 || wide < 0.22) {
         if (eL >= eR) S.mL = { from: S.L.clone(), k: 0, dur: 0.15 }; else S.mR = { from: S.R.clone(), k: 0, dur: 0.17 };
       }
     }
-    for (const side of ['L', 'R']) {
-      const ideal = side === 'L' ? _iL : _iR, foot = S[side], key = 'm' + side, m = S[key];
+    for (const side of SIDES) {
+      const ideal = side === 'L' ? _iL : _iR, foot = S[side], key = nm('m', side), m = S[key];
       if (!m) continue;
       m.k += dt / m.dur;
       const e = sstep(0, 1, m.k);
@@ -1744,7 +1742,7 @@ export class BatterActor extends Actor {
     // batter hinges at the hips with the knees only softly bent).
     const back = 0.04 + 0.95 * crouch;
     let px = this.pos.x + (H.x - this.pos.x) * 0.22 - s * back, pz = this.pos.z + (H.z - this.pos.z) * 0.22 - c * back;
-    let d = Math.hypot(H.x - px, H.z - pz);
+    let d = hyp(H.x - px, H.z - pz);
     if (d > 0.88 * T) { const k = 0.88 * T / d; px = H.x + (px - H.x) * k; pz = H.z + (pz - H.z) * k; d = 0.88 * T; }
     const sw = o.sweep ? o.sweep.k : 0;
     // (not a sweep: the pelvis never comes down to a kneel, however far your head goes)
@@ -1814,15 +1812,16 @@ export class BatterActor extends Actor {
   plantFeetYaw(fl, fr, yawL, yawR, toeR = 0) {
     const h = this.h;
     h.update();
-    for (const [side, target, yaw] of [['L', fl, yawL], ['R', fr, yawR]]) {
-      h.worldPos('knee' + side, _pole).add(_e.set(Math.sin(yaw) * 0.7, 0, Math.cos(yaw) * 0.7));
+    for (let n = 0; n < 2; n++) {
+      const side = n ? 'R' : 'L', target = n ? fr : fl, yaw = n ? yawR : yawL;
+      h.worldPos(nm('knee', side), _pole).add(_e.set(Math.sin(yaw) * 0.7, 0, Math.cos(yaw) * 0.7));
       _ft.copy(target); _ft.y += h.ankleHeight * h.root.scale.y;
       if (side === 'R' && toeR > 0) {
         const fx = Math.sin(yaw), fz = Math.cos(yaw), b = h.toeLength * h.root.scale.y;
         _ft.x += fx * b * (1 - Math.cos(toeR)); _ft.z += fz * b * (1 - Math.cos(toeR)); _ft.y += b * Math.sin(toeR);
       }
       h.ikLeg(side, _ft, _pole);
-      (this['_pole' + side] ||= new THREE.Vector3()).copy(_pole);
+      (this[nm('_pole', side)] ||= new THREE.Vector3()).copy(_pole);
     }
     h.setWorldQuat('ankleL', _q.setFromAxisAngle(_up, yawL));
     h.setWorldQuat('ankleR', _q.setFromAxisAngle(_up, yawR));
@@ -1951,7 +1950,7 @@ export class BatterActor extends Actor {
     }
     const palm = gripAcross ? PALM * sc : PALM;
     let err = 0;
-    for (const side of ['R', 'L']) {
+    for (const side of SIDES_RL) {
       const beta = battingGripAngle(side, h.opts.playerGrip);
       const sb = Math.sin(beta), cb = Math.cos(beta);
       const at = side === 'R' ? _bottomGrip : _top, sh = side === 'R' ? _sR : _sL;
@@ -1987,24 +1986,24 @@ export class BatterActor extends Actor {
             // turn sharply in a few millimetres. Preserve the upper arm's
             // actual direction to keep the elbow on the nearer IK solution.
             const folded = 1 - sstep(0.20 * sc, 0.40 * sc, sh.distanceTo(_wr));
-            const upper = h.worldPos('elbow' + side, _v1).sub(sh).normalize();
+            const upper = h.worldPos(nm('elbow', side), _v1).sub(sh).normalize();
             this._eb[side].lerp(upper, folded).normalize();
           }
           break;
         }
         // Roll toward the forearm: the knuckles (-gy) as near its line as the grip allows.
         h.update();
-        _f.subVectors(_wr, h.worldPos('elbow' + side, _el)).normalize();
+        _f.subVectors(_wr, h.worldPos(nm('elbow', side), _el)).normalize();
         const freedom = gripAcross ? 0.44 : GRIP_ROLL;
         roll = clamp(Math.atan2(-_f.dot(_gx), _f.dot(_xr)), -freedom, freedom);
         // (kept continuous: with the forearm along the handle's back the preferred roll swaps sides, the hand would flip)
         const rs = this._roll || (this._roll = { L: null, R: null, bL: null, bR: null, f: null });
         roll = this.limitStep(rs, side, roll, ROLL_RATE);
       }
-      h.setWorldQuat('hand' + side, _q.setFromRotationMatrix(_m.makeBasis(_gx, _gy, _gz)));
-      err = Math.max(err, h.worldPos('hand' + side, _el).distanceTo(_wr));
+      h.setWorldQuat(nm('hand', side), _q.setFromRotationMatrix(_m.makeBasis(_gx, _gy, _gz)));
+      err = Math.max(err, h.worldPos(nm('hand', side), _el).distanceTo(_wr));
       // Share the hand's turn with the forearm.
-      const fore = h.bones['elbow' + side];
+      const fore = h.bones[nm('elbow', side)];
       fore.getWorldQuaternion(_ql);
       _v1.set(1, 0, 0).applyQuaternion(_ql);                                 // forearm's X
       _v2.set(0, 1, 0).applyQuaternion(_ql);                                 // forearm's axis
@@ -2020,18 +2019,18 @@ export class BatterActor extends Actor {
         tw = this.limitStep(tws, side, tw, TWIST_RATE);
         fore.quaternion.multiply(_qt.setFromAxisAngle(_up, tw * 0.5));
         fore.updateMatrixWorld(true);
-        h.setWorldQuat('hand' + side, _q);
+        h.setWorldQuat(nm('hand', side), _q);
       }
     }
     this.gripErr = err;
   }
 
   // A value that may change at most `rate` per second from what it was last
-  // frame (S[side]; S['b' + side] keeps last frame's while gripBat runs more
+  // frame (S[side]; S[nm('b', side)] keeps last frame's while gripBat runs more
   // than once in a frame). The frame and its length come from _gframe / _gdt
   // when the caller sets them (your figure), else each call is a 72 Hz frame.
   limitStep(S, side, v, rate) {
-    const fr = this._gframe ?? null, dt = this._gdt ?? 1 / 72, bk = 'b' + side;
+    const fr = this._gframe ?? null, dt = this._gdt ?? 1 / 72, bk = nm('b', side);
     if (fr == null || S.f !== fr) { S.bL = S.L; S.bR = S.R; S.f = fr; }
     const base = fr == null ? S[side] : S[bk];
     if (base != null) { const m = rate * Math.min(dt, 0.05); v = base + clamp(v - base, -m, m); }
@@ -2053,8 +2052,8 @@ export class BatterActor extends Actor {
     // the AI: from the last call's, 0.3 rad a call)
     const fr = this._gframe ?? null;
     if (fr != null && S.pf !== fr) { (S.pbL ||= new THREE.Vector3()).copy(S.L); (S.pbR ||= new THREE.Vector3()).copy(S.R); S.pokL = S.okL; S.pokR = S.okR; S.pf = fr; }
-    const prev = fr != null ? _v3.copy(S['pb' + side]) : S[side], step = fr != null ? POLE_RATE * Math.min(this._gdt ?? 1 / 72, 0.05) : 0.3;
-    let have = fr != null ? S['pok' + side] : S['ok' + side];
+    const prev = fr != null ? _v3.copy(S[nm('pb', side)]) : S[side], step = fr != null ? POLE_RATE * Math.min(this._gdt ?? 1 / 72, 0.05) : 0.3;
+    let have = fr != null ? S[nm('pok', side)] : S[nm('ok', side)];
     if (have) { prev.addScaledVector(D, -prev.dot(D)); have = prev.lengthSq() > 1e-6; if (have) prev.normalize(); }
     if (n.lengthSq() < 1e-6 * len * len) { if (!have) return; n.copy(prev); } else n.normalize();
     if (have) {
@@ -2065,7 +2064,7 @@ export class BatterActor extends Actor {
         n.copy(prev).applyAxisAngle(_x, step);
       }
     }
-    S[side].copy(n); S['ok' + side] = true;
+    S[side].copy(n); S[nm('ok', side)] = true;
     pole.copy(sh).addScaledVector(D, 0.3).addScaledVector(n, Math.max(0.3, len));
   }
 
@@ -2092,7 +2091,7 @@ export class BatterActor extends Actor {
       const ang = Math.min(full, over / Math.max(0.2, L) * 1.1, this.leanMax ? this.leanMax[pass] : pass ? 0.35 : 0.4);
       _q.setFromUnitVectors(_x, _y);
       _ql.identity().slerp(_q, ang / full);
-      for (const [b, f] of [['spine', 0.55], ['chest', 0.45]]) {
+      for (const [b, f] of TRUNK_SHARE2) {
         h.bones[b].getWorldQuaternion(_qt);
         h.setWorldQuat(b, _qt.premultiply(_q.identity().slerp(_ql, f)));
       }
@@ -2108,18 +2107,18 @@ export class BatterActor extends Actor {
     const over = Math.max(h.worldPos('shoulderR', _a).distanceTo(bot), h.worldPos('shoulderL', _b).distanceTo(top)) - reach;
     if (over <= 0) return;
     const S = this._rs || (this._rs = { aL: new THREE.Vector3(), aR: new THREE.Vector3(), kL: new THREE.Vector3(), kR: new THREE.Vector3(), qL: new THREE.Quaternion(), qR: new THREE.Quaternion(), d: new THREE.Vector3() });
-    for (const sd of ['L', 'R']) { h.worldPos('ankle' + sd, S['a' + sd]); h.worldPos('knee' + sd, S['k' + sd]); h.bones['ankle' + sd].getWorldQuaternion(S['q' + sd]); }
+    for (const sd of SIDES) { h.worldPos(nm('ankle', sd), S[nm('a', sd)]); h.worldPos(nm('knee', sd), S[nm('k', sd)]); h.bones[nm('ankle', sd)].getWorldQuaternion(S[nm('q', sd)]); }
     S.d.addVectors(bot, top).multiplyScalar(0.5).sub(_v1.addVectors(_a, _b).multiplyScalar(0.5)).normalize().multiplyScalar(Math.min(0.45, over));
     // (your own figure: only so far along the ground, and hardly down: it does not crouch after a bat you let hang)
     const lim = this.reachLimit;
-    if (lim) { const l = Math.hypot(S.d.x, S.d.z); if (l > lim.along) { S.d.x *= lim.along / l; S.d.z *= lim.along / l; } S.d.y = Math.max(S.d.y, -lim.down); }
+    if (lim) { const l = hyp(S.d.x, S.d.z); if (l > lim.along) { S.d.x *= lim.along / l; S.d.z *= lim.along / l; } S.d.y = Math.max(S.d.y, -lim.down); }
     const hips = h.bones.hips;
     hips.getWorldPosition(_v1).add(S.d);
     hips.position.copy(hips.parent.worldToLocal(_v1));
     h.update();
-    for (const sd of ['L', 'R']) {
-      h.ikLeg(sd, S['a' + sd], S['k' + sd].add(S.d));
-      h.setWorldQuat('ankle' + sd, S['q' + sd]);
+    for (const sd of SIDES) {
+      h.ikLeg(sd, S[nm('a', sd)], S[nm('k', sd)].add(S.d));
+      h.setWorldQuat(nm('ankle', sd), S[nm('q', sd)]);
     }
   }
 
@@ -2128,13 +2127,13 @@ export class BatterActor extends Actor {
   stretchTo(side, target, pole) {
     const h = this.h;
     h.update();
-    if (h.worldPos('hand' + side, _el).distanceTo(target) < 0.002) return;
-    const sh = h.worldPos('shoulder' + side, _a), d = sh.distanceTo(target);
-    const L = h.worldPos('elbow' + side, _b).distanceTo(sh) + _b.distanceTo(_el);
+    if (h.worldPos(nm('hand', side), _el).distanceTo(target) < 0.002) return;
+    const sh = h.worldPos(nm('shoulder', side), _a), d = sh.distanceTo(target);
+    const L = h.worldPos(nm('elbow', side), _b).distanceTo(sh) + _b.distanceTo(_el);
     if (d <= L * 0.999) return;                          // (in reach: nothing to stretch)
     const k = Math.min(1.5, d / L * 1.0005);
-    h.bones['elbow' + side].position.copy(this.armRest['elbow' + side]).multiplyScalar(k);
-    h.bones['hand' + side].position.copy(this.armRest['hand' + side]).multiplyScalar(k);
+    h.bones[nm('elbow', side)].position.copy(this.armRest[nm('elbow', side)]).multiplyScalar(k);
+    h.bones[nm('hand', side)].position.copy(this.armRest[nm('hand', side)]).multiplyScalar(k);
     this._stretched = true;
     h.ikArm(side, target, pole);
   }
@@ -2367,20 +2366,20 @@ export class BatterActor extends Actor {
   legsClearOfBat(batPos, batQuat) {
     const h = this.h, sc = h.root.scale.y;
     _by.set(0, 1, 0).applyQuaternion(batQuat);
-    for (const side of ['L', 'R']) {
+    for (const side of SIDES) {
       for (let it = 0; it < 2; it++) {
         h.update();
-        const hip = h.worldPos('hip' + side, _legSegs[0]), knee = h.worldPos('knee' + side, _legSegs[1]), ank = h.worldPos('ankle' + side, _legSegs[2]);
+        const hip = h.worldPos(nm('hip', side), _legSegs[0]), knee = h.worldPos(nm('knee', side), _legSegs[1]), ank = h.worldPos(nm('ankle', side), _legSegs[2]);
         let worst = 0;
         for (let i = 0; i <= 6; i++) {
           _bx.copy(batPos).addScaledVector(_by, BLADE_TOP - (BLADE_TOP - BLADE_TOE) * i / 6);
-          for (const [a, b] of [[hip, knee], [knee, ank]]) {
-            const q = closestOnSeg(_bx, a, b, _bz), gap = LEG_CLEAR * sc - _bx.distanceTo(q);
+          for (let g = 0; g < 2; g++) {                 // (thigh, shin)
+            const q = closestOnSeg(_bx, g ? knee : hip, g ? ank : knee, _bz), gap = LEG_CLEAR * sc - _bx.distanceTo(q);
             if (gap > worst) { worst = gap; _xr.subVectors(q, _bx).setY(0); }
           }
         }
         if (worst < 0.004 || _xr.lengthSq() < 1e-8) break;
-        h.bones['ankle' + side].getWorldQuaternion(_qt);
+        h.bones[nm('ankle', side)].getWorldQuaternion(_qt);
         _gy.copy(ank);
         _gx.copy(knee).addScaledVector(_xr.normalize(), 0.5 + worst * 4);
         // (the knee still bends the way its foot points: pushed aside, never bent backwards)
@@ -2388,7 +2387,7 @@ export class BatterActor extends Actor {
         kneeWay(_gx.sub(_bz), footYaw(_qt), 0);
         _gx.multiplyScalar(0.6).add(_bz);
         h.ikLeg(side, _gy, _gx);
-        h.setWorldQuat('ankle' + side, _qt);
+        h.setWorldQuat(nm('ankle', side), _qt);
       }
     }
   }

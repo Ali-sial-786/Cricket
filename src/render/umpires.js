@@ -3,7 +3,7 @@
 // (the TV square). Between signals the hands are clasped behind the back.
 import * as THREE from 'three';
 import { Actor } from './actors.js';
-import { plantFeet, keys, sstep } from './anim.js';
+import { plantFeet, keys, sstep, nm, SIDE_SG, hyp } from './anim.js';
 import { hash01, envelope } from './gestures.js';
 import { clipsReady } from './clips.js';
 import { PITCH } from '../physics/pitch.js';
@@ -31,13 +31,14 @@ class UmpireActor extends Actor {
     _l.set(_f.z, 0, -_f.x);                        // figure's left
     const T = now + this.idleOff, slot = Math.floor(T / UMP_SLOT), mode = this.still ? null : UMP_HANDS[Math.floor(hash01(this.seed, slot) * UMP_HANDS.length)];
     const w = mode ? envelope(T - slot * UMP_SLOT, UMP_SLOT, 0.8, 0.8) : 0;
-    for (const [side, sg, on] of [['L', 1, left], ['R', -1, right]]) {
+    for (let n = 0; n < 2; n++) {
+      const side = n ? 'R' : 'L', sg = n ? -1 : 1, on = n ? right : left;
       if (!on) continue;
       h.worldPos('hips', _t).addScaledVector(_f, -0.2).add(_c.set(0, 0.06, 0)).addScaledVector(_l, sg * 0.03);
-      h.worldPos('shoulder' + side, _b).addScaledVector(_l, sg * 0.5).addScaledVector(_f, -0.2);
+      h.worldPos(nm('shoulder', side), _b).addScaledVector(_l, sg * 0.5).addScaledVector(_f, -0.2);
       if (w > 0.001 && !(mode === 'count' && side === 'L')) {
         if (mode === 'front') h.worldPos('hips', _a).addScaledVector(_f, 0.2 * sc).add(_c.set(0, 0.03 * sc, 0)).addScaledVector(_l, sg * 0.035);
-        else if (mode === 'pockets') h.worldPos('hip' + side, _a).addScaledVector(_f, 0.07 * sc).addScaledVector(_l, sg * 0.03).add(_c.set(0, -0.02 * sc, 0));
+        else if (mode === 'pockets') h.worldPos(nm('hip', side), _a).addScaledVector(_f, 0.07 * sc).addScaledVector(_l, sg * 0.03).add(_c.set(0, -0.02 * sc, 0));
         else h.worldPos('hips', _a).addScaledVector(_f, 0.24 * sc).add(_c.set(0, (0.12 + 0.015 * Math.sin(now * 7)) * sc, 0)).addScaledVector(_l, -0.07);   // (count: fingers at the waist)
         _t.lerp(_a, w);
         _b.addScaledVector(_f, 0.3 * w);
@@ -57,7 +58,7 @@ class UmpireActor extends Actor {
       const away = look.x * vx + (look.z - PITCH.battingStumpsZ) * vz > 0;
       if (away && v2 > 64 && tc > 0 && tc < 0.7 && look.y < 2.3) {
         const cx = px + vx * tc, cz = pz + vz * tc;                     // closest the ball comes (relative to him)
-        if (Math.hypot(cx, cz) < 1.1) { want = 1; this.forward(_f); D.side = (cx * _f.z - cz * _f.x) >= 0 ? -1 : 1; }
+        if (hyp(cx, cz) < 1.1) { want = 1; this.forward(_f); D.side = (cx * _f.z - cz * _f.x) >= 0 ? -1 : 1; }
       }
     }
     if (look) { D.p.copy(look); D.ok = true; } else D.ok = false;
@@ -142,9 +143,9 @@ class UmpireActor extends Actor {
       this.forward(_f);
       _l.set(_f.z, 0, -_f.x);
       const x = 0.09 * Math.cos(tt * 7.5);
-      for (const [side, sg] of [['L', 1], ['R', -1]]) {
+      for (const [side, sg] of SIDE_SG) {
         h.worldPos('hips', _t).addScaledVector(_f, 0.3).add(_c.set(0, -0.12 + (side === 'L' ? 0.02 : 0), 0)).addScaledVector(_l, -sg * x);
-        h.ikArm(side, _t, h.worldPos('shoulder' + side, _b).addScaledVector(_l, sg * 0.6).add(_c.set(0, -0.3, 0)));
+        h.ikArm(side, _t, h.worldPos(nm('shoulder', side), _b).addScaledVector(_l, sg * 0.6).add(_c.set(0, -0.3, 0)));
       }
     } else if (s.type === 'notout') {
       arms = false;
@@ -161,9 +162,9 @@ class UmpireActor extends Actor {
     const p = Math.min(1, Math.max(0, tt - 0.25) / 1.3);           // along the outline
     const x = 0.04 + 0.24 * sstep(0, 0.3, p) * (1 - sstep(0.7, 1, p)), y = -0.34 * sstep(0.3, 0.7, p);
     h.worldPos('neck', _t).addScaledVector(_f, 0.42).add(_c.set(0, 0.12 + y, 0));
-    for (const [side, sg] of [['L', 1], ['R', -1]]) {
+    for (const [side, sg] of SIDE_SG) {
       _a.copy(_t).addScaledVector(_l, sg * x);
-      h.ikArm(side, _a, h.worldPos('shoulder' + side, _b).addScaledVector(_l, sg * 0.6).add(_c.set(0, -0.5, 0)));
+      h.ikArm(side, _a, h.worldPos(nm('shoulder', side), _b).addScaledVector(_l, sg * 0.6).add(_c.set(0, -0.5, 0)));
     }
   }
 }
@@ -208,7 +209,7 @@ export class UmpireView {
       if (!u.mark) continue;
       let gx = 0, gz = 0;
       if (head) {
-        const dx = u.mark.x - head.x, dz = u.mark.z - head.z, d = Math.hypot(dx, dz);
+        const dx = u.mark.x - head.x, dz = u.mark.z - head.z, d = hyp(dx, dz);
         if (d < r) {
           const ux = d > 1e-3 ? dx / d : (u.mark.x <= head.x ? -1 : 1), uz = d > 1e-3 ? dz / d : 0;
           gx = head.x + ux * r - u.mark.x; gz = head.z + uz * r - u.mark.z;
@@ -241,10 +242,11 @@ export class UmpireView {
   // obstacles: circles {x, z, r} for a walking umpire to go round (set by the field controller).
   update(dt, now) {
     if (!this.visible) return;
-    for (const u of [this.main, this.leg]) {
+    for (let n = 0; n < 2; n++) {
+      const u = n ? this.leg : this.main;
       if (u.mark) {
         u.goal.x = u.mark.x + u.off.x; u.goal.z = u.mark.z + u.off.z;
-        const d = Math.hypot(u.goal.x - u.pos.x, u.goal.z - u.pos.z);
+        const d = hyp(u.goal.x - u.pos.x, u.goal.z - u.pos.z);
         if (!u.task && dt > 0 && (d > 0.06 || Math.abs(Math.atan2(Math.sin(u.rest - u.heading), Math.cos(u.rest - u.heading))) > 0.08)) u.task = walkTask(u.goal, u.rest, { speed: d > 5 ? 2.6 : 1.3, tol: 0.05 });
         if (u.task && dt > 0) { u.task.to = u.goal; u.task.face = u.rest; if (stepWalk(u, dt, this.obstacles || null)) u.task = null; }
         if (!u.task) u.speed = 0;

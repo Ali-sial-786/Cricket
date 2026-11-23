@@ -17,7 +17,7 @@ import { BatterActor } from './actors.js';
 import { steerAmong, STUMP_CLEAR } from '../game/fielding.js';
 import { PITCH } from '../physics/pitch.js';
 import { CONFIG } from '../config.js';
-import { sstep, clamp } from './anim.js';
+import { sstep, clamp, hyp } from './anim.js';
 
 const TAU = Math.PI * 2;
 const angDiff = (a, b) => { let d = b - a; while (d > Math.PI) d -= TAU; while (d < -Math.PI) d += TAU; return d; };
@@ -53,7 +53,7 @@ export function stepWalk(a, dt, obs = null) {
   if (!k || k.done) return true;
   k.age += dt;
   if (k.left != null) k.left = Math.max(0, k.left - dt);
-  const dx = k.to.x - a.pos.x, dz = k.to.z - a.pos.z, d = Math.hypot(dx, dz);
+  const dx = k.to.x - a.pos.x, dz = k.to.z - a.pos.z, d = hyp(dx, dz);
   if (d <= k.tol || k.there) {
     // there: stop, then turn to face the right way
     k.there = true;
@@ -84,8 +84,8 @@ export function stepWalk(a, dt, obs = null) {
   a.pos.z += Math.cos(a.heading) * step;
   if (obs) for (const o of obs) {                          // (never inside one, whatever the turn allowed)
     if (!o) continue;
-    const ox = a.pos.x - o.x, oz = a.pos.z - o.z, od = Math.hypot(ox, oz);
-    if (od < o.r && od > 1e-4 && Math.hypot(k.to.x - o.x, k.to.z - o.z) >= o.r) { a.pos.x = o.x + ox / od * o.r; a.pos.z = o.z + oz / od * o.r; }
+    const ox = a.pos.x - o.x, oz = a.pos.z - o.z, od = hyp(ox, oz);
+    if (od < o.r && od > 1e-4 && hyp(k.to.x - o.x, k.to.z - o.z) >= o.r) { a.pos.x = o.x + ox / od * o.r; a.pos.z = o.z + oz / od * o.r; }
   }
   return false;
 }
@@ -251,7 +251,7 @@ export class BatterCrew {
       }
     } else {
       if (!stA) stA = this.comeIn(STRIKER_SPOT, Math.PI / 2);
-      else if (stA !== prevS || Math.hypot(stA.pos.x - STRIKER_SPOT.x, stA.pos.z - STRIKER_SPOT.z) > 0.25) stA.task = walkTask(STRIKER_SPOT, Math.PI / 2, { speed: WALK });
+      else if (stA !== prevS || hyp(stA.pos.x - STRIKER_SPOT.x, stA.pos.z - STRIKER_SPOT.z) > 0.25) stA.task = walkTask(STRIKER_SPOT, Math.PI / 2, { speed: WALK });
       if (stA) { bv.actor = stA; stA.visible = true; bv.shown = true; }
     }
     void prevN;
@@ -294,10 +294,10 @@ export class BatterCrew {
     for (let i = this.leaving.length - 1; i >= 0; i--) {
       const a = this.leaving[i];
       // (a walk at first, then a jog once he is off the square)
-      const off = Math.hypot(a.pos.x, Math.max(0, Math.abs(a.pos.z - PITCH.centerZ) - 10));
+      const off = hyp(a.pos.x, Math.max(0, Math.abs(a.pos.z - PITCH.centerZ) - 10));
       a.task.speed = off > 14 ? JOG : 2.1;
       const done = stepWalk(a, dt, this.obstacles(a));
-      const d = Math.hypot(GATE.x - a.pos.x, GATE.z - a.pos.z);
+      const d = hyp(GATE.x - a.pos.x, GATE.z - a.pos.z);
       a.h.setFade(sstep(0.5, 4.5, d));
       if (done || d < 0.7) { a.task = null; a.visible = false; a.h.setFade(1); a.h.replayVisible = false; this.leaving.splice(i, 1); }
     }
@@ -309,7 +309,7 @@ export class BatterCrew {
   duringReplay(dt) {
     const g = this.g;
     // (he only leaves the field in live play: the replay puts every figure's visibility back when it ends)
-    for (const a of this.leaving) if (Math.hypot(GATE.x - a.pos.x, GATE.z - a.pos.z) > 6) stepWalk(a, dt, this.obstacles(a));
+    for (const a of this.leaving) if (hyp(GATE.x - a.pos.x, GATE.z - a.pos.z) > 6) stepWalk(a, dt, this.obstacles(a));
     for (const a of [g.batterView.actor, g.nonStrikerView.actor]) {
       if (a.task && a.task.kind === 'in') stepWalk(a, dt, this.obstacles(a));
     }

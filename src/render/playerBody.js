@@ -32,7 +32,7 @@ import { ShotSense, FAMILIES, captureTime, SENSE } from './shotSense.js';
 import { Footwork } from './footwork.js';
 import { liftPole, steadyKnees, kneeWay } from './legs.js';
 import { shotByName, shotsReady, poseShot } from './shots.js';
-import { sstep, clamp, mix } from './anim.js';
+import { sstep, clamp, mix, nm, SIDES, hyp } from './anim.js';
 import { PITCH } from '../physics/pitch.js';
 import { CONFIG } from '../config.js';
 
@@ -246,8 +246,8 @@ export class PlayerBodyView {
     if (!k) return;
     for (const [i, sd] of [[0, 'L'], [1, 'R']]) {
       if (Math.abs(k[i] - 1) < 1e-6) continue;
-      h.bones['elbow' + sd].position.copy(A.armRest['elbow' + sd]).multiplyScalar(k[i]);
-      h.bones['hand' + sd].position.copy(A.armRest['hand' + sd]).multiplyScalar(k[i]);
+      h.bones[nm('elbow', sd)].position.copy(A.armRest[nm('elbow', sd)]).multiplyScalar(k[i]);
+      h.bones[nm('hand', sd)].position.copy(A.armRest[nm('hand', sd)]).multiplyScalar(k[i]);
       A._stretched = true;
     }
   }
@@ -366,7 +366,7 @@ export class PlayerBodyView {
           if (UPRIGHT.includes(c.name)) upright += c.w;
         }
         // (capped: the head, not the capture, says how far you have gone)
-        const cl = (x, z, m) => { const l = Math.hypot(x, z); return l > m ? m / l : 1; };
+        const cl = (x, z, m) => { const l = hyp(x, z); return l > m ? m / l : 1; };
         let k = cl(pat.Lx, pat.Lz, 0.35); pat.Lx *= k; pat.Lz *= k;
         k = cl(pat.Rx, pat.Rz, 0.2); pat.Rx *= k; pat.Rz *= k;
         // (the captures come from video: their feet's turn is rough, so only some of it)
@@ -391,7 +391,7 @@ export class PlayerBodyView {
     A.mode = 'bat'; A.poseKey = 'bat';
     A.bat.position.copy(bp); A.bat.quaternion.copy(bq);
     A.footL.set(F.L.x, F.L.y, F.L.z); A.footR.set(F.R.x, F.R.y, F.R.z);
-    const fx = F.L.x - F.R.x, fz = F.L.z - F.R.z, wide = Math.hypot(fx, fz) || 1;
+    const fx = F.L.x - F.R.x, fz = F.L.z - F.R.z, wide = hyp(fx, fz) || 1;
     const weight = clamp(0.5 + ((Hj.x - (F.L.x + F.R.x) / 2) * fx + (Hj.z - (F.L.z + F.R.z) / 2) * fz) / (wide * wide) * 0.9, 0.2, 0.8);
     // (the other hand off the handle: the shoulders go a little its way)
     _yp.copy(bp);
@@ -402,8 +402,8 @@ export class PlayerBodyView {
     if (st.kneelK < 0.01) {
       h.update();
       let drop = 0;
-      for (const sd of ['L', 'R']) {
-        const hj = h.worldPos('hip' + sd, _a), f = sd === 'L' ? F.L : F.R, T = _b.set(f.x, f.y + h.ankleHeight * sc, f.z);
+      for (const sd of SIDES) {
+        const hj = h.worldPos(nm('hip', sd), _a), f = sd === 'L' ? F.L : F.R, T = _b.set(f.x, f.y + h.ankleHeight * sc, f.z);
         const d = hj.distanceTo(T), over = d - legLen * 0.995;
         if (over > 0) drop = Math.max(drop, over * d / Math.max(0.3, hj.y - T.y));
       }
@@ -417,8 +417,8 @@ export class PlayerBodyView {
       const snapN = this._snapN = h.snapshot(this._snapN);
       h.worldPos('ankleL', N.aL); h.worldPos('ankleR', N.aR);
       h.bones.ankleL.getWorldQuaternion(N.qL); h.bones.ankleR.getWorldQuaternion(N.qR);
-      for (const sd of ['L', 'R']) {            // (the way each knee bends)
-        const p = N['p' + sd].copy(h.worldPos('knee' + sd, _a)).sub(_b.addVectors(h.worldPos('hip' + sd, _c), N['a' + sd]).multiplyScalar(0.5));
+      for (const sd of SIDES) {            // (the way each knee bends)
+        const p = N[nm('p', sd)].copy(h.worldPos(nm('knee', sd), _a)).sub(_b.addVectors(h.worldPos(nm('hip', sd), _c), N[nm('a', sd)]).multiplyScalar(0.5));
         const yw = sd === 'L' ? yawL : yawR;
         kneeWay(p, yw);
       }
@@ -430,14 +430,14 @@ export class PlayerBodyView {
         h.blendFrom(snapN, Eb);
         // (the blend of two bodies on the same feet: the legs put back on them, knees bending between the two ways)
         h.update();
-        for (const sd of ['L', 'R']) {
-          const tgt = _a.lerpVectors(N['a' + sd], M['a' + sd], Eb);
-          const mid = h.worldPos('hip' + sd, _c).add(tgt).multiplyScalar(0.5);
+        for (const sd of SIDES) {
+          const tgt = _a.lerpVectors(N[nm('a', sd)], M[nm('a', sd)], Eb);
+          const mid = h.worldPos(nm('hip', sd), _c).add(tgt).multiplyScalar(0.5);
           // (turned from one to the other, so two ways that differ a lot never cancel out)
-          _q.setFromUnitVectors(N['p' + sd], M['p' + sd]);
-          _d.copy(N['p' + sd]).applyQuaternion(_q2.identity().slerp(_q, Eb));
-          h.ikLeg(sd, tgt, M['o' + sd].copy(mid.addScaledVector(_d, 0.6)));
-          h.setWorldQuat('ankle' + sd, _q.copy(N['q' + sd]).slerp(M['q' + sd], Eb));
+          _q.setFromUnitVectors(N[nm('p', sd)], M[nm('p', sd)]);
+          _d.copy(N[nm('p', sd)]).applyQuaternion(_q2.identity().slerp(_q, Eb));
+          h.ikLeg(sd, tgt, M[nm('o', sd)].copy(mid.addScaledVector(_d, 0.6)));
+          h.setWorldQuat(nm('ankle', sd), _q.copy(N[nm('q', sd)]).slerp(M[nm('q', sd)], Eb));
         }
         h.update(); h.clearFoot('L', M.oL); h.clearFoot('R', M.oR);
         // (the blend of two trunks does not keep the head on yours: aimed at it again)
@@ -548,11 +548,11 @@ export class PlayerBodyView {
     this.hipsToFeet(yawL, yawR);
     h.update();
     h.worldPos('hips', M.H); h.worldPos('head', M.hd);
-    for (const sd of ['L', 'R']) {
-      h.worldPos('knee' + sd, M['k' + sd]); h.worldPos('ankle' + sd, M['a' + sd]); h.worldPos('hip' + sd, M['h' + sd]);
-      h.bones['ankle' + sd].getWorldQuaternion(M['q' + sd]);
+    for (const sd of SIDES) {
+      h.worldPos(nm('knee', sd), M[nm('k', sd)]); h.worldPos(nm('ankle', sd), M[nm('a', sd)]); h.worldPos(nm('hip', sd), M[nm('h', sd)]);
+      h.bones[nm('ankle', sd)].getWorldQuaternion(M[nm('q', sd)]);
       // the way the capture bends this knee
-      const p = M['p' + sd].copy(M['k' + sd]).sub(_a.addVectors(M['h' + sd], M['a' + sd]).multiplyScalar(0.5)), yw = sd === 'L' ? yawL : yawR;
+      const p = M[nm('p', sd)].copy(M[nm('k', sd)]).sub(_a.addVectors(M[nm('h', sd)], M[nm('a', sd)]).multiplyScalar(0.5)), yw = sd === 'L' ? yawL : yawR;
       kneeWay(p, yw);
       // A planted pad tracks its toes. A video taken side-on loses the knee's
       // depth, especially as a cross-bat shot turns through the line. Keep
@@ -572,7 +572,7 @@ export class PlayerBodyView {
     // pelvis: your head less the capture's trunk
     const P = _P.copy(Hj).sub(M.hd).add(M.H);
     // (kept over the feet: along their line from a little behind the back foot to a little ahead of the front, and near it across)
-    const lx = F.L.x - F.R.x, lz = F.L.z - F.R.z, ll = Math.hypot(lx, lz) || 1;
+    const lx = F.L.x - F.R.x, lz = F.L.z - F.R.z, ll = hyp(lx, lz) || 1;
     {
       const ux = lx / ll, uz = lz / ll, rx = P.x - F.R.x, rz = P.z - F.R.z;
       const a = clamp(rx * ux + rz * uz, -0.22, ll + 0.22), b = clamp(rx * -uz + rz * ux, -0.3, 0.34);
@@ -599,14 +599,14 @@ export class PlayerBodyView {
     // Directly above the chest the hands have no useful bearing. Behind it,
     // their bearing wraps at +/- pi. Let the shoulders turn through both
     // transitions without swapping sides in one frame.
-    const bearing = sstep(0.05 * sc, 0.18 * sc, Math.hypot(bp.x - ch.x, bp.z - ch.z));
+    const bearing = sstep(0.05 * sc, 0.18 * sc, hyp(bp.x - ch.x, bp.z - ch.z));
     const wantedYaw = bearing * clamp(angDiff(have, want), -1.2, 1.2) * mix(0.45, 0.9, sstep(0, 0.12, over));
     const prevYaw = st.handYaw ?? wantedYaw;
     const dyaw = st.handYaw = prevYaw + clamp(wantedYaw - prevYaw, -6 * dt, 6 * dt);
     // (about the trunk's own line, spine to head: a turn of the shoulders does not move the head)
     _yp.subVectors(h.worldPos('head', _d), h.worldPos('spine', _e)).normalize();
     if (_yp.y < 0.2) _yp.copy(_up);
-    for (const [b, f] of [['spine', 0.45], ['chest', 0.55]]) {
+    for (const [b, f] of TRUNK_SHARE) {
       h.bones[b].getWorldQuaternion(_q2);
       h.setWorldQuat(b, _q2.premultiply(_q.setFromAxisAngle(_yp, dyaw * f)));
     }
@@ -614,9 +614,9 @@ export class PlayerBodyView {
     // the trunk leans the rest of the way to your head (it was clamped, or the legs could not reach)
     this.leanTo(Hj, 0.6);
     h.update();
-    for (const sd of ['L', 'R']) {
-      const T = M['t' + sd], hip = h.worldPos('hip' + sd, _a);
-      const pole = M['o' + sd].addVectors(hip, T).multiplyScalar(0.5).addScaledVector(M['p' + sd], 0.6);
+    for (const sd of SIDES) {
+      const T = M[nm('t', sd)], hip = h.worldPos(nm('hip', sd), _a);
+      const pole = M[nm('o', sd)].addVectors(hip, T).multiplyScalar(0.5).addScaledVector(M[nm('p', sd)], 0.6);
       // (a knee the capture has down that would go into the turf here: it comes up onto its pad)
       liftPole(h, sd, T, pole, KNEE_MIN * sc);
       h.ikLeg(sd, T, pole);
@@ -711,8 +711,8 @@ export class PlayerBodyView {
     const h = this.actor.h, sc = h.root.scale.y, Y = this.st.yield;
     h.update();
     _e.set(0, 1, 0).applyQuaternion(bq);
-    for (const sd of ['L', 'R']) {
-      const hip = h.worldPos('hip' + sd, _a), knee = h.worldPos('knee' + sd, _b), ank = h.worldPos('ankle' + sd, _c);
+    for (const sd of SIDES) {
+      const hip = h.worldPos(nm('hip', sd), _a), knee = h.worldPos(nm('knee', sd), _b), ank = h.worldPos(nm('ankle', sd), _c);
       let worst = 0, px = 0, pz = 0;
       for (let i = 0; i <= 6; i++) {
         _d.copy(bp).addScaledVector(_e, BLADE_TOP - (BLADE_TOP - BLADE_TOE) * i / 6);
@@ -721,18 +721,18 @@ export class PlayerBodyView {
           if (gap > worst) { worst = gap; px = q.x - _d.x; pz = q.z - _d.z; }
         }
       }
-      const y = Y[sd], pl = Math.hypot(px, pz), amt = pl > 1e-4 ? Math.min(1, worst / 0.1) * 0.3 / pl : 0;
-      const tx = px * amt, tz = pz * amt, dx = tx - y[0], dz = tz - y[1], dl = Math.hypot(dx, dz), mv = Math.min(dl, 2.2 * dt);
+      const y = Y[sd], pl = hyp(px, pz), amt = pl > 1e-4 ? Math.min(1, worst / 0.1) * 0.3 / pl : 0;
+      const tx = px * amt, tz = pz * amt, dx = tx - y[0], dz = tz - y[1], dl = hyp(dx, dz), mv = Math.min(dl, 2.2 * dt);
       if (dl > 1e-6) { y[0] += dx / dl * mv; y[1] += dz / dl * mv; }
       const pole = sd === 'L' ? poleL : poleR;
-      if (Math.hypot(y[0], y[1]) < 1e-3 || !pole) continue;
+      if (hyp(y[0], y[1]) < 1e-3 || !pole) continue;
       const yw = sd === 'L' ? yawL : yawR, mid = _P.addVectors(hip, ank).multiplyScalar(0.5);
       _d.copy(pole).sub(mid); _d.x += y[0]; _d.z += y[1];
       const len = _d.length() || 1;
       kneeWay(_d.divideScalar(len), yw, 0);
-      h.bones['ankle' + sd].getWorldQuaternion(_q);
+      h.bones[nm('ankle', sd)].getWorldQuaternion(_q);
       h.ikLeg(sd, ank, mid.addScaledVector(_d, len));
-      h.setWorldQuat('ankle' + sd, _q);
+      h.setWorldQuat(nm('ankle', sd), _q);
     }
   }
 
@@ -760,7 +760,7 @@ export class PlayerBodyView {
     // (looking right round behind you: the head stays turned the way it was, it does not whip to the other shoulder)
     if (Math.abs(yaw) > 2.2 && yaw * st.look < 0) yaw = Math.sign(st.look) * 1.5;
     yaw = clamp(yaw, -1.5, 1.5);
-    let pitch = clamp(Math.atan2(-_hf.y, Math.hypot(_hf.x, _hf.z)), -0.7, 0.8);
+    let pitch = clamp(Math.atan2(-_hf.y, hyp(_hf.x, _hf.z)), -0.7, 0.8);
     // (never faster than a neck turns: a look that swings round past the shoulder, or the
     // body turning under it, eases the head round instead of popping it)
     if (st.lookN++ > 0) {
@@ -778,11 +778,13 @@ export class PlayerBodyView {
 // Alternating projections onto the two balls, each along the weighed
 // gradient; continuous in its inputs.
 const _rd = new THREE.Vector3(), _rg = new THREE.Vector3();
+const TRUNK_SHARE = [['spine', 0.45], ['chest', 0.55]];
 function reachBoth(P, oL, TL, oR, TR, reach, down) {
   const w2 = down * down;
   for (let it = 0; it < 6; it++) {
     let moved = false;
-    for (const [o, T] of [[oL, TL], [oR, TR]]) {
+    for (let n = 0; n < 2; n++) {
+      const o = n ? oR : oL, T = n ? TR : TL;
       const d = _rd.copy(P).add(o).sub(T), l = d.length();
       if (l <= reach + 1e-5) continue;
       // direction: toward the foot, with its vertical part scaled down (cheap sideways, dear downward)

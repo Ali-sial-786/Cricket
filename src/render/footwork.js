@@ -17,6 +17,7 @@
 // right-hander faces +X, so the front (left) foot is the one nearer -Z.
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const mix = (a, b, k) => a + (b - a) * k;
+const hyp = (x, y) => Math.sqrt(x * x + y * y);      // (Math.hypot makes garbage in V8)
 const angDiff = (a, b) => { let d = b - a; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI; return d; };
 
 export const FEET = {
@@ -100,7 +101,7 @@ export class Footwork {
     }
     S.hx = hx; S.hz = hz;
     // (walking: going somewhere standing up; a lunge goes down as it goes forward)
-    const sp = Math.hypot(S.vx, S.vz), hurry = sp > 0.9 && (i.crouch || 0) < 0.16;
+    const sp = hyp(S.vx, S.vz), hurry = sp > 0.9 && (i.crouch || 0) < 0.16;
     const L = S.L, R = S.R;
     const E = i.engage || 0, kneel = i.kneel || 0, maxStride = kneel > 0.5 ? F.maxStride : clamp(i.maxStride ?? F.maxStride, 0.4, F.maxStride);
     // where the feet are (or are landing), in the stance's frame; how fast your head goes in it
@@ -121,7 +122,7 @@ export class Footwork {
       xz(tR, hx - F.kneelSide, hz + F.kneelBack); xz(tL, hx - F.kneelSide + 0.1, hz - F.kneelFront);
       const kb = Rz0 - hz, kx = hx - Rx0;
       if (kb > 0.3 && kb < 0.85 && kx > 0 && kx < 0.45) xz(tR, Rx0, Rz0);
-      if (Math.hypot(tL.x - Lx0, tL.z - Lz0) < 0.15) xz(tL, Lx0, Lz0);
+      if (hyp(tL.x - Lx0, tL.z - Lz0) < 0.15) xz(tL, Lx0, Lz0);
     } else {
       const settle = i.quiet > F.settleAfter && E < 0.05 && (i.crouch || 0) < 0.14;
       // back foot: fine anywhere from just behind the head to a full lunge behind it
@@ -139,21 +140,21 @@ export class Footwork {
       // after that it stays planted until your head moves it.
       if (S.anchor && i.pat && E > 0.12) {
         const A = S.anchor, p = i.pat, pin = i.pin && i.pin.k > 0;
-        const pl = Math.hypot(p.Lx, p.Lz), pr = Math.hypot(p.Rx, p.Rz);
+        const pl = hyp(p.Lx, p.Lz), pr = hyp(p.Rx, p.Rz);
         if (pr > 0.05 && !pin && b >= bLo && b <= bHi) {
           const z = clamp(A.Rz + p.Rz, hz + 0.08, hz + bHi), x = clamp(A.Rx + p.Rx, hx - F.xHi, hx - F.xLo + 0.05);
-          if (!A.pR || Math.hypot(x - A.pR.x, z - A.pR.z) > 0.2) { A.pR = { x, z }; xz(tR, x, z); thrR = 0.06; }
+          if (!A.pR || hyp(x - A.pR.x, z - A.pR.z) > 0.2) { A.pR = { x, z }; xz(tR, x, z); thrR = 0.06; }
         }
         if (pl > 0.05 && a >= aLo) {
           const ahead = F.front + 0.16 + F.lunge * lungeOf(tR.z, hz);
           const z = clamp(A.Lz + p.Lz, hz - ahead, hz - F.frontMin), x = clamp(A.Lx + p.Lx, hx - F.xHi - 0.1, hx - F.xLo + 0.2);
-          if (!A.pL || Math.hypot(x - A.pL.x, z - A.pL.z) > 0.2) { A.pL = { x, z }; xz(tL, x, Math.min(z, tL.z)); thrL = 0.06; }
+          if (!A.pL || hyp(x - A.pL.x, z - A.pL.z) > 0.2) { A.pL = { x, z }; xz(tL, x, Math.min(z, tL.z)); thrL = 0.06; }
         }
       }
     }
     // never crossed, never on top of each other, never further apart than a stride
     if (tL.z > tR.z - 0.15) { if (tL.z !== Lz0) tL.z = tR.z - 0.3; else tR.z = tL.z + 0.3; }
-    const st = Math.hypot(tL.x - tR.x, tL.z - tR.z);
+    const st = hyp(tL.x - tR.x, tL.z - tR.z);
     if (st > maxStride) { tL.x = tR.x + (tL.x - tR.x) * maxStride / st; tL.z = tR.z + (tL.z - tR.z) * maxStride / st; }
     // (back in the world)
     toW(tL); toW(tR);
@@ -167,7 +168,7 @@ export class Footwork {
       if (hz < i.stumpsZ + 0.3) t.z = Math.min(t.z, t === tL ? front - 0.3 : front);
       else if (Math.abs(t.z - i.stumpsZ) < F.stumpZ) t.z = i.stumpsZ + F.stumpZ;
     }
-    const eL = Math.hypot(tL.x - L.x, tL.z - L.z), eR = Math.hypot(tR.x - R.x, tR.z - R.z);
+    const eL = hyp(tL.x - L.x, tL.z - L.z), eR = hyp(tR.x - R.x, tR.z - R.z);
     // the rig was moved: no step covers that
     if (Math.max(eL, eR) > F.teleport) {
       this.place(ax, th); L.y = R.y = 0; L.m = R.m = null; S.anchor = null; S.cool = 0;
@@ -201,7 +202,7 @@ export class Footwork {
       if (m) {
         // the landing spot follows where the foot ought to be (you are still moving), while the foot
         // is up: less and less as it comes down, so it lands where it is going instead of sliding there
-        const dx = t.x - m.tx, dz = t.z - m.tz, d = Math.hypot(dx, dz), mv = Math.min(d, F.retarget * dt) * (1 - ease(m.k));
+        const dx = t.x - m.tx, dz = t.z - m.tz, d = hyp(dx, dz), mv = Math.min(d, F.retarget * dt) * (1 - ease(m.k));
         if (d > 1e-6) { m.tx += dx / d * mv; m.tz += dz / d * mv; }
         m.k = Math.min(1, m.k + dt / m.dur);
         const e = ease(m.k);

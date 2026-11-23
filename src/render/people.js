@@ -4,7 +4,7 @@ import { Pose } from '../physics/math.js';
 import { FielderActor, BowlerActor, BatterActor } from './actors.js';
 import { poseEvery } from './humanoid.js';
 import { toV3, toQ } from './util.js';
-import { sstep, clamp } from './anim.js';
+import { sstep, clamp, hyp } from './anim.js';
 import { CONFIG } from '../config.js';
 import { walkTask, stepWalk, fadeNearHead } from './crew.js';
 import { live, lastCrowd, joyAt } from './gestures.js';
@@ -77,7 +77,7 @@ export class BatterView {
       let fade = 1;
       if (k.kind === 'merge') {
         // (he may already be close to you when he turns into "you": the fade still takes its time)
-        fade = Math.max(fadeNearHead(Math.hypot(a.pos.x - k.to.x, a.pos.z - k.to.z)), (a.h.fade ?? 1) - 2.5 * dt);
+        fade = Math.max(fadeNearHead(hyp(a.pos.x - k.to.x, a.pos.z - k.to.z)), (a.h.fade ?? 1) - 2.5 * dt);
         if (fade <= 0.01) { a.task = null; a.h.setFade(0); this.show(false); return; }
       } else if (k.kind === 'in') fade = sstep(0, 0.9, k.age);
       a.h.setFade(fade);
@@ -95,7 +95,7 @@ export class BatterView {
       a.pos.set(this.running.x, 0, this.running.z);
       if (rx != null) a.rebase(rx, rz);          // (the run starts under his pelvis: the body stays where the shot left it)
       // Your own runner is not drawn round your head: he fades as he leaves / rejoins you.
-      let fade = this.runnerOnly && this.avoid ? fadeNearHead(Math.hypot(a.pos.x - this.avoid.x, a.pos.z - this.avoid.z)) : 1;
+      let fade = this.runnerOnly && this.avoid ? fadeNearHead(hyp(a.pos.x - this.avoid.x, a.pos.z - this.avoid.z)) : 1;
       const was = a.h.fade ?? 1;
       fade = clamp(fade, was - 4 * dt, was + 4 * dt);
       a.h.setFade(fade);
@@ -278,7 +278,7 @@ export class FieldView {
         for (let j = 0; j < B.length && !hit; j++) {
           if (j === i && j < this.actors.length) continue;
           const b = B[j];
-          for (const p of pts) if (p.y < 1.9 && Math.hypot(p.x + dx - b.x, p.z + dz - b.z) < BODY_GAP) { hit = true; break; }
+          for (const p of pts) if (p.y < 1.9 && hyp(p.x + dx - b.x, p.z + dz - b.z) < BODY_GAP) { hit = true; break; }
         }
         if (!hit) break;
       }
@@ -389,7 +389,7 @@ export class NonStrikerView {
       this.moving = false;
       return;
     }
-    const d = Math.hypot(G.x - a.pos.x, G.z - a.pos.z);
+    const d = hyp(G.x - a.pos.x, G.z - a.pos.z);
     if (!a.task && d > 0.12) a.task = walkTask(G, this.restFace(), { speed: d > 6 ? 3.4 : 1.7 });
     if (a.task) {
       const k = a.task;
@@ -423,7 +423,7 @@ export class NonStrikerView {
     this.running = null; this.backing = 0;
     this.goal.x = this.home.x + o.x; this.goal.z = this.home.z + o.z;
     if (task) { task.to = this.goal; task.face = this.restFace(); a.task = task; }
-    else if (Math.hypot(this.goal.x - a.pos.x, this.goal.z - a.pos.z) > 0.12) a.task = walkTask(this.goal, this.restFace(), { speed: Math.hypot(this.goal.x - a.pos.x, this.goal.z - a.pos.z) > 6 ? 3.4 : 1.7 });
+    else if (hyp(this.goal.x - a.pos.x, this.goal.z - a.pos.z) > 0.12) a.task = walkTask(this.goal, this.restFace(), { speed: hyp(this.goal.x - a.pos.x, this.goal.z - a.pos.z) > 6 ? 3.4 : 1.7 });
     this.moving = !!a.task;
   }
   // Stood on his mark at once: only when nobody can see it (a session starting or ending, a skip to the next ball).
@@ -441,7 +441,7 @@ export class NonStrikerView {
   clearOffset() {
     const hp = this.avoid, gx = this.home.x, gz = this.home.z;
     if (!hp) return { x: 0, z: 0 };
-    const dx = gx - hp.x, dz = gz - hp.z, d = Math.hypot(dx, dz);
+    const dx = gx - hp.x, dz = gz - hp.z, d = hyp(dx, dz);
     if (d >= STAND_CLEAR) return { x: 0, z: 0 };
     const ux = d > 1e-3 ? dx / d : (this.home.x >= hp.x ? 1 : -1), uz = d > 1e-3 ? dz / d : 0;
     return { x: hp.x + ux * STAND_CLEAR - gx, z: hp.z + uz * STAND_CLEAR - gz };

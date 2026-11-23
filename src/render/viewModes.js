@@ -7,7 +7,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { Actor } from './actors.js';
 import { Humanoid } from './humanoid.js';
-import { plantFeet, heelFor, clamp, mix } from './anim.js';
+import { plantFeet, heelFor, clamp, mix, hyp } from './anim.js';
 
 // ---------------------------------------------------------------- helmet
 // Built in eye space: x right, y up, -z forward, metres from the point
@@ -122,7 +122,7 @@ export class PlayerBowlerActor extends Actor {
     // (your eyes are in front of your head's joint: the body that far behind them, so you look down at your chest, not down your collar)
     const x = head.p.x - fx * 0.16, z = head.p.z - fz * 0.16;
     if (this.prev && dt > 0) {
-      const v = Math.hypot(x - this.prev.x, z - this.prev.z) / dt;
+      const v = hyp(x - this.prev.x, z - this.prev.z) / dt;
       this.speed += (Math.min(7, v) - this.speed) * Math.min(1, dt * 8);
     }
     this.prev = { x, z };

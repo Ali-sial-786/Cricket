@@ -12,6 +12,7 @@
 //                the pads wring round the leg), no knee in the turf, and a
 //                kneeling pad resting on it, not through it.
 import * as THREE from 'three';
+import { nm, SIDES, hyp } from './anim.js';
 
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const angDiff = (a, b) => { let d = b - a; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI; return d; };
@@ -27,8 +28,8 @@ const _la = new THREE.Vector3(), _ln = new THREE.Vector3(), _lu = new THREE.Vect
 export function liftPole(h, sd, T, pole, minY) {
   const sc = h.root.scale.x;
   h.update();
-  const hip = h.worldPos('hip' + sd, _la);
-  const l1 = h.bones['knee' + sd].position.length() * sc, l2 = h.bones['ankle' + sd].position.length() * sc;
+  const hip = h.worldPos(nm('hip', sd), _la);
+  const l1 = h.bones[nm('knee', sd)].position.length() * sc, l2 = h.bones[nm('ankle', sd)].position.length() * sc;
   const n = _ln.subVectors(T, hip);
   let d = n.length();
   if (d < 1e-5) return false;
@@ -42,7 +43,7 @@ export function liftPole(h, sd, T, pole, minY) {
   const v = _lv.crossVectors(n, u);
   const a = r * u.y, b = r * v.y, c = minY - C.y;
   if (a >= c) return false;                         // (y at the wanted angle: C.y + a)
-  const R = Math.hypot(a, b), phi = Math.atan2(b, a);
+  const R = hyp(a, b), phi = Math.atan2(b, a);
   let th;
   if (R < 1e-6) return false;
   if (c >= R) th = phi;                              // (as high as it goes)
@@ -71,10 +72,10 @@ export function footYaw(q) { _p.set(0, 0, 1).applyQuaternion(q); return Math.ata
 // A figure's legs as posed now (world): each ankle, its orientation and the way the knee bends (safe).
 export function legsNow(h, S) {
   h.update();
-  for (const sd of ['L', 'R']) {
-    const a = (S['a' + sd] ||= new THREE.Vector3()), q = (S['q' + sd] ||= new THREE.Quaternion()), p = (S['p' + sd] ||= new THREE.Vector3());
-    h.worldPos('ankle' + sd, a); h.bones['ankle' + sd].getWorldQuaternion(q);
-    p.copy(h.worldPos('knee' + sd, _d)).sub(_e.addVectors(h.worldPos('hip' + sd, _b), a).multiplyScalar(0.5));
+  for (const sd of SIDES) {
+    const a = (S[nm('a', sd)] ||= new THREE.Vector3()), q = (S[nm('q', sd)] ||= new THREE.Quaternion()), p = (S[nm('p', sd)] ||= new THREE.Vector3());
+    h.worldPos(nm('ankle', sd), a); h.bones[nm('ankle', sd)].getWorldQuaternion(q);
+    p.copy(h.worldPos(nm('knee', sd), _d)).sub(_e.addVectors(h.worldPos(nm('hip', sd), _b), a).multiplyScalar(0.5));
     kneeWay(p, footYaw(q));
   }
   return S;
@@ -85,14 +86,14 @@ export function legsNow(h, S) {
 // round). N: the legs at w = 0, M: at w = 1 (legsNow). poles: { L, R } out (Vector3).
 export function legsBlend(h, N, M, w, poles) {
   h.update();
-  for (const sd of ['L', 'R']) {
-    const tgt = _c.lerpVectors(N['a' + sd], M['a' + sd], w);
-    const mid = _e.addVectors(h.worldPos('hip' + sd, _b), tgt).multiplyScalar(0.5);
-    _q.setFromUnitVectors(N['p' + sd], M['p' + sd]);
-    _x.copy(N['p' + sd]).applyQuaternion(_q2.identity().slerp(_q, w));
+  for (const sd of SIDES) {
+    const tgt = _c.lerpVectors(N[nm('a', sd)], M[nm('a', sd)], w);
+    const mid = _e.addVectors(h.worldPos(nm('hip', sd), _b), tgt).multiplyScalar(0.5);
+    _q.setFromUnitVectors(N[nm('p', sd)], M[nm('p', sd)]);
+    _x.copy(N[nm('p', sd)]).applyQuaternion(_q2.identity().slerp(_q, w));
     const pole = (poles[sd] ||= new THREE.Vector3()).copy(mid).addScaledVector(_x, 0.6);
     h.ikLeg(sd, tgt, pole);
-    h.setWorldQuat('ankle' + sd, _q.copy(N['q' + sd]).slerp(M['q' + sd], w));
+    h.setWorldQuat(nm('ankle', sd), _q.copy(N[nm('q', sd)]).slerp(M[nm('q', sd)], w));
   }
 }
 
@@ -102,10 +103,10 @@ export function legsBlend(h, N, M, w, poles) {
 export function steadyKnees(h, K, dt, rate, minY, lowY) {
   h.update();
   const shin = h._shinIx || (h._shinIx = { L: [h.boneList.indexOf(h.bones.kneeL)], R: [h.boneList.indexOf(h.bones.kneeR)] });
-  for (const sd of ['L', 'R']) {
-    const ank = h.worldPos('ankle' + sd, _a), hip = h.worldPos('hip' + sd, _b), mid = _e.addVectors(hip, ank).multiplyScalar(0.5);
+  for (const sd of SIDES) {
+    const ank = h.worldPos(nm('ankle', sd), _a), hip = h.worldPos(nm('hip', sd), _b), mid = _e.addVectors(hip, ank).multiplyScalar(0.5);
     const ax = _ax.subVectors(ank, hip).normalize();
-    const d = _c.copy(h.worldPos('knee' + sd, _d)).sub(mid);
+    const d = _c.copy(h.worldPos(nm('knee', sd), _d)).sub(mid);
     d.addScaledVector(ax, -d.dot(ax));
     const len = d.length();
     let moved = false;
@@ -126,19 +127,19 @@ export function steadyKnees(h, K, dt, rate, minY, lowY) {
         }
       }
     }
-    const pole = d.lengthSq() > 0.5 ? _kp.copy(mid).addScaledVector(d, 0.6) : _kp.copy(h.worldPos('knee' + sd, _d)).sub(mid).multiplyScalar(4).add(mid);
+    const pole = d.lengthSq() > 0.5 ? _kp.copy(mid).addScaledVector(d, 0.6) : _kp.copy(h.worldPos(nm('knee', sd), _d)).sub(mid).multiplyScalar(4).add(mid);
     if (liftPole(h, sd, ank, pole, minY)) moved = true;
-    h.bones['ankle' + sd].getWorldQuaternion(_q);
-    if (moved) { h.ikLeg(sd, ank, pole); h.setWorldQuat('ankle' + sd, _q); h.update(); }
+    h.bones[nm('ankle', sd)].getWorldQuaternion(_q);
+    if (moved) { h.ikLeg(sd, ank, pole); h.setWorldQuat(nm('ankle', sd), _q); h.update(); }
     // (the pad below the knee joint, on a shin that slopes up to a raised foot: up onto it, not into the turf)
-    const low = h.worldPos('knee' + sd, _x).y < lowY ? h.lowest(shin[sd]) : 0;
+    const low = h.worldPos(nm('knee', sd), _x).y < lowY ? h.lowest(shin[sd]) : 0;
     if (low < 0) {
-      h.worldPos('knee' + sd, _d).sub(mid); _d.addScaledVector(ax, -_d.dot(ax)).normalize();
+      h.worldPos(nm('knee', sd), _d).sub(mid); _d.addScaledVector(ax, -_d.dot(ax)).normalize();
       pole.copy(mid).addScaledVector(_d, 0.6);
-      if (liftPole(h, sd, ank, pole, h.worldPos('knee' + sd, _x).y - low + 0.002)) { h.ikLeg(sd, ank, pole); h.setWorldQuat('ankle' + sd, _q); h.update(); }
+      if (liftPole(h, sd, ank, pole, h.worldPos(nm('knee', sd), _x).y - low + 0.002)) { h.ikLeg(sd, ank, pole); h.setWorldQuat(nm('ankle', sd), _q); h.update(); }
     }
     // (what it ended as, for the next frame)
-    h.worldPos('knee' + sd, _d).sub(mid);
+    h.worldPos(nm('knee', sd), _d).sub(mid);
     K[sd] = _d.addScaledVector(ax, -_d.dot(ax)).normalize().toArray();
   }
 }
