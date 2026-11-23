@@ -15,7 +15,7 @@
 // on the body (hips, head, chest) and slerped in from the pose underneath, so
 // they come and go over a few tenths, never in one frame.
 import * as THREE from 'three';
-import { sstep } from './anim.js';
+import { sstep, nm, SIDES } from './anim.js';
 
 // Crowd reaction kinds -> what the fielding side does. (Both kinds of wicket:
 // the men on the field are always the fielding side, whoever you are.)
@@ -112,11 +112,11 @@ export function poseArms(h, fwd, kind, w, t, S) {
   else if (kind === 'head') { h.addRot('spine', -0.06 * w, 0, 0); h.addRot('neck', -0.12 * w, 0, 0); }
   else if (kind === 'arms' || kind === 'appeal') { h.addRot('spine', (kind === 'appeal' ? 0.12 : -0.12) * w, 0, 0); h.addRot('neck', -0.15 * w, 0, 0); }
   h.update();
-  for (const side of ['L', 'R']) {
+  for (const side of SIDES) {
     const sg = side === 'L' ? 1 : -1;
-    const sh = h.worldPos('shoulder' + side, _b);
+    const sh = h.worldPos(nm('shoulder', side), _b);
     if (kind === 'hips') {
-      h.worldPos('hip' + side, _t).addScaledVector(_l, sg * 0.07 * sc).addScaledVector(_u, 0.1 * sc).addScaledVector(fwd, -0.01);
+      h.worldPos(nm('hip', side), _t).addScaledVector(_l, sg * 0.07 * sc).addScaledVector(_u, 0.1 * sc).addScaledVector(fwd, -0.01);
       _p.copy(sh).addScaledVector(_l, sg * 0.7).addScaledVector(fwd, -0.35).addScaledVector(_u, -0.2);
     } else if (kind === 'behind') {
       h.worldPos('hips', _t).addScaledVector(fwd, -0.2 * sc).addScaledVector(_l, sg * 0.03).addScaledVector(_u, 0.05 * sc);
@@ -130,10 +130,10 @@ export function poseArms(h, fwd, kind, w, t, S) {
       _p.copy(sh).addScaledVector(_l, sg * 0.45).addScaledVector(_u, -0.6);
     } else if (kind === 'wipe') {
       const rub = 0.05 * Math.sin(t * 9 + (side === 'L' ? 0 : 2));
-      h.worldPos('hip' + side, _t).addScaledVector(fwd, 0.13 * sc).addScaledVector(_u, (-0.12 + rub) * sc).addScaledVector(_l, sg * 0.03);
+      h.worldPos(nm('hip', side), _t).addScaledVector(fwd, 0.13 * sc).addScaledVector(_u, (-0.12 + rub) * sc).addScaledVector(_l, sg * 0.03);
       _p.copy(sh).addScaledVector(_l, sg * 0.5).addScaledVector(fwd, -0.2).addScaledVector(_u, -0.3);
     } else if (kind === 'knees') {
-      h.worldPos('knee' + side, _t).addScaledVector(_u, 0.08 * sc).addScaledVector(fwd, 0.05);
+      h.worldPos(nm('knee', side), _t).addScaledVector(_u, 0.08 * sc).addScaledVector(fwd, 0.05);
       _p.copy(sh).addScaledVector(_l, sg * 0.5).addScaledVector(_u, -0.2);
     } else if (kind === 'arms') {
       const pump = 0.06 * Math.sin(t * 10 + (side === 'L' ? 0 : 1.3));

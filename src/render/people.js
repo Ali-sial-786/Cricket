@@ -2,8 +2,9 @@
 import * as THREE from 'three';
 import { Pose } from '../physics/math.js';
 import { FielderActor, BowlerActor, BatterActor } from './actors.js';
+import { poseEvery } from './humanoid.js';
 import { toV3, toQ } from './util.js';
-import { sstep, clamp } from './anim.js';
+import { sstep, clamp, hyp } from './anim.js';
 import { CONFIG } from '../config.js';
 import { walkTask, stepWalk, fadeNearHead } from './crew.js';
 import { live, lastCrowd, joyAt } from './gestures.js';
@@ -76,7 +77,7 @@ export class BatterView {
       let fade = 1;
       if (k.kind === 'merge') {
         // (he may already be close to you when he turns into "you": the fade still takes its time)
-        fade = Math.max(fadeNearHead(Math.hypot(a.pos.x - k.to.x, a.pos.z - k.to.z)), (a.h.fade ?? 1) - 2.5 * dt);
+        fade = Math.max(fadeNearHead(hyp(a.pos.x - k.to.x, a.pos.z - k.to.z)), (a.h.fade ?? 1) - 2.5 * dt);
         if (fade <= 0.01) { a.task = null; a.h.setFade(0); this.show(false); return; }
       } else if (k.kind === 'in') fade = sstep(0, 0.9, k.age);
       a.h.setFade(fade);
@@ -94,7 +95,7 @@ export class BatterView {
       a.pos.set(this.running.x, 0, this.running.z);
       if (rx != null) a.rebase(rx, rz);          // (the run starts under his pelvis: the body stays where the shot left it)
       // Your own runner is not drawn round your head: he fades as he leaves / rejoins you.
-      let fade = this.runnerOnly && this.avoid ? fadeNearHead(Math.hypot(a.pos.x - this.avoid.x, a.pos.z - this.avoid.z)) : 1;
+      let fade = this.runnerOnly && this.avoid ? fadeNearHead(hyp(a.pos.x - this.avoid.x, a.pos.z - this.avoid.z)) : 1;
       const was = a.h.fade ?? 1;
       fade = clamp(fade, was - 4 * dt, was + 4 * dt);
       a.h.setFade(fade);
@@ -246,10 +247,13 @@ export class FieldView {
     if (!this.visible) return;
     for (let i = 0; i < this.actors.length && i < states.length; i++) {
       const a = this.actors[i], s = states[i];
-      a.far = ctx.cam ? Math.hypot(s.x - ctx.cam.x, s.z - ctx.cam.z) > CONFIG.render.animLodDistance && !s.action : false;
+      a.far = ctx.cam ? (s.x - ctx.cam.x) ** 2 + (s.z - ctx.cam.z) ** 2 > CONFIG.render.animLodDistance ** 2 && !s.action : false;
       a.visible = !s.hidden;
       if (!a.visible) { a.place(s.x, s.z, s.face); continue; }
-      a.update(dt, s, ctx);
+      // (a far, calm man: his pose made every 2nd / 3rd frame, a frame or two ahead, and shown between; ANIM_LOD)
+      const div = poseEvery(a.h.root.position, a.calm(s, ctx)), tk = a.lodNext(div, i, ctx.t, dt);
+      if (div > 1) a.lodFrame(dt, s, ctx, tk, _lctx);
+      else { a.move(dt, s, ctx); a.pose(a._lod.was ? Math.max(1e-4, ctx.t - a._poseT) : dt, s, ctx, dt); }
     }
     this.keepBodiesApart(ctx.others);
   }
@@ -257,24 +261,25 @@ export class FieldView {
   // spot (a dive's lunge, a stumping lunge): if that would put any part of the
   // posed body into someone else (taken as a standing trunk round the hips),
   // the lunge is shortened until it doesn't.
-  keepBodiesApart(others = []) {
-    const B = _bodies; B.length = 0;
-    this.actors.forEach((a, i) => B.push(a.visible ? a.h.bones.hips.getWorldPosition(_hipsW[i] || (_hipsW[i] = new THREE.Vector3())) : _far));
-    for (const o of others) B.push(o);
-    this.actors.forEach((a, i) => {
-      if (!a.visible) return;
+  keepBodiesApart(others = NO_OBS) {
+    const B = _bodies, A = this.actors; B.length = 0;
+    for (let i = 0; i < A.length; i++) B.push(A[i].visible ? A[i].h.bones.hips.getWorldPosition(_hipsW[i] || (_hipsW[i] = new THREE.Vector3())) : _far);
+    for (let j = 0; j < others.length; j++) B.push(others[j]);
+    for (let i = 0; i < A.length; i++) {
+      const a = A[i];
+      if (!a.visible) continue;
       const r = a.h.root.position, ox = r.x - a.pos.x, oz = r.z - a.pos.z;
-      if (ox * ox + oz * oz < 1e-4) return;
+      if (ox * ox + oz * oz < 1e-4) continue;
       a.h.update();
-      const pts = BODY_PTS.map((n, j) => a.h.worldPos(n, _pts[j]));
+      for (let j = 0; j < BODY_PTS.length; j++) a.h.worldPos(BODY_PTS[j], _pts[j]);
       let k = 1;
       for (; k > 0; k -= 0.1) {
         const dx = ox * (k - 1), dz = oz * (k - 1);
         let hit = false;
         for (let j = 0; j < B.length && !hit; j++) {
-          if (j === i && j < this.actors.length) continue;
+          if (j === i && j < A.length) continue;
           const b = B[j];
-          for (const p of pts) if (p.y < 1.9 && Math.hypot(p.x + dx - b.x, p.z + dz - b.z) < BODY_GAP) { hit = true; break; }
+          for (let n = 0; n < _pts.length; n++) { const p = _pts[n]; if (p.y < 1.9 && hyp(p.x + dx - b.x, p.z + dz - b.z) < BODY_GAP) { hit = true; break; } }
         }
         if (!hit) break;
       }
@@ -284,7 +289,7 @@ export class FieldView {
         a.h.root.updateMatrixWorld(true);
         a.h.syncShadow();
       }
-    });
+    }
   }
   // Everyone stood where the logic has him now, standing still (a skip to the next ball, in the dark).
   placeAll(states) {
@@ -317,6 +322,7 @@ export class FieldView {
   }
 }
 
+const _lctx = { t: 0, ball: null, delivering: false, cam: null, others: null };
 const BODY_PTS = ['hips', 'chest', 'head', 'kneeL', 'kneeR', 'ankleL', 'ankleR', 'handL', 'handR'];
 const _pts = BODY_PTS.map(() => new THREE.Vector3()), _bodies = [], _hipsW = [], _far = new THREE.Vector3(1e4, 0, 1e4);
 const BODY_GAP = 0.32;       // any joint of a lunging body to another's trunk axis (trunk ~0.17 + limb ~0.1 + a little)
@@ -384,7 +390,7 @@ export class NonStrikerView {
       this.moving = false;
       return;
     }
-    const d = Math.hypot(G.x - a.pos.x, G.z - a.pos.z);
+    const d = hyp(G.x - a.pos.x, G.z - a.pos.z);
     if (!a.task && d > 0.12) a.task = walkTask(G, this.restFace(), { speed: d > 6 ? 3.4 : 1.7 });
     if (a.task) {
       const k = a.task;
@@ -418,7 +424,7 @@ export class NonStrikerView {
     this.running = null; this.backing = 0;
     this.goal.x = this.home.x + o.x; this.goal.z = this.home.z + o.z;
     if (task) { task.to = this.goal; task.face = this.restFace(); a.task = task; }
-    else if (Math.hypot(this.goal.x - a.pos.x, this.goal.z - a.pos.z) > 0.12) a.task = walkTask(this.goal, this.restFace(), { speed: Math.hypot(this.goal.x - a.pos.x, this.goal.z - a.pos.z) > 6 ? 3.4 : 1.7 });
+    else if (hyp(this.goal.x - a.pos.x, this.goal.z - a.pos.z) > 0.12) a.task = walkTask(this.goal, this.restFace(), { speed: hyp(this.goal.x - a.pos.x, this.goal.z - a.pos.z) > 6 ? 3.4 : 1.7 });
     this.moving = !!a.task;
   }
   // Stood on his mark at once: only when nobody can see it (a session starting or ending, a skip to the next ball).
@@ -436,7 +442,7 @@ export class NonStrikerView {
   clearOffset() {
     const hp = this.avoid, gx = this.home.x, gz = this.home.z;
     if (!hp) return { x: 0, z: 0 };
-    const dx = gx - hp.x, dz = gz - hp.z, d = Math.hypot(dx, dz);
+    const dx = gx - hp.x, dz = gz - hp.z, d = hyp(dx, dz);
     if (d >= STAND_CLEAR) return { x: 0, z: 0 };
     const ux = d > 1e-3 ? dx / d : (this.home.x >= hp.x ? 1 : -1), uz = d > 1e-3 ? dz / d : 0;
     return { x: hp.x + ux * STAND_CLEAR - gx, z: hp.z + uz * STAND_CLEAR - gz };

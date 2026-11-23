@@ -6,7 +6,8 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { Actor } from './actors.js';
-import { plantFeet, heelFor, clamp, mix } from './anim.js';
+import { Humanoid } from './humanoid.js';
+import { plantFeet, heelFor, clamp, mix, hyp } from './anim.js';
 
 // ---------------------------------------------------------------- helmet
 // Built in eye space: x right, y up, -z forward, metres from the point
@@ -121,7 +122,7 @@ export class PlayerBowlerActor extends Actor {
     // (your eyes are in front of your head's joint: the body that far behind them, so you look down at your chest, not down your collar)
     const x = head.p.x - fx * 0.16, z = head.p.z - fz * 0.16;
     if (this.prev && dt > 0) {
-      const v = Math.hypot(x - this.prev.x, z - this.prev.z) / dt;
+      const v = hyp(x - this.prev.x, z - this.prev.z) / dt;
       this.speed += (Math.min(7, v) - this.speed) * Math.min(1, dt * 8);
     }
     this.prev = { x, z };
@@ -224,12 +225,13 @@ export class NearCull {
   // humans: Humanoid list; extras(h) -> extra objects that go with a figure (its bat).
   // keepExtras: leave the bats drawn (replays through a batter's eyes).
   update(eye, humans, radius = 0.6, keepExtras = false) {
+    if (eye) Humanoid.eye = eye;                  // (where your eyes are: the pose LOD's distances)
     for (const h of humans) {
       let near = false;
       if (h.root.visible && eye && !h.ghost) {
         h.bones.neck.getWorldPosition(_a);
         const dx = _a.x - eye.x, dz = _a.z - eye.z, dy = _a.y - eye.y;
-        near = Math.hypot(dx, dz) < radius && dy > -0.9 && dy < 0.5;
+        near = dx * dx + dz * dz < radius * radius && dy > -0.9 && dy < 0.5;
       }
       const key = near ? (keepExtras ? 1 : 2) : 0;
       if (key !== (this.hidden.get(h) || 0)) {

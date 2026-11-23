@@ -17,7 +17,7 @@ import { BatterActor } from './actors.js';
 import { steerAmong, STUMP_CLEAR } from '../game/fielding.js';
 import { PITCH } from '../physics/pitch.js';
 import { CONFIG } from '../config.js';
-import { sstep, clamp } from './anim.js';
+import { sstep, clamp, hyp } from './anim.js';
 
 const TAU = Math.PI * 2;
 const angDiff = (a, b) => { let d = b - a; while (d > Math.PI) d -= TAU; while (d < -Math.PI) d += TAU; return d; };
@@ -53,7 +53,7 @@ export function stepWalk(a, dt, obs = null) {
   if (!k || k.done) return true;
   k.age += dt;
   if (k.left != null) k.left = Math.max(0, k.left - dt);
-  const dx = k.to.x - a.pos.x, dz = k.to.z - a.pos.z, d = Math.hypot(dx, dz);
+  const dx = k.to.x - a.pos.x, dz = k.to.z - a.pos.z, d = hyp(dx, dz);
   if (d <= k.tol || k.there) {
     // there: stop, then turn to face the right way
     k.there = true;
@@ -84,8 +84,8 @@ export function stepWalk(a, dt, obs = null) {
   a.pos.z += Math.cos(a.heading) * step;
   if (obs) for (const o of obs) {                          // (never inside one, whatever the turn allowed)
     if (!o) continue;
-    const ox = a.pos.x - o.x, oz = a.pos.z - o.z, od = Math.hypot(ox, oz);
-    if (od < o.r && od > 1e-4 && Math.hypot(k.to.x - o.x, k.to.z - o.z) >= o.r) { a.pos.x = o.x + ox / od * o.r; a.pos.z = o.z + oz / od * o.r; }
+    const ox = a.pos.x - o.x, oz = a.pos.z - o.z, od = hyp(ox, oz);
+    if (od < o.r && od > 1e-4 && hyp(k.to.x - o.x, k.to.z - o.z) >= o.r) { a.pos.x = o.x + ox / od * o.r; a.pos.z = o.z + oz / od * o.r; }
   }
   return false;
 }
@@ -104,7 +104,7 @@ export class BatterCrew {
     this.leaving = [];           // batters walking off (nobody else poses them)
     this.pending = null;         // the ball is dead; sorted out once the runners have stopped
     this.team = 'home';
-    this.obs = [];
+    this.obs = []; this.obsPool = [];
   }
   get pool() { return this.all; }
   setTeam(team) { this.team = team; for (const a of this.pool) a.h.setTeam(team); }
@@ -191,16 +191,18 @@ export class BatterCrew {
     const g = this.g, obs = this.obs;
     obs.length = 0;
     const ses = g.session, L = ses && ses.field ? ses.field.logic : null;
-    if (L && g.fieldView.visible) for (const f of L.fielders) { if (f.bowler && (!L.bowlerFields || !f.out)) continue; obs.push({ x: f.pos.x, z: f.pos.z, r: f.keeper ? 1.1 : 0.8 }); }
-    if (g.umpires.visible) for (const u of g.umpires.spots()) obs.push({ x: u.x, z: u.z, r: 0.85 });
+    if (L && g.fieldView.visible) for (const f of L.fielders) { if (f.bowler && (!L.bowlerFields || !f.out)) continue; this.ob(f.pos.x, f.pos.z, f.keeper ? 1.1 : 0.8); }
+    if (g.umpires.visible) for (const u of g.umpires.spots()) this.ob(u.x, u.z, 0.85);
     const bw = g.figures.bowler.actor;
-    if (bw.visible) obs.push({ x: bw.pos.x, z: bw.pos.z, r: 0.9 });
-    obs.push({ x: 0, z: PITCH.battingStumpsZ, r: STUMP_CLEAR + 0.1 }, { x: 0, z: PITCH.bowlingStumpsZ, r: STUMP_CLEAR + 0.1 });
-    for (const a of this.pool) if (a !== self && a.visible && (a.h.fade ?? 1) > 0.5) obs.push({ x: a.pos.x, z: a.pos.z, r: 0.85 });
+    if (bw.visible) this.ob(bw.pos.x, bw.pos.z, 0.9);
+    this.ob(0, PITCH.battingStumpsZ, STUMP_CLEAR + 0.1); this.ob(0, PITCH.bowlingStumpsZ, STUMP_CLEAR + 0.1);
+    for (const a of this.pool) if (a !== self && a.visible && (a.h.fade ?? 1) > 0.5) this.ob(a.pos.x, a.pos.z, 0.85);
     const hp = g.batterView.avoid;
-    if (hp && !(self && self.task && self.task.kind === 'merge')) obs.push({ x: hp.x, z: hp.z, r: 1.5 });
+    if (hp && !(self && self.task && self.task.kind === 'merge')) this.ob(hp.x, hp.z, 1.5);
     return obs;
   }
+  // (the circles are this crew's own, set afresh each call: none made a frame)
+  ob(x, z, r) { const obs = this.obs, o = this.obsPool[obs.length] || (this.obsPool[obs.length] = { x: 0, z: 0, r: 0 }); o.x = x; o.z = z; o.r = r; obs.push(o); }
 
   // Sort the batters out for the next ball (called once the runners have
   // stopped): who is the non-striker, who takes guard / rejoins you, who walks
@@ -251,7 +253,7 @@ export class BatterCrew {
       }
     } else {
       if (!stA) stA = this.comeIn(STRIKER_SPOT, Math.PI / 2);
-      else if (stA !== prevS || Math.hypot(stA.pos.x - STRIKER_SPOT.x, stA.pos.z - STRIKER_SPOT.z) > 0.25) stA.task = walkTask(STRIKER_SPOT, Math.PI / 2, { speed: WALK });
+      else if (stA !== prevS || hyp(stA.pos.x - STRIKER_SPOT.x, stA.pos.z - STRIKER_SPOT.z) > 0.25) stA.task = walkTask(STRIKER_SPOT, Math.PI / 2, { speed: WALK });
       if (stA) { bv.actor = stA; stA.visible = true; bv.shown = true; }
     }
     void prevN;
@@ -294,10 +296,10 @@ export class BatterCrew {
     for (let i = this.leaving.length - 1; i >= 0; i--) {
       const a = this.leaving[i];
       // (a walk at first, then a jog once he is off the square)
-      const off = Math.hypot(a.pos.x, Math.max(0, Math.abs(a.pos.z - PITCH.centerZ) - 10));
+      const off = hyp(a.pos.x, Math.max(0, Math.abs(a.pos.z - PITCH.centerZ) - 10));
       a.task.speed = off > 14 ? JOG : 2.1;
       const done = stepWalk(a, dt, this.obstacles(a));
-      const d = Math.hypot(GATE.x - a.pos.x, GATE.z - a.pos.z);
+      const d = hyp(GATE.x - a.pos.x, GATE.z - a.pos.z);
       a.h.setFade(sstep(0.5, 4.5, d));
       if (done || d < 0.7) { a.task = null; a.visible = false; a.h.setFade(1); a.h.replayVisible = false; this.leaving.splice(i, 1); }
     }
@@ -309,7 +311,7 @@ export class BatterCrew {
   duringReplay(dt) {
     const g = this.g;
     // (he only leaves the field in live play: the replay puts every figure's visibility back when it ends)
-    for (const a of this.leaving) if (Math.hypot(GATE.x - a.pos.x, GATE.z - a.pos.z) > 6) stepWalk(a, dt, this.obstacles(a));
+    for (const a of this.leaving) if (hyp(GATE.x - a.pos.x, GATE.z - a.pos.z) > 6) stepWalk(a, dt, this.obstacles(a));
     for (const a of [g.batterView.actor, g.nonStrikerView.actor]) {
       if (a.task && a.task.kind === 'in') stepWalk(a, dt, this.obstacles(a));
     }
