@@ -124,7 +124,8 @@ export class CrowdAudio {
     const c = this.ctx;
     if (!this.bed || !c) return;
     const o = this.mood.out, on = this.present ? 1 : 0;
-    for (const e of this.bed) {
+    for (let i = 0; i < this.bed.length; i++) {       // (every frame: no iterator)
+      const e = this.bed[i];
       e.next -= dt;
       if (e.next <= 0) { e.wander = 0.8 + this.rng() * 0.4; e.next = 2 + this.rng() * 3; }
     }

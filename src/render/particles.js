@@ -248,7 +248,8 @@ export class Particles {
   // Fielders' dives (fielding.js states): flecks as each one lands, once a dive.
   pollDives(states, t) {
     if (!states) return;
-    for (const s of states) {
+    for (let i = 0; i < states.length; i++) {       // (every frame: no iterator)
+      const s = states[i];
       const a = s.action;
       if (!a || a.type !== 'catch' || !a.dive || s.hidden || this._dived.has(a)) continue;
       const ta = t - a.t0;

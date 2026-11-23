@@ -167,8 +167,9 @@ export class PhysicsWorld {
     this._t1 = t1;
     integrateFlight(b, h, this.P, this.rng, this._onBounce);
 
-    // Bat contact (swept).
-    for (const bat of this.bats) {
+    // Bat contact (swept). (Index loops here: every substep, no iterators.)
+    for (let bi = 0; bi < this.bats.length; bi++) {
+      const bat = this.bats[bi];
       if (b.thrown) break;                 // (a fielder's throw carrying on: no bat plays at it)
       if (!bat.enabled || t0 < bat.cooldownUntil) continue;
       bat.provider.poseAt(t0, _pose0);
@@ -206,7 +207,8 @@ export class PhysicsWorld {
     }
 
     // Wickets.
-    for (const w of this.wickets) {
+    for (let wi = 0; wi < this.wickets.length; wi++) {
+      const w = this.wickets[wi];
       if (!w.enabled || w.broken) continue;
       const s = w.sweep(_pa, b.pos, R);
       if (s < 0) continue;

@@ -478,8 +478,9 @@ export class Ceremony {
   hurryIn() {
     const cr = this.g.crew;
     if (!cr || !cr.pool) return;
-    for (const a of cr.pool) {
-      const k = a.task;
+    const P = cr.pool;
+    for (let i = 0; i < P.length; i++) {        // (every frame: no iterator)
+      const a = P[i], k = a.task;
       if (!k || k.kind !== 'in' || k.age > 0.15 || k._near) continue;
       k._near = true;
       const dx = a.pos.x - k.to.x, dz = a.pos.z - k.to.z, d = hypot2(dx, dz);

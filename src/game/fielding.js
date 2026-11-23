@@ -422,7 +422,8 @@ export class Fielding {
   // moment's celebration -- sets off back to his mark.
   goHome(dt, t) {
     this.deadFor = (this.deadFor || 0) + dt;
-    for (const f of this.fielders) {
+    for (let fi = 0; fi < this.fielders.length; fi++) {          // (every frame the ball is dead: no iterator)
+      const f = this.fielders[fi];
       if (f.playerControlled || f.state === 'return') continue;
       // (standing still, nothing in hand: back to his mark if he is off it -- a ring fielder's walk-in, a man who pulled up where he was)
       if (f.state === 'set' && !f.action) {
@@ -442,7 +443,7 @@ export class Fielding {
       const huddling = f.huddleUntil != null && t < f.huddleUntil && (f.state === 'huddle' || f.huddleCenter);
       // Holding the ball: he lobs it back toward the bowler first (nobody walks
       // about with it, and it never hangs in the air at a hidden hand).
-      if (this.ballOverride && this.ballOverride.holder === this.fielders.indexOf(f) && !this.lob && !(f.bowler && this.bowlerFields)) { if (this.deadFor >= LOB_AFTER) this.startLob(f, t); continue; }
+      if (this.ballOverride && this.ballOverride.holder === fi && !this.lob && !(f.bowler && this.bowlerFields)) { if (this.deadFor >= LOB_AFTER) this.startLob(f, t); continue; }
       if (huddling) continue;
       f.huddleUntil = null; f.huddleCenter = false; f.huddleMood = null;
       f.action = null; f.leap = null; f.runIn = null; f.coverEnd = null; f.backEnd = null;
@@ -495,12 +496,13 @@ export class Fielding {
   // Everyone within this distance of their mark? (the bowler's own figure
   // looks after itself while the fielding bowler is not out)
   inPosition(tol = 2.5) {
-    for (const f of this.fielders) if (!((f.bowler && (!this.bowlerFields || !f.out)) || distLT(f.pos.x - f.home.x, f.pos.z - f.home.z, tol))) return false;
+    for (let i = 0; i < this.fielders.length; i++) { const f = this.fielders[i]; if (!((f.bowler && (!this.bowlerFields || !f.out)) || distLT(f.pos.x - f.home.x, f.pos.z - f.home.z, tol))) return false; }
     return true;
   }
   // …and standing still, facing the right way: ready for the bowler to run in.
   settled(tol = 0.6) {
-    for (const f of this.fielders) {
+    for (let i = 0; i < this.fielders.length; i++) {
+      const f = this.fielders[i];
       if (!((f.bowler && (!this.bowlerFields || !f.out))
         || (distLT(f.pos.x - f.home.x, f.pos.z - f.home.z, tol) && f.speed < 0.3 && !f.action && f.state === 'set' && Math.abs(angDiff(f.yaw, this.restFace(f))) < 0.1))) return false;
     }

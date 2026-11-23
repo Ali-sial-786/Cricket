@@ -135,7 +135,8 @@ export class ContactLog {
     this._vLast.copy(b.vel);
     if (t1 - this.launchT > 5) return;
     const R = this.cfg.ball.radius;
-    for (const bat of world.bats) {
+    for (let bi = 0; bi < world.bats.length; bi++) {         // (every physics step: no iterator)
+      const bat = world.bats[bi];
       if (!bat.enabled) continue;
       bat.provider.poseAt(t1, this._pose);
       this.groundCheck(bat, t1);
