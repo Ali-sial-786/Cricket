@@ -52,6 +52,11 @@ export class Actor {
     this.poseKey = '';                         // which kind of pose: a change cross-fades (see smooth())
     this.seed = (opts && opts.seed) || Math.floor(this.idleOff * 1000);
     this._gs = gestureStore();                 // (gestures.js: arms under a gesture, the head's last turn)
+    // (what the frame code sets later, declared now: one shape per kind of figure)
+    this._from = null; this._raw = null; this._shown = null; this._key = undefined; this._bt = 0; this._fd = 0; this.slowNext = 0;
+    this._react = null; this._moodW = 0; this._mood = null; this._idleK = 1; this.folded = 0;
+    this.far = false; this.off = null; this._dlv = 0; this.ready = 0; this.kCrouch = null; this._hw = 0; this._hkind = null; this.task = undefined;
+    this._lodAcc = 0;                          // s since the pose was last made (pose LOD: FieldView, Umpires)
     this.visible = true;
   }
   set visible(v) { if (v && !this._vis) this.cut(); this._vis = v; if (this.h) this.h.visible = v; }

@@ -1139,6 +1139,12 @@ export class Humanoid {
     this.toeLength = RIG.toe;                     // ankle to the tip of the sole, along the foot (model units)
     this.lowY = 0;                                // the lowest point of the body last frame (world y, after groundGuard)
     this.armLength = RIG.J.shoulderL.distanceTo(RIG.J.elbowL) + RIG.J.elbowL.distanceTo(RIG.J.handL);
+    // (everything set on a figure later, declared now in one order: every figure has the same
+    // shape, so the per-frame code that reads and writes them stays monomorphic and boxes nothing)
+    this.guardLift = 0; this.lowBone = -1; this.ghost = false; this.fade = 1;
+    this.replayVisible = undefined; this.lodNear = undefined; this.extras = null;
+    this._hullGeo = null; this._hull = null; this._low = 0; this._lowV = -1; this._lowB = -1;
+    this._clipRig = null; this._shotLeg = null; this._lieIdx = null; this._kneeIdx = null; this._diveIdx = null; this._shinIx = null;
     u.uGloved.value = gloves ? 1 : 0;
     this.setNumber(team === 'umpire' ? 0 : 1 + Math.floor(rnd(3) * 98));
     this.setName(look.name);
