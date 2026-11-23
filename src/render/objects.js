@@ -209,8 +209,15 @@ const _axis = new THREE.Vector3(), _q = new THREE.Quaternion();
 // their length and tumbling, bounce and come to rest lying flat; the stump hit
 // goes back on a damped spring (or cartwheels out of the ground when hit
 // hard), the others are jolted and wobble; the LED tops, base and bails flash.
+// Standing (every piece at home), the set is drawn as one mesh in a material
+// both ends share, the pieces kept off the camera's layers (still visible to
+// everything else: their sun shadows, replays): one draw an end, not five.
 const _qa = new THREE.Quaternion(), _va = new THREE.Vector3(), _vb = new THREE.Vector3(), _ax = new THREE.Vector3();
 const FLASH_SEC = 3.2;
+const OFF_LAYER = 31;                  // (no camera has it; three's XR eyes use 1 and 2)
+let _wholeMat = null;
+// (no LED map: dark, the LEDs add nothing; no fog: the stumps are never 140 m from a camera)
+const wholeMaterial = (map) => _wholeMat || (_wholeMat = new THREE.MeshLambertMaterial({ map, fog: false }));
 export class StumpsView {
   constructor(parent, z) {
     this.group = new THREE.Group();
@@ -218,7 +225,7 @@ export class StumpsView {
     parent.add(this.group);
     const T = wicketTextures();
     // (each end its own material: its LEDs flash on their own)
-    this.mat = new THREE.MeshLambertMaterial({ map: T.map, emissiveMap: T.led, emissive: 0x000000 });
+    this.mat = new THREE.MeshLambertMaterial({ map: T.map, emissiveMap: T.led, emissive: 0x000000, fog: false });
     this.pieces = [];
     const h = PITCH.stumpHeight, r = PITCH.stumpRadius, flip = z < -10;
     STUMP_X.forEach((x, i) => {
@@ -237,10 +244,34 @@ export class StumpsView {
       this.pieces.push({ mesh: m, home: m.position.clone(), vel: new THREE.Vector3(), ang: new THREE.Vector3(), kind: 'bail',
         c: new THREE.Vector3(), half: new THREE.Vector3(), ends: [new THREE.Vector3(-BAIL_LEN / 2, 0, 0), new THREE.Vector3(BAIL_LEN / 2, 0, 0)], rad: BAIL_R * 0.7, axis: new THREE.Vector3(1, 0, 0) });
     }
-    this.group.add(socketMesh(STUMP_X));
+    const socket = socketMesh(STUMP_X);
+    this.group.add(socket);
     this.broken = false;
     this.flash = 0;
     this.t = 0;
+    this.whole = new THREE.Mesh(mergeGeometries(this.pieces.map((p) => p.mesh.geometry.clone().translate(p.home.x, p.home.y, p.home.z)), false), wholeMaterial(T.map));
+    this.whole.name = 'wicket';
+    this.group.add(this.whole);
+    this.merged = null;
+    this.sync();
+    for (const o of [this.group, socket, this.whole]) { o.updateMatrix(); o.matrixAutoUpdate = false; }   // (they never move; the pieces do)
+    // Settled before every draw: the scene's matrix update reaches this group first thing in
+    // renderer.render (after the replay, the break and the reset have moved the pieces).
+    const umw = this.group.updateMatrixWorld;
+    this.group.updateMatrixWorld = (force) => { this.sync(); umw.call(this.group, force); };
+  }
+
+  // One mesh while every piece stands at home, else the pieces.
+  sync() {
+    let home = !this.broken;
+    for (let i = 0; home && i < this.pieces.length; i++) {
+      const m = this.pieces[i].mesh, q = m.quaternion;
+      home = m.position.equals(this.pieces[i].home) && q.x === 0 && q.y === 0 && q.z === 0 && q.w === 1;
+    }
+    if (home === this.merged) return;
+    this.merged = home;
+    this.whole.visible = home;
+    for (const p of this.pieces) p.mesh.layers.set(home ? OFF_LAYER : 0);
   }
 
   break(ballVel, stumpIndex = 1) {
