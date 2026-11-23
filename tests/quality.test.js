@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { LEVELS, QUALITY_NAMES, fixedLevel, FrameStats, Governor, deviceKey, startLevel } from '../src/render/quality.js';
+import { LEVELS, CPU_LEVELS, cpuLevelFor, QUALITY_NAMES, fixedLevel, FrameStats, Governor, deviceKey, startLevel, nextSharpness, SHARPNESS, FB_MAX, FB_MIN } from '../src/render/quality.js';
 
 // Drive the governor with frames at `hz`, each with probability `miss` of having missed one refresh.
 function run(gov, stats, { seconds, hz = 90, miss = 0, rng = Math.random, paused = false, t0 = 0, onLevel = null }) {
@@ -18,16 +18,68 @@ function run(gov, stats, { seconds, hz = 90, miss = 0, rng = Math.random, paused
 }
 function seeded(s) { return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; }; }
 
-test('levels: the top level is the game as designed; each lever only goes down', () => {
+test('levels: the top level is the game as designed; the rate goes first, the resolution last and never far', () => {
   const top = LEVELS[0];
   assert.equal(top.foveation, 0.5); assert.equal(top.viewport, 1); assert.equal(top.crowd, 1);
   assert.equal(top.crowdAnim, true); assert.equal(top.shadows, 2); assert.equal(top.detail, true); assert.equal(top.turf, true); assert.equal(top.particles, 1);
   for (let i = 1; i < LEVELS.length; i++) {
     const a = LEVELS[i - 1], b = LEVELS[i];
-    assert.ok(b.foveation >= a.foveation && b.viewport <= a.viewport && b.crowd <= a.crowd && b.hz <= a.hz && b.particles <= a.particles && b.lodNear <= a.lodNear && b.shadows <= a.shadows, b.name);
+    assert.ok(b.viewport <= a.viewport && b.crowd <= a.crowd && b.hz <= a.hz && b.particles <= a.particles && b.lodNear <= a.lodNear && b.shadows <= a.shadows, b.name);
+    assert.ok(b.foveation <= 0.8, 'the lens edges are never crushed');
   }
+  // the first step down is the rate alone; full resolution down to the last level, which gives up only a little
+  assert.deepEqual({ ...LEVELS[1], name: 0, hz: 0, visionSteps: 0 }, { ...LEVELS[0], name: 0, hz: 0, visionSteps: 0 });
+  assert.ok(LEVELS.slice(0, -1).every((l) => l.viewport === 1) && LEVELS.at(-1).viewport >= 0.85);
+  assert.ok(LEVELS.at(-1).foveation <= 0.65, 'a scaled viewport is off-centre in the eye buffer: foveation backs off with it');
   assert.deepEqual(QUALITY_NAMES, ['auto', 'ultra', 'high', 'medium', 'low', 'minimum']);
   assert.equal(fixedLevel('auto'), -1); assert.equal(fixedLevel('low'), 3);
+});
+
+test('processor levels: the rate first, then how often far figures are posed', () => {
+  assert.deepEqual(CPU_LEVELS[0], { hz: 90, anim: 0, shadows: 2, particles: 1 });
+  assert.equal(CPU_LEVELS[1].hz, 72); assert.equal(CPU_LEVELS[1].anim, 0);
+  for (let i = 1; i < CPU_LEVELS.length; i++) { const a = CPU_LEVELS[i - 1], b = CPU_LEVELS[i]; assert.ok(b.hz <= a.hz && b.anim >= a.anim && b.shadows <= a.shadows && b.particles <= a.particles); }
+  for (let i = 0; i < LEVELS.length; i++) assert.ok(cpuLevelFor(i) < CPU_LEVELS.length && CPU_LEVELS[cpuLevelFor(i)].hz <= LEVELS[i].hz);
+});
+
+test('governor: a ladder that is not to blame never drops, and does not climb while frames are late', () => {
+  const g = new Governor({ start: 2 }), s = new FrameStats(); s.setTarget(72);
+  let t = 0; const p = 1000 / 72;
+  for (let i = 0; i < 72 * 30; i++) { t += p * 2; s.frame(t, 11, 4); g.update(p * 2 / 1000, s.latePct, false, s.spanMs >= 900, s.bound !== 'cpu'); }
+  assert.equal(s.bound, 'cpu');                          // 15 ms of work in a 13.9 ms period
+  assert.equal(g.level, 2, 'the graphics ladder holds: the processor is the cause');
+  // clean frames, but the level above is not worth trying (the work would not fit its period): no climb
+  for (let i = 0; i < 72 * 30; i++) { t += p; s.frame(t, 6, 3); g.update(p / 1000, s.latePct, false, s.spanMs >= 900, s.bound !== 'cpu', false); }
+  assert.equal(g.level, 2);
+  for (let i = 0; i < 72 * 13; i++) { t += p; s.frame(t, 6, 3); g.update(p / 1000, s.latePct, false, s.spanMs >= 900, s.bound !== 'cpu', true); }
+  assert.equal(g.level, 1);
+});
+
+test('frame stats: who is late (processor, graphics, or either)', () => {
+  const s = new FrameStats(); s.setTarget(72); let t = 0; const p = 1000 / 72;
+  for (let i = 0; i < 100; i++) { t += p * 2; s.frame(t, 3, 2); }
+  assert.equal(s.bound, 'gpu');                          // 5 of 13.9 ms
+  for (let i = 0; i < 100; i++) { t += p * 2; s.frame(t, 6, 3); }
+  assert.equal(s.bound, 'both');                         // 9 of 13.9 ms
+  for (let i = 0; i < 100; i++) { t += p * 2; s.frame(t, 8, 4); }
+  assert.equal(s.bound, 'cpu');
+  for (let i = 0; i < 100; i++) { t += p; s.frame(t, 8, 4); }
+  assert.equal(s.bound, '');
+});
+
+test('sharpness: tuned from one session to the next, never back to a scale that failed', () => {
+  let r = nextSharpness({});
+  assert.equal(r.fb, 1);
+  r = nextSharpness(r, 1); assert.equal(r.fb, 1.1);       // a session at High: a step sharper next time
+  r = nextSharpness(r, 0); assert.equal(r.fb, 1.2);
+  r = nextSharpness(r, 2); assert.equal(r.fb, 1.2);       // Medium: stay
+  r = nextSharpness(r, 3); assert.equal(r.fb, 1.1); assert.equal(r.fbFail, 1.2);   // Low: back, and 1.2 is remembered as too much
+  r = nextSharpness(r, 0); assert.equal(r.fb, 1.1);       // never tried again
+  r = nextSharpness({ fb: 1.3 }, 0); assert.equal(r.fb, FB_MAX);
+  r = nextSharpness({ fb: 1.0 }, 4); assert.equal(r.fb, FB_MIN);
+  r = nextSharpness(r, 4); assert.equal(r.fb, FB_MIN);
+  assert.equal(nextSharpness({ fb: 'x' }).fb, FB_MIN);
+  assert.ok(SHARPNESS.standard === 1 && SHARPNESS.max <= FB_MAX && SHARPNESS.auto === 0);
 });
 
 test('frame stats: missed refreshes from the gaps between frames', () => {
@@ -40,7 +92,7 @@ test('frame stats: missed refreshes from the gaps between frames', () => {
   // every other frame takes two refreshes: a third of the refreshes are missed
   for (let i = 0; i < 120; i++) { t += (1000 / 90) * (i % 2 ? 2 : 1); s.frame(t, 3, 2); }
   assert.ok(Math.abs(s.missedPct - 33.3) < 3, String(s.missedPct));
-  assert.equal(s.bound, 'gpu');                            // 5 ms of CPU work in an 11 ms period
+  assert.equal(s.bound, 'gpu');                            // 5 ms of CPU work in an 11 ms period (under half)
   for (let i = 0; i < 120; i++) { t += 2000 / 90; s.frame(t, 9, 3); }
   assert.equal(s.bound, 'cpu');
   assert.ok(Math.abs(s.updMs - 9) < 1e-3 && Math.abs(s.rendMs - 3) < 1e-3);

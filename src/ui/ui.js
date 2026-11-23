@@ -11,7 +11,7 @@ import { LENGTH_PRESETS, LINE_PRESETS } from '../physics/bowlingMachine.js';
 import { chaseTarget } from '../game/scoring.js';
 import { CONFIG } from '../config.js';
 import { buildVisionChart } from './visionChart.js';
-import { QUALITY_NAMES } from '../render/quality.js';
+import { QUALITY_NAMES, SHARPNESS_NAMES } from '../render/quality.js';
 import { CEREMONIES, CEREMONY_NAMES, drawCoinIcon } from '../game/ceremony.js';
 import { SQUADS } from '../game/squad.js';
 
@@ -28,6 +28,7 @@ const TURNS = ['smooth', 'snap', 'off'];
 const NEXT_MODE = { chase: 'over', over: 'match', match: 'chase', nets: 'chase', bowlnets: 'over' };
 const MODE_NAMES = { chase: 'Run Chase', over: 'Bowl an Over', match: 'Match', nets: 'Nets', bowlnets: 'Bowling nets' };
 // Graphics setting: 'auto' shows the level the governor is on now.
+const sharpName = (g, v) => (v === 'auto' || !v ? `Auto · ${Math.round((g.perf ? g.perf.sharpness : 1) * 100)}%` : v[0].toUpperCase() + v.slice(1));
 const qualityName = (g, q) => (q === 'auto' || !q ? `Auto · ${g.perf ? g.perf.spec.name : 'Ultra'}` : q[0].toUpperCase() + q.slice(1));
 const DEG = Math.PI / 180;
 // Running controls: only while the ball is live.
@@ -608,6 +609,7 @@ export class UI {
           add('tog', 'body', 'Own body', 'A faint body when you look down', { on: s.ownBody, fn: () => g.actions.toggle('ownBody') });
           add('cyc', 'turn', 'Right-stick turn', 'Smooth, snap, or off (turn for real)', { value: s.turn, fn: () => g.actions.cycle('turn', TURNS, 1) });
           add('step', 'quality', 'Graphics', 'Auto keeps the frame rate; or fix a level', { value: qualityName(g, s.quality), dec: () => g.actions.cycle('quality', QUALITY_NAMES, -1), inc: () => g.actions.cycle('quality', QUALITY_NAMES, 1), vw: 300 });
+          add('step', 'sharpness', 'Sharpness', 'Eye resolution, from your next time in VR', { value: sharpName(g, s.sharpness), dec: () => g.actions.cycle('sharpness', SHARPNESS_NAMES, -1), inc: () => g.actions.cycle('sharpness', SHARPNESS_NAMES, 1), vw: 300 });
           add('tog', 'perfPanel', 'Performance panel', 'Frame rate and quality below your view', { on: s.debugFrames, fn: () => g.actions.toggle('debugFrames') });
         } else if (tab === 'audio') {
           add('cyc', 'sound', 'Sound', 'Crowd, bat and ball; the commentators', { value: !s.sound ? 'off' : s.commentary ? 'sound + commentary' : 'sound, no commentary', fn: () => g.actions.soundCycle() });

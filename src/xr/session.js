@@ -7,9 +7,9 @@
 //               compositor scales up. three r180 never calls it, so we ask on each view just before three
 //               reads its viewport (the binding's getViewSubImage / the layer's getViewport, wrapped).
 //               Where the browser does not have it, the request is skipped and the lever does nothing.
-//   framebuffer the eye buffers' size: fixed when the session starts (three: setFramebufferScaleFactor
-//               before setSession), so it is only the starting guess (from the level remembered for
-//               this headset, when there is no viewport scaling to do the job during play).
+//   framebuffer the eye buffers' size (sharpness): fixed when the session starts (three:
+//               setFramebufferScaleFactor before setSession), so it is tuned from one session to the
+//               next (render/quality.js nextSharpness) or set in the settings.
 //   rate        session.updateTargetFrameRate: the highest supported rate at or under the level's.
 import { toLocal, bestSpot } from './playArea.js';
 import { CONFIG } from '../config.js';
@@ -62,6 +62,7 @@ export class XRSessionManager {
       r.xr.setReferenceSpaceType('local-floor');
       r.xr.setFoveation(this.foveation);
       r.xr.setFramebufferScaleFactor(this.fbScale);
+      this.fbActive = this.fbScale;                 // (this session's: fixed from here)
       if (kind === 'ar') r.setClearAlpha(0); else r.setClearAlpha(1);
       await r.xr.setSession(session);
       r.xr.setFoveation(this.foveation);
