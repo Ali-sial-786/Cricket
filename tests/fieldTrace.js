@@ -41,7 +41,7 @@ const STRIKER = { x: -0.4, z: -1.1 }, NON = { x: -1.35, z: -18.75 };
 // pace, the batters running, the ball dead, the huddle, the walk back, the
 // next ball. keeper: also unhit balls to (and past) the keeper. Returns
 // { digest, frames, outcomes } (outcomes: a line per ball, for reading).
-export function playPassage({ seed = 1, balls = 12, bowlerFields = true, spinner = false, keeper = true, greedy = 0 } = {}) {
+export function playPassage({ seed = 1, balls = 12, bowlerFields = true, spinner = false, keeper = true, greedy = 0, onBall = null, digest = true } = {}) {
   const rng = makeRng(seed);
   const world = new PhysicsWorld(undefined, seed + 100);
   const L = new Fielding({ rng: makeRng(seed + 7), catchSkill: 0.7, throwSkill: 1, spinner, bowlerFields });
@@ -54,18 +54,22 @@ export function playPassage({ seed = 1, balls = 12, bowlerFields = true, spinner
     for (let k = 0; k < n; k++) {
       t += DT; frames++;
       world.advanceTo(t);
-      for (const e of world.drainEvents()) if (e.type === 'boundary' && ballLive) L.onBoundary(e);
+      const ev = world.drainEvents();
+      for (let i = 0; i < ev.length; i++) if (ev[i].type === 'boundary' && ballLive) L.onBoundary(ev[i]);
       // (the player's head, the umpires and the batters: what the controller sets every frame)
-      L.keepOut = { x: STRIKER.x + Math.sin(t * 0.7) * 0.05, z: STRIKER.z, r: PLAYER_CLEAR, path: 2.1 };
-      L.obstacles = [{ x: 0.9, z: -22.3, r: 0.9 }, { x: -21, z: -0.8, r: 0.9 }, { x: NON.x, z: NON.z, r: 0.95 }, { x: 2.2, z: -24, r: 1.5, soft: true }];
-      L.lobTarget = { x: 0.5, y: 1.3, z: -21, roll: false };
+      ko.x = STRIKER.x + Math.sin(t * 0.7) * 0.05;
+      L.keepOut = ko; L.obstacles = obstacles; L.lobTarget = lobTarget;
       runs.update(DT);
       L.update(DT, t, world.ball.active ? world.ball : null, world);
-      L.events.splice(0);
-      digestField(D, L);
+      L.events.length = 0;
+      if (digest) digestField(D, L);
     }
   };
+  const ko = { x: 0, z: STRIKER.z, r: PLAYER_CLEAR, path: 2.1 };
+  const obstacles = [{ x: 0.9, z: -22.3, r: 0.9 }, { x: -21, z: -0.8, r: 0.9 }, { x: NON.x, z: NON.z, r: 0.95 }, { x: 2.2, z: -24, r: 1.5, soft: true }];
+  const lobTarget = { x: 0.5, y: 1.3, z: -21, roll: false };
   for (let b = 0; b < balls; b++) {
+    if (onBall) onBall(b);
     L.newBall();
     world.removeBall();
     world.resetWickets();

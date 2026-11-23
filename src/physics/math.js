@@ -198,10 +198,12 @@ export const smoothstep = (e0, e1, x) => {
 // scale by the largest, Kahan-sum the squares), but inlined: the builtin is
 // never inlined by the optimiser and allocates its argument array and a boxed
 // result on every call, which in the per-frame loops was megabytes of garbage.
+// (Every return is arithmetic on the arguments or a literal: a `return NaN`
+// reads a global and boxes the result on every call, even on the fast path.)
 export function hypot2(x, y) {
   x = x < 0 ? -x : x; y = y < 0 ? -y : y;
   if (x === Infinity || y === Infinity) return Infinity;
-  if (x !== x || y !== y) return NaN;
+  if (x !== x || y !== y) return x + y;
   const m = x > y ? x : y;
   if (m === 0) return 0;
   const a = x / m, b = y / m;
@@ -210,13 +212,24 @@ export function hypot2(x, y) {
 export function hypot3(x, y, z) {
   x = x < 0 ? -x : x; y = y < 0 ? -y : y; z = z < 0 ? -z : z;
   if (x === Infinity || y === Infinity || z === Infinity) return Infinity;
-  if (x !== x || y !== y || z !== z) return NaN;
+  if (x !== x || y !== y || z !== z) return x + y + z;
   let m = x > y ? x : y; if (z > m) m = z;
   if (m === 0) return 0;
   const a = x / m, b = y / m, c = z / m;
   const s1 = a * a, b2 = b * b, s2 = s1 + b2, comp = (s2 - s1) - b2;
   return Math.sqrt(s2 + (c * c - comp)) * m;
 }
+// hypot2(dx, dy) > r, >= r, < r: the same answers, but settled from the
+// squares when they are clear of the line by far more than any rounding in
+// either (1e-9 relative; both are good to a few 1e-16), and only on the line
+// itself (or for a NaN) from the exact hypot. Distance tests in the per-frame
+// loops are nearly always far from their threshold: this is a multiply-add.
+// (For any r a game would use: one down near 1e-150, where the squares go
+// subnormal, would need the exact path always.)
+const SQ_HI = 1 + 1e-9, SQ_LO = 1 - 1e-9;
+export function distGT(dx, dy, r) { const q = dx * dx + dy * dy, r2 = r * r; return q > r2 * SQ_HI || (!(q < r2 * SQ_LO) && hypot2(dx, dy) > r); }
+export function distGE(dx, dy, r) { const q = dx * dx + dy * dy, r2 = r * r; return q > r2 * SQ_HI || (!(q < r2 * SQ_LO) && hypot2(dx, dy) >= r); }
+export function distLT(dx, dy, r) { const q = dx * dx + dy * dy, r2 = r * r; return q < r2 * SQ_LO || (!(q > r2 * SQ_HI) && hypot2(dx, dy) < r); }
 export const DEG = Math.PI / 180;
 export const kmhToMs = (k) => k / 3.6;
 export const msToKmh = (m) => m * 3.6;

@@ -12,7 +12,7 @@
 // their stumps and a fielder backs up behind the end being thrown to; a
 // throw nobody takes runs on as a live ball (overthrows).
 
-import { Vec3, clamp, makeRng, hypot2 as hyp } from '../physics/math.js';
+import { Vec3, clamp, makeRng, hypot2 as hyp, distGT, distGE, distLT } from '../physics/math.js';
 import { PITCH, groundDistance } from '../physics/pitch.js';
 import { predict } from '../physics/trajectory.js';
 import { CONFIG } from '../config.js';
@@ -89,7 +89,12 @@ export function steerAround(px, pz, gx, gz, o, out = { x: 0, z: 0 }) {
 const _goal = new Vec3(), _dir = { x: 0, z: 0 };
 const _circ = { x: 0, z: 0, r: 0, set(x, z, r) { this.x = x; this.z = z; this.r = r; return this; } };
 // f's feet out of the circle (ox, oz, r), straight away from its middle.
+// (The test small enough to be inlined at every call in separate(): a call
+// that is not inlined boxes its number arguments, every time.)
 function pushOut(f, ox, oz, r) {
+  if (!distGE(f.pos.x - ox, f.pos.z - oz, r)) pushInside(f, ox, oz, r);
+}
+function pushInside(f, ox, oz, r) {
   let dx = f.pos.x - ox, dz = f.pos.z - oz, d = hyp(dx, dz);
   if (d >= r) return;
   if (d < 1e-6) { dx = f.pos.x - f.home.x || 1; dz = f.pos.z - f.home.z; d = hyp(dx, dz); }
@@ -130,7 +135,7 @@ function steerAmongN(px, pz, gx, gz, obs, n, out) {
   const ux = dx / d, uz = dz / d, reach = Math.min(d, LOOK);
   if (!obs) { out.x = ux; out.z = uz; return out; }
   // (a circle he is inside, or that holds the goal, does not block)
-  for (let i = 0; i < n; i++) { const o = obs[i]; _live[i] = !!o && hyp(px - o.x, pz - o.z) > o.r && hyp(gx - o.x, gz - o.z) >= o.r; }
+  for (let i = 0; i < n; i++) { const o = obs[i]; _live[i] = !!o && distGT(px - o.x, pz - o.z, o.r) && distGE(gx - o.x, gz - o.z, o.r); }
   if (clearance(obs, n, px, pz, ux, uz, reach) >= 0) { out.x = ux; out.z = uz; return out; }
   let nc = 0;
   const tg = Math.atan2(ux, uz);
@@ -196,8 +201,15 @@ export class Fielding {
     // Every throw (for measurement): counts by kind and what became of them.
     this.tally = { throws: 0, direct: 0, gloves: 0, return: 0, self: 0, oneBounce: 0, held: 0, runIn: 0, hits: 0, missed: 0, takes: 0, fumbles: 0, overthrows: 0, coverThere: 0, coverAway: 0 };
     this.throwLog = [];
+    // (everything set on it later, here from the start: one shape for the
+    // whole life of the object, so the per-frame code that reads it stays fast)
+    this.keepOut = undefined; this.obstacles = undefined; this.lobTarget = undefined; this.lobFrom = undefined;
+    this.keeperUp = undefined; this.keeperHow = undefined; this.attack = undefined; this.pendingRuns = undefined;
+    this.lastThrower = undefined; this.huddle = undefined; this.hitPending = undefined; this._states = null;
+    // (every field a fielder ever has, from the start and in this order: one
+    // shape for all eleven, so the per-frame loops over them stay monomorphic)
     this.fielders = FIELD.map((f) => ({
-      ...f,
+      name: f.name, x: f.x, z: f.z, keeper: !!f.keeper, bowler: !!f.bowler,
       home: new Vec3(f.x, 0, f.z),
       pos: new Vec3(f.x, 0, f.z),
       vel: new Vec3(),
@@ -207,6 +219,9 @@ export class Fielding {
       target: null,
       ballAim: new Vec3(),       // (his target while he goes after a loose ball: re-aimed every frame, so kept)
       speed: 0,
+      playerControlled: false, prevDist: Infinity, action: null, leap: null, out: false, runIn: null, coverEnd: null, backEnd: null,
+      coverSide: 0, noGatherUntil: 0, stopTried: false, prevStop: Infinity, _way: null,
+      huddleUntil: null, huddleCenter: false, huddleAt: null, huddleInner: undefined, huddleMood: null,
     }));
     this.setSpinner(spinner);
     this.reset();
@@ -384,7 +399,7 @@ export class Fielding {
       if (f.playerControlled || f.state === 'return') continue;
       // (standing still, nothing in hand: back to his mark if he is off it -- a ring fielder's walk-in, a man who pulled up where he was)
       if (f.state === 'set' && !f.action) {
-        if (!(f.bowler && (!this.bowlerFields || !f.out)) && hyp(f.pos.x - f.home.x, f.pos.z - f.home.z) > 0.4) { f.state = 'return'; f.target = null; }
+        if (!(f.bowler && (!this.bowlerFields || !f.out)) && distGT(f.pos.x - f.home.x, f.pos.z - f.home.z, 0.4)) { f.state = 'return'; f.target = null; }
         continue;
       }
       if (f.bowler && (!this.bowlerFields || !f.out)) continue;
@@ -404,7 +419,7 @@ export class Fielding {
       if (huddling) continue;
       f.huddleUntil = null; f.huddleCenter = false; f.huddleMood = null;
       f.action = null; f.leap = null; f.runIn = null; f.coverEnd = null; f.backEnd = null;
-      if (hyp(f.pos.x - f.home.x, f.pos.z - f.home.z) > 0.4) { f.state = 'return'; f.target = null; }
+      if (distGT(f.pos.x - f.home.x, f.pos.z - f.home.z, 0.4)) { f.state = 'return'; f.target = null; }
       else { f.state = 'set'; f.target = null; }
     }
   }
@@ -453,14 +468,14 @@ export class Fielding {
   // Everyone within this distance of their mark? (the bowler's own figure
   // looks after itself while the fielding bowler is not out)
   inPosition(tol = 2.5) {
-    for (const f of this.fielders) if (!((f.bowler && (!this.bowlerFields || !f.out)) || hyp(f.pos.x - f.home.x, f.pos.z - f.home.z) < tol)) return false;
+    for (const f of this.fielders) if (!((f.bowler && (!this.bowlerFields || !f.out)) || distLT(f.pos.x - f.home.x, f.pos.z - f.home.z, tol))) return false;
     return true;
   }
   // …and standing still, facing the right way: ready for the bowler to run in.
   settled(tol = 0.6) {
     for (const f of this.fielders) {
       if (!((f.bowler && (!this.bowlerFields || !f.out))
-        || (hyp(f.pos.x - f.home.x, f.pos.z - f.home.z) < tol && f.speed < 0.3 && !f.action && f.state === 'set' && Math.abs(angDiff(f.yaw, this.restFace(f))) < 0.1))) return false;
+        || (distLT(f.pos.x - f.home.x, f.pos.z - f.home.z, tol) && f.speed < 0.3 && !f.action && f.state === 'set' && Math.abs(angDiff(f.yaw, this.restFace(f))) < 0.1))) return false;
     }
     return true;
   }
@@ -587,7 +602,7 @@ export class Fielding {
   // wicket where the batter is coming in.
   coverWay(f, spot) {
     const sz = STUMPS_Z[f.coverEnd], back = f.coverEnd === 'batting' ? 1 : -1, side = spot.x < 0 ? -1 : 1;
-    if (hyp(f.pos.x - spot.x, f.pos.z - spot.z) < 0.9) return spot;
+    if (distLT(f.pos.x - spot.x, f.pos.z - spot.z, 0.9)) return spot;
     const inFront = (f.pos.z - sz) * back < 0.2;
     const w = f._way || (f._way = new Vec3());
     if (inFront && Math.abs(f.pos.x) < 1.3) return w.set(side * 1.35, 0, sz + back * 0.3);
@@ -595,7 +610,7 @@ export class Fielding {
     const dx = spot.x - f.pos.x, dz = spot.z - f.pos.z, L = hyp(dx, dz) || 1;
     const u = clamp(((0 - f.pos.x) * dx + (sz - f.pos.z) * dz) / (L * L), 0, 1);
     const cx = f.pos.x + dx * u, cz = f.pos.z + dz * u;
-    if (hyp(cx, cz - sz) < 0.85) return w.set(side * 0.85, 0, sz + back * 1.05);
+    if (distLT(cx, cz - sz, 0.85)) return w.set(side * 0.85, 0, sz + back * 1.05);
     return spot;
   }
 
@@ -960,7 +975,7 @@ export class Fielding {
           let n = nStatic;
           for (let j = 0; j < FF.length; j++) {
             const o = FF[j];
-            if (o !== f && !(o.bowler && (!this.bowlerFields || !o.out)) && hyp(o.pos.x - f.pos.x, o.pos.z - f.pos.z) < 4) {
+            if (o !== f && !(o.bowler && (!this.bowlerFields || !o.out)) && distLT(o.pos.x - f.pos.x, o.pos.z - f.pos.z, 4)) {
               const q = pooledObs(n); q.x = o.pos.x; q.z = o.pos.z; q.r = 0.65 + (o.keeper || f.keeper ? KEEPER_PADS : 0); q.keepRight = true; _obs[n++] = q;
             }
           }
@@ -998,7 +1013,7 @@ export class Fielding {
       else if (want > 0 && f.speed <= 0.7 && !f.action && (f.state === 'return' || f.state === 'walkin') && d >= BACKPEDAL) f.face = Math.atan2(ux, uz);
       else if (!f.action && f.state !== 'celebrate' && f.state !== 'throwing' && f.speed <= 0.7) {
         // standing: eyes on the ball while it is in play, else on the batter (the keeper: the bowler)
-        const live = !this.dead && this.hitT != null && watch && hyp(watch.x - f.pos.x, watch.z - f.pos.z) > 1.2;
+        const live = !this.dead && this.hitT != null && watch && distGT(watch.x - f.pos.x, watch.z - f.pos.z, 1.2);
         if (f.keeper && f.state === 'gather') f.face = Math.atan2(0, -1);
         else if (f.state === 'huddle' && f.huddleAt) f.face = Math.atan2(f.huddleAt.x - f.pos.x, f.huddleAt.z - f.pos.z);       // (in the huddle: facing its middle)
         else f.face = live ? Math.atan2(watch.x - f.pos.x, watch.z - f.pos.z) : this.restFace(f);
@@ -1494,8 +1509,10 @@ export class Fielding {
       for (let j = i + 1; j < F.length; j++) {
         const b = F[j];
         if (b.bowler && (!this.bowlerFields || !b.out)) continue;
-        const dx = b.pos.x - a.pos.x, dz = b.pos.z - a.pos.z, d = hyp(dx, dz);
+        const dx = b.pos.x - a.pos.x, dz = b.pos.z - a.pos.z;
         const need = min + (a.keeper || b.keeper ? KEEPER_PADS : 0);       // (the keeper is wider: pads, gloves, a low wide crouch)
+        if (distGE(dx, dz, need)) continue;
+        const d = hyp(dx, dz);
         if (d >= need || d < 1e-6) continue;
         // The one doing something (catching, holding the ball) stays put.
         const fixedA = a.playerControlled || !!a.action, fixedB = b.playerControlled || !!b.action;
@@ -1515,8 +1532,7 @@ export class Fielding {
     if (ko) for (let si = 0; si < STUMPS.length; si++) for (let j = 0; j < F.length; j++) {
       const s = STUMPS[si], f = F[j];
       if (this.unpushed(f) || (f.action && f.action.type === 'take')) continue;
-      const dx = f.pos.x - s.x, dz = f.pos.z - s.z, d = hyp(dx, dz);
-      if (d >= STUMP_CLEAR) continue;
+      if (distGE(f.pos.x - s.x, f.pos.z - s.z, STUMP_CLEAR)) continue;
       pushOut(f, s.x, s.z, STUMP_CLEAR);
       // (still in your space: slide him round your space's edge, away from the stumps, until he is out of both)
       const r = ko.r + (f.keeper ? KEEPER_PADS : 0);
@@ -1537,9 +1553,9 @@ export class Fielding {
   // A movement goal moved out of the player's space and out of the stumps.
   clearGoal(goal, f, ko) {
     let g = goal;
-    for (let i = 0; i < STUMPS.length; i++) { const s = STUMPS[i]; if (hyp(g.x - s.x, g.z - s.z) < STUMP_CLEAR) g = clampGoal(g.x, g.z, f.pos.x, f.pos.z, _circ.set(s.x, s.z, STUMP_CLEAR), _goal); }
+    for (let i = 0; i < STUMPS.length; i++) { const s = STUMPS[i]; if (distLT(g.x - s.x, g.z - s.z, STUMP_CLEAR)) g = clampGoal(g.x, g.z, f.pos.x, f.pos.z, _circ.set(s.x, s.z, STUMP_CLEAR), _goal); }
     const kr = ko ? ko.r + (f.keeper ? KEEPER_PADS : 0) : 0;
-    if (ko && hyp(g.x - ko.x, g.z - ko.z) < kr) g = clampGoal(g.x, g.z, f.pos.x, f.pos.z, _circ.set(ko.x, ko.z, kr), _goal);
+    if (ko && distLT(g.x - ko.x, g.z - ko.z, kr)) g = clampGoal(g.x, g.z, f.pos.x, f.pos.z, _circ.set(ko.x, ko.z, kr), _goal);
     return g;
   }
 
@@ -1574,7 +1590,7 @@ export class Fielding {
       s.state = f.state; s.action = f.action; s.leap = f.leap;
       s.crouch = f.state === 'set' && (f.keeper || f.name === 'slip');
       // over the stumps, waiting for the throw: gloves up, a little crouched
-      s.await = f.state === 'stumps' && !!f.target && hyp(f.pos.x - f.target.x, f.pos.z - f.target.z) < 0.5 && !this.dead;
+      s.await = f.state === 'stumps' && !!f.target && distLT(f.pos.x - f.target.x, f.pos.z - f.target.z, 0.5) && !this.dead;
       s.armsUp = f.state === 'celebrate';
       // the wicket huddle: 1 in the ring, 2 come in from the deep, 3 the man in the middle
       s.huddle = f.state === 'huddle' ? (f.huddleMood === 'dejected' ? 4 : f.huddleInner ? 1 : 2) : f.huddleCenter && f.huddleUntil != null ? 3 : 0;
