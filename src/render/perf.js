@@ -10,13 +10,20 @@
 // (texture / geometry memory estimates and the current numbers).
 import { CONFIG } from '../config.js';
 import { LEVELS, CPU_LEVELS, cpuLevelFor, SHARPNESS, nextSharpness, FrameStats, Governor, fixedLevel, deviceKey, startLevel } from './quality.js';
-import { ShadowPool, Humanoid } from './humanoid.js';
+import { ShadowPool, Humanoid, ANIM_LOD } from './humanoid.js';
 import { GROUND_QUALITY } from './ground.js';
 import { PerfPanel } from './perfPanel.js';
 import { loadJSON, saveJSON } from '../game/settings.js';
 
 const KEY = 'creasevr.quality.v2';   // (v1 remembered levels of the old single ladder, which cut resolution for a slow CPU)
 const REMEMBER_S = 20;          // a level held this long in the headset is remembered for it
+// How often far, calm fielders get a new pose at each processor level's `anim` (the root, the
+// ground guard and the shadow still move every frame; nothing inside 12 m is ever thinned).
+const ANIM_LEVELS = [
+  { near: 18, far: 40, midDiv: 2, farDiv: 3 },
+  { near: 14, far: 32, midDiv: 2, farDiv: 4 },
+  { near: 12, far: 25, midDiv: 3, farDiv: 4 },
+];
 const SHARP_S = 90;             // s of play before a session's outcome may tune the next one's sharpness
 
 export class PerfControl {
@@ -188,7 +195,7 @@ export class PerfControl {
     GROUND_QUALITY.uDetOn.value = L.turf ? 1 : 0;
     if (g.particles) g.particles.keep = Math.min(L.particles, C.particles);
     if (g.vision && g.vision.setCap) g.vision.setCap(L.visionSteps, L.visionRegion);
-    if (typeof g.setAnimLod === 'function') g.setAnimLod(C.anim);    // (far, calm figures posed less often)
+    Object.assign(ANIM_LOD, ANIM_LEVELS[C.anim] || ANIM_LEVELS[0]);   // (far, calm fielders posed less often: render/humanoid.js)
   }
 
   updatePanel(dt) {

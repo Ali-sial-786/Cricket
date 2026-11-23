@@ -47,7 +47,7 @@ export const QUALITY_NAMES = ['auto', ...LEVELS.map((l) => l.name.toLowerCase())
 // CPU_LEVELS (the processor ladder): what costs the game's own time on the one JavaScript thread.
 // Blamed when the update and the draw submission together nearly fill the period.
 //   hz          as above (the effective rate is the lower of the two ladders')
-//   anim        how often far, calm figures get a new pose (render/people.js ANIM_LOD: 0 as designed ... 2 sparse)
+//   anim        how often far, calm figures get a new pose (render/humanoid.js ANIM_LOD, render/perf.js ANIM_LEVELS: 0 as designed ... 2 sparse)
 //   shadows / particles   as above (the lower of the two ladders' wins)
 export const CPU_LEVELS = [
   { hz: 90, anim: 0, shadows: 2, particles: 1.0 },
