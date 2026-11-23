@@ -214,7 +214,7 @@ export class BattingSession {
     const g = this.game, S = g.input.xr && g.playerBody && g.playerBody.feet ? g.playerBody.feet.s : null;
     const K = this._padsK || (this._padsK = { one: [{ x: 0, z: 0, box: PLAYER_PAD }], two: [{ x: 0, z: 0, box: LEG_PAD }, { x: 0, z: 0, box: LEG_PAD }] });
     if (!S || !S.init) { const p = this.body(), o = K.one[0]; o.x = p.x; o.z = p.z; return K.one; }
-    const [a, b] = K.two;
+    const a = K.two[0], b = K.two[1];
     a.x = S.L.x; a.z = S.L.z; b.x = S.R.x; b.z = S.R.z;
     return K.two;
   }

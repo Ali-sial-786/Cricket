@@ -53,6 +53,14 @@ export function receiverSpot(end, side = 1) {
     ? new Vec3(0.35 * s, 0, PITCH.battingStumpsZ + 0.6)
     : new Vec3(0.35 * s, 0, PITCH.bowlingStumpsZ - 0.6);
 }
+// receiverSpot into `out` (to measure to, not to keep).
+function receiverSpotInto(end, side, out) {
+  const s = side < 0 ? -1 : 1;
+  return end === 'batting' ? out.set(0.35 * s, 0, PITCH.battingStumpsZ + 0.6) : out.set(0.35 * s, 0, PITCH.bowlingStumpsZ - 0.6);
+}
+// How far receiverSpot(end, side) is from p (on the ground).
+function spotFrom(end, side, p) { const q = receiverSpotInto(end, side, _spot2); return hyp(q.x - p.x, q.z - p.z); }
+const _spot = new Vec3(), _spot2 = new Vec3();
 
 // A goal inside a no-go circle {x, z, r} is moved to its edge (on the side
 // the mover is coming from), so nobody runs on the spot trying to reach it.
@@ -661,69 +669,80 @@ export class Fielding {
   // with the ball, the nearest man who is free. They sprint there (round
   // everyone in the way) and wait just behind the stumps, facing the ball.
   // side: the side of the pitch the throw will come from (+1 / -1).
+  // (every frame the ball is in play: methods, not closures; the spots it
+  // only measures to are worked out into scratch, not made new each time)
   assignCovers(t, side = null) {
     const F = this.fielders, k = F[0], bw = this.bowlerFields ? F[F.length - 1] : null;
-    const busy = (f) => this.busyWithBall(f, t) && !(f && f.coverEnd && this.ballOverride && this.ballOverride.holder === F.indexOf(f));
-    const th = this.throw;
-    const pick = (end, pref, taken) => {
-      // (a throw on its way to him: he stays the man at those stumps until it gets there)
-      if (th && th.released && !th.done && th.end === end && th.receiverF && th.receiverF !== taken) return th.receiverF;
-      const cur = this.cover[end];
-      const curOk = cur && cur !== taken && !busy(cur);
-      if (pref && !busy(pref) && pref !== taken) {
-        // (the man over the stumps keeps them until the keeper / bowler would be there sooner)
-        if (!curOk || cur === pref) return pref;
-        const spot = receiverSpot(end, cur.coverSide || 1);
-        return this.etaTo(pref, spot) <= this.etaTo(cur, spot) ? pref : cur;
-      }
-      if (curOk) return cur;                                    // (keeps whoever is on his way)
-      const spot = receiverSpot(end, 1);
-      let n = null, nd = Infinity;
-      for (const f of F) {
-        if (f === taken || f === pref || f.keeper || f.bowler || busy(f)) continue;
-        const d = hyp(f.pos.x - spot.x, f.pos.z - spot.z) + (f.state === 'backstop' ? 12 : 0);
-        if (d < nd) { nd = d; n = f; }
-      }
-      return n;
-    };
-    const bat = pick('batting', k, null);
+    const bat = this.pickCover('batting', k, null, t);
     // (when you bowl, those stumps are yours: nobody comes to stand by you -- DECISIONS V4;
     // a throw there is at the stumps, with a man backing up behind them)
-    const bowl = this.bowlerFields ? pick('bowling', bw, bat) : null;
-    const sideOf = (end) => {
-      let s = side != null ? side : (this.cover[end] && this.cover[end].coverSide) || 1;
-      // (never into the player's space: he may be standing at those stumps)
-      const ko = this.keepOut;
-      if (ko) {
-        const dd = (q) => { const sp = receiverSpot(end, q); return hyp(sp.x - ko.x, sp.z - ko.z); };
-        if (dd(s) < ko.r + 0.15 && dd(-s) > dd(s) + 0.05) s = -s;
-      }
-      return s;
-    };
-    for (const [end, f] of [['batting', bat], ['bowling', bowl]]) {
-      const old = this.cover[end];
-      if (old && old !== f && old.coverEnd === end && old.state === 'stumps') { old.state = 'return'; old.target = null; old.coverEnd = null; }
-      this.cover[end] = f;
-      if (!f) continue;
-      if (f.state === 'backstop' && this.backer === f) this.backer = null;
-      const s = sideOf(end);
-      const taking = f.action && (f.action.type === 'take' || f.action.type === 'break');
-      if (taking) { f.coverEnd = end; continue; }
-      if (f.state !== 'stumps' || f.coverEnd !== end || f.coverSide !== s) {
-        f.state = 'stumps'; f.coverEnd = end; f.coverSide = s; f.backEnd = null;
-        f.target = receiverSpot(end, s);
-      }
-    }
+    const bowl = this.bowlerFields ? this.pickCover('bowling', bw, bat, t) : null;
+    this.placeCover('batting', bat, side);
+    this.placeCover('bowling', bowl, side);
     // The keeper (or the AI bowler) free again but not the man over his stumps
     // (someone took them while he was busy): he comes back to them all the same,
     // to the other side, and takes them over once he is there.
-    for (const [end, own] of [['batting', k], ['bowling', bw]]) {
-      if (!own || this.cover[end] === own || own === bat || own === bowl || busy(own) || !this.cover[end]) continue;
-      if (own.action && (own.action.type === 'take' || own.action.type === 'break')) continue;
-      const s = -(this.cover[end].coverSide || 1);
-      if (own.state !== 'stumps' || own.coverEnd !== end || own.coverSide !== s) { own.state = 'stumps'; own.coverEnd = end; own.coverSide = s; own.backEnd = null; own.target = receiverSpot(end, s); }
-    }
+    this.ownStumps('batting', k, bat, bowl, t);
+    this.ownStumps('bowling', bw, bat, bowl, t);
     this.bowlEndReceiver = this.cover.bowling;
+  }
+  // Busy with the ball, for covering (assignCovers): a man holding it at his stumps is not.
+  coverBusy(f, t) { return this.busyWithBall(f, t) && !(f && f.coverEnd && this.ballOverride && this.ballOverride.holder === this.fielders.indexOf(f)); }
+  // Who covers the stumps at `end`: pref (the keeper / the AI bowler) if he is free, not `taken` (the other end's man).
+  pickCover(end, pref, taken, t) {
+    const F = this.fielders, th = this.throw;
+    // (a throw on its way to him: he stays the man at those stumps until it gets there)
+    if (th && th.released && !th.done && th.end === end && th.receiverF && th.receiverF !== taken) return th.receiverF;
+    const cur = this.cover[end];
+    const curOk = cur && cur !== taken && !this.coverBusy(cur, t);
+    if (pref && !this.coverBusy(pref, t) && pref !== taken) {
+      // (the man over the stumps keeps them until the keeper / bowler would be there sooner)
+      if (!curOk || cur === pref) return pref;
+      const spot = receiverSpotInto(end, cur.coverSide || 1, _spot);
+      return this.etaTo(pref, spot) <= this.etaTo(cur, spot) ? pref : cur;
+    }
+    if (curOk) return cur;                                    // (keeps whoever is on his way)
+    const spot = receiverSpotInto(end, 1, _spot);
+    let n = null, nd = Infinity;
+    for (let i = 0; i < F.length; i++) {
+      const f = F[i];
+      if (f === taken || f === pref || f.keeper || f.bowler || this.coverBusy(f, t)) continue;
+      const d = hyp(f.pos.x - spot.x, f.pos.z - spot.z) + (f.state === 'backstop' ? 12 : 0);
+      if (d < nd) { nd = d; n = f; }
+    }
+    return n;
+  }
+  // Which side of the stumps at `end` the man covering them waits (side: the throw's, else his own).
+  coverSideOf(end, side) {
+    let s = side != null ? side : (this.cover[end] && this.cover[end].coverSide) || 1;
+    // (never into the player's space: he may be standing at those stumps)
+    const ko = this.keepOut;
+    if (ko) {
+      const ds = spotFrom(end, s, ko);
+      if (ds < ko.r + 0.15 && spotFrom(end, -s, ko) > spotFrom(end, s, ko) + 0.05) s = -s;
+    }
+    return s;
+  }
+  // f is the man for the stumps at `end` (null: nobody); whoever had them and is still on his way goes back.
+  placeCover(end, f, side) {
+    const old = this.cover[end];
+    if (old && old !== f && old.coverEnd === end && old.state === 'stumps') { old.state = 'return'; old.target = null; old.coverEnd = null; }
+    this.cover[end] = f;
+    if (!f) return;
+    if (f.state === 'backstop' && this.backer === f) this.backer = null;
+    const s = this.coverSideOf(end, side);
+    const taking = f.action && (f.action.type === 'take' || f.action.type === 'break');
+    if (taking) { f.coverEnd = end; return; }
+    if (f.state !== 'stumps' || f.coverEnd !== end || f.coverSide !== s) {
+      f.state = 'stumps'; f.coverEnd = end; f.coverSide = s; f.backEnd = null;
+      f.target = receiverSpot(end, s);
+    }
+  }
+  ownStumps(end, own, bat, bowl, t) {
+    if (!own || this.cover[end] === own || own === bat || own === bowl || this.coverBusy(own, t) || !this.cover[end]) return;
+    if (own.action && (own.action.type === 'take' || own.action.type === 'break')) return;
+    const s = -(this.cover[end].coverSide || 1);
+    if (own.state !== 'stumps' || own.coverEnd !== end || own.coverSide !== s) { own.state = 'stumps'; own.coverEnd = end; own.coverSide = s; own.backEnd = null; own.target = receiverSpot(end, s); }
   }
 
   // One fielder backs up behind the stumps at `end`, in line with a throw
