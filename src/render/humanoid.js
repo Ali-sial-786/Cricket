@@ -509,8 +509,25 @@ const KIT_GLSL_COMMON = /* glsl */`
     return vec2(t, length(d - a.xyz * t));
   }
 `;
+// The kit shader's values that are the same for every figure and never change (the rig's
+// landmarks and bone indices, the decals' places, the lettering atlas): written into the
+// shader as constants, not uniforms, so nothing of them is uploaded per figure per draw.
+// (float32 values printed so they come back as the same float32)
+const CONST_UNIFORMS = ['uFaceRect', 'uFaceMisc', 'uEye', 'uKneeL', 'uAnkleL', 'uLegAxis', 'uShoulderL', 'uShoulderR', 'uArmL', 'uArmR', 'uSkull',
+  'uCrestAt', 'uSponsorAt', 'uMakerAt', 'uNumberAt', 'uCapAt', 'uGlyph', 'uMakerUV',
+  'uHeadBones', 'uLegBones', 'uHandBones', 'uTrunkBones', 'uArmBones', 'uLegIdx', 'uLegIdxR', 'uFpNeck'];
+let CONST_GLSL = null;
+function constGlsl(u) {
+  if (CONST_GLSL) return CONST_GLSL;
+  const f = (x) => { const s = Math.fround(x).toPrecision(9); return /[.e]/.test(s) ? s : s + '.0'; };
+  CONST_GLSL = CONST_UNIFORMS.map((k) => {
+    const v = u[k].value, a = v.isVector4 ? [v.x, v.y, v.z, v.w] : v.isVector3 ? [v.x, v.y, v.z] : [v.x, v.y];
+    return `#define ${k} vec${a.length}(${a.map(f).join(', ')})`;
+  }).join('\n') + '\n';
+  return CONST_GLSL;
+}
 function kitMaterial(shared = null) {
-  const mat = new THREE.MeshLambertMaterial({ vertexColors: true });
+  const mat = new THREE.MeshLambertMaterial({ vertexColors: true, fog: false });   // (fog starts far beyond any figure from any camera)
   mat.defines = {};
   const uniforms = shared || {
     ...sharedUniforms(),
@@ -544,6 +561,8 @@ function kitMaterial(shared = null) {
     uLegIdx: { value: new THREE.Vector3(RIG.index.hipL, RIG.index.kneeL, RIG.index.ankleL) },
     uLegIdxR: { value: new THREE.Vector3(RIG.index.hipR, RIG.index.kneeR, RIG.index.ankleR) },
   };
+  const consts = constGlsl(uniforms);
+  for (const k of CONST_UNIFORMS) delete uniforms[k];
   mat.onBeforeCompile = (sh) => {
     Object.assign(sh.uniforms, uniforms);
     sh.vertexShader = sh.vertexShader
@@ -1059,8 +1078,11 @@ function kitMaterial(shared = null) {
         }`)
       .replace('vec3 outgoingLight = reflectedLight.directDiffuse + reflectedLight.indirectDiffuse + totalEmissiveRadiance;',
         'vec3 outgoingLight = reflectedLight.directDiffuse + reflectedLight.indirectDiffuse + reflectedLight.directSpecular + totalEmissiveRadiance;');
+    // (the constants in place of their uniforms)
+    const strip = (src) => consts + src.replace(new RegExp(`uniform\\s+\\w+\\s+(${CONST_UNIFORMS.join('|')})\\s*;`, 'g'), '');
+    sh.vertexShader = strip(sh.vertexShader); sh.fragmentShader = strip(sh.fragmentShader);
   };
-  mat.customProgramCacheKey = () => 'cricket-kit-v11';
+  mat.customProgramCacheKey = () => 'cricket-kit-v12';
   mat.userData.uniforms = uniforms;
   return mat;
 }
