@@ -382,7 +382,11 @@ export class PlayerBodyView {
     const legLen = (h.bones.kneeL.position.length() + h.bones.ankleL.position.length()) * sc;
     const hipUp = Hj.y - A.trunkUp * sc * 0.95 - h.ankleHeight * sc;
     const maxStride = 2 * Math.sqrt(Math.max(0, legLen * legLen - hipUp * hipUp));
-    const F = this.feet.update(dt, { hx: Hj.x, hz: Hj.z, crouch, quiet: o.quiet, engage: Eb, pat, turn: list.length ? st.turn * Eb : 0, heading: th, kneel: st.kneelK, maxStride, pin: cr && cr.z != null && cr.pin > 0 ? { z: cr.z, k: cr.pin } : null, stumpsZ: PITCH.battingStumpsZ });
+    const FI = this._fi || (this._fi = { pinAt: { z: 0, k: 0 } }), pinned = cr && cr.z != null && cr.pin > 0;     // (the footwork's inputs and answer: the same objects every frame)
+    FI.hx = Hj.x; FI.hz = Hj.z; FI.crouch = crouch; FI.quiet = o.quiet; FI.engage = Eb; FI.pat = pat; FI.turn = list.length ? st.turn * Eb : 0; FI.heading = th;
+    FI.kneel = st.kneelK; FI.maxStride = maxStride; FI.pin = pinned ? FI.pinAt : null; FI.stumpsZ = PITCH.battingStumpsZ;
+    if (pinned) { FI.pinAt.z = cr.z; FI.pinAt.k = cr.pin; }
+    const F = this.feet.update(dt, FI, this._fo || (this._fo = Footwork.outObject()));
     // ---- no stroke: the stance, from the feet, your head and your hands
     A.mode = 'bat'; A.poseKey = 'bat';
     A.bat.position.copy(bp); A.bat.quaternion.copy(bq);

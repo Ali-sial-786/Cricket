@@ -56,12 +56,12 @@ export class Actor {
     this.seed = (opts && opts.seed) || Math.floor(this.idleOff * 1000);
     this._gs = gestureStore();                 // (gestures.js: arms under a gesture, the head's last turn)
     // (what the frame code sets later, declared now: one shape per kind of figure)
-    this._from = null; this._raw = null; this._shown = null; this._key = undefined; this._bt = 0; this._fd = 0; this.slowNext = 0;
+    this._from = null; this._raw = null; this._shown = null; this._sameShown = false; this._key = undefined; this._bt = 0; this._fd = 0; this.slowNext = 0;
     this._react = null; this._moodW = 0; this._mood = null; this._idleK = 1; this.folded = 0;
     this.far = false; this.off = null; this._dlv = 0; this.ready = 0; this.kCrouch = null; this._hw = 0; this._hkind = null; this.task = undefined;
     // (pose LOD: the keyposes either side of this frame and their times, what he carries on his root at each;
     // the version of the last pose he was given, and its time)
-    this._lod = { on: false, was: false, k0: null, k1: null, t0: 0, t1: 0, x0: [], x1: [] }; this._poseLv = -1; this._poseT = null; this._hd = 0;
+    this._lod = { on: false, was: false, k0: null, k1: null, t0: 0, t1: 0, x0: [], x1: [] }; this._poseLv = -1; this._poseT = null; this._hd = 0; this._keying = false;
     this.visible = true;
   }
   set visible(v) { if (v && !this._vis) this.cut(); this._vis = v; if (this.h) this.h.visible = v; }
@@ -69,10 +69,10 @@ export class Actor {
   // The figure was not being posed (hidden, or driven by something else): the
   // next pose stands on its own. Without this smooth() would cross-fade from
   // whatever he was doing when last seen (a dive, a throw) into the new pose.
-  cut() { this._from = null; this._raw = null; this._shown = null; this._key = undefined; if (this._gs) this._gs.nOk = false; }
+  cut() { this._from = null; this._raw = null; this._shown = null; this._sameShown = false; this._key = undefined; if (this._gs) this._gs.nOk = false; }
   // Something else posed the figure up to now (a batting stance, another
   // figure it takes over from): the next smooth() cross-fades from this pose.
-  handover() { this._raw = this.h.snapshot(this._raw || undefined); this._shown = this.h.snapshot(this._shown || undefined); this._key = '(handover)'; this._from = null; }
+  handover() { this._raw = this.h.snapshot(this._raw || undefined); this._shown = this.h.snapshot(this._shown || undefined); this._sameShown = false; this._key = '(handover)'; this._from = null; }
   // Take over from another figure of the same man (the AI bowler's own figure
   // and the fielder's figure that fields for him): same place, facing, size,
   // stride and pose, so that the swap cannot be seen; the next pose
@@ -189,7 +189,7 @@ export class Actor {
       let c = 1;
       for (let i = 0, L = h.boneList; i < L.length; i++) { const d = Math.abs(L[i].quaternion.dot(raw.q[i])); if (d < c) c = d; }
       const jump = 2 * Math.acos(c);
-      if (jump > Math.max(0.7, 25 * jdt) || (switched && jump > 0.02)) { this._from = copySnap(this._shown || raw, this._from || undefined); this._bt = 0; this._fd = this.slowNext || dur; this.slowNext = 0; }
+      if (jump > Math.max(0.7, 25 * jdt) || (switched && jump > 0.02)) { this._from = copySnap((this._sameShown ? raw : this._shown) || raw, this._from || undefined); this._bt = 0; this._fd = this.slowNext || dur; this.slowNext = 0; }
     }
     this._raw = h.snapshot(this._raw || undefined);
     if (this._from) {
@@ -199,7 +199,8 @@ export class Actor {
       // turf half-way, e.g. legs straightening before the hips rise: re-land it.)
       if (w >= 1) this._from = null; else { h.blendFrom(this._from, w); h.update(); settle(h); h.update(); }
     }
-    this._shown = h.snapshot(this._shown || undefined);
+    // (what is shown: the raw pose unless a cross-fade is under way, then kept apart)
+    if (this._from) { this._shown = h.snapshot(this._shown || undefined); this._sameShown = false; } else this._sameShown = true;
   }
 
   // ---- pose LOD (humanoid.js ANIM_LOD) ----
@@ -229,7 +230,6 @@ export class Actor {
     const L = this._lod;
     L.k1 = this.h.snapshot(L.k1 || undefined); L.t1 = tk; L.on = true;
     this.extrasOnRoot(null, L.x1);
-    this.h.root.position.y -= this.h.guardLift;       // (back on the level: the guard lifts it for the pose shown)
     this.lodShow(t);
   }
   // This frame's pose: between the last two keyposes, by time; the root placed already,
@@ -482,7 +482,7 @@ export class FielderActor extends Actor {
     if (this._hw > 0.001 && this._hkind) poseArms(h, this.forward(_fwd), this._hkind, this._hw, t + this.idleOff, this._gs);
     this.watch(ctx.ball, dt, mood);
     this.smooth(dt, 0.18, true, fdt);  // (far ones too: a change of pose snapping in one frame shows even at 50 m)
-    h.syncShadow();
+    if (!this._keying) h.syncShadow();             // (a pose LOD keypose: guarded and shadowed as the pose shown, lodShow)
     this.posed(t);
   }
   // Every frame, posed or not: where he is, his turn and stride, how far down into his set he is.
@@ -511,7 +511,9 @@ export class FielderActor extends Actor {
     if (ahead > 0) this.move(ahead, s, ctx);
     this.pos.set(s.x, 0, s.z); this.heading = this._hd;
     lctx.t = tk; lctx.ball = ctx.ball; lctx.delivering = ctx.delivering; lctx.cam = ctx.cam; lctx.others = ctx.others;
+    this._keying = true;
     this.pose(Math.max(1e-4, tk - (this._poseT ?? t - dt)), s, lctx, dt);
+    this._keying = false;
     this.phase = ph; this.ready = rd; this._dlv = dl;
     this.lodKey(tk, t);
   }
@@ -2168,7 +2170,7 @@ export class BatterActor extends Actor {
     this.batSmooth(dt);
     this.gripHandle();
     this.noteArm();
-    this._shown = h.snapshot(this._shown || undefined);     // (what is shown: the hand round the handle)
+    this._shown = h.snapshot(this._shown || undefined); this._sameShown = false;     // (what is shown: the hand round the handle)
     h.syncShadow();
   }
 
@@ -2464,7 +2466,7 @@ export class BatterActor extends Actor {
     const md = moodAt(t);
     if (md && md.mood === 'dejected' && both < 0.01) { this.forward(_fwd); poseArms(h, _fwd, 'fistL', envelope(md.age - 0.3, 2.2, 0.2, 0.5), t, this._gs); }
     this.noteArm();
-    this._shown = h.snapshot(this._shown || undefined);     // (what is shown: the arm on the bat)
+    this._shown = h.snapshot(this._shown || undefined); this._sameShown = false;     // (what is shown: the arm on the bat)
     h.syncShadow();
   }
 }
