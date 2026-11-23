@@ -13,6 +13,7 @@
 //      skeleton textures) happens now: three only finishes a program on its
 //      first draw, and a driver may not compile for real until then.
 // Game.prewarm() is the same thing in one synchronous go (tests, the harness).
+import { prewarmFonts } from '../ui/panel.js';
 import * as THREE from 'three';
 import { Humanoid } from './humanoid.js';
 
@@ -122,6 +123,10 @@ export async function warmUp(game, progress = () => {}) {
   game.drs._build();
   game.drs.prewarmScreen(r);
   T.drs = performance.now() - t0;
+  // every canvas font a match uses, met once here (the first use of a font size costs milliseconds: a
+  // prompt that shrinks to fit met four or five at once, mid-play)
+  try { prewarmFonts(); } catch { /* fonts are met at first use instead */ }
+  T.fonts = performance.now() - t0 - T.drs;
   // 1. programs: the scene with everything shown, both LODs' geometry, then the variants
   progress(0, 'Preparing the shaders');
   try { T.parallel = !!r.getContext().getExtension('KHR_parallel_shader_compile'); } catch { T.parallel = false; }
