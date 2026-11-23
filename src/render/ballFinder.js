@@ -17,7 +17,8 @@ export class BallFinder {
     // the same shape offset outward (even width all round), behind it.
     const pts = [[0, 0.019], [0.017, 0.001], [0.0085, 0.001], [0.0085, -0.015], [-0.0085, -0.015], [-0.0085, 0.001], [-0.017, 0.001]];
     const mk = (p) => { const s = new THREE.Shape(); s.moveTo(p[0][0], p[0][1]); for (let i = 1; i < p.length; i++) s.lineTo(p[i][0], p[i][1]); s.closePath(); return new THREE.ShapeGeometry(s); };
-    const flat = (color, opacity) => new THREE.MeshBasicMaterial({ color, transparent: true, opacity, depthTest: false, depthWrite: false, side: THREE.DoubleSide, toneMapped: false });
+    // (flat cards: one pass for both faces -- a transparent DoubleSide material is otherwise drawn twice, back then front)
+    const flat = (color, opacity) => new THREE.MeshBasicMaterial({ color, transparent: true, opacity, depthTest: false, depthWrite: false, side: THREE.DoubleSide, forceSinglePass: true, toneMapped: false });
     this.arrow = new THREE.Mesh(mk(pts), flat(0xffc531, 0.97));
     const edge = new THREE.Mesh(mk(offsetPoly(pts, 0.0028)), flat(0x0c0e12, 0.72));
     edge.position.z = -0.0005; edge.renderOrder = 29;
