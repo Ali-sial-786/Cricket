@@ -1063,6 +1063,13 @@ const _pq = new THREE.Quaternion(), _eul = new THREE.Euler(), _bq = new THREE.Qu
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const FOOT_ONLY = {}, HAND_ONLY = {};
 const _fq = new THREE.Quaternion();
+const _wl = new THREE.Matrix4(), _om = new THREE.Matrix4();
+// c[o..o+2] = v? If not, it is now (an input of update() changed).
+function same3(c, o, v) {
+  if (c[o] === v.x && c[o + 1] === v.y && c[o + 2] === v.z) return true;
+  c[o] = v.x; c[o + 1] = v.y; c[o + 2] = v.z;
+  return false;
+}
 
 export class Humanoid {
   // vary: let this figure's height differ from the standard (fielders, umpires: not
@@ -1102,6 +1109,9 @@ export class Humanoid {
     this.mesh.add(bones[0]);
     this.mesh.position.y = -RIG.floor;            // soles on the ground in the canonical pose (see prepareRig)
     this.mesh.bind(new THREE.Skeleton(bones, RIG.inverses.map((m) => m.clone())), new THREE.Matrix4());
+    // (detached, identity bind: the bone matrices are each bone relative to the mesh, so a figure
+    // whose pose has not changed is not re-skinned or re-uploaded when only its root moves; see update())
+    this.mesh.bindMode = THREE.DetachedBindMode;
     // Generous fixed culling sphere (covers raised arms, dives and a bat).
     this.mesh.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 1.0, 0), 2.1);
     this.mesh.frustumCulled = true;
@@ -1109,6 +1119,7 @@ export class Humanoid {
     this._mw = bones.map(() => new THREE.Matrix4());
     this.root = new THREE.Group();
     this.root.add(this.mesh);
+    this.trackMatrices();
     this.baseScale = BASE_SCALE * scale;
     this.root.scale.setScalar(this.baseScale);
     this.hipsRest = this.bones.hips.position.clone();
@@ -1247,7 +1258,7 @@ export class Humanoid {
   syncShadow() {
     this.groundGuard();                           // (hidden too: replays record the pose)
     if (!this.root.visible) return;
-    this.bones.hips.getWorldPosition(_v);
+    _v.setFromMatrixPosition(this.bones.hips.matrixWorld);      // (fresh: groundGuard)
     ShadowPool.set(this.shadowSlot, _v.x, _v.z, true, this.root.scale.x * (0.8 + 0.4 * Math.min(1, (_v.y - this.root.position.y) / 1.0)) * (this.ghost ? 1 : this.fade ?? 1));
   }
 
@@ -1255,7 +1266,7 @@ export class Humanoid {
   // (vertex extremes, gear included; see hullFor) carried rigidly by the bone.
   // Bones whose joint is higher above the ground than their hull reaches are skipped.
   lowest(only = null) {
-    this.root.updateMatrixWorld(true);
+    this.update();
     // (the full-detail mesh's hull, whatever LOD is drawn; looked up again only when the mesh changes:
     // geometryFor builds a key string, garbage every frame for every figure)
     if (this._hullGeo !== this.mesh.geometry) { this._hullGeo = this.mesh.geometry; this._hull = hullFor(geometryFor(this.opts, 0)); }
@@ -1324,7 +1335,7 @@ export class Humanoid {
     this.guardLift = low < -tol ? -(low + tol) : 0;
     if (low < -tol) {
       this.root.position.y -= low + tol;
-      this.root.updateMatrixWorld(true);
+      this.update();
       this.lowY = -tol;
     }
     return low;
@@ -1346,18 +1357,101 @@ export class Humanoid {
     this.bones[name].quaternion.multiply(_pq);
   }
 
-  update() { this.root.updateMatrixWorld(true); }
+  // The figure's matrices (root, mesh, bones), made fresh only where an input has changed
+  // since they were last made: a bone's rotation (its quaternion's change callback), any
+  // bone's position, the root's place, turn and size. Everything that refreshes or reads
+  // a world matrix (updateMatrixWorld, updateWorldMatrix, getWorldPosition / Quaternion,
+  // worldToLocal: ours, the IK's, three's own scene pass) comes here, so a figure is
+  // posed once and its matrices made once, not the whole figure again at every read.
+  // _rel: each bone relative to the mesh (what the skin needs: see trackMatrices);
+  // _lv / _wv: versions of the pose (bones relative to the mesh) and of the world matrices.
+  update() {
+    const r = this.root, m = this.mesh, c = this._in, P = r.parent;
+    let all = this._all;
+    if (!same3(c, 0, r.position)) all = true;
+    if (!same3(c, 3, r.scale)) all = true;
+    { const q = r.quaternion; if (c[6] !== q._x || c[7] !== q._y || c[8] !== q._z || c[9] !== q._w) { c[6] = q._x; c[7] = q._y; c[8] = q._z; c[9] = q._w; all = true; } }
+    if (!same3(c, 10, m.position)) all = true;
+    if (P) { const e = P.matrixWorld.elements; for (let k = 0; k < 16; k++) if (c[13 + k] !== e[k]) { c[13 + k] = e[k]; all = true; } }
+    if (all) {
+      r.matrix.compose(r.position, r.quaternion, r.scale);
+      if (P) r.matrixWorld.multiplyMatrices(P.matrixWorld, r.matrix); else r.matrixWorld.copy(r.matrix);
+      m.matrix.compose(m.position, m.quaternion, m.scale);
+      m.matrixWorld.multiplyMatrices(r.matrixWorld, m.matrix);
+      r.matrixWorldNeedsUpdate = m.matrixWorldNeedsUpdate = false;
+      this._all = false;
+    }
+    const B = this.boneList, R = this._rel, pi = this._pi, W = m.matrixWorld;
+    let dm = this._dm, moved = 0;
+    for (let i = 0, o = 29; i < B.length; i++, o += 3) {
+      const b = B[i];
+      if (!same3(c, o, b.position)) dm |= 1 << i;
+      const p = pi[i];
+      if ((dm >> i) & 1) { b.matrix.compose(b.position, b.quaternion, b.scale); }
+      if (((dm >> i) & 1) || (p >= 0 && ((moved >> p) & 1))) {
+        if (p < 0) R[i].copy(b.matrix); else R[i].multiplyMatrices(R[p], b.matrix);
+        moved |= 1 << i;
+      }
+      if (all || ((moved >> i) & 1)) { b.matrixWorld.multiplyMatrices(W, R[i]); b.matrixWorldNeedsUpdate = false; }
+    }
+    this._dm = 0;
+    if (moved) this._lv++;
+    if (moved || all) this._wv++;
+  }
+
+  // Route every matrix refresh of this figure through update() (see there), and skin from
+  // the bones relative to the mesh: a skeleton re-made (and its bone texture re-uploaded)
+  // only when the pose has changed, not when the figure only moves. Nothing else of the
+  // figure is a child of a bone (gear is merged into the mesh; bats are scene objects).
+  trackMatrices() {
+    const B = this.boneList;
+    this._in = new Float64Array(29 + B.length * 3).fill(NaN);
+    this._rel = B.map(() => new THREE.Matrix4());
+    this._pi = Int8Array.from(B, (b) => B.indexOf(b.parent));
+    this._dm = (1 << B.length) - 1; this._all = true; this._lv = 0; this._wv = 0;
+    B.forEach((b, i) => b.quaternion._onChange(() => { this._dm |= 1 << i; }));   // (no Euler kept in step: nothing reads a bone's .rotation)
+    const up = () => this.update(), root = this.root;
+    for (const o of [root, this.mesh, ...B]) {
+      o.updateMatrixWorld = up;
+      o.updateWorldMatrix = up;              // (the scene above is never moved: the figure's parent's matrix is read as it is)
+      o.worldToLocal = (v) => { up(); return v.applyMatrix4(_wl.copy(o.matrixWorld).invert()); };
+      o.localToWorld = (v) => { up(); return v.applyMatrix4(o.matrixWorld); };
+    }
+    const sk = this.mesh.skeleton, R = this._rel;
+    let sv = -1;
+    sk.update = () => {
+      up();
+      if (sv === this._lv) return;
+      sv = this._lv;
+      const M = sk.boneMatrices, I = sk.boneInverses;
+      for (let i = 0; i < R.length; i++) _om.multiplyMatrices(R[i], I[i]).toArray(M, i * 16);
+      if (sk.boneTexture !== null) sk.boneTexture.needsUpdate = true;
+    };
+    // (a vertex skinned on the CPU, in the mesh's space as three's own: the bones relative to the mesh)
+    const m = this.mesh, sI = new THREE.Vector4(), sW = new THREE.Vector4(), b0 = new THREE.Vector3(), t = new THREE.Vector3();
+    m.applyBoneTransform = (index, v) => {
+      up();
+      sI.fromBufferAttribute(m.geometry.attributes.skinIndex, index);
+      sW.fromBufferAttribute(m.geometry.attributes.skinWeight, index);
+      b0.copy(v); v.set(0, 0, 0);
+      for (let k = 0; k < 4; k++) {
+        const w = sW.getComponent(k);
+        if (w !== 0) { const s = sI.getComponent(k); v.addScaledVector(t.copy(b0).applyMatrix4(_om.multiplyMatrices(R[s], sk.boneInverses[s])), w); }
+      }
+      return v;
+    };
+  }
 
   // Capture the current pose so a new one can be blended from it.
   snapshot(out = { q: [], hipsY: 0, hipsP: new THREE.Vector3() }) {
-    this.boneList.forEach((b, i) => { (out.q[i] ||= new THREE.Quaternion()).copy(b.quaternion); });
+    for (let i = 0, L = this.boneList; i < L.length; i++) (out.q[i] ||= new THREE.Quaternion()).copy(L[i].quaternion);
     out.hipsP.copy(this.bones.hips.position);
     return out;
   }
   // current = lerp(snapshot, current, w)
   blendFrom(snap, w) {
     if (w >= 1) return;
-    this.boneList.forEach((b, i) => { _bq.copy(b.quaternion); b.quaternion.slerpQuaternions(snap.q[i], _bq, w); });
+    for (let i = 0, L = this.boneList; i < L.length; i++) { const q = L[i].quaternion; _bq.copy(q); q.slerpQuaternions(snap.q[i], _bq, w); }
     this.bones.hips.position.lerpVectors(snap.hipsP, this.bones.hips.position, w);
   }
 
@@ -1390,8 +1484,7 @@ export class Humanoid {
   setWorldQuat(name, q) {
     const bone = this.bones[name];
     bone.parent.getWorldQuaternion(_pq).invert();
-    bone.quaternion.copy(_pq).multiply(q);
-    bone.updateMatrixWorld(true);
+    bone.quaternion.copy(_pq).multiply(q);        // (its matrices are made when next read: update())
   }
 }
 
@@ -1405,7 +1498,6 @@ function aimBone(bone, dirWorld) {
   bone.parent.getWorldQuaternion(_pq).invert();
   _v2.copy(dirWorld).applyQuaternion(_pq).normalize();
   bone.quaternion.setFromUnitVectors(DOWN, _v2);
-  bone.updateMatrixWorld(true);
 }
 
 // Analytic two-bone IK in world space. `pole` is a world point the middle
@@ -1417,9 +1509,7 @@ function aimBone(bone, dirWorld) {
 // kinks in the skin, and the joint's crease always faces into the bend.
 // flex = 0 keeps the old minimal-rotation aim.
 export function solveTwoBone(upper, lower, end, target, pole, flex = 0) {
-  upper.parent.updateWorldMatrix(true, false);
-  upper.updateMatrixWorld(true);
-  upper.getWorldPosition(_S);
+  upper.getWorldPosition(_S);                   // (fresh matrices: Humanoid.update)
   lower.getWorldPosition(_E);
   end.getWorldPosition(_end);
   const a = _S.distanceTo(_E), b = _E.distanceTo(_end);
@@ -1464,7 +1554,6 @@ function setBoneWorld(bone, x, y, z) {
   _hq.setFromRotationMatrix(_hm.makeBasis(x, y, z));
   bone.parent.getWorldQuaternion(_pq).invert();
   bone.quaternion.copy(_pq).multiply(_hq);
-  bone.updateMatrixWorld(true);
 }
 Humanoid.all = [];
 Humanoid.lodNear = 13;          // m: full detail inside this (the quality level sets it; render/quality.js)
