@@ -255,11 +255,16 @@ export class AudioDirector {
       const ex = a.pos.x - e.x, ez = a.pos.z - e.z;
       if (distGT(ex, ez, a === bow ? 45 : 28)) continue;
       let st = this.feet.get(a);
-      if (!st) { st = { L: { y: 1, vy: 0, t: -9 }, R: { y: 1, vy: 0, t: -9 }, x: a.pos.x, z: a.pos.z, speed: 0 }; this.feet.set(a, st); }
+      if (!st) { st = { L: { y: 1, vy: 0, t: -9 }, R: { y: 1, vy: 0, t: -9 }, x: a.pos.x, z: a.pos.z, speed: 0, bones: null, bL: null, bR: null }; this.feet.set(a, st); }
+      // (the ankle bones looked up again only if the figure's skeleton is a new one)
+      const bones = a.h.bones;
+      if (st.bones !== bones) { st.bones = bones; st.bL = bones ? bones.ankleL || null : null; st.bR = bones ? bones.ankleR || null : null; }
       st.speed = dt > 0 ? hypot2(a.pos.x - st.x, a.pos.z - st.z) / dt : 0; st.x = a.pos.x; st.z = a.pos.z;
       for (let k = 0; k < 2; k++) {
-        const p = this.bonePos(a, k === 0 ? 'ankleL' : 'ankleR');
-        if (!p) continue;
+        const bn = k === 0 ? st.bL : st.bR;
+        if (!bn) continue;
+        const m = bn.matrixWorld.elements, p = this._p;
+        p.x = m[12]; p.y = m[13]; p.z = m[14];
         const f = k === 0 ? st.L : st.R, vy = dt > 0 ? (p.y - f.y) / dt : 0;
         // (a walk is heard only close by; running, from further off)
         if (f.vy < -0.25 && vy > -0.05 && p.y < 0.25 && this.t - f.t > 0.18 && (st.speed > 2.2 || (st.speed > 0.5 && distLT(ex, ez, 9)))) {
