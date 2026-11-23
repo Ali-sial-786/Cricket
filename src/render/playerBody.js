@@ -712,8 +712,8 @@ export class PlayerBodyView {
       let worst = 0, px = 0, pz = 0;
       for (let i = 0; i <= 6; i++) {
         _d.copy(bp).addScaledVector(_e, BLADE_TOP - (BLADE_TOP - BLADE_TOE) * i / 6);
-        for (const [s0, s1] of [[hip, knee], [knee, ank]]) {
-          const q = closestOnSeg(_d, s0, s1, _P), gap = LEG_CLEAR * sc - _d.distanceTo(q);
+        for (let g = 0; g < 2; g++) {                 // (thigh, shin: no arrays a frame)
+          const q = closestOnSeg(_d, g ? knee : hip, g ? ank : knee, _P), gap = LEG_CLEAR * sc - _d.distanceTo(q);
           if (gap > worst) { worst = gap; px = q.x - _d.x; pz = q.z - _d.z; }
         }
       }

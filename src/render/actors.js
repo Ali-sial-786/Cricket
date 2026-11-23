@@ -32,7 +32,7 @@ const _reach = new THREE.Vector3();
 const _fwd = new THREE.Vector3(), _left = new THREE.Vector3();
 
 function copySnap(src, out = { q: [], hipsY: 0, hipsP: new THREE.Vector3() }) {
-  src.q.forEach((q, i) => { (out.q[i] ||= new THREE.Quaternion()).copy(q); });
+  for (let i = 0; i < src.q.length; i++) (out.q[i] ||= new THREE.Quaternion()).copy(src.q[i]);
   out.hipsP.copy(src.hipsP);
   return out;
 }
@@ -174,8 +174,10 @@ export class Actor {
     this._key = this.poseKey;
     if (!allow) this._from = null;
     else if (raw && dt > 0) {
-      let jump = 0;
-      h.boneList.forEach((b, i) => { const d = b.quaternion.angleTo(raw.q[i]); if (d > jump) jump = d; });
+      // (the largest turn of any joint: the least |cos| of the half angle, one acos for the lot)
+      let c = 1;
+      for (let i = 0, L = h.boneList; i < L.length; i++) { const d = Math.abs(L[i].quaternion.dot(raw.q[i])); if (d < c) c = d; }
+      const jump = 2 * Math.acos(c);
       if (jump > Math.max(0.7, 25 * dt) || (switched && jump > 0.02)) { this._from = copySnap(this._shown || raw, this._from || undefined); this._bt = 0; this._fd = this.slowNext || dur; this.slowNext = 0; }
     }
     this._raw = h.snapshot(this._raw || undefined);
