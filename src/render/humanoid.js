@@ -436,7 +436,15 @@ function hullFor(geo) {
       p[k * 3] = P.getX(i); p[k * 3 + 1] = P.getY(i); p[k * 3 + 2] = P.getZ(i);
       for (let j = 0; j < 4; j++) { si[k * 4 + j] = SI.getComponent(i, j); sw[k * 4 + j] = SW.getComponent(i, j); }
     });
-    return { p, si, sw, r: rad[b] + 0.12 };
+    // (packed for lowest(): per point its influences, each [bone, w x, w y, w z, w], and the bones they use)
+    const n = new Uint8Array(ids.length), e = [], u = new Set();
+    for (let k = 0; k < ids.length; k++) for (let j = 0; j < 4; j++) {
+      const w = sw[k * 4 + j];
+      if (!w) continue;
+      n[k]++; u.add(si[k * 4 + j]);
+      e.push(si[k * 4 + j], w * p[k * 3], w * p[k * 3 + 1], w * p[k * 3 + 2], w);
+    }
+    return { p, si, sw, r: rad[b] + 0.12, n, e: Float64Array.from(e), u: Int8Array.from(u) };
   });
   HULLS.set(geo, H);
   return H;
@@ -1062,6 +1070,9 @@ const _v = new THREE.Vector3(), _v2 = new THREE.Vector3(), _S = new THREE.Vector
 const _pq = new THREE.Quaternion(), _eul = new THREE.Euler(), _bq = new THREE.Quaternion();
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const FOOT_ONLY = {}, HAND_ONLY = {};
+// lowest(): the order the bones are tried in (where their joints usually are, lowest first)
+const LOW_NAMES = ['ankleL', 'ankleR', 'kneeL', 'kneeR', 'handL', 'handR', 'hipL', 'hipR', 'hips', 'elbowL', 'elbowR', 'spine', 'head', 'neck', 'chest', 'shoulderL', 'shoulderR'];
+let LOW_ORDER = null;
 const _fq = new THREE.Quaternion();
 const _wl = new THREE.Matrix4(), _om = new THREE.Matrix4();
 // c[o..o+2] = v? If not, it is now (an input of update() changed).
@@ -1116,7 +1127,8 @@ export class Humanoid {
     this.mesh.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 1.0, 0), 2.1);
     this.mesh.frustumCulled = true;
     this.boneList = bones;
-    this._mw = bones.map(() => new THREE.Matrix4());
+    this._yr = new Float64Array(bones.length * 4);         // (lowest(): each bone's skinning matrix, its height row)
+    this._ms = new Int32Array(bones.length).fill(-1);      // (... and the version of the world matrices it was made at)
     this.root = new THREE.Group();
     this.root.add(this.mesh);
     this.trackMatrices();
@@ -1265,31 +1277,39 @@ export class Humanoid {
   // Lowest point of the posed body (world y): every bone's hull points
   // (vertex extremes, gear included; see hullFor) carried rigidly by the bone.
   // Bones whose joint is higher above the ground than their hull reaches are skipped.
+  // The bones are tried lowest-first (feet, then up the body by where their joints
+  // usually are), so for a figure on its feet the first few set `low` and every other
+  // bone's joint is too high for its hull to reach under it. Unchanged since the
+  // last call (the same world matrices): the same answer.
   lowest(only = null) {
     this.update();
+    if (!only && this._lowV === this._wv) { this.lowBone = this._lowB; return this._low; }
     // (the full-detail mesh's hull, whatever LOD is drawn; looked up again only when the mesh changes:
     // geometryFor builds a key string, garbage every frame for every figure)
     if (this._hullGeo !== this.mesh.geometry) { this._hullGeo = this.mesh.geometry; this._hull = hullFor(geometryFor(this.opts, 0)); }
-    const H = this._hull, sc = this.root.scale.y;
-    const M = this._mw;
-    for (let b = 0; b < M.length; b++) M[b].multiplyMatrices(this.boneList[b].matrixWorld, RIG.inverses[b]);
+    const H = this._hull, sc = this.root.scale.y, BL = this.boneList;
+    const Y = this._yr, MS = this._ms, v = this._wv, I = RIG.inverses;
+    const L = only || LOW_ORDER || (LOW_ORDER = LOW_NAMES.map((n) => RIG.index[n]));
     let low = Infinity;
-    for (let b = 0; b < H.length; b++) {
-      const hb = H[b];
-      if (!hb || (only && !only.includes(b)) || M[b].elements[13] - hb.r * sc > low) continue;
-      const { p, si, sw } = hb;
-      for (let i = 0, n = p.length / 3; i < n; i++) {
-        const x = p[i * 3], y0 = p[i * 3 + 1], z = p[i * 3 + 2];
-        let y = 0;
-        for (let k = 0; k < 4; k++) {                 // linear blend skinning, height only
-          const w = sw[i * 4 + k];
-          if (!w) continue;
-          const m = M[si[i * 4 + k]].elements;
-          y += w * (m[1] * x + m[5] * y0 + m[9] * z + m[13]);
-        }
+    for (let j = 0; j < L.length; j++) {
+      const b = L[j], hb = H[b];
+      if (!hb || BL[b].matrixWorld.elements[13] - hb.r * sc > low) continue;
+      // (the height row of each skinning matrix the points use: bone world x inverse bind)
+      for (let k = 0, U = hb.u; k < U.length; k++) {
+        const s = U[k];
+        if (MS[s] === v) continue;
+        MS[s] = v;
+        const w = BL[s].matrixWorld.elements, m = I[s].elements;
+        for (let c = 0; c < 4; c++) Y[s * 4 + c] = w[1] * m[c * 4] + w[5] * m[c * 4 + 1] + w[9] * m[c * 4 + 2] + w[13] * m[c * 4 + 3];
+      }
+      const n = hb.n, e = hb.e;
+      for (let i = 0, o = 0; i < n.length; i++) {
+        let y = 0;                                    // linear blend skinning, height only
+        for (let c = n[i]; c > 0; c--, o += 5) { const r = e[o] * 4; y += Y[r] * e[o + 1] + Y[r + 1] * e[o + 2] + Y[r + 2] * e[o + 3] + Y[r + 3] * e[o + 4]; }
         if (y < low) { low = y; this.lowBone = b; }
       }
     }
+    if (!only) { this._low = low; this._lowV = v; this._lowB = this.lowBone; }
     return low;
   }
 
