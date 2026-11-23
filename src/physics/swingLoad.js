@@ -20,6 +20,8 @@
 // push.
 //
 // Pure JS (no three.js). Tested in tests/power.test.js.
+import { hypot3 } from './math.js';
+
 export const LOAD = {
   sweet: -0.62,                 // the middle of the bat along its +Y from your hand (m)
   lift: [0.45, 1.8],            // rad: the blade's angle from hanging down at the top: no load .. full
@@ -38,7 +40,7 @@ export function loadOf(lift, travel) {
 }
 
 export class SwingLoad {
-  constructor(sweetY = LOAD.sweet) { this.sweetY = sweetY; this.reset(); }
+  constructor(sweetY = LOAD.sweet) { this.sweetY = sweetY; this.spare = []; this.reset(); }
   reset() { this.h = []; }
 
   // t: game (physics) time of the pose; rt: the real clock (your movements' own time); pose: the bat
@@ -50,8 +52,12 @@ export class SwingLoad {
     const ax = 2 * (q.x * q.y - q.w * q.z), ay = 1 - 2 * (q.x * q.x + q.z * q.z), az = 2 * (q.y * q.z + q.w * q.x);
     const last = H[H.length - 1];
     if (last && (rt < last.rt || t < last.t || rt - last.rt > LOAD.window)) H.length = 0;      // (a gap or time going back: start again)
-    H.push({ t, rt, x: pose.p.x + ax * y - (ref ? ref.x : 0), y: pose.p.y + ay * y - (ref && ref.y ? ref.y : 0), z: pose.p.z + az * y - (ref ? ref.z : 0), lift: Math.acos(ay > 1 ? 1 : ay < -1 ? -1 : ay) });
-    while (H.length > 2 && rt - H[0].rt > LOAD.keep) H.shift();
+    // (a pose a frame: the samples that fall off the back are kept and refilled)
+    const S = this.spare, e = S.length ? S.pop() : { t: 0, rt: 0, x: 0, y: 0, z: 0, lift: 0 };
+    e.t = t; e.rt = rt; e.x = pose.p.x + ax * y - (ref ? ref.x : 0); e.y = pose.p.y + ay * y - (ref && ref.y ? ref.y : 0); e.z = pose.p.z + az * y - (ref ? ref.z : 0);
+    e.lift = Math.acos(ay > 1 ? 1 : ay < -1 ? -1 : ay);
+    H.push(e);
+    while (H.length > 2 && rt - H[0].rt > LOAD.keep) S.push(H.shift());
   }
 
   // The swing that reached the ball at game time tc: { load, lift, travel, top (real s before contact) }.
@@ -65,7 +71,7 @@ export class SwingLoad {
     for (; k > 0; k--) {
       const a = H[k - 1], b = H[k];
       if (rc - a.rt > LOAD.window) break;
-      const dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z, l = Math.hypot(dx, dy, dz), dt = Math.max(1e-4, b.rt - a.rt);
+      const dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z, l = hypot3(dx, dy, dz), dt = Math.max(1e-4, b.rt - a.rt);
       // (turned back the other way: that was the pick-up; at rest: that was the top)
       if (pl > 0 && dx * pdx + dy * pdy + dz * pdz < -0.2 * l * pl) break;
       travel += l; lift = Math.max(lift, a.lift);

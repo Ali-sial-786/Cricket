@@ -21,7 +21,7 @@
 // Frame (config.js): batting stumps at the origin, the ball travels +Z, a
 // right-hander's off side is +X.
 
-import { makeRng, clamp, Pose, Vec3 } from '../physics/math.js';
+import { makeRng, clamp, Pose, Vec3, hypot3 } from '../physics/math.js';
 import { BatGeometry } from '../physics/bat.js';
 import { CONFIG } from '../config.js';
 
@@ -130,7 +130,8 @@ export class ContactLog {
       }
     }
     if (!b.active || this.launchT == null) return;
-    this.lastBall = { x: b.pos.x, y: b.pos.y, z: b.pos.z, t: t1 };
+    const lb = this.lastBall || (this.lastBall = { x: 0, y: 0, z: 0, t: 0 });     // (every physics step: refilled, snapshot() copies it)
+    lb.x = b.pos.x; lb.y = b.pos.y; lb.z = b.pos.z; lb.t = t1;
     this._vLast.copy(b.vel);
     if (t1 - this.launchT > 5) return;
     const R = this.cfg.ball.radius;
@@ -140,7 +141,7 @@ export class ContactLog {
       this.groundCheck(bat, t1);
       if (this._frameStop || this.frames.length >= EDGE.maxFrames) continue;
       const P = this._pose;
-      const dc = Math.hypot(b.pos.x - P.p.x, b.pos.y - P.p.y, b.pos.z - P.p.z);
+      const dc = hypot3(b.pos.x - P.p.x, b.pos.y - P.p.y, b.pos.z - P.p.z);
       if (dc > EDGE.near + 0.6) {
         // Gone past and away: the pictures are done.
         if (this._closestT != null && t1 - this._closestT > 0.05) this._frameStop = true;
@@ -164,7 +165,8 @@ export class ContactLog {
   groundCheck(bat, t) {
     const G = this.visible, P = this._pose;
     let low = Infinity, lx = 0, lz = 0;
-    for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+    for (let k = 0; k < 4; k++) {                  // (the toe's corners, -x-z, -x+z, +x-z, +x+z: no arrays made every step)
+      const sx = k < 2 ? -1 : 1, sz = k & 1 ? 1 : -1;
       P.toWorld(this._w, this._c.set(sx * G.bladeHalf.x, G.toeY, sz * G.bladeHalf.z));
       if (this._w.y < low) { low = this._w.y; lx = this._w.x; lz = this._w.z; }
     }
@@ -186,7 +188,7 @@ export class ContactLog {
     const c = classifyBat(e, geom, this.cfg.ball.radius, edgeDir);
     let deflection = 0;
     if (vin && e.vel) {
-      const a = Math.hypot(vin.x, vin.y, vin.z), b = Math.hypot(e.vel.x, e.vel.y, e.vel.z);
+      const a = hypot3(vin.x, vin.y, vin.z), b = hypot3(e.vel.x, e.vel.y, e.vel.z);
       if (a > 1e-6 && b > 1e-6) deflection = Math.acos(clamp((vin.x * e.vel.x + vin.y * e.vel.y + vin.z * e.vel.z) / (a * b), -1, 1)) * 180 / Math.PI;
     }
     const ev = {
@@ -204,7 +206,7 @@ export class ContactLog {
   // pos: where the ball struck; vin: its velocity just before; at: where the
   // batter stood ({ x, z, halfX } from padHit).
   addPad({ t, pos, vin = null, at = null }) {
-    const speed = vin ? Math.hypot(vin.x, vin.y, vin.z) : 20;
+    const speed = vin ? hypot3(vin.x, vin.y, vin.z) : 20;
     const halfX = at && at.halfX ? at.halfX : 0.2;
     const u = at ? clamp((pos.x - at.x) / halfX, -1.2, 1.2) : 0;
     const ev = {
