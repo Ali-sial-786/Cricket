@@ -109,7 +109,9 @@ export class BallTrail {
     this.geo = geo;
     const c = new THREE.Color(color), d = new THREE.Color(tail);
     this.rgb = [c.r, c.g, c.b]; this.rgbTail = [d.r, d.g, d.b];
-    this.mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ map: edgeTexture(), vertexColors: true, transparent: true, depthWrite: false, side: THREE.DoubleSide, toneMapped: false }));
+    this.mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ map: edgeTexture(), vertexColors: true, transparent: true, depthWrite: false, side: THREE.DoubleSide, forceSinglePass: true, toneMapped: false }));
+    // (one pass: transparent and two-sided, three would draw it twice an eye, back faces then front,
+    // re-keying its program each time; it is turned to face you, so one side is all there is to see)
     this.mesh.name = 'ballTrail';
     this.mesh.frustumCulled = false;
     this.mesh.renderOrder = 4;
