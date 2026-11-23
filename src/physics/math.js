@@ -194,6 +194,29 @@ export const smoothstep = (e0, e1, x) => {
   const t = clamp((x - e0) / (e1 - e0), 0, 1);
   return t * t * (3 - 2 * t);
 };
+// Math.hypot(x, y) and Math.hypot(x, y, z), bit for bit (V8's own algorithm:
+// scale by the largest, Kahan-sum the squares), but inlined: the builtin is
+// never inlined by the optimiser and allocates its argument array and a boxed
+// result on every call, which in the per-frame loops was megabytes of garbage.
+export function hypot2(x, y) {
+  x = x < 0 ? -x : x; y = y < 0 ? -y : y;
+  if (x === Infinity || y === Infinity) return Infinity;
+  if (x !== x || y !== y) return NaN;
+  const m = x > y ? x : y;
+  if (m === 0) return 0;
+  const a = x / m, b = y / m;
+  return Math.sqrt(a * a + b * b) * m;
+}
+export function hypot3(x, y, z) {
+  x = x < 0 ? -x : x; y = y < 0 ? -y : y; z = z < 0 ? -z : z;
+  if (x === Infinity || y === Infinity || z === Infinity) return Infinity;
+  if (x !== x || y !== y || z !== z) return NaN;
+  let m = x > y ? x : y; if (z > m) m = z;
+  if (m === 0) return 0;
+  const a = x / m, b = y / m, c = z / m;
+  const s1 = a * a, b2 = b * b, s2 = s1 + b2, comp = (s2 - s1) - b2;
+  return Math.sqrt(s2 + (c * c - comp)) * m;
+}
 export const DEG = Math.PI / 180;
 export const kmhToMs = (k) => k / 3.6;
 export const msToKmh = (m) => m * 3.6;
