@@ -304,7 +304,7 @@ export class BattingSession {
       if (el >= cd) this.release(t);
     } else if (this.state === 'runup') {
       if (this.bowlerFig.update(dt, t)) this.release(t);
-      else if (this.bowlerFig.holdingBall()) { g.ballOverride = { pos: this.bowlerFig.handPos(_hand) }; g.ballView.setVisible(true); }
+      else if (this.bowlerFig.holdingBall()) { const o = this._held || (this._held = { pos: null }); o.pos = this.bowlerFig.handPos(_hand); g.ballOverride = o; g.ballView.setVisible(true); }
     } else if (this.state === 'live') {
       try { this.checkLive(t); } catch (e) { this.deadOnError(e); }
     } else if (this.state === 'review') {
