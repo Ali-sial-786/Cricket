@@ -141,6 +141,13 @@ export class PhysicsWorld {
   advanceTo(t) {
     let n = 0;
     const h = this.h;
+    // No ball in play (most of the time): a step would do nothing (substep() and the contact
+    // log's wrap of it return at once), so the clock just goes on, by the same steps.
+    if (!this.ball.active) {
+      while (this.time + h <= t + 1e-9) { this.time += h; n++; }
+      this.substepCount += n;
+      return n;
+    }
     while (this.time + h <= t + 1e-9) {
       this.substep(this.time, this.time + h);
       this.time += h;
