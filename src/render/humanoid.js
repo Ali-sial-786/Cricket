@@ -811,6 +811,12 @@ function kitMaterial(fig = null) {
         float br = sin(uTime * (1.45 + 0.4 * uSeed) + uSeed * 40.0);
         push += 0.0022 * br * trunkW * smoothstep(1.12, 1.3, position.y) * smoothstep(1.47, 1.38, position.y) * step(k, 7.5);
         transformed += objectNormal * push;
+        #ifdef FP_BODY
+          // your own shoulders as you see them from above: lower and narrower (the deltoid falls away
+          // from the collar), so looking down they are the tops of your arms, not a dome under your chin
+          float fpSh = smoothstep(1.28, 1.42, position.y) * smoothstep(0.08, 0.16, abs(position.x)) * (1.0 - clamp(foreW + vHandW, 0.0, 1.0));
+          transformed.y -= 0.03 * fpSh; transformed.x -= sign(position.x) * 0.028 * fpSh;
+        #endif
         // each man's own face (FIG(17): nose, brow, jaw), on the face's skin only: a longer or flatter
         // nose, a heavier or flatter brow ridge, a squarer or narrower jaw
         if (k > 4.5 && k < 8.5 && vHeadW > 0.3 && position.z > 0.03) {
@@ -1212,6 +1218,15 @@ function kitMaterial(fig = null) {
       if (vHeadW > 0.5 && vBind.z > 0.1) { vec4 t = decalAt(vBind.xy, uCapAt, FIG(10), 0.0); c = mix(c, t.rgb, t.a); gSpec *= 1.0 - 0.3 * t.a; }
     }
     #ifdef FP_BODY
+      // (the sleeve's seam where it meets the body, and the yoke's edge along the shoulder: from
+      // above they say "shirt" where a plain dome said nothing)
+      if (shirt && gl_FrontFacing) {
+        vec2 at = armAt(vBind);
+        float seam = exp(-pow((at.x - 0.1) / 0.008, 2.0)) * step(0.0, at.x);
+        float yoke = exp(-pow((vBind.y - 1.418 + 0.05 * max(0.0, abs(vBind.x) - 0.2)) / 0.003, 2.0)) * step(0.072, abs(vBind.x)) * (1.0 - step(0.5, vArmW));
+        c *= 1.0 - 0.35 * clamp(seam + yoke, 0.0, 1.0);
+        kitH -= 0.0006 * seam;
+      }
       // (seen from inside: a trouser leg or a pad is dark lining; the shirt and anything above it is
       // the shirt, shaded, so an opening at the collar never shows a dark hollow)
       if (!gl_FrontFacing) {
