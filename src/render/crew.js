@@ -27,11 +27,11 @@ export const GATE = { x: CONFIG.field.boundaryRadius - 1.5, z: PITCH.centerZ + 2
 export const STRIKER_SPOT = { x: -0.33, z: -1.19 };      // the middle of the AI striker's stance (actors.js STANCE)
 // Nobody walks or runs through your head: your runner goes round it at
 // HEAD_CLEAR (people.js), and the man who is about to become you walks round to
-// just behind you (MERGE_BACK m) and fades there, out of your view. The fade by
+// out to your side and a little back (MERGE_BACK m) and fades there, out of your view. The fade by
 // distance is only the last resort (you stepped into him): solid beyond
 // FADE_FAR of your head, gone within FADE_NEAR -- a short range, so a dithered
 // figure is hardly ever seen.
-export const HEAD_CLEAR = 0.95, MERGE_BACK = 1.6, MERGE_PATH = 1.3;
+export const HEAD_CLEAR = 0.95, MERGE_BACK = 1.55, MERGE_PATH = 1.3;
 export const FADE_NEAR = 0.5, FADE_FAR = 0.8;
 export const fadeNearHead = (d) => sstep(FADE_NEAR, FADE_FAR, d);
 

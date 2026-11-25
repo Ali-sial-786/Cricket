@@ -73,9 +73,11 @@ export class BatterView {
       // (from his stance into the walk: cross-faded from the pose he was in, bat and all)
       if (this.wasBat) { a.handover(); this.wasBat = false; a.rebase(a.h.root.position.x, a.h.root.position.z); }
       if (k.kind === 'merge' && this.avoid) {
-        // (round you to behind you and a little to your left -- where you are looking away from, clear of the stumps -- not into you)
+        // (not into you: out to your side -- the side he is on -- and a little back, where you are not
+        // looking; chosen once, so he does not swap sides as you turn)
         const F = this.avoidFwd, fx = F ? F.x : 0, fz = F ? F.z : -1, M = this._mt || (this._mt = { x: 0, z: 0 });
-        M.x = this.avoid.x - fx * MERGE_BACK * 0.75 + fz * MERGE_BACK * 0.66; M.z = this.avoid.z - fz * MERGE_BACK * 0.75 - fx * MERGE_BACK * 0.66;
+        if (k.side == null) k.side = (-fz * (a.pos.x - this.avoid.x) + fx * (a.pos.z - this.avoid.z)) >= 0 ? 1 : -1;
+        M.x = this.avoid.x - fz * k.side * MERGE_BACK - fx * 0.4; M.z = this.avoid.z + fx * k.side * MERGE_BACK - fz * 0.4;
         k.to = M; k.tol = 0.3;
       }
       const there = stepWalk(a, dt, this.obstacles(a));
