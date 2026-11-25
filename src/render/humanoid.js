@@ -129,19 +129,34 @@ function prepareRig(meta, bin) {
 //    to (skull, head centre, chin, eyes) are scaled with it.
 // No joint moves and no bone changes length: the clips, IK, foot plants and
 // your own body (its head, gloves on the bat, legs and pads) are as before.
-const SHOULDER_OUT = 0.016, HEAD_K = 0.9;
+const SHOULDER_OUT = 0.005, HEAD_K = 0.9;
 function athleteBuild(lods, J, meta) {
   const B = meta.bones, ih = B.indexOf('head'), isL = B.indexOf('shoulderL'), isR = B.indexOf('shoulderR');
+  const iT = [B.indexOf('spine'), B.indexOf('chest')];
   const Jh = J.head.clone(), ss = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
   for (const L of lods) for (const p of L) {
     const P = p.geo.attributes.position, SI = p.geo.attributes.skinIndex, SW = p.geo.attributes.skinWeight;
     for (let v = 0; v < P.count; v++) {
-      let wl = 0, wr = 0, wh = 0;
+      let wl = 0, wr = 0, wh = 0, wt = 0;
       for (let k = 0; k < 4; k++) {
         const b = SI.getComponent(v, k), w = SW.getComponent(v, k);
-        if (b === isL) wl += w; else if (b === isR) wr += w; else if (b === ih) wh += w;
+        if (b === isL) wl += w; else if (b === isR) wr += w; else if (b === ih) wh += w; else if (b === iT[0] || b === iT[1]) wt += w;
       }
       let x = P.getX(v), y = P.getY(v), z = P.getZ(v);
+      // An athlete's trunk, not the cartoon's barrel: the chest and the shirt over it taken in by 6%
+      // about the spine above the waist (skin and cloth together, so nothing pokes through), and the
+      // deltoids and the sleeves over them 11% toward the upper arm's line (no puffed shoulder domes).
+      if (y > 1.05) {
+        const k = 0.06 * ss(1.08, 1.22, y) * wt;
+        x -= x * k; z -= (z - 0.04) * k;
+      }
+      if (wl + wr > 0) {
+        const s0 = x > 0 ? J.shoulderL : J.shoulderR, e0 = x > 0 ? J.elbowL : J.elbowR;
+        const ux = e0.x - s0.x, uy = e0.y - s0.y, uz = e0.z - s0.z, L2 = ux * ux + uy * uy + uz * uz;
+        const ta = Math.max(0, ((x - s0.x) * ux + (y - s0.y) * uy + (z - s0.z) * uz) / L2);
+        const k = 0.11 * (wl + wr) * (1 - ss(0.45, 0.95, ta));
+        x -= (x - s0.x - ux * ta) * k; y -= (y - s0.y - uy * ta) * k; z -= (z - s0.z - uz * ta) * k;
+      }
       // (along the upper arm: full at the shoulder, none by the elbow)
       const sd = x > 0 ? J.shoulderL : J.shoulderR, ed = x > 0 ? J.elbowL : J.elbowR;
       const t = ((x - sd.x) * (ed.x - sd.x) + (y - sd.y) * (ed.y - sd.y)) / ((ed.x - sd.x) ** 2 + (ed.y - sd.y) ** 2);
@@ -498,7 +513,7 @@ const KIT_GLSL_COMMON = /* glsl */`
   // kit1 + seed, kit2 + lod, kit3 + team, kit4 + no head, skin + gloved, hair + hidden hand,
   // panel + shades, iris + name length, look (build, hair volume, sleeves, sweatband),
   // look2 (beard, stubble, hair cut, zinc), crest rect, sponsor rect, brim + tens, the name's
-  // 12 glyphs, units. The kit's first two colours and the sleeves / sweatband go on to the
+  // 12 glyphs, units, look3 (age, nose, brow, jaw). The kit's first two colours and the sleeves / sweatband go on to the
   // fragments as flat varyings (cloth and skin use them); the rest is fetched where it is used.
   #define FIG(i) texelFetch(boneTexture, ivec2((i) & 15, 14 + ((i) >> 4)), 0)
   flat varying vec3 vK1; flat varying vec3 vK2; flat varying vec2 vLookZW;
@@ -542,6 +557,7 @@ function figureValues() {
     uKit4: { value: new THREE.Color(0x17336e) }, uSkin: { value: new THREE.Color(0xc68e62) }, uHair: { value: new THREE.Color(0x1d1510) },
     uPanel: { value: new THREE.Color(0x173f8c) }, uIris: { value: new THREE.Color(0x3b2414) },
     uLook: { value: new THREE.Vector4(0, 0, 0, 0) }, uLook2: { value: new THREE.Vector4(0, 0, 1, 0) },
+    uLook3: { value: new THREE.Vector4(0, 0, 0, 0) },    // age, nose, brow, jaw (FIG(17))
     uCrestUV: { value: new THREE.Vector4() }, uSponsorUV: { value: new THREE.Vector4() },
     uTeamIx: { value: 0 },         // 0/1 the teams (sponsor, name, number), 2 officials (crest only)
     uNum: { value: new THREE.Vector2(-1, -1) },        // back number: glyphs of the tens and units (-1 none)
@@ -699,6 +715,18 @@ function kitMaterial(fig = null) {
         float br = sin(uTime * (1.45 + 0.4 * uSeed) + uSeed * 40.0);
         push += 0.0022 * br * trunkW * smoothstep(1.12, 1.3, position.y) * smoothstep(1.47, 1.38, position.y) * step(k, 7.5);
         transformed += objectNormal * push;
+        // each man's own face (FIG(17): nose, brow, jaw), on the face's skin only: a longer or flatter
+        // nose, a heavier or flatter brow ridge, a squarer or narrower jaw
+        if (k > 4.5 && k < 8.5 && vHeadW > 0.3 && position.z > 0.03) {
+          vec4 L3 = FIG(17);
+          float ax = abs(position.x), dy = position.y - uFaceMisc.y;
+          float nose = exp(-(ax * ax) / 0.00018 - (dy - 0.004) * (dy - 0.004) / 0.0005) * smoothstep(0.13, 0.16, position.z);
+          transformed.z += 0.0035 * L3.y * nose; transformed.y -= 0.002 * L3.y * nose;
+          float brow = exp(-pow((position.y - uEye.y - 0.024) / 0.01, 2.0)) * smoothstep(0.065, 0.035, ax) * smoothstep(0.11, 0.15, position.z);
+          transformed.z += 0.0028 * L3.z * brow;
+          float jaw = smoothstep(uFaceMisc.w + 0.006, uFaceMisc.w - 0.02, position.y) * smoothstep(1.47, 1.5, position.y) * smoothstep(0.02, 0.06, ax);
+          transformed.x += position.x * 0.06 * L3.w * jaw;
+        }
 `);
     sh.fragmentShader = sh.fragmentShader
       .replace('#include <common>', `#include <common>
@@ -804,7 +832,7 @@ function kitMaterial(fig = null) {
     // the peak / brim shades the face (the sun is high): eyes and brow in shadow, as on any sunny day
     float front = mix(smoothstep(uSkull.z - 0.01, uSkull.z + 0.05, vBind.z), 1.0, uBrim.z);
     float edge = uBrim.x - uBrim.y;
-    gShade = 0.62 * smoothstep(edge - 0.012, edge + 0.012, vBind.y) * front * step(vBind.y, uBrim.x + 0.01);
+    gShade = 0.42 * smoothstep(edge - 0.012, edge + 0.012, vBind.y) * front * step(vBind.y, uBrim.x + 0.01);
   } }
   {
     float s = vSlot;
@@ -898,7 +926,7 @@ function kitMaterial(fig = null) {
         float band = (1.0 - vLookZW.x) * vLookZW.y * step(0.82, at.x) * step(at.x, 0.95);
         if (sl > 0.5) {
           c = at.x > 0.875 ? uKit2 : uKit1; gWrap = 0.25; gSpec = 0.035; gShin = 10.0; gSSS = 0.0;
-          kitH += 0.0012 * sin(at.x * 70.0 + vBind.y * 30.0) * smoothstep(0.35, 0.5, at.x) * smoothstep(0.85, 0.7, at.x);
+          kitH += 0.0005 * sin(at.x * 47.0 + vBind.y * 30.0 + sin(at.x * 23.0) * 2.0) * smoothstep(0.35, 0.5, at.x) * smoothstep(0.85, 0.7, at.x);
         }
         if (band > 0.5) { c = uKit2; gWrap = 0.3; gSpec = 0.02; gShin = 6.0; gSSS = 0.0; kitH += 0.00008 * sin(at.x * 900.0) * (1.0 - smoothstep(0.001, 0.002, fw)); }
       }
@@ -943,6 +971,24 @@ function kitMaterial(fig = null) {
         float pore = sin(vBind.x * 3100.0 + sin(vBind.y * 2300.0)) * sin(vBind.y * 2900.0 + sin(vBind.x * 2700.0));
         kitH += pf * 0.000015 * pore;
         c *= 1.0 + 0.04 * sin(vBind.x * 430.0 + vBind.y * 260.0) * sin(vBind.y * 510.0 - vBind.x * 170.0);
+        // the eye sockets and under the cheekbones in shadow, the cheekbones and jaw edge lit; and age
+        // (FIG(17).x): creases deeper, lines on the forehead and at the eyes' corners, bags under
+        // them, a greyer stubble, a little less colour in the skin
+        float age = FIG(17).x;
+        float dxE = ax - uEye.x, dyE = yy - uEye.y;
+        float sock = exp(-pow(length(vec2(dxE + 0.002, dyE + 0.001) / vec2(0.026, 0.017)), 2.0));
+        float hollow = exp(-pow(length(vec2(ax - 0.05, yy - uFaceMisc.y + 0.012) / vec2(0.016, 0.02)), 2.0));
+        float cbone = exp(-pow(length(vec2(ax - 0.048, yy - uEye.y + 0.022) / vec2(0.018, 0.008)), 2.0));
+        c *= (1.0 - 0.16 * sock - 0.12 * hollow) * (1.0 + 0.1 * cbone);
+        c *= mix(1.0, 0.3 + 1.4 * f.r, 0.35 + 0.65 * age);
+        float fine = 1.0 - smoothstep(0.0005, 0.0011, fw);
+        float fh = smoothstep(uEye.y + 0.03, uEye.y + 0.045, yy) * smoothstep(uEye.y + 0.08, uEye.y + 0.06, yy) * smoothstep(0.06, 0.03, ax);
+        c *= 1.0 - age * 0.32 * fh * smoothstep(0.4, 1.0, sin(yy * 820.0 + sin(vBind.x * 40.0) * 1.5)) * fine;
+        float crow = smoothstep(0.012, 0.018, dxE) * smoothstep(0.032, 0.022, dxE) * smoothstep(0.01, 0.0, abs(dyE - 0.004));
+        c *= 1.0 - age * 0.38 * crow * smoothstep(0.35, 1.0, sin(atan(dyE, dxE - 0.008) * 18.0)) * fine;
+        float bag = exp(-pow(length(vec2(dxE, dyE + 0.011) / vec2(0.012, 0.004)), 2.0));
+        c *= 1.0 - (0.06 + age * 0.22) * bag;
+        c = mix(c, vec3(dot(c, vec3(0.3, 0.55, 0.15))), 0.18 * age);
         float liner = clamp(1.0 - 2.0 * f.b, 0.0, 1.0), white = clamp(2.0 * f.b - 1.0, 0.0, 1.0) * step(0.5, uLod);
         float lip = f.a * step(4.5, s);
         c = mix(c, c * vec3(0.78, 0.6, 0.62) + vec3(0.012, 0.0, 0.0), lip * (1.0 - step(7.5, s)));
@@ -952,9 +998,9 @@ function kitMaterial(fig = null) {
         // (stubble: a tint of the hair's colour over the skin, thicker toward the beard's centre;
         // a beard: soft-edged, thinning out at its border into the stubble, the hair colour lifted
         // a little so a dark beard on dark skin reads as hair, not a hole)
-        vec3 hc = max(uHair, vec3(0.035, 0.028, 0.022)) * 1.35;
+        vec3 hc = mix(max(uHair, vec3(0.035, 0.028, 0.022)) * 1.35, vec3(0.42, 0.4, 0.38), smoothstep(0.55, 0.95, age));
         float stub = uLook2.y * smoothstep(0.12, 0.6, bf);
-        c = mix(c, c * 0.8 + hc * 0.12, stub * 0.55);
+        c = mix(c, c * 0.7 + hc * 0.2, stub * 0.7);
         float b0 = 1.0 - uLook2.x, beard = smoothstep(b0 - 0.08, b0 + 0.3, bf) * step(0.01, uLook2.x);
         float strands = 0.82 + 0.18 * sin(vBind.x * 1900.0 + sin(vBind.y * 700.0) * 3.0) * (1.0 - smoothstep(0.0008, 0.0016, fw));
         beard *= 0.55 + 0.45 * smoothstep(b0, b0 + 0.35, bf);
@@ -978,7 +1024,8 @@ function kitMaterial(fig = null) {
       float an = atan(hq.x, hq.y);
       float strands = sin(an * 260.0 + sin(vBind.y * 120.0) * 3.0) * (1.0 - smoothstep(0.0006, 0.0013, fw));
       bool brow = vBind.z > uEye.w - 0.01;            // (the brows, not the scalp)
-      if (brow) { c = mix(c, uSkin * 0.5, 0.3); gSpec = 0.03; }
+      // (the brows: hair, drawn as hair, its strokes running outward and a little up)
+      if (brow) { float st = 0.75 + 0.25 * sin((abs(vBind.x) * 900.0 - vBind.y * 1400.0)) * (1.0 - smoothstep(0.0005, 0.001, fw)); c = mix(c, uSkin * 0.45, 0.25) * st; gSpec = 0.04; }
       else {
         c = mix(uSkin * 0.82, c * (0.85 + 0.15 * strands), cover * (0.55 + 0.45 * uLook2.z));
         kitH += 0.00008 * strands * uLook2.z;
@@ -990,7 +1037,8 @@ function kitMaterial(fig = null) {
       vec3 uSkin = FIG(4).rgb, uHair = FIG(5).rgb; float uSeed = FIG(0).w;
       vec2 e = vec2(abs(vBind.x) - uEye.x, vBind.y - uEye.y);
       float r = uEye.z, u = clamp(e.x / (r * 1.75), -1.0, 1.0);
-      float up = r * (0.5 - 0.34 * u * u) + 0.14 * r * u, lo = -r * (0.68 - 0.36 * u * u) + 0.1 * r * u;
+      float ageE = FIG(17).x;      // (an older man's lids sit lower and his eyes look narrower)
+      float up = r * (0.44 - 0.12 * ageE - 0.32 * u * u) + 0.14 * r * u, lo = -r * (0.62 - 0.08 * ageE - 0.34 * u * u) + 0.1 * r * u;
       // a blink every few seconds (each man on his own clock): the upper lid comes down for ~0.15 s
       float bp = fract(uTime / (3.7 + 1.9 * uSeed) + uSeed * 7.3);
       up = mix(up, lo + 0.0006, smoothstep(0.0, 0.012, bp) * (1.0 - smoothstep(0.022, 0.04, bp)));
@@ -1014,9 +1062,12 @@ function kitMaterial(fig = null) {
       gSpec = mix(gSpec, 0.1, lid); gShin = mix(gShin, 16.0, lid); gSSS = lid;
     } else if (gKind > 5.5) {
       // sunglass lenses: a dark smoked lens with a blue-violet mirror coat, deeper toward the bottom
-      float g = smoothstep(uEye.y - 0.018, uEye.y + 0.016, vBind.y);
-      c = mix(vec3(0.02, 0.022, 0.03), vec3(0.08, 0.1, 0.2), g);
-      gSpec = 1.2; gShin = 160.0;
+      // and the sky caught along its upper edge (a reflection that moves with the head, not a flat band)
+      float g = smoothstep(uEye.y - 0.016, uEye.y + 0.014, vBind.y);
+      c = mix(vec3(0.012, 0.013, 0.018), vec3(0.04, 0.05, 0.09), g);
+      float curve = abs(vBind.x) / 0.09;
+      totalEmissiveRadiance += vec3(0.3, 0.42, 0.62) * smoothstep(0.55, 1.0, g) * (0.6 + 0.4 * curve) * 0.5;
+      gSpec = 1.4; gShin = 220.0;
     } else if (gKind > 4.5 && gKind < 5.5) {
       // padding / leather / boots: a fine grain
       kitH += 0.00003 * sin(vBind.x * 2100.0 + vBind.y * 1700.0) * sin(vBind.z * 1900.0 - vBind.y * 1300.0) * (1.0 - smoothstep(0.0008, 0.0016, fw));
@@ -1065,9 +1116,15 @@ function kitMaterial(fig = null) {
       if (vHeadW > 0.5 && vBind.z > 0.1) { vec4 t = decalAt(vBind.xy, uCapAt, FIG(10), 0.0); c = mix(c, t.rgb, t.a); gSpec *= 1.0 - 0.3 * t.a; }
     }
     #ifdef FP_BODY
-      if (!gl_FrontFacing) { c *= 0.32; gSpec = 0.0; }
+      // (seen from inside: a trouser leg or a pad is dark lining; the shirt and anything above it is
+      // the shirt, shaded, so an opening at the collar never shows a dark hollow)
+      if (!gl_FrontFacing) {
+        bool lowS = (s > 3.5 && s < 4.5 && vBind.y < 0.9) || vSeg.y + vSeg.z > 0.5;
+        if (lowS) c *= 0.32; else { c = uKit1 * 0.5; gWrap = 0.6; }
+        gSpec = 0.0; gSSS = 0.0;
+      }
       // (your neck's close, under the chin you do not have: the shadow inside your collar)
-      if (vHeadW > 0.2 && skin) { c = mix(c, uKit1 * 0.22, smoothstep(0.2, 0.6, vHeadW)); gSpec = 0.0; gSSS = 0.0; }     // (your own body is two-sided: the inside of a trouser leg or pad is dark lining, not a hole)
+      if (vHeadW > 0.2 && skin) { c = mix(c, uKit1 * 0.5, smoothstep(0.2, 0.35, vHeadW)); gSpec = 0.0; gSSS = 0.0; gWrap = 0.6; }     // (your own body is two-sided: the inside of a trouser leg or pad is dark lining, not a hole)
     #endif
     diffuseColor.rgb = c;
   }`)
@@ -1081,7 +1138,12 @@ function kitMaterial(fig = null) {
     vec3 gr = sign(det) * (dhx * r1 + dhy * r2);
     vec3 bn = normalize(abs(det) * normal - gr);
     normal = abs(det) > 1e-14 ? bn : normal;
-  }`)
+  }
+  #ifdef FP_BODY
+    // (the inside of your shirt, and your neck's close, read as one flat lid lit from above: the top
+    // of a solid body, never a hollow with its inner folds)
+    if ((!gl_FrontFacing && !((vSlot > 3.5 && vSlot < 4.5 && vBind.y < 0.9) || vSeg.y + vSeg.z > 0.5)) || (vHeadW > 0.2 && vSlot > 4.5 && vSlot < 5.5)) normal = normalize((viewMatrix * vec4(0.0, 1.0, 0.0, 0.0)).xyz);
+  #endif`)
       .replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>
   #ifdef FP_BODY
     if (vHeadW > 1.5 || (vHeadW > 0.35 && (vSlot < 4.5 || vSlot > 5.5))) discard;     // (your neck's skin stays: it closes the collar)
@@ -1107,7 +1169,7 @@ function kitMaterial(fig = null) {
             vec3 rv = reflect(-geometryViewDir, normal);
             float t = dot(rv, up);
             vec3 env = mix(vec3(0.16, 0.2, 0.11), vec3(0.62, 0.74, 0.92), smoothstep(-0.15, 0.35, t));
-            float refl = gKind > 5.5 ? 0.3 : gKind > 4.5 ? 0.06 : gKind > 3.5 ? 0.1 : 0.22;
+            float refl = gKind > 5.5 ? 0.12 : gKind > 4.5 ? 0.06 : gKind > 3.5 ? 0.1 : 0.22;
             totalEmissiveRadiance += env * ao * refl * mix(0.25, 1.0, fres) * (gKind > 1.5 && gKind < 2.5 ? gSpec : 1.0);
           }
         }`)
@@ -1159,6 +1221,7 @@ export class Humanoid {
     u.uIris.value.setHex(look.iris);
     u.uLook.value.set(look.build, look.hairVol, look.sleeves, look.sweatband);
     u.uLook2.value.set(look.beard, look.stubble, look.hairCut, look.zinc);
+    u.uLook3.value.set(look.age, look.nose, look.brow, look.jaw);
     if (vary) scale *= look.scale;
     u.uSeed.value = rnd(9);
     u.uShades.value = this.opts.shades ? 1 : 0;
@@ -1264,7 +1327,7 @@ export class Humanoid {
   // Look like another figure (skin, hair, face, build, shirt name and number): the two figures that draw the same man.
   copyLook(o) {
     const u = this.u, v = o.u;
-    for (const k of ['uSkin', 'uHair', 'uIris', 'uLook', 'uLook2']) u[k].value.copy(v[k].value);
+    for (const k of ['uSkin', 'uHair', 'uIris', 'uLook', 'uLook2', 'uLook3']) u[k].value.copy(v[k].value);
     this.lookChanged();
     this.setNumber(o.number);
     this.setName(o.name);
@@ -1535,7 +1598,7 @@ export class Humanoid {
     const v4 = (i, v) => { const k = o + i * 4; M[k] = v.x; M[k + 1] = v.y; M[k + 2] = v.z; M[k + 3] = v.w; };
     c3(0, u.uKit1.value, u.uSeed.value); c3(1, u.uKit2.value, u.uLod.value); c3(2, u.uKit3.value, u.uTeamIx.value); c3(3, u.uKit4.value, u.uNoHead.value);
     c3(4, u.uSkin.value, u.uGloved.value); c3(5, u.uHair.value, u.uHideHand.value); c3(6, u.uPanel.value, u.uShades.value); c3(7, u.uIris.value, u.uNameLen.value);
-    v4(8, u.uLook.value); v4(9, u.uLook2.value); v4(10, u.uCrestUV.value); v4(11, u.uSponsorUV.value);
+    v4(8, u.uLook.value); v4(9, u.uLook2.value); v4(10, u.uCrestUV.value); v4(11, u.uSponsorUV.value); v4(17, u.uLook3.value);
     { const k = o + 48, b = u.uBrim.value; M[k] = b.x; M[k + 1] = b.y; M[k + 2] = b.z; M[k + 3] = u.uNum.value.x; }
     for (let i = 0; i < 12; i++) M[o + 52 + i] = u.uName.value[i];
     M[o + 64] = u.uNum.value.y;
