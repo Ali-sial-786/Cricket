@@ -180,7 +180,9 @@ function recipe(story, tier, m, tape) {
     const endT = Math.min(last, key + (six ? 0.9 : 0.25));
     const k1 = line(), tB = lineFrom(), outT = lineUntil(hit + 0.5);
     const subj = ballAt(tape, key);
-    const k2 = shot({ kind: 'track', rope: true, fov: DIRECTOR.fov.line, subj, fielder: nearestFigure(tape, key, subj, 18),
+    const re = hypot2(subj.x, subj.z - CZ) || 1;
+    const stand = six ? { t: key + 0.15, x: subj.x + subj.x / re * 9, y: 5, z: subj.z + (subj.z - CZ) / re * 9 } : null;
+    const k2 = shot({ kind: 'track', rope: true, stand, fov: DIRECTOR.fov.line, subj, fielder: nearestFigure(tape, key, subj, 18),
       dists: six ? [7, 9, 11] : [6, 8, 10], heights: six ? [2.0] : [1.3], endDist: six ? [7, 11] : [6, 10] });
     // (a ball driven back down the pitch leaves the line camera at once: the shot from behind the arm instead)
     const viaArm = (Math.min(hit + 0.2, outT) - tB) / S + Math.max(0, outT - hit - 0.2) < 0.7, k0 = viaArm ? arm() : -1;
@@ -375,8 +377,8 @@ export function chooseSpot(samples, sh, bodies, lim) {
   if (sh.rope) {
     // Inside the rope, `dists` m from the subject (further if it came down deep in the stand), on bearings
     // up to 80° either side of straight in from it.
-    const re = hypot2(E.x, E.z - CZ) || 1, ix = -E.x / re, iz = -(E.z - CZ) / re, rim = DIRECTOR.rim + 2.5;
-    for (const d0 of sh.dists) for (let k = -8; k <= 8; k++) {
+    const re = hypot2(E.x, E.z - CZ) || 1, ix = -E.x / re, iz = -(E.z - CZ) / re, rim = DIRECTOR.rim + 2.5, kMax = sh.stand ? 6 : 8;
+    for (const d0 of sh.dists) for (let k = -kMax; k <= kMax; k++) {
       const c = Math.cos(k * 10 * D2R), sn = Math.sin(k * 10 * D2R), ux = ix * c - iz * sn, uz = ix * sn + iz * c;
       let d = d0;
       while (d < d0 + 14 && hypot2(E.x + ux * d, E.z + uz * d - CZ) > rim) d += 1;     // (no nearer than the rope allows)
@@ -517,6 +519,7 @@ function layout(R, tape, lim, xr) {
     for (let i = sh.i0; i <= sh.i1; i++) {
       const follow = !sh.fixed && (sh.follow == null || T[i] >= sh.follow);
       if (sh.kind === 'catch') { if (tape.figure && tape.figure(sh.who, T[i], o)) { hx = o.x; hy = 1.1; hz = o.z; } }   // (on the catcher, as he moves)
+      else if (sh.stand && T[i] >= sh.stand.t) { const u = clamp((T[i] - sh.stand.t) / 0.5, 0, 1); hx += (sh.stand.x - hx) * u; hy += (sh.stand.y - hy) * u; hz += (sh.stand.z - hz) * u; }   // (a six: on to the stand going up)
       else if (follow && tape.ball(T[i], o)) { hx = o.x; hy = o.y; hz = o.z; seen = true; }
       else if (follow && !seen && sh.kind === 'track') { const j = firstVisible(tape, T, i, sh.i1, o); if (j) { hx = o.x; hy = o.y; hz = o.z; } }
       bx[i] = hx; by[i] = hy; bz[i] = hz;
