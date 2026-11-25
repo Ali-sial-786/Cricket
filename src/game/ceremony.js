@@ -25,7 +25,8 @@ import { CanvasPanel, fitText } from '../ui/panel.js';
 import { C, font, rr, slant, vgrad, hgrad, caps, chip, teamBlock, teamByName, ballDot, drawIcon } from '../ui/theme.js';
 import { GATE, STRIKER_SPOT, walkTask } from '../render/crew.js';
 import { noteCrowd, envelope } from '../render/gestures.js';
-import { coinToss, nod, offerHand, TOSS_AT } from '../render/ceremonyPoses.js';
+import { coinToss, nod, offerHand, standEasy, reachTo, TOSS_AT } from '../render/ceremonyPoses.js';
+import { Humanoid } from '../render/humanoid.js';
 import { decisionPending } from './quickSkip.js';
 import { SQUADS } from './squad.js';
 import { PITCH } from '../physics/pitch.js';
@@ -59,7 +60,12 @@ const CAPTAIN = 4;                // the fielder figure who is the other captain
 const WALK_OUT = 14;              // m: the batters walk out from this far (and a new batter runs in from no further: hurryIn)
 const WICKET_DELAY = 1.0;         // game s after a wicket before its beat may start (the field gets together)
 const SKIP_OUT = 0.2, SKIP_IN = 0.35;
-const STRAP = 0.82;               // the strap's scale (1.12 x 0.38 m at 2 m: ~31 degrees wide)
+const KEEP_OFF = 1.5;             // m round your head nobody in a beat comes inside
+const LINE_OFF = 3.0, LINE_N = 6; // the result's handshake line: m to your right, how many
+const MEET = { x: 0.4, z: CZ };   // where the batters meet in the middle
+const _meetA = new THREE.Vector3();
+const STRAP = 0.82;
+const STRAP_YAWS = [0, -0.26, 0.26, -0.5, 0.5, -0.72, 0.72];     // rad either side of where you look               // the strap's scale (1.12 x 0.38 m at 2 m: ~31 degrees wide)
 
 // ---------------------------------------------------------------- the beats
 // cue: fade {out|in: s} · vantage {spot} · clear (back where you play, the toss
@@ -129,9 +135,12 @@ export const BEATS = {
   // view (cut round to it if it is behind you), the dismissal card, the
   // walk-off fade, the new batter's card, back at the crease.
   wicket: { dur: 4.8, short: 3.0, hold: true, steps: [
-    { t: 0, cue: 'fade', out: 0.25, scene: 1, if: 'behind' },
-    { t: 0.27, cue: 'vantage', spot: 'behind', scene: 1, if: 'behind' },
-    { t: 0.3, cue: 'fade', in: 0.35, scene: 1, if: 'behind' },
+    { t: 0, cue: 'fade', out: 0.25, scene: 1, if: 'behindLit' },
+    { t: 0.27, cue: 'vantage', spot: 'behind', scene: 1, if: 'behindLit' },
+    { t: 0.3, cue: 'fade', in: 0.35, scene: 1, if: 'behindLit' },
+    // (straight after its replay the view is still dark: the cut is made now, no second dip)
+    { t: 0, cue: 'vantage', spot: 'behind', scene: 1, if: 'behindDark' },
+    { t: 0, cue: 'fade', in: 0.35, scene: 1, if: 'behindDark' },
     { t: 1.0, ts: 0, cue: 'card', card: 'dismissal' },   // (the strap is low: the huddle stays in view above it)
     { t: 1.0, ts: 0, cue: 'board', board: 'dismissal' },
     { t: 2.9, cue: 'wait', for: 'huddle', max: 2.0, scene: 1 },          // (never fade over the huddle: until it breaks up)
@@ -170,17 +179,19 @@ export const BEATS = {
   ] },
   // The winning moment, close: the winners celebrating near you (cut to them
   // if they are far off), then the banner; the scorecard page follows (modes.js).
-  result: { dur: 4.4, short: 2.6, hold: true, steps: [
+  result: { dur: 6.2, short: 2.6, hold: true, steps: [
     { t: 0, cue: 'crowd', mood: 'result' },
-    { t: 0, cue: 'fade', out: 0.3, scene: 1, if: 'cut' },
-    { t: 0.32, cue: 'vantage', spot: 'winners', scene: 1, if: 'cut' },
-    { t: 0.35, cue: 'fade', in: 0.4, scene: 1, if: 'cut' },
+    { t: 0, cue: 'fade', out: 0.25, scene: 1 },
+    { t: 0.27, cue: 'vantage', spot: 'winners', scene: 1, if: 'cut' },
+    { t: 0.27, cue: 'scene', scene: 1 },
+    { t: 0.3, cue: 'fade', in: 0.35, scene: 1 },
+    { t: 0.75, cue: 'confetti', scene: 1 },
     { t: 1.6, ts: 0, cue: 'board', board: 'result' },
-    { t: 1.8, ts: 0, cue: 'card', card: 'result' },
-    { t: 3.8, ts: 2.5, cue: 'cardOff' },
-    { t: 3.85, cue: 'fade', out: 0.3, scene: 1, if: 'cut' },
-    { t: 4.17, cue: 'release', if: 'cut' },
-    { t: 4.18, cue: 'fade', in: 0.3, scene: 1, if: 'cut' },
+    { t: 1.9, ts: 0, cue: 'card', card: 'result' },
+    { t: 5.5, ts: 2.5, cue: 'cardOff' },
+    { t: 5.6, cue: 'fade', out: 0.3, scene: 1 },
+    { t: 5.92, cue: 'release' },
+    { t: 5.93, cue: 'fade', in: 0.3, scene: 1 },
   ] },
   // Nets and the bowling nets: a title card, nothing else.
   nets: { dur: 3.4, short: 3.4, hold: false, steps: [
@@ -275,7 +286,8 @@ export class Ceremony {
     this.cardOn = false; this.cardA = 0;
     this.coin = new Coin(game.scene);
     this.cast = null;           // the toss figures: { captain, umpire }
-    this.stage = { walkers: [], breaks: [], field: null, huddleOf: null };
+    this.stage = { walkers: [], breaks: [], field: null, huddleOf: null, shake: [], shakeA: [], toYou: null, meet: null, nsHome: null, tasks: null, startedOf: null };
+    this.fctx = { t: 0, ball: null, delivering: false, cam: null, others: [] };   // (the figures' update context, reused every frame)
     this.rushUntil = -1;
     this.flip = null;           // the coin's toss in progress
   }
@@ -285,7 +297,11 @@ export class Ceremony {
   // (a beat still waiting for its moment holds the next ball too: the wicket's, after the replay)
   // (and a bowler page held back: you get the ball when it has been up)
   get holding() { return this.beatHolds() || !!this.page; }
-  beatHolds() { return !!(this.cur && this.cur.hold) || this.queue.some((q) => BEATS[q.name].hold); }
+  beatHolds() {
+    if (this.cur && this.cur.hold) return true;
+    for (let i = 0; i < this.queue.length; i++) if (BEATS[this.queue[i].name].hold) return true;     // (every frame: no closure)
+    return false;
+  }
 
   // Play a beat; done() when it has finished (by itself or skipped). With
   // Ceremonies off (or a beat with no short version, in 'short') its calls
@@ -296,6 +312,7 @@ export class Ceremony {
     const mode = opts.short && this.mode() === 'on' ? 'short' : this.mode();
     // (the result: the winners' moment starts now, and where to see it from, close, is known before the plan)
     if (name === 'result' && mode !== 'off') { this.celebrate(ctx); ctx.winSpot = mode === 'on' ? this.winnersSpot(ctx) : null; ctx.cut = !!ctx.winSpot; }
+    if (name === 'wicket' && ctx.behind) { const f = this.g.replay && this.g.replay.fade, dark = !!f && f.level > 0.5; ctx.behindDark = dark; ctx.behindLit = !dark; }
     const plan = beat && mode !== 'off' ? beatPlan(beat, mode, ctx) : null;
     // (skipped a moment ago: the beats on the way to play go by at once -- their state, no show)
     const rush = plan && RUSH.has(name) && this.g.clock < this.rushUntil;
@@ -404,7 +421,8 @@ export class Ceremony {
       this.resultField.update(dt, g.simTime);
       if (g.session.bowlerFig && g.session.bowlerFig.update) g.session.bowlerFig.update(dt, g.simTime);
     } else this.resultField = null;
-    if (this.cur) this.stepStage(dt); else if (this.stage.walkers.length || this.stage.field) this.endStage();
+    if (this.cur) this.stepStage(dt); else if (this.stageBusy()) this.endStage();
+    this.placeCompact();
     this.updateCast(dt);
     this.updateCoin(dt);
     this.updateCard(dt);
@@ -517,6 +535,8 @@ export class Ceremony {
         case 'breakHuddle': this.breakHuddle(); break;
         case 'settle': this.settle(); break;
         case 'guard': this.guard(ctx); break;
+        case 'scene': this.resultScene(ctx); break;
+        case 'confetti': this.confetti(); break;
         default:
       }
     } catch (e) { console.warn('ceremony', s.cue, e); }
@@ -571,25 +591,53 @@ export class Ceremony {
   // What a beat sets moving, driven here each frame (stepStage): walkers (a
   // figure, a straight walk at its pace), huddle breaks (each man off in his
   // own time), and a finished innings' field kept alive (the innings break).
-  endStage() {
+  stageBusy() {
     const S = this.stage;
-    for (const w of S.walkers) if (w.kind === 'batter') { w.a.visible = false; w.a.h.replayVisible = false; }
-    S.walkers.length = 0; S.breaks.length = 0; S.field = null;
+    return S.walkers.length > 0 || !!S.field || S.shake.length > 0 || S.shakeA.length > 0 || !!S.toYou || !!S.meet || !!S.nsHome || !!S.tasks || !!S.startedOf;
+  }
+  endStage() {
+    const S = this.stage, g = this.g;
+    for (let i = 0; i < S.walkers.length; i++) { const w = S.walkers[i]; if (w.kind === 'batter') { w.a.visible = false; w.a.h.replayVisible = false; } }
+    S.walkers.length = 0; S.breaks.length = 0; S.field = null; S.shake.length = 0; S.shakeA.length = 0; S.toYou = null; S.meet = null;
+    // (the result's borrowed state put back: the non-striker's mark, the batters' walks, the field's own walk back)
+    if (S.nsHome && g.nonStrikerView) { g.nonStrikerView.home.copy(S.nsHome); S.nsHome = null; }
+    if (S.tasks) { for (let i = 0; i < S.tasks.length; i++) S.tasks[i].task = null; S.tasks = null; }
+    if (S.startedOf) { S.startedOf.started = true; S.startedOf = null; }
   }
   stepStage(dt) {
-    const g = this.g, S = this.stage, t = g.simTime;
-    for (const b of S.breaks) if (!b.done && (b.at -= dt) <= 0) { b.done = true; const f = b.f; f.state = 'return'; f.target = null; f.huddleUntil = null; f.huddleInner = false; }
-    for (const w of S.walkers) {
+    const g = this.g, S = this.stage, t = g.simTime, ddt = Math.max(dt, 1e-4), C = this.fctx;
+    C.t = t; C.cam = g.eye ? g.eye.p : null;
+    for (let i = 0; i < S.breaks.length; i++) {
+      const b = S.breaks[i];
+      if (b.done || (b.at -= dt) > 0) continue;
+      // (off to his mark at a jog, arms swinging: a huddle walk-off, not a sprint)
+      b.done = true; const f = b.f; f.target = f.home; f.huddleInner = false; f.huddleUntil = g.simTime + 60;
+    }
+    for (let i = 0; i < S.walkers.length; i++) {
+      const w = S.walkers[i];
       w.x += w.vx * dt; w.z += w.vz * dt;
       const sp = hypot2(w.vx, w.vz), hd = Math.atan2(w.vx, w.vz);
-      if (w.kind === 'fielder') { const st = w.st; st.x = w.x; st.z = w.z; st.speed = sp; st.face = hd; w.a.update(Math.max(dt, 1e-4), st, { t, ball: null, delivering: false, cam: g.eye ? g.eye.p : null, others: [] }); }
+      if (w.kind === 'fielder') { const st = w.st; st.x = w.x; st.z = w.z; st.speed = sp; st.face = hd; w.a.update(ddt, st, C); }
       else {
         w.a.pos.set(w.x, 0, w.z); w.a.speed = sp; w.a.heading = hd;
-        if (w.kind === 'umpire') w.a.update(Math.max(dt, 1e-4), g.clock, null);
-        else w.a.updateMoving(Math.max(dt, 1e-4), t, null);
+        if (w.kind === 'umpire') w.a.update(ddt, g.clock, null);
+        else w.a.updateMoving(ddt, t, null);
       }
     }
     if (S.field && g.session && g.session.field === S.field) S.field.update(dt, t);
+    this.stepResult();
+    this.keepOff();
+  }
+  // Nobody in a beat comes within KEEP_OFF m of your head (where the beat has put you, not
+  // the crease): a fielder inside it is eased out to its edge (the next frame draws him there).
+  keepOff() {
+    const g = this.g, s = g.session, L = s && s.field && s.field.logic, e = g.eye && g.eye.p;
+    if (!L || !e) return;
+    for (let i = 0; i < L.fielders.length; i++) {
+      const f = L.fielders[i], dx = f.pos.x - e.x, dz = f.pos.z - e.z, d = hypot2(dx, dz);
+      if (d >= KEEP_OFF || d < 1e-4) continue;
+      f.pos.x = e.x + dx / d * KEEP_OFF; f.pos.z = e.z + dz / d * KEEP_OFF;
+    }
   }
   walker(kind, a, x, z, vx, vz, st = null) {
     a.cut(); a.place(x, z, Math.atan2(vx, vz)); a.visible = true;
@@ -632,7 +680,7 @@ export class Ceremony {
     const L = this.stage.huddleOf;
     if (!L) return;
     this.stage.huddleOf = null;
-    L.fielders.forEach((f, i) => { if (f.state === 'huddle') this.stage.breaks.push({ f, at: ((i * 7) % 5) * 0.11 }); });
+    L.fielders.forEach((f, i) => { if (f.state === 'huddle') this.stage.breaks.push({ f, at: ((i * 7) % 5) * 0.12, done: false }); });
   }
   // Everyone on his mark (in the dark): the fielders, the batters, the umpires, the AI bowler on his.
   settle() {
@@ -650,11 +698,11 @@ export class Ceremony {
     if (L) {
       const F = L.fielders.filter((f) => !f.bowler);
       F.forEach((f, i) => {
-        const k = Math.floor(i / 2), near = i % 2 === 0, x = GATE.x - 1.6 - k * 1.55 - (near ? 0 : 0.75), z = GATE.z + (near ? 1.5 : -1.5);
+        const k = Math.floor(i / 2), near = i % 2 === 0, x = GATE.x - 1.6 - k * 1.55 - (near ? 0 : 0.75) + ((i * 3) % 5 - 2) * 0.12, z = GATE.z + (near ? 1.5 : -1.5) + ((i * 7) % 3 - 1) * 0.15;
         f.pos.set(x, 0, z); f.vel.set(0, 0, 0); f.speed = 0; f.state = 'huddle'; f.target = f.pos.clone(); f.action = null;
         (f.huddleAt = f.huddleAt || f.pos.clone()).set(x, 0, GATE.z);
         f.huddleInner = false; f.huddleCenter = false; f.huddleUntil = g.simTime + 60; f.huddleMood = null;
-        f.face = f.yaw = near ? PI : 0;
+        f.face = f.yaw = (near ? PI : 0) + ((i * 5) % 7 - 3) * 0.07;      // (each a little turned his own way)
       });
       if (g.fieldView && g.fieldView.placeAll) g.fieldView.placeAll(L.states());
       this.stage.field = s.field;
@@ -666,23 +714,111 @@ export class Ceremony {
     });
   }
 
-  // Where to see the winners from, close: beside the man raising his bat, or
-  // the fielding side's huddle (you bowling: it is round you, no cut). null: stay.
+  // Where to see the result from: where you are (you batted and won: your
+  // partner comes to you; you bowled and won: the side comes round you), or a
+  // cut to beside the middle of the pitch (they won the chase off you: the
+  // two batters meet there), or beside the huddle round their bowler. null: stay.
   winnersSpot(ctx) {
     const g = this.g, s = g.session;
-    if (!s) return null;
-    let f = null;
-    if (ctx.fieldingWon) {
-      if (s.isBowling) return null;
-      const L = s.field && s.field.logic;
-      f = L && L.huddle && L.huddle.focus ? L.huddle.focus : s.bowlerFig && s.bowlerFig.actor && s.bowlerFig.actor.visible ? s.bowlerFig.actor.pos : null;
-    } else if (ctx.winner !== 'tie') {
-      const a = s.isBowling ? g.batterView && g.batterView.actor : g.nonStrikerView && g.nonStrikerView.actor;
-      f = a && a.visible ? a.pos : null;
-    }
+    if (!s || ctx.winner === 'tie') return null;
+    if (!ctx.fieldingWon) return s.isBowling ? toward(-3.4, CZ + 0.6, MEET.x, MEET.z) : null;
+    if (s.isBowling) return null;
+    const L = s.field && s.field.logic;
+    const f = L && L.huddle && L.huddle.focus ? L.huddle.focus : s.bowlerFig && s.bowlerFig.actor && s.bowlerFig.actor.visible ? s.bowlerFig.actor.pos : null;
     if (!f) return null;
     const side = f.x <= 0 ? -1 : 1;
-    return toward(f.x + side * (ctx.fieldingWon ? 5.5 : 3.6), f.z + 1.2, f.x, f.z);
+    return toward(f.x + side * 5.5, f.z + 1.2, f.x, f.z);
+  }
+
+  // The result's scene, set in the dark (scene cue). Who does what, by who won:
+  //   you batted, won:  your partner jogs down the pitch to you, bat up, for a glove punch; the side
+  //                     that lost walks past you in a line, 2.6 m off, hands out
+  //   they batted, won: the two batters meet in the middle (you are cut to beside them), gloves
+  //                     together; your side walks past you to them, hands out
+  //   you bowled, won:  the side round you (the huddle, as at a wicket); the two batters walk past
+  //                     you, hands out
+  //   you batted, lost: their side round their bowler (you are cut to beside it)
+  // Everybody is from the session's own figures; endStage() puts back what was borrowed.
+  resultScene(ctx) {
+    const g = this.g, s = g.session, e = g.eye && g.eye.p, S = this.stage;
+    if (!s || !e || ctx.winner === 'tie') return;
+    const L = s.field && s.field.logic, ns = g.nonStrikerView, bv = g.batterView;
+    // your way and your right, on the ground
+    _q.set(g.eye.q.x, g.eye.q.y, g.eye.q.z, g.eye.q.w);
+    _f.set(0, 0, -1).applyQuaternion(_q); _f.y = 0; if (_f.lengthSq() < 1e-6) _f.set(0, 0, -1); _f.normalize();
+    const rx = -_f.z, rz = _f.x;
+    const lane = (k, along) => _a.set(e.x + rx * LINE_OFF + _f.x * along, 0, e.z + rz * LINE_OFF + _f.z * along);
+    S.tasks = [];
+    if (!ctx.fieldingWon) {
+      if (!s.isBowling) {
+        // your partner, from 8 m down the pitch, to the edge of your space
+        if (ns && ns.visible) {
+          S.nsHome = ns.home.clone();
+          ns.home.set(e.x + _f.x * 2.1, 0, e.z + _f.z * 2.1);
+          const a = ns.actor; a.task = null; a.cut(); a.place(e.x + _f.x * 8, e.z + _f.z * 8, Math.atan2(-_f.x, -_f.z));
+          S.toYou = a;
+        }
+      } else {
+        // the two batters walk to each other in the middle
+        if (bv && bv.shown) { const a = bv.actor; a.cut(); a.place(MEET.x - 0.2, MEET.z + 3.2, PI); a.task = walkTask(_meetA.set(MEET.x, 0, MEET.z + 0.42), PI, { speed: 1.6, tol: 0.15 }); bv.wasBat = false; bv.blend = null; S.tasks.push(a); }
+        if (ns && ns.visible) { S.nsHome = ns.home.clone(); ns.home.set(MEET.x + 0.1, 0, MEET.z - 0.42); const a = ns.actor; a.task = null; a.cut(); a.place(MEET.x + 0.5, MEET.z - 3.4, 0); }
+        S.meet = true;
+      }
+      // the line: the fielding side, past you
+      if (L) {
+        let k = 0;
+        for (let i = 0; i < L.fielders.length && k < LINE_N; i++) {
+          const f = L.fielders[i];
+          if (f.bowler) continue;
+          lane(k, 6 + k * 1.35); f.pos.set(_a.x, 0, _a.z);
+          lane(k, -6); (f.target = f.target || f.pos.clone()).set(_a.x, 0, _a.z);
+          f.vel.set(0, 0, 0); f.speed = 0; f.state = 'walkin'; f.action = null; f.huddleUntil = null;
+          f.face = f.yaw = Math.atan2(-_f.x, -_f.z);
+          S.shake.push(i); k++;
+        }
+        // (no walking back to their marks while the line goes by: Fielding.goHome only runs once a ball has been bowled)
+        if (L.started) { L.started = false; S.startedOf = L; }
+        if (g.fieldView && g.fieldView.placeAll) g.fieldView.placeAll(L.states());
+      }
+    } else if (s.isBowling) {
+      // you won bowling: the batters walk past you, hands out (the side is round you already)
+      const go = (a, along) => { lane(0, along); a.cut(); a.place(_a.x + rx * 0.9, _a.z + rz * 0.9, Math.atan2(-_f.x, -_f.z)); lane(0, -7); a.task = walkTask(_b.set(_a.x + rx * 0.9, 0, _a.z + rz * 0.9), null, { speed: 1.6, tol: 0.3 }); S.tasks.push(a); S.shakeA.push(a); };
+      if (bv && bv.shown) { go(bv.actor, 7); bv.wasBat = false; bv.blend = null; }
+      if (ns && ns.visible) { S.nsHome = ns.home.clone(); lane(0, -7); ns.home.set(_a.x + rx * 0.9, 0, _a.z + rz * 0.9); lane(0, 8.6); const a = ns.actor; a.task = null; a.cut(); a.place(_a.x + rx * 0.9, _a.z + rz * 0.9, Math.atan2(-_f.x, -_f.z)); S.shakeA.push(a); }
+    }
+  }
+  // Each frame of the result: hands out to whoever passes you (and gloves together in the middle).
+  stepResult() {
+    const g = this.g, S = this.stage, e = g.eye && g.eye.p;
+    if (!e || !(S.shake.length || S.shakeA.length || S.toYou || S.meet)) return;
+    const t = g.clock;
+    for (let i = 0; i < S.shake.length; i++) {
+      const a = g.fieldView.actors[S.shake[i]];
+      if (!a || !a.visible) continue;
+      const d = hypot2(a.pos.x - e.x, a.pos.z - e.z);
+      if (d < 4.2) { reachTo(a, e, 1 - sstep01((d - 2.8) / 1.4)); a.h.syncShadow(); }
+    }
+    for (let i = 0; i < S.shakeA.length; i++) {
+      const a = S.shakeA[i], d = hypot2(a.pos.x - e.x, a.pos.z - e.z);
+      if (d < 4.2) reachTo(a, e, 1 - sstep01((d - 2.8) / 1.4));
+    }
+    if (S.toYou) { const a = S.toYou, d = hypot2(a.pos.x - e.x, a.pos.z - e.z); if (d < 3.2) reachTo(a, e, 1 - sstep01((d - 1.9) / 1.3)); }
+    if (S.meet) {
+      const A = g.batterView && g.batterView.actor, B = g.nonStrikerView && g.nonStrikerView.actor;
+      if (A && B && A.visible && B.visible) {
+        const d = hypot2(A.pos.x - B.pos.x, A.pos.z - B.pos.z), w = 1 - sstep01((d - 1.0) / 1.2);
+        if (w > 0.001) { A.h.update(); B.h.update(); A.h.worldPos('chest', _c); B.h.worldPos('chest', _d); reachTo(A, _d, w); reachTo(B, _c, w); }
+      }
+    }
+    void t;
+  }
+  // Paper from the roof in front of you and either side (render/particles.js finale).
+  confetti() {
+    const g = this.g, e = g.eye;
+    if (!g.particles || !g.particles.finale || !e) return;
+    _q.set(e.q.x, e.q.y, e.q.z, e.q.w);
+    _f.set(0, 0, -1).applyQuaternion(_q);
+    g.particles.finale(e.p.x, e.p.z, _f.x, _f.z);
   }
 
   // ---------------------------------------------------------------- the toss figures
@@ -719,7 +855,14 @@ export class Ceremony {
     const c = this.cast, g = this.g;
     if (!c) return;
     const t = g.simTime;
-    c.cap.update(Math.max(dt, 1e-4), c.st, { t, ball: null, delivering: false, cam: g.eye ? g.eye.p : null, others: [] });
+    const C = this.fctx; C.t = t; C.cam = g.eye ? g.eye.p : null;
+    c.cap.update(Math.max(dt, 1e-4), c.st, C);
+    // the umpire at ease: tall, hands clasped in front, eyes on the coin while it flies, else on the captains
+    if (c.ump && c.ump.visible) {
+      standEasy(c.ump, 1);
+      if (g.umpires && !(this.flip && this.coin.mesh.visible && this.coin.s && !this.coin.s.landed)) g.umpires.setLook(_capLook);
+      c.ump.h.syncShadow();
+    }
     // The toss (src/render/ceremonyPoses.js): the coin held out and flicked up
     // off the thumb, his eyes after it up and down, leaning over to read it;
     // then a nod to you and his hand out to shake yours. The umpire stands
@@ -732,7 +875,7 @@ export class Ceremony {
       offerHand(c.cap, envelope(F.tf - 2.5, 2.4, 0.4, 0.5), t);
       c.cap.h.syncShadow();
       if (c.ump && g.umpires) {
-        if (coinAt) g.umpires.setLook(coinAt);
+        if (coinAt && this.coin.s && !this.coin.s.landed) g.umpires.setLook(coinAt);
         if (F.tf >= 2.25 && c.ump.nodAt == null) c.ump.nod(g.clock);
       }
     }
@@ -778,7 +921,11 @@ export class Ceremony {
       // (beside the control hints and the message strip when a game is on: they keep to the left)
       // a broadcast strap: one at a time, low (22 degrees down) and square on, under whoever the beat is about
       const xr = !!this.g.input?.xr, d = xr ? 2.0 : 2.4;
-      const yaw = cue.yaw ?? 0, el = cue.el ?? (xr ? -0.4 : -0.3);
+      // (never over the people the beat is about: the first slot, 20-25 degrees down, clear of every
+      // figure within 14 m; none clear: the big screen carries it, no strap)
+      const slot = this.strapSlot(e.p, _f, d, xr ? 0.38 : 0.28, cue);
+      if (!slot) { this.cardOn = false; this.cardA = 0; P.mesh.visible = false; return; }
+      const yaw = slot.yaw, el = slot.el;
       const c = Math.cos(yaw), sn = Math.sin(yaw), fx = _f.x * c - _f.z * sn, fz = _f.x * sn + _f.z * c;
       P.mesh.position.set(e.p.x + fx * d, e.p.y + el * d, e.p.z + fz * d);
       P.mesh.lookAt(e.p.x, P.mesh.position.y, e.p.z);
@@ -787,8 +934,55 @@ export class Ceremony {
     if (!this.cardOn) { this.cardA = 0; this.cardT = 0; }
     this.cardOn = true;
   }
+  // Where the strap may go: candidate yaws either side of where you look, two depressions; the first
+  // whose box (its angular size, a little margin) meets no figure's (a standing man: 0.8 m wide, feet
+  // to head) within 14 m. Event-time only (a card coming up).
+  strapSlot(eye, fwd, d, el0, cue) {
+    if (cue.yaw != null || cue.el != null) return { yaw: cue.yaw ?? 0, el: cue.el ?? -el0 };
+    const hw = Math.atan(this.card.w * STRAP / 2 / d) + 0.03, hh = Math.atan(this.card.h * STRAP / 2 / d) + 0.02;
+    const fy = Math.atan2(fwd.x, -fwd.z);
+    const figs = [];
+    for (const h of Humanoid.all) {
+      if (!h.root.visible || h.fade === 0) continue;
+      const p = h.root.position, dx = p.x - eye.x, dz = p.z - eye.z, dist = hypot2(dx, dz);
+      if (dist > 14 || dist < 0.3) continue;
+      let ya = Math.atan2(dx, -dz) - fy; while (ya > PI) ya -= 2 * PI; while (ya < -PI) ya += 2 * PI;
+      figs.push(ya, Math.atan(0.4 / dist), Math.atan2(-eye.y, dist), Math.atan2(1.9 - eye.y, dist));
+    }
+    for (const el of [-el0, -el0 - 0.07]) {
+      for (const y of STRAP_YAWS) {
+        let hit = false;
+        for (let i = 0; i < figs.length && !hit; i += 4) {
+          if (Math.abs(figs[i] - y) < hw + figs[i + 1] && el - hh < figs[i + 3] && el + hh > figs[i + 2]) hit = true;
+        }
+        if (!hit) return { yaw: y, el: Math.tan(el) };
+      }
+    }
+    return null;
+  }
+  // The toss call (a compact menu page, ui.js) is moved off the captain once it is up: to your
+  // left, at waist height, turned to you (the laser still reaches it).
+  placeCompact() {
+    const g = this.g, ui = g.ui, m = ui && ui.menu && ui.menu.mesh, v = this.view;
+    if (!(m && m.visible && v && this.cast && ui.compact && ui.compact())) return;
+    // (from the spot the beat put you at, not your head: it stays put while you turn to point at it)
+    const a = -0.55, c = Math.cos(a), sn = Math.sin(a), fx = v.dx * c - v.dz * sn, fz = v.dx * sn + v.dz * c, ey = g.eye ? g.eye.p.y : 1.6;
+    m.position.set(v.x + fx * 0.85, Math.max(0.7, ey - 0.55), v.z + fz * 0.85);
+    m.lookAt(v.x, ey, v.z);
+    m.updateMatrixWorld();
+  }
+
+  // Built at load (render/warmup.js should call game.ceremony.prewarm()): the strap's canvas drawn and
+  // uploaded once, so the first card of a match does neither.
+  prewarm(renderer = null) {
+    const P = this.card;
+    P.set([{ type: 'custom', draw: (g) => drawBeatCard(g, P.W, P.H, CARDS.title({ mode: 'match', overs: 5, wickets: 5 })) }], '');
+    P.update();
+    if (renderer && renderer.initTexture) { renderer.initTexture(P.tex); renderer.initTexture(this.coin.mesh.material.map); }
+  }
+
   // A beat's strap is up (the UI holds its own messages and control hints back meanwhile: one card at a time).
-  get cardUp() { return this.cardOn || this.cardA > 0.01; }
+  get cardUp() { return this.cardOn || this.cardA > 0.01 || !!(this.cur && this.cur.hold && this.cur.scene); }     // (a staged beat without a strap: the panels wait too)
   hideCard(now) { this.cardOn = false; if (now) { this.cardA = 0; this.card.mesh.visible = false; } }
   updateCard(dt) {
     const m = this.card.mesh, g = this.g;
@@ -824,6 +1018,8 @@ function huddleSpot(f) {
   return { x, z, dx: dx / d, dz: dz / d };
 }
 
+const sstep01 = (u) => { const t = u < 0 ? 0 : u > 1 ? 1 : u; return t * t * (3 - 2 * t); };
+const _capLook = new THREE.Vector3((TOSS.captain.x + SPOTS.toss.x) / 2, 1.5, (TOSS.captain.z + SPOTS.toss.z) / 2);
 const _q = new THREE.Quaternion(), _f = new THREE.Vector3(), _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3(), _d = new THREE.Vector3(), _up = new THREE.Vector3();
 
 // ---------------------------------------------------------------- the coin
