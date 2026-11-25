@@ -494,11 +494,16 @@ function sharedUniforms() {
   return SHARED;
 }
 const KIT_GLSL_COMMON = /* glsl */`
-  uniform vec3 uKit1; uniform vec3 uKit2; uniform vec3 uKit3; uniform vec3 uKit4; uniform vec3 uSkin; uniform vec3 uHair; uniform vec3 uPanel; uniform vec3 uIris;
-  uniform vec4 uLook;       // build (m), hair volume (m), long sleeves, sweatband
-  uniform vec4 uLook2;      // beard, stubble, hair cut, zinc
+  // The figure's look, from the tail of its bone texture (Humanoid.writeLook): FIG(0..16) =
+  // kit1 + seed, kit2 + lod, kit3 + team, kit4 + no head, skin + gloved, hair + hidden hand,
+  // panel + shades, iris + name length, look (build, hair volume, sleeves, sweatband),
+  // look2 (beard, stubble, hair cut, zinc), crest rect, sponsor rect, brim + tens, the name's
+  // 12 glyphs, units. The kit's first two colours and the sleeves / sweatband go on to the
+  // fragments as flat varyings (cloth and skin use them); the rest is fetched where it is used.
+  #define FIG(i) texelFetch(boneTexture, ivec2((i) & 15, 14 + ((i) >> 4)), 0)
+  flat varying vec3 vK1; flat varying vec3 vK2; flat varying vec2 vLookZW;
   uniform vec4 uArmL; uniform vec4 uArmR; uniform vec3 uShoulderL; uniform vec3 uShoulderR;
-  uniform vec4 uSkull; uniform float uTime; uniform float uSeed;
+  uniform vec4 uSkull; uniform float uTime;
   varying vec3 vBind; varying float vArmW; varying vec2 vTro;
   flat varying float vSlot; flat varying vec4 vMat;
   // position along the arm (0 shoulder .. 1 wrist) of a bind-space point, and its distance off the arm's line
@@ -526,11 +531,13 @@ function constGlsl(u) {
   }).join('\n') + '\n';
   return CONST_GLSL;
 }
-function kitMaterial(shared = null) {
-  const mat = new THREE.MeshLambertMaterial({ vertexColors: true, fog: false });   // (fog starts far beyond any figure from any camera)
-  mat.defines = {};
-  const uniforms = shared || {
-    ...sharedUniforms(),
+// A figure's own values (kit, skin, hair, build, face, name and number, LOD, ...): not uniforms
+// but a block at the tail of the figure's bone texture (FIG_ROW: two rows of 16 texels, see
+// Humanoid.writeLook), read in the shaders with texelFetch. So every figure can be drawn with
+// one shared material (no material switch, no uniform upload per figure); your own body and a
+// figure fading in or out keep a material of their own (FP_BODY, alpha hash).
+function figureValues() {
+  return {
     uKit1: { value: new THREE.Color(0x1f4fa8) }, uKit2: { value: new THREE.Color(0xf2c12e) }, uKit3: { value: new THREE.Color(0x14285a) },
     uKit4: { value: new THREE.Color(0x17336e) }, uSkin: { value: new THREE.Color(0xc68e62) }, uHair: { value: new THREE.Color(0x1d1510) },
     uPanel: { value: new THREE.Color(0x173f8c) }, uIris: { value: new THREE.Color(0x3b2414) },
@@ -544,31 +551,46 @@ function kitMaterial(shared = null) {
     uShades: { value: 0 },         // 1: sunglasses (geometry near, painted far)
     uBrim: { value: new THREE.Vector3(0, 0, 0) },
     uNoHead: { value: 0 },         // 1: the head and neck are not drawn (your own see-through body)
+    uGloved: { value: 0 },         // 1: bare hands are not drawn (they are inside gloves)
+    uHideHand: { value: -1 },      // a hand bone whose bare hand is not drawn (your bowling hand: it has its own model, viewModes.js)
+    // Your own body (setGhost, FP_BODY): where the ball is (xyz, w = 1 when it counts) and the bat's
+    // blade (from its shoulder to its toe), so the body steps aside from them in your view. (uniforms of its own material)
+    uFpBall: { value: new THREE.Vector4() },
+    uFpB0: { value: new THREE.Vector4() }, uFpB1: { value: new THREE.Vector3() },
+    uFpShift: { value: new THREE.Vector3() },   // your upper body drawn this far (object space) behind your eyes (fpShift)
+  };
+}
+let SHARED_MAT = null;
+const FIG_TEXEL = 224;          // the figure's look in its bone texture: texels 224.. (rows 14 and 15 of 16)
+const sharedMaterial = () => SHARED_MAT || (SHARED_MAT = kitMaterial());
+// The constants' values (constGlsl).
+function constValues() {
+  return {
+    ...sharedUniforms(),
     uHeadBones: { value: new THREE.Vector2(RIG.index.neck, RIG.index.head) },
     uLegBones: { value: new THREE.Vector2(Math.min(RIG.index.hipL, RIG.index.hipR), Math.max(RIG.index.ankleL, RIG.index.ankleR)) },
     uHandBones: { value: new THREE.Vector2(RIG.index.handL, RIG.index.handR) },
     uTrunkBones: { value: new THREE.Vector4(RIG.index.spine, RIG.index.chest, RIG.index.shoulderL, RIG.index.shoulderR) },
     uArmBones: { value: new THREE.Vector2(RIG.index.elbowL, RIG.index.elbowR) },
-    uGloved: { value: 0 },         // 1: bare hands are not drawn (they are inside gloves)
-    uHideHand: { value: -1 },      // a hand bone whose bare hand is not drawn (your bowling hand: it has its own model, viewModes.js)
-    // See-through body (setGhost): opacity of trunk+arms, thighs, shins (pads), feet (boots), and of the outline.
-    // Your own body (setGhost, FP_BODY): where the ball is (xyz, w = 1 when it counts) and the bat's
-    // blade (from its shoulder to its toe), so the body steps aside from them in your view.
-    uFpBall: { value: new THREE.Vector4() },
-    uFpB0: { value: new THREE.Vector4() }, uFpB1: { value: new THREE.Vector3() },
-    uFpShift: { value: new THREE.Vector3() },   // your upper body drawn this far (object space) behind your eyes (fpShift)
     uFpNeck: { value: new THREE.Vector3(0.03, RIG.J.neck.y - 0.02, RIG.J.neck.z + 0.008) },   // your neck's close: height of its dome, the collar height, its z (bind)
     uLegIdx: { value: new THREE.Vector3(RIG.index.hipL, RIG.index.kneeL, RIG.index.ankleL) },
     uLegIdxR: { value: new THREE.Vector3(RIG.index.hipR, RIG.index.kneeR, RIG.index.ankleR) },
   };
-  const consts = constGlsl(uniforms);
+}
+// fig: the figure's values when the material is its own (your body's FP uniforms); null: the shared one.
+function kitMaterial(fig = null) {
+  const mat = new THREE.MeshLambertMaterial({ vertexColors: true, fog: false });   // (fog starts far beyond any figure from any camera)
+  mat.defines = {};
+  const uniforms = { ...sharedUniforms() };
   for (const k of CONST_UNIFORMS) delete uniforms[k];
+  if (fig) { uniforms.uFpBall = fig.uFpBall; uniforms.uFpB0 = fig.uFpB0; uniforms.uFpB1 = fig.uFpB1; uniforms.uFpShift = fig.uFpShift; }
+  const consts = constGlsl(constValues());
   mat.onBeforeCompile = (sh) => {
     Object.assign(sh.uniforms, uniforms);
     sh.vertexShader = sh.vertexShader
       .replace('#include <common>', `#include <common>
         attribute vec2 kit;
-        uniform vec2 uHeadBones; uniform vec2 uLegBones; uniform vec2 uHandBones; uniform float uGloved; uniform float uHideHand;
+        uniform vec2 uHeadBones; uniform vec2 uLegBones; uniform vec2 uHandBones;
         uniform vec4 uTrunkBones; uniform vec2 uArmBones;
         uniform vec3 uLegIdx; uniform vec3 uLegIdxR;
         varying float vHeadW; varying float vLegW; varying vec3 vSeg; varying float vHandW; varying vec2 vKA; varying float vHairE;
@@ -604,6 +626,10 @@ function kitMaterial(shared = null) {
         #endif`)
       .replace('#include <color_vertex>', `#include <color_vertex>
         float k = kit.x;
+        vec4 uLook = FIG(8);
+        vK1 = FIG(0).rgb; vK2 = FIG(1).rgb; vLookZW = uLook.zw;
+        float uGloved = 0.0, uHideHand = -1.0;            // (only a skin vertex reads them)
+        if (k > 4.5 && k < 5.5) { uGloved = FIG(4).w; uHideHand = FIG(5).w; }
         float trunkW = 0.0, upperW = 0.0, foreW = 0.0;
         vKA = kit;
         vHeadW = 0.0; vLegW = 0.0; vSeg = vec3(0.0); vHandW = 0.0;
@@ -634,48 +660,51 @@ function kitMaterial(shared = null) {
         vec4 mt = vec4(0.15, 0.035, 10.0, 0.0);      // (cloth: a little wrap, so the folds and the torso keep their form in the sun)
         float push = 0.0;
         if (k < 0.5) mt = vec4(0.2, 0.06, 16.0, 5.0);
-        else if (k < 1.5 || (k > 9.5 && k < 23.5)) { kc = uKit1; push = uLook.x * (trunkW + 0.6 * upperW); }
-        else if (k < 2.5) { kc = uKit2; push = uLook.x * trunkW; }
-        else if (k < 3.5) kc = uKit3;
-        else if (k < 4.5) { kc = uKit4; push = uLook.x * 0.45 * vSeg.x; }
+        else if (k < 1.5 || (k > 9.5 && k < 23.5)) { kc = vK1; push = uLook.x * (trunkW + 0.6 * upperW); }
+        else if (k < 2.5) { kc = vK2; push = uLook.x * trunkW; }
+        else if (k < 3.5) kc = FIG(2).rgb;
+        else if (k < 4.5) { kc = FIG(3).rgb; push = uLook.x * 0.45 * vSeg.x; }
         else if (k < 5.5) {
-          kc = uSkin; mt = vec4(0.45, 0.07, 9.0, 1.0);
+          kc = FIG(4).rgb; mt = vec4(0.45, 0.07, 9.0, 1.0);
           vec2 at = armAt(position);
           float arm = step(0.5, vArmW) * step(at.x, 0.97);
           push = uLook.x * 0.5 * upperW + arm * (uLook.z * 0.0035 * step(0.1, at.x) + uLook.w * 0.003 * step(0.82, at.x) * step(at.x, 0.95));
         }
         else if (k < 6.5) {
-          kc = uHair; mt = vec4(0.3, 0.16, 34.0, 3.0);
+          kc = FIG(5).rgb; mt = vec4(0.3, 0.16, 34.0, 3.0);
           // hair standing off the scalp, only where the headgear does not cover it (below its rim)
           vec3 q = position - uSkull.xyz;
           float rimY = uSkull.y + 0.012 - 0.09 * (1.0 - normalize(q.xz + vec2(0.0, 1e-4)).y) * 0.5;
           push = uLook.y * smoothstep(0.0, 0.6, color.r) * smoothstep(rimY, rimY - 0.025, position.y);
         }
-        else if (k < 7.5) { kc = uPanel; push = uLook.x * (trunkW + 0.6 * upperW); }
-        else if (k < 8.5) { kc = uSkin * vec3(0.82, 0.66, 0.64); mt = vec4(0.45, 0.12, 16.0, 1.0); }
+        else if (k < 7.5) { kc = FIG(6).rgb; push = uLook.x * (trunkW + 0.6 * upperW); }
+        else if (k < 8.5) { kc = FIG(4).rgb * vec3(0.82, 0.66, 0.64); mt = vec4(0.45, 0.12, 16.0, 1.0); }
         else if (k > 23.5 && k < 24.5) mt = vec4(0.3, 0.7, 90.0, 4.0);
-        else if (k < 25.5) { kc = uIris; mt = vec4(0.3, 0.7, 90.0, 4.0); }
+        else if (k < 25.5) { kc = FIG(7).rgb; mt = vec4(0.3, 0.7, 90.0, 4.0); }
         else if (k < 26.5) mt = vec4(0.2, 0.5, 60.0, 4.0);
         else if (k > 29.5 && k < 30.5) mt = vec4(0.0, 0.6, 70.0, 2.0);
         else if (k < 31.5) mt = vec4(0.12, 0.06, 12.0, 5.0);
         else if (k < 32.5) mt = vec4(0.0, 1.4, 140.0, 6.0);
         else if (k < 33.5) { mt = vec4(0.35, 0.045, 9.0, 5.0); kc = vec3(0.97, 0.96, 0.93); }     // (boots: matte white leather)
-        else if (k < 34.5) { kc = uKit3; mt = vec4(0.18, 0.022, 260.0, 2.0); }     // (matte painted shell; the clear coat is a small, sharp highlight)
-        else if (k < 35.5) { kc = uKit2; mt = vec4(0.1, 0.25, 45.0, 2.0); }
-        else if (k < 36.5) { kc = mix(vec3(0.9), uKit1, 0.6); mt = vec4(0.3, 0.07, 14.0, 5.0); }
+        else if (k < 34.5) { kc = FIG(2).rgb; mt = vec4(0.18, 0.022, 260.0, 2.0); }     // (matte painted shell; the clear coat is a small, sharp highlight)
+        else if (k < 35.5) { kc = vK2; mt = vec4(0.1, 0.25, 45.0, 2.0); }
+        else if (k < 36.5) { kc = mix(vec3(0.9), vK1, 0.6); mt = vec4(0.3, 0.07, 14.0, 5.0); }
         #ifdef USE_COLOR
           vColor.rgb = kc;
         #endif
         vSlot = k; vMat = mt;`)
       .replace('#include <begin_vertex>', `#include <begin_vertex>
         // breathing: the chest and upper back rise and fall a few millimetres
+        float uSeed = FIG(0).w;
         float br = sin(uTime * (1.45 + 0.4 * uSeed) + uSeed * 40.0);
         push += 0.0022 * br * trunkW * smoothstep(1.12, 1.3, position.y) * smoothstep(1.47, 1.38, position.y) * step(k, 7.5);
         transformed += objectNormal * push;
 `);
     sh.fragmentShader = sh.fragmentShader
       .replace('#include <common>', `#include <common>
-        uniform float uNoHead;
+        uniform highp sampler2D boneTexture;
+        #define uKit1 vK1
+        #define uKit2 vK2
         #ifdef FP_BODY
           uniform vec4 uFpBall; uniform vec4 uFpB0; uniform vec3 uFpB1; varying vec3 vFpW; varying float vUpW;
         #endif
@@ -683,11 +712,10 @@ function kitMaterial(shared = null) {
         uniform sampler2D uFaceMap; uniform sampler2D uDecal;
         uniform vec4 uFaceRect; uniform vec4 uFaceMisc; uniform vec4 uEye; uniform vec3 uKneeL; uniform vec3 uAnkleL; uniform vec4 uLegAxis;
         uniform vec4 uCrestAt; uniform vec4 uSponsorAt; uniform vec4 uMakerAt; uniform vec4 uNumberAt; uniform vec4 uCapAt;
-        uniform vec4 uCrestUV; uniform vec4 uSponsorUV; uniform vec4 uMakerUV; uniform vec4 uGlyph;
-        uniform float uTeamIx; uniform vec2 uNum; uniform float uName[12]; uniform float uNameLen; uniform float uLod; uniform float uShades; uniform float uDetail;
+        uniform vec4 uMakerUV; uniform vec4 uGlyph;
+        uniform float uDetail;
         ${KIT_GLSL_COMMON}
         float gWrap = 0.25, gSpec = 0.04, gShin = 10.0, gKind = 0.0, gSSS = 0.0, gShade = 0.0;
-        uniform vec3 uBrim;              // the shade of a cap's peak / hat's brim: edge y, how far below it falls, all round (1) or front only (0)
         vec3 gBX, gBY;                     // screen derivatives of the bind position
         // a decal: r = centre, half size (bind metres), uvr = its atlas rect; flip: mirrored (read from behind)
         vec4 decalAt(vec2 p, vec4 r, vec4 uvr, float flip) {
@@ -771,12 +799,13 @@ function kitMaterial(shared = null) {
   float kitH = 0.0;                           // procedural bump height (m)
   gBX = dFdx(vBind); gBY = dFdy(vBind);
   gWrap = vMat.x; gSpec = vMat.y; gShin = vMat.z; gKind = vMat.w;
-  if (vHeadW > 0.5 && uBrim.y > 0.0 && (gKind > 0.5 && gKind < 1.5 || gKind > 3.5 || gKind > 2.5 && gKind < 3.5 && vBind.y < uBrim.x)) {
+  // (the shade of a cap's peak / hat's brim: edge y, how far below it falls, all round (1) or front only (0))
+  if (vHeadW > 0.5) { vec3 uBrim = FIG(12).xyz; if (uBrim.y > 0.0 && (gKind > 0.5 && gKind < 1.5 || gKind > 3.5 || gKind > 2.5 && gKind < 3.5 && vBind.y < uBrim.x)) {
     // the peak / brim shades the face (the sun is high): eyes and brow in shadow, as on any sunny day
     float front = mix(smoothstep(uSkull.z - 0.01, uSkull.z + 0.05, vBind.z), 1.0, uBrim.z);
     float edge = uBrim.x - uBrim.y;
     gShade = 0.62 * smoothstep(edge - 0.012, edge + 0.012, vBind.y) * front * step(vBind.y, uBrim.x + 0.01);
-  }
+  } }
   {
     float s = vSlot;
     vec3 c = diffuseColor.rgb;
@@ -823,6 +852,7 @@ function kitMaterial(shared = null) {
         if (shirt && vBind.y > 1.15 && vBind.y < 1.45) {
           float side = abs(vBind.x);
           if (vBind.z > 0.06) {
+            vec4 uCrestUV = FIG(10), uSponsorUV = FIG(11); float uTeamIx = FIG(2).w;
             // front: crest (wearer's left), maker's mark (right), sponsor across the chest
             vec4 t = decalAt(vBind.xy, uCrestAt, uCrestUV, 0.0);
             t += decalAt(vBind.xy, uMakerAt, uMakerUV, 0.0) * vec4(uKit2, 1.0) * step(uTeamIx, 1.5);
@@ -831,7 +861,8 @@ function kitMaterial(shared = null) {
             // placket buttons
             float bt = length(vec2(vBind.x, mod(vBind.y - 1.405, 0.025) - 0.0125));
             c *= 1.0 - 0.25 * smoothstep(0.0032, 0.0022, bt) * step(1.40, vBind.y) * step(vBind.y, 1.452) * step(side, 0.006);
-          } else if (vBind.z < -0.03 && uTeamIx < 1.5) {
+          } else if (vBind.z < -0.03 && FIG(2).w < 1.5) {
+            vec2 uNum = vec2(FIG(12).w, FIG(16).x); float uNameLen = FIG(7).w; vec3 uKit3 = FIG(2).rgb;
             // back: name over the number, printed in trim with a dark outline
             vec4 r = uNumberAt; float nd = uNum.x < -0.5 ? 1.0 : 2.0;
             r.z *= nd * 0.5;
@@ -847,7 +878,7 @@ function kitMaterial(shared = null) {
             if (q.x >= 0.0 && q.x <= 1.0 && q.y >= 0.0 && q.y <= 1.0) {
               q.x = 1.0 - q.x;
               float cx = q.x * uNameLen; int ci = int(min(floor(cx), 11.0));
-              t = glyphAt(uName[ci], vec2(fract(cx), q.y), vec2(uGlyph.x * uNameLen / (2.0 * nr.z), uGlyph.y / (2.0 * nr.w)));
+              t = glyphAt(FIG(13 + ci / 4)[ci % 4], vec2(fract(cx), q.y), vec2(uGlyph.x * uNameLen / (2.0 * nr.z), uGlyph.y / (2.0 * nr.w)));
             }
             c = lettering(c, t, uKit2, uKit3 * 0.6);
           }
@@ -856,15 +887,15 @@ function kitMaterial(shared = null) {
         kitH += wv * 0.00006 * sin(cp.x * 2200.0) * sin(cp.y * 2200.0);
       }
       // headgear crest (cap, hat band)
-      if ((s > 1.5 && s < 3.5) && vHeadW > 0.5 && vBind.z > 0.1) { vec4 t = decalAt(vBind.xy, uCapAt, uCrestUV, 0.0); c = mix(c, t.rgb, t.a); }
+      if ((s > 1.5 && s < 3.5) && vHeadW > 0.5 && vBind.z > 0.1) { vec4 t = decalAt(vBind.xy, uCapAt, FIG(10), 0.0); c = mix(c, t.rgb, t.a); }
       c *= 1.0 + 18.0 * kitH;                  // folds: a little darker in their hollows
     } else if (skin) {
       gSSS = 1.0;
       // ---- arms: long sleeves (the shirt's colour, a cuff) or a sweatband
       vec2 at = armAt(vBind);
       if (vArmW > 0.5 && at.x < 0.97) {
-        float sl = uLook.z * step(0.08, at.x) * step(at.x, 0.935);
-        float band = (1.0 - uLook.z) * uLook.w * step(0.82, at.x) * step(at.x, 0.95);
+        float sl = vLookZW.x * step(0.08, at.x) * step(at.x, 0.935);
+        float band = (1.0 - vLookZW.x) * vLookZW.y * step(0.82, at.x) * step(at.x, 0.95);
         if (sl > 0.5) {
           c = at.x > 0.875 ? uKit2 : uKit1; gWrap = 0.25; gSpec = 0.035; gShin = 10.0; gSSS = 0.0;
           kitH += 0.0012 * sin(at.x * 70.0 + vBind.y * 30.0) * smoothstep(0.35, 0.5, at.x) * smoothstep(0.85, 0.7, at.x);
@@ -873,6 +904,7 @@ function kitMaterial(shared = null) {
       }
       // ---- hair below the cap's edge at the back and in front of the ears (the hair cap stops high)
       if (vHeadW > 0.5) {
+        vec4 uLook2 = FIG(9); vec3 uHair = FIG(5).rgb;
         vec3 q = vBind - uSkull.xyz;
         float side = abs(q.x);
         float back = smoothstep(0.02, -0.02, q.z) * smoothstep(0.088, 0.078, side);
@@ -892,6 +924,7 @@ function kitMaterial(shared = null) {
       }
       // ---- the face: painted map projected from the front of the head
       if (vBind.y > uFaceRect.y && vBind.z > uFaceMisc.x && vHeadW > 0.3) {
+        vec4 uLook2 = FIG(9); vec3 uHair = FIG(5).rgb; float uLod = FIG(1).w;
         vec2 fu = (vBind.xy - uFaceRect.xy) / uFaceRect.zw;
         vec4 f = textureGrad(uFaceMap, fu, gBX.xy / uFaceRect.zw, gBY.xy / uFaceRect.zw);
         // (the painted creases a third deeper than before: the mesh's own shading is soft)
@@ -939,6 +972,7 @@ function kitMaterial(shared = null) {
       }
     } else if (gKind > 2.5 && gKind < 3.5) {
       // ---- hair: a soft hairline (cropped cuts thin out toward the edge), strands
+      vec4 uLook2 = FIG(9); vec3 uSkin = FIG(4).rgb;
       float cover = smoothstep(0.0, 0.4 - 0.25 * uLook2.z, vHairE);
       vec2 hq = vBind.xz - uSkull.xz;
       float an = atan(hq.x, hq.y);
@@ -953,6 +987,7 @@ function kitMaterial(shared = null) {
     } else if (gKind > 3.5 && gKind < 4.5) {
       // ---- eyes: lids painted over the top and bottom of the eyeball (the source's
       // wide-open stare), a lash line on the upper lid, the white shaded under it
+      vec3 uSkin = FIG(4).rgb, uHair = FIG(5).rgb; float uSeed = FIG(0).w;
       vec2 e = vec2(abs(vBind.x) - uEye.x, vBind.y - uEye.y);
       float r = uEye.z, u = clamp(e.x / (r * 1.75), -1.0, 1.0);
       float up = r * (0.5 - 0.34 * u * u) + 0.14 * r * u, lo = -r * (0.68 - 0.36 * u * u) + 0.1 * r * u;
@@ -1027,7 +1062,7 @@ function kitMaterial(shared = null) {
       }
     } else if (gKind > 1.5 && gKind < 2.5) {
       // helmet shell / hard plastic: the crest on its front
-      if (vHeadW > 0.5 && vBind.z > 0.1) { vec4 t = decalAt(vBind.xy, uCapAt, uCrestUV, 0.0); c = mix(c, t.rgb, t.a); gSpec *= 1.0 - 0.3 * t.a; }
+      if (vHeadW > 0.5 && vBind.z > 0.1) { vec4 t = decalAt(vBind.xy, uCapAt, FIG(10), 0.0); c = mix(c, t.rgb, t.a); gSpec *= 1.0 - 0.3 * t.a; }
     }
     #ifdef FP_BODY
       if (!gl_FrontFacing) { c *= 0.32; gSpec = 0.0; }
@@ -1051,7 +1086,7 @@ function kitMaterial(shared = null) {
   #ifdef FP_BODY
     if (vHeadW > 1.5 || (vHeadW > 0.35 && (vSlot < 4.5 || vSlot > 5.5))) discard;     // (your neck's skin stays: it closes the collar)
   #else
-    if ((uNoHead > 0.5 && vHeadW > 0.35 && vHeadW < 1.5) || vHeadW > 1.5) discard;
+    if (vHeadW > 1.5 || (vHeadW > 0.35 && FIG(3).w > 0.5)) discard;     // (FIG(3).w: no head)
   #endif`)
       .replace('#include <aomap_fragment>', `#include <aomap_fragment>
         {
@@ -1082,7 +1117,7 @@ function kitMaterial(shared = null) {
     const strip = (src) => consts + src.replace(new RegExp(`uniform\\s+\\w+\\s+(${CONST_UNIFORMS.join('|')})\\s*;`, 'g'), '');
     sh.vertexShader = strip(sh.vertexShader); sh.fragmentShader = strip(sh.fragmentShader);
   };
-  mat.customProgramCacheKey = () => 'cricket-kit-v12';
+  mat.customProgramCacheKey = () => 'cricket-kit-v13';
   mat.userData.uniforms = uniforms;
   return mat;
 }
@@ -1116,8 +1151,9 @@ export class Humanoid {
     const rnd = (n) => ((Math.sin(seed * 12.9898 + n * 78.233) * 43758.5453) % 1 + 1) % 1;
     const look = this.look = lookFor(seed, team, team === 'umpire' ? 'umpire' : playerGrip ? 'self' : 'player');
     this.opts = { headgear, pads, gloves, keeper, playerGrip, shades: look.shades && (headgear === 'cap' || headgear === 'bare' || headgear === 'hat') };
-    this.material = kitMaterial();
-    const u = this.material.userData.uniforms;
+    const u = this.u = figureValues();
+    this.own = null;                              // (a material of its own, made when first needed: setGhost / setFade)
+    this.material = sharedMaterial();
     u.uSkin.value.setHex(skin ?? look.skin);
     u.uHair.value.setHex(hair ?? look.hair);
     u.uIris.value.setHex(look.iris);
@@ -1157,6 +1193,7 @@ export class Humanoid {
     this._ms = new Int32Array(bones.length).fill(-1);      // (... and the version of the world matrices it was made at)
     this.root = new THREE.Group();
     this.root.add(this.mesh);
+    this._lookV = 1; this._blockV = 0;          // (the look's version, and the one written into the bone texture)
     this.trackMatrices();
     this.baseScale = BASE_SCALE * scale;
     this.root.scale.setScalar(this.baseScale);
@@ -1172,6 +1209,7 @@ export class Humanoid {
     this._hullGeo = null; this._hull = null; this._low = 0.5; this._lowV = -1; this._lowB = -1; this._lowOut = 0.5;
     this._clipRig = null; this._shotLeg = null; this._lieIdx = null; this._kneeIdx = null; this._diveIdx = null; this._shinIx = null;
     u.uGloved.value = gloves ? 1 : 0;
+    this.lookChanged();
     this.setNumber(team === 'umpire' ? 0 : 1 + Math.floor(rnd(3) * 98));
     this.setName(look.name);
     this.setTeam(team);
@@ -1198,32 +1236,36 @@ export class Humanoid {
   setNumber(n) {
     n = Math.max(0, Math.min(99, n | 0));
     this.number = n;
-    this.material.userData.uniforms.uNum.value.set(n >= 10 ? Math.floor(n / 10) : -1, n === 0 ? -1 : n % 10);
+    this.u.uNum.value.set(n >= 10 ? Math.floor(n / 10) : -1, n === 0 ? -1 : n % 10);
+    this.lookChanged();
   }
 
   // Name over the number (up to 12 letters).
   setName(name) {
-    const u = this.material.userData.uniforms, s = String(name || '').toUpperCase().slice(0, 12);
+    const u = this.u, s = String(name || '').toUpperCase().slice(0, 12);
     this.name = s;
     for (let i = 0; i < 12; i++) u.uName.value[i] = i < s.length ? glyphOf(s[i]) : -1;
     u.uNameLen.value = s.length;
+    this.lookChanged();
   }
 
   setTeam(team) {
     const k = KITS[team] || KITS.home;
-    const u = this.material.userData.uniforms;
+    const u = this.u;
     u.uKit1.value.setHex(k.kit1); u.uKit2.value.setHex(k.kit2); u.uKit3.value.setHex(k.kit3); u.uKit4.value.setHex(k.kit4);
     u.uPanel.value.setHex(k.panel ?? k.kit1);
     u.uCrestUV.value.copy(ATLAS.crest[k.crest] || ATLAS.crest[0]);
     if (k.sponsor >= 0) u.uSponsorUV.value.copy(ATLAS.sponsor[k.sponsor]); else u.uSponsorUV.value.set(0, 0, 0, 0);
     u.uTeamIx.value = team === 'umpire' ? 2 : team === 'away' ? 1 : 0;
     this.team = team;
+    this.lookChanged();
   }
 
   // Look like another figure (skin, hair, face, build, shirt name and number): the two figures that draw the same man.
   copyLook(o) {
-    const u = this.material.userData.uniforms, v = o.material.userData.uniforms;
+    const u = this.u, v = o.u;
     for (const k of ['uSkin', 'uHair', 'uIris', 'uLook', 'uLook2']) u[k].value.copy(v[k].value);
+    this.lookChanged();
     this.setNumber(o.number);
     this.setName(o.name);
     if (this.opts.shades !== o.opts.shades) { this.opts.shades = o.opts.shades; u.uShades.value = v.uShades.value; this.mesh.geometry = geometryFor(this.opts, this.lod); }
@@ -1234,7 +1276,24 @@ export class Humanoid {
     if (lod === this.lod) return;
     this.lod = lod;
     this.mesh.geometry = geometryFor(this.opts, lod);
-    this.material.userData.uniforms.uLod.value = lod;
+    this.u.uLod.value = lod;
+    this.lookChanged();
+  }
+  // The bare hand not drawn (bone index, -1 none): your bowling hand while it has its own model (viewModes.js).
+  setHideHand(i) {
+    if (this.u.uHideHand.value === i) return;
+    this.u.uHideHand.value = i;
+    this.lookChanged();
+  }
+  // A value of the figure's look changed: its block in the bone texture is written again (Humanoid.writeLook).
+  lookChanged() { this._lookV++; }
+  // The material it is drawn with: the shared one, or its own while it is your body through your
+  // eyes (FP_BODY) or fading (alpha hash).
+  ownMaterial() { return this.own || (this.own = kitMaterial(this.u)); }
+  useMaterial() {
+    const m = this.ghost || this.fade < 1 ? this.ownMaterial() : sharedMaterial();
+    if (this.mesh.material !== m) this.mesh.material = m;
+    this.material = m;
   }
 
   // Your own body through your own eyes: SOLID (kit, pads, boots, gloves on
@@ -1248,18 +1307,20 @@ export class Humanoid {
     on = !!on;
     if (!!this.ghost === on) return;
     this.ghost = on;
-    const m = this.material, u = m.userData.uniforms;
+    const m = this.ownMaterial(), u = this.u;
     if (on) m.defines.FP_BODY = 1; else delete m.defines.FP_BODY;
     m.side = on ? THREE.DoubleSide : THREE.FrontSide;
     m.transparent = false; m.alphaHash = false; m.opacity = 1; m.depthWrite = true; m.needsUpdate = true;
     this.fade = 1;
     u.uNoHead.value = on ? 1 : 0;
+    this.lookChanged();
     if (!on) { u.uFpBall.value.w = 0; u.uFpB0.value.w = 0; }
+    this.useMaterial();
   }
 
   // Your upper body drawn behind your eyes (through your own eyes only): v world, or null for none.
   fpShift(v) {
-    const u = this.material.userData.uniforms.uFpShift.value;
+    const u = this.u.uFpShift.value;
     if (!v) { u.set(0, 0, 0); return; }
     u.copy(v).applyQuaternion(_fq.copy(this.root.quaternion).invert()).divideScalar(this.root.scale.x || 1);
   }
@@ -1267,7 +1328,7 @@ export class Humanoid {
   // Where the ball (or null: none to keep in view) and the bat's blade (b0 shoulder, b1 toe, or
   // null; halfWidth m) are this frame, for your own body to stay out of your line of sight to them.
   seeThrough(ball, b0 = null, b1 = null, halfWidth = 0.06) {
-    const u = this.material.userData.uniforms;
+    const u = this.u;
     if (ball) u.uFpBall.value.set(ball.x, ball.y, ball.z, 1); else u.uFpBall.value.w = 0;
     if (b0 && b1) { u.uFpB0.value.set(b0.x, b0.y, b0.z, halfWidth); u.uFpB1.value.set(b1.x, b1.y, b1.z); } else u.uFpB0.value.w = 0;
   }
@@ -1282,11 +1343,12 @@ export class Humanoid {
     this.fade = a;
     if (this.ghost) return;                       // (your own body through your eyes is never faded)
     // (dissolved, not see-through: a hashed cut-out, so a fading figure is never a translucent ghost
-    // with its far side showing through, and stays in the opaque pass)
-    const m = this.material;
+    // with its far side showing through, and stays in the opaque pass; in a material of its own meanwhile)
+    const m = this.ownMaterial();
     const tr = a < 1;
     if (m.alphaHash !== tr) { m.alphaHash = tr; m.needsUpdate = true; }
     m.opacity = a;
+    this.useMaterial();
     for (const x of this.extras || []) x.traverse((o) => {
       if (!o.isMesh) return;
       if (!o.userData.fadeMat) { o.material = o.material.clone(); o.userData.fadeMat = true; }
@@ -1464,6 +1526,21 @@ export class Humanoid {
     this._wv++;
   }
 
+  // The figure's look into the tail of its bone texture data M (texels 224.., FIG(i) in the
+  // shaders): kit colours (linear), skin, hair, panel, iris with a scalar each, the build and
+  // face, the crest and sponsor rects, the brim, the number and the name's glyphs.
+  writeLook(M) {
+    const u = this.u, o = FIG_TEXEL * 4;
+    const c3 = (i, c, w) => { const k = o + i * 4; M[k] = c.r; M[k + 1] = c.g; M[k + 2] = c.b; M[k + 3] = w; };
+    const v4 = (i, v) => { const k = o + i * 4; M[k] = v.x; M[k + 1] = v.y; M[k + 2] = v.z; M[k + 3] = v.w; };
+    c3(0, u.uKit1.value, u.uSeed.value); c3(1, u.uKit2.value, u.uLod.value); c3(2, u.uKit3.value, u.uTeamIx.value); c3(3, u.uKit4.value, u.uNoHead.value);
+    c3(4, u.uSkin.value, u.uGloved.value); c3(5, u.uHair.value, u.uHideHand.value); c3(6, u.uPanel.value, u.uShades.value); c3(7, u.uIris.value, u.uNameLen.value);
+    v4(8, u.uLook.value); v4(9, u.uLook2.value); v4(10, u.uCrestUV.value); v4(11, u.uSponsorUV.value);
+    { const k = o + 48, b = u.uBrim.value; M[k] = b.x; M[k + 1] = b.y; M[k + 2] = b.z; M[k + 3] = u.uNum.value.x; }
+    for (let i = 0; i < 12; i++) M[o + 52 + i] = u.uName.value[i];
+    M[o + 64] = u.uNum.value.y;
+  }
+
   // Route every matrix refresh of this figure through update() (see there), and skin from
   // the bones relative to the mesh: a skeleton re-made (and its bone texture re-uploaded)
   // only when the pose has changed, not when the figure only moves. Nothing else of the
@@ -1496,15 +1573,23 @@ export class Humanoid {
       for (let i = 0; i < B.length; i++) R[i].multiplyMatrices(_rw, B[i].matrixWorld);
       return R;
     };
+    // (the bone texture made here, 16 x 16: the bones' 68 texels at its head, the figure's look at its tail)
+    sk.boneMatrices = new Float32Array(16 * 16 * 4);
+    sk.boneTexture = new THREE.DataTexture(sk.boneMatrices, 16, 16, THREE.RGBAFormat, THREE.FloatType);
     let sv = -1;
     sk.update = () => {
       up();
-      if (sv === this._lv) return;
-      sv = this._lv;
-      rel();
-      const M = sk.boneMatrices, I = sk.boneInverses;
-      for (let i = 0; i < R.length; i++) _om.multiplyMatrices(R[i], I[i]).toArray(M, i * 16);
-      if (sk.boneTexture !== null) sk.boneTexture.needsUpdate = true;
+      const pose = sv !== this._lv, look = this._blockV !== this._lookV;
+      if (!pose && !look) return;
+      const M = sk.boneMatrices;
+      if (pose) {
+        sv = this._lv;
+        rel();
+        const I = sk.boneInverses;
+        for (let i = 0; i < R.length; i++) _om.multiplyMatrices(R[i], I[i]).toArray(M, i * 16);
+      }
+      if (look) { this._blockV = this._lookV; this.writeLook(M); }
+      sk.boneTexture.needsUpdate = true;
     };
     // (a vertex skinned on the CPU, in the mesh's space as three's own: the bones relative to the mesh)
     const sI = new THREE.Vector4(), sW = new THREE.Vector4(), b0 = new THREE.Vector3(), t = new THREE.Vector3();
