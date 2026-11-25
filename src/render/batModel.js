@@ -358,9 +358,12 @@ function batMaterial(tex) {
   return m;
 }
 
+// Every bat starts in one shared material (no marks: the same look), so the bats in view are one
+// material switch, not one each; the first mark gives that bat its own (addBatMark).
+let _plain = null;
 export function buildBatMesh(cfg = CONFIG.bat) {
   const geo = batGeometry(cfg);
-  const mesh = new THREE.Mesh(geo, batMaterial(batTexture(geo)));
+  const mesh = new THREE.Mesh(geo, _plain || (_plain = batMaterial(batTexture(geo))));
   mesh.name = 'bat';
   // Drawn after the other opaque things, every bat together (opaque draws go in material order, and
   // a bat made with a figure would split the figures' run: two program switches an eye). Opaque:
@@ -373,10 +376,11 @@ export function buildBatMesh(cfg = CONFIG.bat) {
 // bat frame at contact (physics `local`); strength 0..1. Old marks are reused
 // round-robin (the oldest fades first). Off the face (edges, back): no mark.
 export function addBatMark(mesh, local, strength = 1) {
-  const m = mesh && mesh.material, u = m && m.userData;
+  let m = mesh && mesh.material, u = m && m.userData;
   if (!u || !u.marks || !local) return;
   const G = mesh.geometry.userData;
   if (local.z < G.faceZ || Math.abs(local.x) > G.W - 0.01 || local.y < G.toeY + 0.02 || local.y > G.shY) return;
+  if (m === _plain) { m = mesh.material = batMaterial(m.map); u = m.userData; }     // (its own now: the others stay clean)
   const mk = u.marks[u.next];
   mk.set(local.x, local.y, 0, Math.min(1, 0.35 + 0.65 * strength));
   u.next = (u.next + 1) % MARKS;
