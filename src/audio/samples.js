@@ -30,6 +30,7 @@ const GROUPS = { bat_sweet: 3, bat_edge: 2, bat_block: 2, applause_polite: 2, fo
 // _seamless's slices (samples): a copy of this many, or a crossfade of this many, is a few ms at most.
 const SEAM_COPY = 1 << 17, SEAM_FADE = 4096;
 const later = () => new Promise((r) => setTimeout(r, 0));
+const SEAMLESS_AT_LOAD = [['crowd_bed', 1]];      // [sample, crossfade s] as audio/crowd.js loops it
 function crossfade(a, b, len, n, i0, i1) {
   for (let i = i0; i < i1; i++) { const u = i / n; b[i] = a[i] * Math.sqrt(u) + a[len + i] * Math.sqrt(1 - u); }
 }
@@ -71,6 +72,12 @@ export class Samples {
   /** Fetch and decode the named samples / groups (all by default). Resolves to how many are ready. */
   preload(names = Object.keys(this.files)) {
     const list = [].concat(names || []).flatMap((n) => this.variants(n));
+    // (the crowd bed's seamless copy is made as soon as it is decoded, not when the crowd first
+    // comes in: its slices take a few hundred ms of timers, which was silence at the start)
+    for (const [n, xf] of SEAMLESS_AT_LOAD) {
+      const v = this.variants(n)[0], key = `${v}~${xf}`;
+      if (list.includes(v) && !this.seams.has(key)) this.seams.set(key, this._load(v).then((buf) => (buf ? this._seamless(buf, xf) : null)));
+    }
     return Promise.all(list.map((n) => this._load(n))).then((bufs) => bufs.filter(Boolean).length, () => 0);
   }
 

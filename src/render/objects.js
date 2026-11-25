@@ -483,16 +483,17 @@ function scuffTexture() {
   // (the canvas is stretched to 0.15 x 0.25 m: circles drawn here are ovals along the ball's line)
   // a halo of disturbed dust, thrown forward (toward the bottom of the canvas = +z)
   const halo = g.createRadialGradient(64, 70, 8, 64, 70, 50);
-  halo.addColorStop(0, 'rgba(150,122,80,0.55)'); halo.addColorStop(0.55, 'rgba(160,132,90,0.28)'); halo.addColorStop(1, 'rgba(160,132,90,0)');
+  // (darker than the pitch, never lighter: a pale halo read as a disc of light on the strip)
+  halo.addColorStop(0, 'rgba(96,74,44,0.5)'); halo.addColorStop(0.55, 'rgba(104,82,50,0.22)'); halo.addColorStop(1, 'rgba(104,82,50,0)');
   g.fillStyle = halo; g.fillRect(0, 0, S, S);
   for (let i = 0; i < 140; i++) {
     const a = (rnd() - 0.5) * 1.4, d = 22 + rnd() * 26;
-    g.fillStyle = `rgba(${rnd() < 0.65 ? '120,98,66' : '214,200,166'},${0.2 + rnd() * 0.3})`;
+    g.fillStyle = `rgba(${rnd() < 0.8 ? '92,72,44' : '150,130,96'},${0.2 + rnd() * 0.3})`;
     g.fillRect(64 + Math.sin(a) * d - 1, 60 + Math.cos(a) * d - 1, 1.5 + rnd() * 2, 1.5 + rnd() * 2);
   }
   // the pressed, darker scuff where the ball hit, and its seam's line across it
   const core = g.createRadialGradient(64, 56, 3, 64, 56, 34);
-  core.addColorStop(0, 'rgba(88,66,38,0.95)'); core.addColorStop(0.55, 'rgba(104,80,48,0.8)'); core.addColorStop(1, 'rgba(110,86,52,0)');
+  core.addColorStop(0, 'rgba(62,46,26,0.95)'); core.addColorStop(0.55, 'rgba(78,60,36,0.75)'); core.addColorStop(1, 'rgba(90,70,42,0)');
   g.fillStyle = core; g.beginPath(); g.arc(64, 56, 34, 0, Math.PI * 2); g.fill();
   g.strokeStyle = 'rgba(52,38,20,0.6)'; g.lineWidth = 2.5; g.beginPath(); g.moveTo(44, 52); g.lineTo(84, 60); g.stroke();
   // Nothing reaches the quad's edge: everything fades out by 0.42 of the canvas from its middle
