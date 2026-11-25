@@ -410,6 +410,13 @@ export class FieldController {
     r.keepOut = hp ? rko : null;
     g.nonStrikerView.avoid = hp;
     g.batterView.avoid = hp;
+    // (and the way your head faces, flat: the man becoming you walks round to behind you, out of your view)
+    const hq = hp && g.input && g.input.headPose ? g.input.headPose.q : null, af = this._af || (this._af = { x: 0, z: -1 });
+    if (hq) {
+      const fx = -2 * (hq.x * hq.z + hq.w * hq.y), fz = -(1 - 2 * (hq.x * hq.x + hq.y * hq.y)), fl = hypot2(fx, fz);
+      if (fl > 1e-3) { af.x = fx / fl; af.z = fz / fl; }
+    }
+    g.batterView.avoidFwd = af;
     if (g.umpires.keepClear) g.umpires.keepClear(g.umpires.visible ? hp : null, dt, PLAYER_CLEAR);
     const ump = g.umpires.visible ? g.umpires.spots() : null;
     const obs = this._fObs || (this._fObs = []), P = this._fPool || (this._fPool = []);

@@ -6,7 +6,7 @@ import { poseEvery } from './humanoid.js';
 import { toV3, toQ } from './util.js';
 import { sstep, clamp, hyp } from './anim.js';
 import { CONFIG } from '../config.js';
-import { walkTask, stepWalk, fadeNearHead } from './crew.js';
+import { walkTask, stepWalk, fadeNearHead, HEAD_CLEAR, MERGE_BACK, MERGE_PATH } from './crew.js';
 import { live, lastCrowd, joyAt } from './gestures.js';
 
 // The runner in your kit is not drawn close to your head (you are looking out
@@ -72,19 +72,29 @@ export class BatterView {
       const k = a.task;
       // (from his stance into the walk: cross-faded from the pose he was in, bat and all)
       if (this.wasBat) { a.handover(); this.wasBat = false; a.rebase(a.h.root.position.x, a.h.root.position.z); }
-      if (k.kind === 'merge' && this.avoid) k.to = this.avoid;
+      if (k.kind === 'merge' && this.avoid) {
+        // (not into you: out to your side -- the side he is on -- and a little back, where you are not
+        // looking; chosen once, so he does not swap sides as you turn)
+        const F = this.avoidFwd, fx = F ? F.x : 0, fz = F ? F.z : -1, M = this._mt || (this._mt = { x: 0, z: 0 });
+        if (k.side == null) k.side = (-fz * (a.pos.x - this.avoid.x) + fx * (a.pos.z - this.avoid.z)) >= 0 ? 1 : -1;
+        M.x = this.avoid.x - fz * k.side * MERGE_BACK - fx * 0.4; M.z = this.avoid.z + fx * k.side * MERGE_BACK - fz * 0.4;
+        k.to = M; k.tol = 0.3;
+      }
       const there = stepWalk(a, dt, this.obstacles(a));
       let fade = 1;
       if (k.kind === 'merge') {
-        // (he may already be close to you when he turns into "you": the fade still takes its time)
-        fade = Math.max(fadeNearHead(hyp(a.pos.x - k.to.x, a.pos.z - k.to.z)), (a.h.fade ?? 1) - 2.5 * dt);
+        // There (behind you): gone in a quarter of a second. Nearer your head than he should be
+        // (you stepped into him): the last-resort fade by distance, short.
+        if (k.to && hyp(a.pos.x - k.to.x, a.pos.z - k.to.z) < 0.4) k.gone = true;
+        const was = a.h.fade ?? 1;
+        fade = Math.min(k.gone ? was - dt / 0.25 : Math.min(1, was + 4 * dt), this.avoid ? fadeNearHead(hyp(a.pos.x - this.avoid.x, a.pos.z - this.avoid.z)) : 1);
         if (fade <= 0.01) { a.task = null; a.h.setFade(0); this.show(false); return; }
       } else if (k.kind === 'in') fade = sstep(0, 0.9, k.age);
       a.h.setFade(fade);
       a.h.replayVisible = fade > 0.5;
       a.updateMoving(dt, t, ball);
       this.wasBat = false;
-      if (there) { this.justIn = k.kind === 'in'; a.task = null; a.h.setFade(1); if (!this.runnerOnly) this.blend = { snap: a.h.snapshot(), p: a.bat.position.clone(), q: a.bat.quaternion.clone(), t: 0 }; }
+      if (there && k.kind !== 'merge') { this.justIn = k.kind === 'in'; a.task = null; a.h.setFade(1); if (!this.runnerOnly) this.blend = { snap: a.h.snapshot(), p: a.bat.position.clone(), q: a.bat.quaternion.clone(), t: 0 }; }
       return;
     }
     if (this.running) {
@@ -93,8 +103,19 @@ export class BatterView {
       if (this.wasBat) { a.handover(); this.wasBat = false; rx = a.h.root.position.x; rz = a.h.root.position.z; }
       this.blend = null;
       a.pos.set(this.running.x, 0, this.running.z);
+      // Your own runner leaves from you and comes back to you, but never through
+      // your head: drawn round it at HEAD_CLEAR (the run itself is the logic's).
+      if (this.runnerOnly && this.avoid) {
+        // (running past: HEAD_CLEAR; pulled up at your end: further off, MERGE_PATH -- not stood in your face)
+        const R = MERGE_PATH + (HEAD_CLEAR - MERGE_PATH) * sstep(0.5, 3, this.running.speed);
+        const hx = this.avoid.x, hz = this.avoid.z, dx = a.pos.x - hx, dz = a.pos.z - hz, d = hyp(dx, dz);
+        if (d < R) {
+          const s = d > 1e-4 ? R / d : 0;
+          if (s) { a.pos.x = hx + dx * s; a.pos.z = hz + dz * s; } else a.pos.x = hx - R;
+        }
+      }
       if (rx != null) a.rebase(rx, rz);          // (the run starts under his pelvis: the body stays where the shot left it)
-      // Your own runner is not drawn round your head: he fades as he leaves / rejoins you.
+      // (he fades in as he leaves you; the fade by distance is only a last resort now)
       let fade = this.runnerOnly && this.avoid ? fadeNearHead(hyp(a.pos.x - this.avoid.x, a.pos.z - this.avoid.z)) : 1;
       const was = a.h.fade ?? 1;
       fade = clamp(fade, was - 4 * dt, was + 4 * dt);
@@ -181,7 +202,27 @@ export class BatterView {
       const a = u < 1.3 ? 0.13 * Math.max(0, Math.sin(u * Math.PI * 2.3)) * sstep(0, 0.15, u) * (1 - sstep(1.1, 1.3, u)) : 0;
       if (a > 1e-4) { _ax.set(1, 0, 0); _q.premultiply(_wq.setFromAxisAngle(_ax, -a * wag)); }
     }
-    if (plan) { this._plan = this._plan || {}; Object.assign(this._plan, plan); this._plan.Tc = plan.TcTo ?? plan.Tc; }
+    if (plan) {
+      this._plan = this._plan || {}; Object.assign(this._plan, plan); this._plan.Tc = plan.TcTo ?? plan.Tc;
+      // how he leaves it (actors.js batProcedural): swaying out of a short one's way, a late
+      // withdrawal from one close to off stump (now and then), or shouldering arms
+      const I = plan.info, sh = plan.shot;
+      this._plan.leaveKind = sh.type !== 'leave' || !I ? null : sh.duck ? (I.yb < 1.7 && (plan.t0 * 5.17) % 1 < 0.5 ? 'sway' : null) : I.yb > 1.15 ? 'sway'
+        : I.xb > 0.05 && I.xb < 0.42 && (plan.t0 * 7.31) % 1 < 0.6 ? 'late' : 'shoulder';
+      // the late one: the bat drawn as starting down toward the ball and pulled back up (only
+      // in the picture, while the ball is still well short of him: the bat the physics sees is the AI's)
+      // shouldering arms: the bat drawn higher and further back over his shoulder than the AI
+      // holds it (only ever further from the ball's line), the shoulders turning after it
+      const lk = this._plan.leaveKind;
+      if (lk === 'shoulder' || lk === 'late') {
+        const w = sstep(plan.tCommit + 0.05, plan.tCommit + 0.4, tr) * (1 - sstep(plan.tPass + 0.4, plan.tPass + 1.1, tr));
+        if (w > 0.001) { _p.y += 0.16 * w; _p.z += 0.18 * w; _p.x -= 0.05 * w; _ax.set(1, 0, 0); _q.premultiply(_wq.setFromAxisAngle(_ax, -0.35 * w)); }
+      }
+      if (lk === 'late') {
+        const u = tr - plan.tCommit, w = u > 0 && u < 0.45 ? 0.75 * Math.sin(Math.PI * u / 0.45) : 0;
+        if (w > 0.001) { _p.y -= 0.3 * w; _p.x += 0.08 * w; _ax.set(0, 0, 1); _q.premultiply(_wq.setFromAxisAngle(_ax, -0.9 * w)); }
+      }
+    }
     // He has just walked in: the bat comes round from where he carried it and
     // the body settles into the stance over a few tenths.
     const B = this.blend;

@@ -8,7 +8,7 @@
 //                   rotation with the bat, hands IK'd to the bat handle, head
 //                   tracking the ball, running between the wickets with the bat
 import * as THREE from 'three';
-import { Humanoid, ANIM_LOD } from './humanoid.js';
+import { Humanoid, ANIM_LOD, poseEvery } from './humanoid.js';
 import { buildBatMesh } from './objects.js';
 import { swingAt } from './swingProfile.js';
 import { battingGripAngle } from './gear.js';
@@ -1068,7 +1068,6 @@ export class BowlerActor extends Actor {
     // the way he faces, so the turn is a curve, not a spin on the spot).
     const dx = this.home.x - this.pos.x, dz = this.home.z - this.pos.z;
     const dist = hyp(dx, dz);
-    h.reset();
     // Who / what to walk round (umpire, batters, stumps; set by the game each frame).
     const obs = this.obstacles || NO_OBS;
     if (this.state === 'runoff') {
@@ -1094,15 +1093,15 @@ export class BowlerActor extends Actor {
       const sc = h.root.scale.x, d = this.next.scale - sc;
       if (Math.abs(d) > 1e-5) h.root.scale.setScalar(sc + clamp(d, -0.04 * dt, 0.04 * dt));
     }
+    let stepTurn = false;
     if (this.state === 'runoff' || this.state === 'walkback') {
       this.pos.x += Math.sin(this.heading) * this.speed * dt;
       this.pos.z += Math.cos(this.heading) * this.speed * dt;
-      for (const o of obs) {                     // (never inside one, whatever the turn rate allowed)
-        const ox = this.pos.x - o.x, oz = this.pos.z - o.z, d = hyp(ox, oz);
+      for (let i = 0; i < obs.length; i++) {         // (never inside one, whatever the turn rate allowed)
+        const o = obs[i], ox = this.pos.x - o.x, oz = this.pos.z - o.z, d = hyp(ox, oz);
         if (d < o.r && d > 1e-4) { this.pos.x = o.x + ox / d * o.r; this.pos.z = o.z + oz / d * o.r; }
       }
       this.gait(dt);
-      this.locomote(t);
     } else {
       // At his mark: he turns to face the batter, stepping round (not spun on the spot).
       this.state = 'idle';
@@ -1110,9 +1109,35 @@ export class BowlerActor extends Actor {
       const e = angDiff(this.heading, 0);
       this.turnToward(0, dt, 2.8);
       if (dist > 0.02 && dist < 0.6) { const k = Math.min(1, 2.5 * dt); this.pos.x += dx * k; this.pos.z += dz * k; }
-      if (Math.abs(e) > 0.1) { const v = this.speed; this.speed = 0.8; this.gait(dt); this.locomote(t); this.speed = v; }
-      else this.idle(t);
+      stepTurn = Math.abs(e) > 0.1;
+      if (stepTurn) { const v = this.speed; this.speed = 0.8; this.gait(dt); this.speed = v; }
     }
+    this._wb = this.state === 'walkback' ? (this._wb || 0) + dt : 0;
+    // Pose LOD (humanoid.js ANIM_LOD): far from your eyes and calm -- walking back or
+    // standing at his mark, no ball live, no reaction -- his pose is made every 2nd / 3rd
+    // frame a frame or two ahead and shown between; his place and turn every frame.
+    const calm = (this.state === 'walkback' || this.state === 'idle') && !this.hurry && !live.ball && !(this._moodW > 0.01) && !moodAt(t);
+    const div = poseEvery(this.pos, calm), tk = this.lodNext(div, 1, t, dt);
+    if (div > 1 && tk === null) { this.apply(); this.lodShow(t); return false; }
+    if (div > 1) {
+      this.lodBefore(t, dt);
+      const ph = this.phase, v = this.speed;
+      if (tk > t) { if (stepTurn) this.speed = 0.8; this.gait(tk - t); this.speed = v; }
+      this.walkPose(Math.max(1e-4, tk - (this._poseT ?? t - dt)), tk, stepTurn);
+      this.phase = ph;
+      this.lodKey(tk, t);
+      return false;
+    }
+    this.walkPose(this._lod.was ? Math.max(1e-4, t - (this._poseT ?? t - dt)) : dt, t, stepTurn);
+    return false;
+  }
+  // The pose walking back / standing at his mark (for time t; dt: since the last pose was made).
+  walkPose(dt, t, stepTurn) {
+    const h = this.h;
+    h.reset();
+    if (this.state === 'runoff' || this.state === 'walkback') this.locomote(t);
+    else if (stepTurn) { const v = this.speed; this.speed = 0.8; this.locomote(t); this.speed = v; }
+    else this.idle(t);
     this.poseKey = this.state === 'idle' ? 'idle' : 'move';
     this.apply();
     if (this.state === 'idle' && !clipsReady()) {
@@ -1122,7 +1147,6 @@ export class BowlerActor extends Actor {
     // After the ball: a wicket, a play-and-miss, a boundary, an appeal (gestures.js).
     const mood = this.bodyLanguage(t, dt, false, this.speed > 0.25);
     // Walking back with the ball: shining it on his trousers, then a look round the field he has set.
-    this._wb = this.state === 'walkback' ? (this._wb || 0) + dt : 0;
     let fieldLook = null;
     if (this.state === 'walkback' && !mood) {
       const w = envelope(this._wb - 0.6, 2.8, 0.4, 0.5);
@@ -1138,7 +1162,7 @@ export class BowlerActor extends Actor {
     this.watch(live.ball || fieldLook || (this.state === 'runoff' ? _gaze : null), dt, mood, 0.75);
     this.smooth(dt);
     h.syncShadow();
-    return false;
+    this.posed(t);
   }
 
   holdingBall() { return this.state === 'runup' && this.run && !this.run.released; }
@@ -1581,7 +1605,7 @@ export class BatterActor extends Actor {
     this.bat.quaternion.copy(batQuat);
     const fl = _a.set(STANCE.footL[0], 0, STANCE.footL[1]);
     const fr = _b.set(STANCE.footR[0], 0, STANCE.footR[1]);
-    let hipsDrop = STANCE_KNEES, lean = STANCE_LEAN, weight = 0.5, heel = 0, elbowUp = 0, swing = null, open = FRONT_OPEN;
+    let hipsDrop = STANCE_KNEES, lean = STANCE_LEAN, weight = 0.5, heel = 0, elbowUp = 0, swing = null, open = FRONT_OPEN, leaveSway = 0;
     const p = opts.plan;
     const adv = opts.adv || 0;
     if (p && t >= p.t0) {
@@ -1625,13 +1649,29 @@ export class BatterActor extends Actor {
           hipsDrop = mix(hipsDrop, 0.05, kr); lean = mix(lean, 0.16, kr); heel *= 1 - kr;
           weight = mix(weight, 0.5, kr);
         }
-      } else if (p.shot.duck) {
+      } else if (p.shot.duck && p.leaveKind !== 'sway') {
         const k = sstep(p.tCommit, p.tCommit + 0.2, t);
         hipsDrop += 0.4 * k; lean += 0.55 * k;
       } else if (type === 'leave') {
-        const k = sstep(p.tCommit, p.tCommit + 0.25, t);           // front pad across, bat out of the way
-        fl.x += 0.05 * k; fl.z -= 0.14 * k; fl.y = 0.05 * Math.sin(Math.PI * k);
-        hipsDrop -= 0.04 * k; lean -= 0.12 * k; weight = 0.5 + 0.08 * k;
+        // A leave (p.leaveKind, people.js): the front pad across the line and the
+        // bat up out of it, the weight going back, the back foot shuffling across;
+        // a short one ('sway') is swayed out of the way, head and shoulders back
+        // and away from its line; a late one ('late') is half played at first --
+        // the front foot going toward it -- then the bat pulled up out of the way.
+        // The head goes with the ball through to the keeper (lookAt, below).
+        const kind = p.leaveKind, k = sstep(p.tCommit, p.tCommit + 0.25, t);
+        const k2 = sstep(p.tCommit + 0.08, p.tCommit + 0.34, t), u = t - p.tCommit;
+        const rel = 1 - sstep(p.tPass + 0.5, p.tPass + 1.3, t);           // (and back to his stance after)
+        if (kind === 'sway') {
+          fr.x -= 0.1 * k2 * rel; fr.z += 0.06 * k2 * rel; fr.y = 0.05 * Math.sin(Math.PI * k2) * rel;
+          weight = 0.5 - 0.22 * k * rel; lean -= 0.3 * k * rel; hipsDrop -= 0.03 * k;
+          leaveSway = k * rel;
+        } else {
+          const half = kind === 'late' ? Math.sin(Math.PI * clamp(u / 0.45, 0, 1)) : 0;     // (the start of a push, then not)
+          fl.x += (0.06 + 0.04 * half) * k; fl.z -= (0.16 + 0.12 * half) * k; fl.y = 0.05 * Math.sin(Math.PI * k);
+          fr.x += 0.08 * k2 * rel; fr.y = Math.max(fr.y, 0.045 * Math.sin(Math.PI * k2));          // (the shuffle across)
+          hipsDrop -= 0.04 * k; lean += (0.18 * half - 0.14) * k * rel; weight = 0.5 + (0.12 * half - 0.12) * k * rel;
+        }
       }
     }
     if (adv > 0.001) {                               // skipping down the pitch (and scrambling back)
@@ -1666,6 +1706,7 @@ export class BatterActor extends Actor {
       // No headset (the AI, or you on a monitor): the head goes where the stance puts it.
       const sl = Math.sin(lean), px = mix(fr.x, fl.x, weight), pz = mix(fr.z, fl.z, weight);
       H.set(px + (0.1 + 0.42 * sl) + (batPos.x - px) * 0.12, this.headRestY * sc - hipsDrop - this.spineLen * sc * (1 - Math.cos(lean)) * 0.9, pz + (batPos.z - pz) * 0.12);
+      if (leaveSway > 0.001) { H.x -= 0.2 * leaveSway; H.z += 0.12 * leaveSway; }       // (swayed out of a short ball's way: back and to the leg side)
     }
     const sweep = opts.sweep && opts.sweep.k > 0.01 ? opts.sweep : null;
     if (sweep) {

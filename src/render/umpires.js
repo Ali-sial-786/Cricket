@@ -6,6 +6,7 @@ import { Actor } from './actors.js';
 import { plantFeet, keys, sstep, nm, SIDE_SG, hyp } from './anim.js';
 import { hash01, envelope } from './gestures.js';
 import { clipsReady } from './clips.js';
+import { poseEvery } from './humanoid.js';
 import { PITCH } from '../physics/pitch.js';
 import { walkTask, stepWalk } from './crew.js';
 
@@ -29,8 +30,9 @@ class UmpireActor extends Actor {
     h.update();
     this.forward(_f);
     _l.set(_f.z, 0, -_f.x);                        // figure's left
-    const T = now + this.idleOff, slot = Math.floor(T / UMP_SLOT), mode = this.still ? null : UMP_HANDS[Math.floor(hash01(this.seed, slot) * UMP_HANDS.length)];
-    const w = mode ? envelope(T - slot * UMP_SLOT, UMP_SLOT, 0.8, 0.8) : 0;
+    const T = now + this.idleOff, slot = Math.floor(T / UMP_SLOT), mode = this.still ? 'front' : UMP_HANDS[Math.floor(hash01(this.seed, slot) * UMP_HANDS.length)];
+    // (a ceremony -- the toss: standing square, hands clasped in front of him, all the time)
+    const w = this.still ? 1 : mode ? envelope(T - slot * UMP_SLOT, UMP_SLOT, 0.8, 0.8) : 0;
     for (let n = 0; n < 2; n++) {
       const side = n ? 'R' : 'L', sg = n ? -1 : 1, on = n ? right : left;
       if (!on) continue;
@@ -65,7 +67,23 @@ class UmpireActor extends Actor {
     D.e = want > D.e ? Math.min(want, D.e + dt * 5) : Math.max(0, D.e - dt * 1.4);       // (quick out of the way, but never in one frame)
     return D;
   }
+  // Pose LOD (humanoid.js ANIM_LOD): far from your eyes (the bowler's-end umpire and the
+  // square-leg umpire are 20 m and more away when you bowl) and calm -- standing, no
+  // signal, no nod, not dodging, not a ceremony -- his pose is made every 2nd / 3rd frame
+  // a frame or two ahead and shown between; his place every frame.
   update(dt, now, look) {
+    const D = this._dodge, calm = !this.sig && this.speed <= 0.25 && !this.still && !(D && D.e > 0) && !(this.nodAt != null && now - this.nodAt < 1);
+    const div = poseEvery(this.pos, calm), tk = this.lodNext(div, this.seed % 3, now, dt);
+    if (div > 1 && tk === null) { this.apply(); this.lodShow(now); return; }
+    if (div > 1) {
+      this.lodBefore(now, dt);
+      this.posePlain(Math.max(1e-4, tk - (this._poseT ?? now - dt)), tk, look);
+      this.lodKey(tk, now);
+      return;
+    }
+    this.posePlain(this._lod.was ? Math.max(1e-4, now - (this._poseT ?? now - dt)) : dt, now, look);
+  }
+  posePlain(dt, now, look) {
     const h = this.h;
     h.reset();
     // Walking to his place (the other side of the stumps, out of your way) or standing.
@@ -95,18 +113,21 @@ class UmpireActor extends Actor {
       if (u >= 1) this.sig = null;
       else this.pose(s, now - s.t0, u);
     }
-    if (look && !(s && s.type === 'notout')) h.lookAt(look, this.still ? 0.95 : 0.7);
+    // (a ceremony: upright, not the idle's easy slouch)
+    if (this.still) { h.addRot('spine', -0.07, 0, 0); h.addRot('chest', -0.04, 0, 0); }
+    if (look && !(s && s.type === 'notout')) h.lookAt(look, 0.7);
     // a nod (nodAt: when it began, on his clock)
     const nu = this.nodAt != null ? now - this.nodAt : -1;
     if (nu > 0 && nu < 0.9) { const k = Math.sin(Math.PI * 2 * nu / 0.45) * (1 - sstep(0.5, 0.9, nu)) * sstep(0, 0.08, nu); h.addRot('neck', 0.15 * k, 0, 0); h.addRot('head', 0.1 * k, 0, 0); }
     if (!this.far) this.smooth(dt);
     h.syncShadow();
+    this.posed(now);
   }
   pose(s, tt, u) {
     const h = this.h, B = h.bones, A = this._arm || (this._arm = ARMS.map(() => new THREE.Quaternion()));
     // (a crisp lift with a hint of overshoot, a slower, softer return)
     const k = sstep(0, 0.1, u) * (1 - sstep(0.82, 1, u)), up = Math.min(1, k * (1 + 0.08 * Math.sin(Math.PI * sstep(0.05, 0.16, u))));
-    ARMS.forEach((b, i) => A[i].copy(B[b].quaternion));
+    for (let i = 0; i < 6; i++) A[i].copy(B[ARMS[i]].quaternion);
     let arms = true;
     if (s.type === 'six') {
       h.rot('shoulderL', -3.05, 0, 0.12); h.rot('shoulderR', -3.05, 0, -0.12);
@@ -151,7 +172,7 @@ class UmpireActor extends Actor {
       arms = false;
       h.rot('head', 0, 0.45 * Math.sin(tt * 8) * k, 0);
     }
-    if (arms) ARMS.forEach((b, i) => { _q.copy(B[b].quaternion); B[b].quaternion.copy(A[i]).slerp(_q, up); });
+    if (arms) for (let i = 0; i < 6; i++) { const q = B[ARMS[i]].quaternion; _q.copy(q); q.copy(A[i]).slerp(_q, up); }
   }
   // The TV screen: both hands trace a rectangle (0.56 x 0.34 m) in front of the face.
   screen(tt) {
