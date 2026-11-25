@@ -926,7 +926,7 @@ function kitMaterial(fig = null) {
         float band = (1.0 - vLookZW.x) * vLookZW.y * step(0.82, at.x) * step(at.x, 0.95);
         if (sl > 0.5) {
           c = at.x > 0.875 ? uKit2 : uKit1; gWrap = 0.25; gSpec = 0.035; gShin = 10.0; gSSS = 0.0;
-          kitH += 0.0012 * sin(at.x * 70.0 + vBind.y * 30.0) * smoothstep(0.35, 0.5, at.x) * smoothstep(0.85, 0.7, at.x);
+          kitH += 0.0005 * sin(at.x * 47.0 + vBind.y * 30.0 + sin(at.x * 23.0) * 2.0) * smoothstep(0.35, 0.5, at.x) * smoothstep(0.85, 0.7, at.x);
         }
         if (band > 0.5) { c = uKit2; gWrap = 0.3; gSpec = 0.02; gShin = 6.0; gSSS = 0.0; kitH += 0.00008 * sin(at.x * 900.0) * (1.0 - smoothstep(0.001, 0.002, fw)); }
       }
