@@ -281,11 +281,23 @@ export function drawPromptCard(g, W, H, text, color, kind) {
 // The stadium screen (24 x 9 m, ~85 m from the crease): a scoreboard that
 // reads from the middle, or a full-screen sting. Body text stays >= 48 px
 // (~15 px in the headset at that range).
-export function drawBigScreen(g, W, H, { lines = [], st = null, title = '', sting = null } = {}) {
-  const N = 'scoreboard';
+// The screen's ground (gradient and diagonal weave): the same every time, so painted once and
+// copied in (it was half the raster of every score change). A CPU canvas like the panel's, so
+// the copy is the very pixels the strokes made.
+let _screenBg = null;
+function screenBackground(W, H) {
+  if (_screenBg && _screenBg.width === W && _screenBg.height === H) return _screenBg;
+  const c = document.createElement('canvas'); c.width = W; c.height = H;
+  const g = c.getContext('2d', { willReadFrequently: true });
   g.fillStyle = vgrad(g, 0, H, '#0d1a33', '#050a15'); g.fillRect(0, 0, W, H);
   g.strokeStyle = 'rgba(255,255,255,0.025)'; g.lineWidth = 8;
   for (let x = -H; x < W; x += 28) { g.beginPath(); g.moveTo(x, H); g.lineTo(x + H, 0); g.stroke(); }
+  return (_screenBg = c);
+}
+
+export function drawBigScreen(g, W, H, { lines = [], st = null, title = '', sting = null } = {}) {
+  const N = 'scoreboard';
+  g.drawImage(screenBackground(W, H), 0, 0);
   if (sting) { drawScreenSting(g, W, H, sting); return; }
   const M = 24;
   if (lines[0] === 'CREASE VR' && !st) {
