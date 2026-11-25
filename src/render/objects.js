@@ -46,6 +46,10 @@ export class BallView {
     if (!v) this.trail.clear();
   }
 
+  // Gone into the crowd (a six landing in the stand): the ball and its shadow
+  // hidden where it came down; its trail is left to fade as usual.
+  vanish() { this.visible = false; this.mesh.visible = false; this.shadow.visible = false; }
+
   // Opacity 0..1 (the ball in your hand fades out as it nears your eyes). 1 = the usual solid ball.
   setFade(a) {
     a = a > 1 ? 1 : a < 0 ? 0 : a;

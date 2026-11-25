@@ -124,6 +124,7 @@ export class Game {
     this.replay = new Replay(this);
     this.ballFinder = new BallFinder(scene);
     this.ballOverride = null;   // fielding drives the ball view after a catch / pick-up
+    this.sixDown = false;       // a six is over the rope and has not come down yet (onPhysicsEvent)
 
     this.input = new InputManager(renderer, rig, camera, dom);
     this.quickSkip = new QuickSkip(this);   // the off-hand trigger once the ball is dead: straight to the next ball
@@ -1072,7 +1073,15 @@ export class Game {
     else if (e.type === 'bat') this.replay.mark('hit', e.t);
     else if (e.type === 'wicket') this.replay.mark('wicket', e.t);
     this.replay.event(e);                       // (the ball's exact moments for slow motion; an edge, over the rope)
-    if (e.type === 'bounce') {
+    // A six: the stand where it comes down goes up (the first thing it meets past the
+    // rope -- the seats, a roof, or the grass short of the stand).
+    if (e.type === 'boundary') this.sixDown = e.onFull && e.batted;
+    else if (this.sixDown && (e.type === 'stand' || e.type === 'bounce' || e.type === 'launch')) {
+      this.sixDown = false;
+      if (e.type !== 'launch') try { this.env.crowdReact?.('six', 1, e.pos); } catch { /* optional: the stands */ }
+    }
+    if (e.type === 'stand') this.ballView.vanish();        // (gone into the crowd: no bounce back onto the field)
+    else if (e.type === 'bounce') {
       if (e.speedIn > 3) this.particles.dust(e.pos, e.speedIn, e.surface !== 'pitch', this.world.ball.vel);
       if (!e.batted && e.surface === 'pitch' && e.index === 1) this.pitchMark.show(e.pos, this.world.ball.vel);
     } else if (e.type === 'bat') {

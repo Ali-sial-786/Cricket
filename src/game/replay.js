@@ -101,6 +101,8 @@ export class Replay {
     const m = this.marks;
     if (e.type === 'bat' && m.release != null && m.edge == null) m.edge = !!e.isEdge;
     if (e.type === 'boundary' && m.release != null && m.cross == null) m.cross = e.t;
+    // (a six coming down in the crowd: where and when -- the tape's ball is hidden from that moment)
+    if (e.type === 'stand' && m.release != null && m.land == null) { m.land = e.t; m.landAt = { x: e.pos.x, y: e.pos.y, z: e.pos.z }; }
     if ((e.type === 'bat' || e.type === 'bounce' || e.type === 'wicket') && e.pos && !this.active) {
       const k = this.keyHead; this.keyHead = (k + 1) % KEYS;
       this.keyT[k] = e.t; this.keyP[k * 3] = e.pos.x; this.keyP[k * 3 + 1] = e.pos.y; this.keyP[k * 3 + 2] = e.pos.z;

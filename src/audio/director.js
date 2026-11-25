@@ -147,6 +147,11 @@ export class AudioDirector {
         S.play('bails', { gain: 0.6, pos: p, rate: rr(0.06), prio: 1 });
         break;
       }
+      case 'stand':
+        // A six coming down in the crowd: a soft thud among the seats (a knock on a roof).
+        if (e.roof) s.boards(e.pos, Math.min(20, e.speed));
+        else s.bounce(Math.min(14, e.speed) * 0.5, 'turf', e.pos, 0);
+        break;
       case 'boundary':
         // Along the ground (or bounced) into the boards a couple of metres past the rope.
         if (!e.onFull) { const v = this.g.world.ball.vel, sp = hypot2(v.x, v.z); this.boardsAt = { t: this.t + clamp(2.5 / Math.max(sp, 3), 0.05, 0.6), pos: { x: e.pos.x, y: 0.3, z: e.pos.z }, speed: sp }; }
