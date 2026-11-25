@@ -5,6 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { classify, missBy, direct, planAt, replayMode, wants, segsLength, BUDGET, DIRECTOR, MODES } from '../src/game/replayDirector.js';
 import { pathStats, replayAt, tailFor, TAIL, TAIL_OUT, nearestOnBody, CLEAR } from '../src/game/replayFraming.js';
+import { hypot2 } from '../src/physics/math.js';
 
 const DT = 1 / 90, PRE = 2, T0 = 100, D2R = Math.PI / 180, CZ = -10.06;
 const wrap = (a) => { while (a > Math.PI) a -= 2 * Math.PI; while (a < -Math.PI) a += 2 * Math.PI; return a; };
@@ -40,7 +41,8 @@ function tapeOf(pts, people = [person(-0.4, -1.1), person(0.4, -21.6), person(0.
   return {
     first, last, pts,
     ball: (t, o) => { const f = at(t), i = Math.min(pts.length - 2, Math.floor(f)), k = f - i, a = pts[i], b = pts[i + 1]; o.x = a.x + (b.x - a.x) * k; o.y = a.y + (b.y - a.y) * k; o.z = a.z + (b.z - a.z) * k; return a.vis; },
-    bodies: () => people.map((p) => ({ a: { ...p.a }, b: { ...p.b }, c: { ...p.c } })),
+    bodies: () => people.map((p, k) => ({ k, a: { ...p.a }, b: { ...p.b }, c: { ...p.c } })),
+    figure: (k, t, o) => { const p = people[k]; if (!p) return false; o.x = p.c.x; o.y = 0; o.z = p.c.z; return true; },
     // the first time the ball is past the rope, and where it was caught (it stops there)
     crossAt() { for (let i = 0; i < pts.length; i++) if (Math.hypot(pts[i].x, pts[i].z - CZ) > 65) return first + i * DT; return null; },
   };
@@ -196,8 +198,11 @@ test('the ball stays near the middle of the view (±20°) while it is followed: 
   };
   for (const [name, [story, tier, pts, extra]] of Object.entries(cases)) {
     const { p, tape } = plan(story, tier, pts, extra);
+    // (a catch is watched on the catcher, not the ball; the rope camera stands 6-11 m from where the ball ends,
+    // so the ball's last moments turn the view at its comfort limit: 85% for a boundary)
+    if (story === 'caught') continue;
     const k = inCone(walk(p, tape));
-    assert.ok(k >= 0.9, `${name}: ball inside ±20° on ${(k * 100).toFixed(0)}% of the frames`);
+    assert.ok(k >= (tier === 'boundary' ? 0.85 : 0.9), `${name}: ball inside ±20° on ${(k * 100).toFixed(0)}% of the frames`);
   }
 });
 
@@ -276,6 +281,49 @@ test('a ball knocked back off the stumps toward the line camera: the replay ends
   const { p, tape } = plan('bowled', 'wicket', pts, { noHit: true, wicket: T0 + 0.62 });
   for (const f of walk(p, tape)) if (p.shots[f.shot].kind === 'line') assert.ok(Math.hypot(f.bx - f.x, f.by - f.y, f.bz - f.z) >= 2.9, `ball ${Math.hypot(f.bx - f.x, f.by - f.y, f.bz - f.z).toFixed(1)} m from the line camera`);
   assert.ok(p.segs.some((s) => s.rate < 0.6 && T0 + 0.62 >= s.a && T0 + 0.62 <= s.b), 'still slowed through the stumps breaking');
+});
+
+test('a catch: 5-8 m from the catcher, chest high, three-quarter on, there before the ball, slowed through the take, a beat on him after', () => {
+  for (const [name, v, at] of [['deep', [-12, 14, -10], 2.4], ['keeper', [0.3, 1.2, 14], 0.45], ['slip', [3, 1.4, 15], 0.5]]) {
+    const { pts, catcher } = caughtAt(v, at), C = person(catcher.x + 0.3, catcher.z);
+    const { p, tape } = plan('caught', 'wicket', pts, { caught: T0 + 0.6 + at }, true, [person(-0.4, -1.1), person(0.4, -21.6), C]);
+    const ct = T0 + 0.6 + at, sh = p.shots[p.S[p.n - 1]];
+    assert.equal(sh.kind, 'catch', name);
+    const d = hypot2(sh.pos.x - C.c.x, sh.pos.z - C.c.z);
+    assert.ok(d >= 5 && d <= 8.6, `${name}: ${d.toFixed(1)} m from the catcher`);
+    assert.ok(sh.pos.y >= 1.1 && sh.pos.y <= 1.6, `${name}: ${sh.pos.y} m up`);
+    // three-quarter on: 20-60° off the line the ball comes in on
+    const q = { x: 0, y: 0, z: 0 }; tape.ball(ct - 0.35, q);
+    const off = Math.abs(wrap(Math.atan2(sh.pos.x - C.c.x, sh.pos.z - C.c.z) - Math.atan2(q.x - C.c.x, q.z - C.c.z))) / D2R;
+    assert.ok(off >= 20 && off <= 60, `${name}: ${off.toFixed(0)}° off the ball's line`);
+    // there before the ball (a second of real time at least), slowed through the take, a beat after
+    let first = null, slowAtCt = false, after = 0;
+    for (const f of walk(p, tape)) {
+      if (f.shot !== p.S[p.n - 1]) continue;
+      if (first == null) first = f;
+      if (Math.abs(f.t - ct) < 0.02 && f.rate < 0.6) slowAtCt = true;
+      if (f.t > ct + 0.25) after += 1 / 72;
+      // the catcher in the middle of the view
+      assert.ok(Math.abs(wrap(Math.atan2(C.c.x - f.x, C.c.z - f.z) - f.yaw)) < 20 * D2R, `${name}: the catcher off the middle of the view`);
+    }
+    assert.ok((ct - first.t) / 0.3 >= 0.9 || first.u <= p.len - 3, `${name}: in place only ${(ct - first.t).toFixed(2)} s (tape) before the take`);
+    assert.ok(slowAtCt, `${name}: not slowed through the take`);
+    assert.ok(after >= 0.4, `${name}: ${after.toFixed(2)} s on him after`);
+  }
+});
+
+test('a four: the last angle low, 6-10 m from where it crosses the rope (fine leg too), ending on it crossing, not on the boards', () => {
+  for (const [name, v] of [['cover', [24, 3, -14]], ['square', [30, 2, 0]], ['fine leg', [-12, 1.5, 24]]]) {
+    const pts = shot(v), { p, tape } = plan('four', 'boundary', pts);
+    const sh = p.shots[p.S[p.n - 1]], C = { x: 0, y: 0, z: 0 }; tape.ball(tape.crossAt(), C);
+    const d = hypot2(sh.pos.x - C.x, sh.pos.z - C.z);
+    assert.ok(d >= 5.9 && d <= 10.6, `${name}: ${d.toFixed(1)} m from the crossing`);
+    assert.ok(sh.pos.y <= 1.5, `${name}: ${sh.pos.y} m up`);
+    assert.ok(p.end <= tape.crossAt() + 0.35, `${name}: runs ${(p.end - tape.crossAt()).toFixed(2)} s past the crossing`);
+    // the last frame looks at the ball, out across the rope (not along the boards)
+    const F = walk(p, tape), e = F[F.length - 1];
+    assert.ok(offOf(e) < DIRECTOR.cone, `${name}: ${(offOf(e) / D2R).toFixed(0)}° off the ball at the end`);
+  }
 });
 
 test('planAt: between samples it interpolates; across a cut it does not blend the two angles', () => {

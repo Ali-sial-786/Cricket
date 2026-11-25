@@ -167,65 +167,68 @@ function recipe(story, tier, m, tape) {
   }
   if (story === 'four' || story === 'six') {
     // Two angles, one cut: the line camera for bat on ball (slowed) and the
-    // ball leaving; then a spot by the rope 8-15 m from where the ball crosses
-    // it (a six: 10-20 m from where it lands in the seats), looking back
-    // toward the pitch so the ball comes to it and finishes near it, slowed
-    // over the rope / into the seats: the ball, the fielder chasing, the
-    // rope, the boards, the crowd behind going up.
+    // ball leaving; then a low spot 6-10 m inside the rope from where the ball
+    // crosses it (a six: 7-11 m from where it comes down in the stand), looking
+    // out across the ball's line so it comes to the camera, slowed over its
+    // last 0.6 s: the ball and the fielder chasing it large, the boards and
+    // the crowd behind. A four ends on the ball crossing the rope; a six on it
+    // landing and the stand going up.
     if (hit == null) return recipe('routine', tier, m, tape);
     const six = story === 'six', cross = m.cross ?? dead;
     const land = six ? landingAfter(tape, cross, last) : cross;
     const key = six ? land : cross;
-    const endT = Math.min(last, key + (six ? 1.0 : 0.9));
+    const endT = Math.min(last, key + (six ? 0.9 : 0.25));
     const k1 = line(), tB = lineFrom(), outT = lineUntil(hit + 0.5);
-    const subj = ballAt(tape, six ? land : Math.min(endT, cross + 0.5));
-    const k2 = shot({ kind: 'track', rope: true, fov: DIRECTOR.fov.track, subj,
-      dists: six ? [12, 16, 20] : [7, 10, 13], heights: six ? [2.2] : [1.7], endDist: six ? [10, 20] : [7, 14] });
+    const subj = ballAt(tape, key);
+    const k2 = shot({ kind: 'track', rope: true, fov: DIRECTOR.fov.line, subj, fielder: nearestFigure(tape, key, subj, 18),
+      dists: six ? [7, 9, 11] : [6, 8, 10], heights: six ? [2.0] : [1.3], endDist: six ? [7, 11] : [6, 10] });
     // (a ball driven back down the pitch leaves the line camera at once: the shot from behind the arm instead)
     const viaArm = (Math.min(hit + 0.2, outT) - tB) / S + Math.max(0, outT - hit - 0.2) < 0.7, k0 = viaArm ? arm() : -1;
-    let slow = S, from = Math.max(viaArm ? hit + 0.35 : outT, key - (six ? 1.9 : 2.2)), overRate = 0.5;
+    let slow = S, from = Math.max(viaArm ? hit + 0.35 : outT, key - (six ? 1.7 : 1.5)), overRate = S, slowFrom = 0.6;
     const build = () => {
       segs.length = 0;
       if (viaArm) seg(rel - 0.7, hit + 0.35, 1, k0);
       else { seg(tB, Math.min(hit + 0.2, outT), slow, k1); seg(hit + 0.2, outT, 1, k1); }
-      seg(from, key - 0.6, 1, k2); seg(Math.max(from, key - 0.6), key + 0.3, overRate, k2); seg(key + 0.3, endT, 1, k2);
+      seg(from, key - slowFrom, 1, k2); seg(Math.max(from, key - slowFrom), Math.min(endT, key + 0.3), overRate, k2); seg(key + 0.3, endT, 1, k2);
     };
     build();
-    // (over budget: less slow motion, then the rope camera picks the ball up later, never with under 1.6 s to go)
-    fit([() => { slow = 0.45; build(); }, () => { overRate = 0.7; build(); },
-      () => { const over = segsLength(segs) - B; from = Math.min(key - 1.2, from + over); build(); }]);
-    return { story, tier, shots, segs, key: hit };
+    // (over budget: less slow motion; then the rope camera picks the ball up later, never with under 1.2 s to go)
+    fit([() => { slow = 0.45; build(); }, () => { overRate = 0.4; build(); }, () => { slowFrom = 0.45; build(); },
+      () => { const over = segsLength(segs) - B; from = Math.min(key - 0.9, from + over); build(); }]);
+    return { story, tier, shots, segs, key: hit, focus: key };
   }
   if (story === 'caught' || story === 'dropped') {
+    // The catch (or the drop) from 5-8 m in front of the catcher, three-quarter
+    // on, at chest height, the camera in place before the ball gets there and
+    // the view on him (it turns with him as he runs in); slow motion through
+    // the hands closing, then a beat on him at real speed. Before it, the shot:
+    // the line camera (bat on ball, slowed), or for the keeper and the slips
+    // (too quick for that) the delivery from behind the arm.
     if (hit == null) return recipe('routine', tier, m, tape);
     const ct = story === 'caught' ? (m.caught ?? m.held ?? dead) : (m.dropT ?? dead);
-    const tB = lineFrom(), lt = lineUntil(hit + 0.2);
-    const flight = ct - hit;
-    if (flight < 1.3) {
+    const tB = lineFrom(), lt = lineUntil(hit + 0.2), quick = ct - hit < 1.3;
+    const cs = catchShot(tape, ct, quick ? hit - 0.12 : lt);
+    if (!cs) return recipe('routine', tier, m, tape);
+    const kc = shot(cs), endT = Math.min(last, ct + 1.0);
+    if (quick) {
       const k0 = arm();
-      // The keeper or the slips: the edge and the take from one spot near them, slowed.
-      const k2 = shot({ kind: 'track', fov: DIRECTOR.fov.track, subj: ballAt(tape, ct), dists: [7, 9, 12], heights: [1.8, 2.6], endDist: [6, 13] });
       let pre = 0.8, rate = S;
-      const build = () => { segs.length = 0; seg(rel - pre, Math.min(tB, hit - 0.12), 1, k0); seg(hit - 0.12, ct + 0.3, rate, k2); seg(ct + 0.3, ct + 0.9, 1, k2); };
+      const build = () => { segs.length = 0; seg(rel - pre, hit - 0.12, 1, k0); seg(hit - 0.12, ct - 0.35, 0.6, kc); seg(Math.max(hit - 0.12, ct - 0.35), ct + 0.3, rate, kc); seg(ct + 0.3, endT, 1, kc); };
       build();
       fit([() => { pre = 0.4; build(); }, () => { rate = 0.45; build(); }]);
-      return { story, tier, shots, segs, key: ct };
+      return { story, tier, shots, segs, key: ct, focus: ct };
     }
-    // Two angles, one cut: the line camera for the shot (slowed), then a spot
-    // close to the fielder for the flight and the catch (or the drop), slowed
-    // through the take.
     const k1 = line();
-    const k3 = shot({ kind: 'track', fov: DIRECTOR.fov.line, subj: ballAt(tape, ct), dists: [6, 8, 10], heights: [1.7], endDist: [5, 11], near: true });
-    let from = lt, rate = S, lineRate = S;
+    let from = Math.max(lt, ct - 1.6), rate = S, lineRate = S;
     const build = () => {
       segs.length = 0;
       seg(tB, lt, lineRate, k1);
-      seg(from, ct - 0.3, 1, k3); seg(Math.max(from, ct - 0.3), ct + 0.25, rate, k3); seg(ct + 0.25, ct + 0.8, 1, k3);
+      seg(from, ct - 0.45, 1, kc); seg(Math.max(from, ct - 0.45), ct + 0.3, rate, kc); seg(ct + 0.3, endT, 1, kc);
     };
     build();
     fit([() => { rate = 0.4; build(); }, () => { lineRate = 0.5; build(); },
-      () => { const over = segsLength(segs) - B; from = Math.min(ct - 1.2, from + over); build(); }]);
-    return { story, tier, shots, segs, key: ct };
+      () => { const over = segsLength(segs) - B; from = Math.min(ct - 0.9, from + over); build(); }]);
+    return { story, tier, shots, segs, key: ct, focus: ct };
   }
   if (story === 'runout' || story === 'stumped' || story === 'direct') {
     const kb = m.brk ?? m.throwAt;
@@ -300,6 +303,43 @@ function creaseShot(tape, cz, sz, kb) {
   return { kind: 'crease', fov: DIRECTOR.fov.crease, pos: best.pos, face: at, fixed: true };
 }
 
+// The figure standing nearest p (on the ground) at tape time t, within `r` m: { k, x, z } or null.
+function nearestFigure(tape, t, p, r) {
+  let best = null, bd = r;
+  for (const b of tape.bodies(t)) { const d = hypot2(b.b.x - p.x, b.b.z - p.z); if (d < bd) { bd = d; best = { k: b.k, x: b.b.x, z: b.b.z }; } }
+  return best;
+}
+
+// The catch camera: 5-8 m from the catcher (the figure nearest the ball when it
+// is caught), 1.3 m up, three-quarter on (25-55° off the line the ball comes in
+// on, from his front), clear of everybody over the shot, the ball never within
+// 2.5 m of it, nobody between it and him, not on the pitch. null: no catcher.
+function catchShot(tape, ct, from) {
+  const B = ballAt(tape, ct), who = nearestFigure(tape, ct, B, 4) || { k: -1, x: B.x, z: B.z };   // (nobody there: on the ball)
+  const P = { x: who.x, y: 1.1, z: who.z }, q = ballAt(tape, Math.max(from, ct - 0.35));
+  let wx = q.x - P.x, wz = q.z - P.z, wl = hypot2(wx, wz);
+  if (wl < 0.5) { wx = -P.x; wz = Z_BAT - POP - P.z; wl = hypot2(wx, wz) || 1; }      // (straight down onto him: his front is the batter)
+  wx /= wl; wz /= wl;
+  const path = [], bodies = [];
+  for (let t = Math.max(from, ct - 1.6); t <= ct + 0.4; t += 0.04) { const o = { x: 0, y: 0, z: 0 }; if (tape.ball(t, o)) path.push(o); }
+  for (const t of [Math.max(from, ct - 1.6), ct - 0.8, ct, ct + 0.6]) for (const b of tape.bodies(t)) bodies.push(b);
+  const atCt = tape.bodies(ct);
+  let best = null, n = 0;
+  for (const d of [6.5, 5.5, 7.5]) for (const a of [40, -40, 52, -52, 28, -28]) {
+    const c = Math.cos(a * D2R), sn = Math.sin(a * D2R), dx = wx * c - wz * sn, dz = wx * sn + wz * c;
+    const pos = { x: P.x + dx * d, y: 1.3, z: P.z + dz * d };
+    if (hypot2(pos.x, pos.z - CZ) > DIRECTOR.rim + 2.5) continue;
+    let bad = (n++) * 0.01;
+    if (Math.abs(pos.x) < 1.8 && pos.z > -21 && pos.z < 1.9) bad += 4;               // (not on the pitch)
+    for (const o of path) { const e = hypot3(o.x - pos.x, o.y - pos.y, o.z - pos.z); if (e < 2.5) { bad += 5 + (2.5 - e); break; } }
+    for (const b of bodies) { const g = nearestOnBody(pos, b); if (hypot3(pos.x - g.x, pos.y - g.y, pos.z - g.z) < CLEAR + (b.k === who.k ? 0.5 : 0.3)) { bad += 3; break; } }
+    for (const b of atCt) if (b.k !== who.k && blocksSight(pos, P, b)) bad += 1;
+    if (!best || bad < best.bad) best = { bad, pos };
+  }
+  if (!best) return null;
+  return { kind: 'catch', fov: DIRECTOR.fov.line, pos: best.pos, who: who.k, face: P };
+}
+
 // The first tape time in [t0, t1] at which the ball (drawn) satisfies pred.
 function firstWhen(tape, t0, t1, pred) {
   const o = { x: 0, y: 0, z: 0 };
@@ -333,12 +373,14 @@ function landingAfter(tape, cross, last) {
 export function chooseSpot(samples, sh, bodies, lim) {
   const E = sh.subj, cands = [];
   if (sh.rope) {
-    // By the rope (inside it, 55-62 m from the middle), along it either side of where the ball goes out,
-    // 8-15 m (a six: 10-20 m) from the subject.
-    const th = Math.atan2(E.x, E.z - CZ);
-    for (const r of [55, 58.5, 62]) for (let k = -12; k <= 12; k++) {
-      const a = th + k * 2.5 * D2R;
-      for (const y of sh.heights) cands.push({ x: Math.sin(a) * r, y, z: CZ + Math.cos(a) * r });
+    // Inside the rope, `dists` m from the subject (further if it came down deep in the stand), on bearings
+    // up to 80° either side of straight in from it.
+    const re = hypot2(E.x, E.z - CZ) || 1, ix = -E.x / re, iz = -(E.z - CZ) / re, rim = DIRECTOR.rim + 2.5;
+    for (const d0 of sh.dists) for (let k = -8; k <= 8; k++) {
+      const c = Math.cos(k * 10 * D2R), sn = Math.sin(k * 10 * D2R), ux = ix * c - iz * sn, uz = ix * sn + iz * c;
+      let d = d0;
+      while (d < d0 + 14 && hypot2(E.x + ux * d, E.z + uz * d - CZ) > rim) d += 1;     // (no nearer than the rope allows)
+      for (const y of sh.heights) cands.push({ x: E.x + ux * d, y, z: E.z + uz * d });
     }
   } else for (const d of sh.dists) for (let k = 0; k < 24; k++) {
     const a = k / 24 * 2 * Math.PI;
@@ -397,7 +439,17 @@ function spotCost(c, S, sh, lim) {
   let cost = (n ? miss / n : 0) * 20;
   cost += Math.max(0, sh.endDist[0] - dE) * 0.4 + Math.max(0, dE - sh.endDist[1]) * 0.25;
   cost += Math.max(0, 4 - minD) * 3 + Math.max(0, maxEl - (sh.rope ? 50 : 38) * D2R) / D2R * 0.12;
-  if (sh.rope) cost += (dE - sh.endDist[0]) * 0.3;          // (by the rope: as close to where it ends as the turn allows)
+  if (sh.rope) {
+    cost += (dE - sh.endDist[0]) * 0.3;                    // (by the rope: as close to where it ends as the turn allows)
+    // looking out at the stand across the rope (40° or less off straight out), not along the boards (a board
+    // close-up receding across the view)
+    const re = hypot2(sh.subj.x, sh.subj.z - CZ) || 1, cosOut = ((sh.subj.x - c.x) * sh.subj.x + (sh.subj.z - c.z) * (sh.subj.z - CZ)) / (re * Math.max(1e-3, dE));
+    const ang = Math.acos(clamp(cosOut, -1, 1)) / D2R;
+    if (ang > 40) cost += (ang - 40) * 0.12;
+    // the fielder chasing it in the picture with the ball
+    const F = sh.fielder;
+    if (F) { const off = Math.abs(wrap(Math.atan2(F.x - c.x, F.z - c.z) - Math.atan2(sh.subj.x - c.x, sh.subj.z - c.z))); if (off < 25 * D2R && hypot2(F.x - c.x, F.z - c.z) > 2.5) cost -= 0.8; }
+  }
   cost += turn / Math.PI * 0.6;
   // (by the rope: never ending on a sightscreen, the dark wedges straight behind either end)
   if (sh.rope) {
@@ -464,7 +516,8 @@ function layout(R, tape, lim, xr) {
     let hx = sh.face ? sh.face.x : sh.subj.x, hy = sh.face ? sh.face.y : sh.subj.y, hz = sh.face ? sh.face.z : sh.subj.z, seen = false;
     for (let i = sh.i0; i <= sh.i1; i++) {
       const follow = !sh.fixed && (sh.follow == null || T[i] >= sh.follow);
-      if (follow && tape.ball(T[i], o)) { hx = o.x; hy = o.y; hz = o.z; seen = true; }
+      if (sh.kind === 'catch') { if (tape.figure && tape.figure(sh.who, T[i], o)) { hx = o.x; hy = 1.1; hz = o.z; } }   // (on the catcher, as he moves)
+      else if (follow && tape.ball(T[i], o)) { hx = o.x; hy = o.y; hz = o.z; seen = true; }
       else if (follow && !seen && sh.kind === 'track') { const j = firstVisible(tape, T, i, sh.i1, o); if (j) { hx = o.x; hy = o.y; hz = o.z; } }
       bx[i] = hx; by[i] = hy; bz[i] = hz;
       X[i] = sh.pos.x; Y[i] = sh.pos.y; Z[i] = sh.pos.z;
@@ -473,7 +526,7 @@ function layout(R, tape, lim, xr) {
   }
   const cuts = [];
   for (let i = 1; i < n; i++) if (S[i] !== S[i - 1]) cuts.push(i);
-  return { story: R.story, tier: R.tier, n, du, len, T, X, Y, Z, W, P, S, R: RT, shots: R.shots, segs, cuts, start: segs[0].a, end: segs[segs.length - 1].b, key: R.key ?? null };
+  return { story: R.story, tier: R.tier, n, du, len, T, X, Y, Z, W, P, S, R: RT, shots: R.shots, segs, cuts, start: segs[0].a, end: segs[segs.length - 1].b, key: R.key ?? null, focus: R.focus ?? null };
 }
 function segLen(g) { return g.rate > 0 ? (g.b - g.a) / g.rate : g.dur; }
 function firstVisible(tape, T, i, i1, o) { for (let j = i; j <= i1; j += 3) if (tape.ball(T[j], o)) return true; return false; }
@@ -517,9 +570,10 @@ export function planAt(p, u, out) {
   const f = clamp(u / p.du, 0, p.n - 1), i = Math.min(p.n - 2, Math.floor(f));
   let k = f - i;
   if (p.S[i] !== p.S[i + 1]) k = k < 1 ? 0 : 1;
-  const j = k >= 1 ? i + 1 : i, l = (a) => a[i] + (a[i + 1] - a[i]) * k;
-  out.t = p.S[i] === p.S[i + 1] ? l(p.T) : p.T[j];
-  out.x = l(p.X); out.y = l(p.Y); out.z = l(p.Z); out.yaw = l(p.W); out.pitch = l(p.P);
+  const j = k >= 1 ? i + 1 : i;
+  out.t = p.S[i] === p.S[i + 1] ? at(p.T, i, k) : p.T[j];
+  out.x = at(p.X, i, k); out.y = at(p.Y, i, k); out.z = at(p.Z, i, k); out.yaw = at(p.W, i, k); out.pitch = at(p.P, i, k);
   out.shot = p.S[j]; out.rate = p.R[j];
   return out;
 }
+const at = (a, i, k) => a[i] + (a[i + 1] - a[i]) * k;     // (a module function: nothing made per frame)

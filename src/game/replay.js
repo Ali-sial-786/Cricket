@@ -27,7 +27,7 @@
 import * as THREE from 'three';
 import { font, rr } from '../ui/theme.js';
 import { Humanoid } from '../render/humanoid.js';
-import { computeRigFacing, headForward } from './calibration.js';
+import { headForward, yawOfForward, wrapAngle } from './calibration.js';
 import { Vec3, hypot2, hypot3 } from '../physics/math.js';
 import { PITCH } from '../physics/pitch.js';
 import { CONFIG } from '../config.js';
@@ -236,7 +236,7 @@ export class Replay {
     const arrive = this.arrival(m.release);
     const M = { release: m.release, arrive, hit: m.hit, pad: m.pad, wicket: m.wicket, brk: m.break, brkEnd: m.breakEnd, caught: m.caught, held: m.held,
       dropT: m.dropT, diveT: m.diveT, throwAt: m.throwAt, cross: m.cross, dead: m.dead };
-    const tape = { first, last, ball: (t, o) => this.tapeBall(t, o), bodies: (t) => this.bodiesAt(t) };
+    const tape = { first, last, ball: (t, o) => this.tapeBall(t, o), bodies: (t) => this.bodiesAt(t), figure: (k, t, o) => this.figureAt(k, t, o) };
     const p = direct({ story: m.story, tier: m.tier, m: M, tape, xr: !!this.g.input.xr });
     if (p) p.arrive = arrive;
     return p;
@@ -259,9 +259,19 @@ export class Replay {
     for (let k = 0; k < this.humans.length; k++, o += this.hStride) {
       if (B[o] < 0.5) continue;
       const x = B[o + 1], y = B[o + 2], z = B[o + 3], s = B[o + 8] || 1;
-      out.push({ a: { x, y: y + 1.85 * s, z }, b: { x, y: y + 0.95 * s, z }, c: { x, y: y + 0.05, z } });
+      out.push({ k, a: { x, y: y + 1.85 * s, z }, b: { x, y: y + 0.95 * s, z }, c: { x, y: y + 0.05, z } });
     }
     return out;
+  }
+
+  // Figure k's place on the ground at tape time t (between frames), into out {x, y, z}; true if he was drawn.
+  figureAt(k, t, out) {
+    const i0 = this.find(t), i1 = Math.min(this.count - 1, i0 + 1);
+    if (i0 < 0 || k < 0 || k >= this.humans.length) return false;
+    const t0 = this.timeAt(i0), t1 = this.timeAt(i1), u = t1 > t0 ? clamp((t - t0) / (t1 - t0), 0, 1) : 0;
+    const off = 7 + 9 + 8 + k * this.hStride, a = this.slotAt(i0) * this.stride + off, b = this.slotAt(i1) * this.stride + off, B = this.buf;
+    out.x = mix(B[a + 1], B[b + 1], u); out.y = mix(B[a + 2], B[b + 2], u); out.z = mix(B[a + 3], B[b + 3], u);
+    return B[a] > 0.5;
   }
 
   // The ball is dead and its result is up (the session has just gone to
@@ -461,7 +471,7 @@ export class Replay {
   stepJob() {
     const J = this.job;
     if (!J) return;
-    const pb = this.g.playerBody, write = (t, h) => this.overwrite(J.k, t, h, pb.armsNow());
+    const pb = this.g.playerBody, write = J.write || (J.write = (t, h) => this.overwrite(J.k, t, h, pb.armsNow()));   // (made once a replay)
     let done = pb.resolveStep(J.job, 4, write), extra = 12;
     while (!done && extra-- > 0 && J.job.t >= J.job.t0 - 0.05 && J.job.t < this.rt + 0.15) done = pb.resolveStep(J.job, 1, write);
     if (done) { pb.resolveEnd(J.job); this.job = null; }
@@ -568,10 +578,10 @@ export class Replay {
       // began to the camera, and turns the way you were facing to its heading;
       // from there your own head moves and looks about as it likes. Level
       // always: position and yaw only.
-      const ref = this.ref;
-      const r = computeRigFacing(ref.p, ref.f, c.x, c.z, Math.sin(c.yaw), Math.cos(c.yaw));
-      g.rig.position.set(r.x, c.y - ref.p.y, r.z);
-      g.rig.rotation.set(0, r.yaw, 0);
+      // (calibration.js computeRigFacing, inline: nothing made a frame)
+      const ref = this.ref, yaw = Math.atan2(-Math.sin(c.yaw), -Math.cos(c.yaw)) - yawOfForward(ref.f), cy = Math.cos(yaw), sy = Math.sin(yaw);
+      g.rig.position.set(c.x - (ref.p.x * cy + ref.p.z * sy), c.y - ref.p.y, c.z - (-ref.p.x * sy + ref.p.z * cy));
+      g.rig.rotation.set(0, wrapAngle(yaw), 0);
       g.rig.updateMatrixWorld(true);
       g.input.refreshHeadWorld();
       // Comfort vignette while the view is moving or turning.
@@ -593,10 +603,11 @@ export class Replay {
       g.ballView.mesh.scale.setScalar(clamp(d * Math.tan((CONFIG.render.ballMinAngleDeg * Math.PI) / 360) / CONFIG.ball.radius, 1, 2.2));
     }
     // What the camera did (for the harness and the tests): real time, tape time, the shot.
-    if (dt > 0 || !this.camLog.length) this.camLog.push({ t: this.u, rt: this.rt, x: c.x, y: c.y, z: c.z, yaw: c.yaw, bx: bm.x, by: bm.y, bz: bm.z, ball: this.rt >= this.clip.release + 0.08 && g.ballView.visible, shot: c.shot, slow: this.slowNow });
+    // (only when asked for: an object a frame otherwise)
+    if (this.logCamera && (dt > 0 || !this.camLog.length)) this.camLog.push({ t: this.u, rt: this.rt, x: c.x, y: c.y, z: c.z, yaw: c.yaw, bx: bm.x, by: bm.y, bz: bm.z, ball: this.rt >= this.clip.release + 0.08 && g.ballView.visible, shot: c.shot, slow: this.slowNow });
   }
 
-  // How the camera moved in the replay that is playing (or the last one).
+  // How the camera moved in the replay that is playing (or the last one; set logCamera first).
   camStats() { return pathStats(this.camLog || []); }
 
   // Keep the vignette, the label and the slow-motion tag in front of your eyes
