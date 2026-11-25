@@ -171,3 +171,28 @@ test('player of the match: the best performance of the game, a tie to the winner
   assert.match(p.text, /^2\/0/);
   assert.equal(playerOfMatch([]), null);
 });
+
+test('the strap never goes over a figure near you: the first clear slot to the side, or none (the big screen has it)', async () => {
+  const { Humanoid } = await import('../src/render/humanoid.js');
+  const g = fakeGame('on'), C = g.ceremony, saved = Humanoid.all.slice();
+  const man = (x, z) => ({ root: { visible: true, position: { x, y: 0, z } }, fade: 1 });
+  const eye = new THREE.Vector3(0, 1.6, 0), fwd = new THREE.Vector3(0, 0, -1);
+  try {
+    Humanoid.all.length = 0;
+    assert.deepEqual(C.strapSlot(eye, fwd, 2, 0.38, {}).yaw, 0, 'nobody about: straight ahead');
+    Humanoid.all.push(man(0, -3));
+    const s = C.strapSlot(eye, fwd, 2, 0.38, {});
+    assert.ok(s && Math.abs(s.yaw) > 0.2, `a man in front: to one side (${s && s.yaw})`);
+    for (let a = -1.2; a <= 1.2; a += 0.15) Humanoid.all.push(man(Math.sin(a) * 3, -Math.cos(a) * 3));
+    assert.equal(C.strapSlot(eye, fwd, 2, 0.38, {}), null, 'a ring of people: no strap');
+  } finally { Humanoid.all.length = 0; Humanoid.all.push(...saved); }
+});
+
+test('every beat leaves nothing behind: no walkers, no borrowed marks, the coin and the strap gone', () => {
+  const r = playMatch('on');
+  const C = r.g.ceremony;
+  assert.equal(C.stageBusy(), false);
+  assert.equal(C.coin.mesh.visible, false);
+  assert.ok(!C.cardOn);
+  assert.equal(C.cast, null);
+});

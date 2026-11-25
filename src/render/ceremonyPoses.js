@@ -64,3 +64,37 @@ export function offerHand(a, w, t) {
 }
 export { envelope };
 const _u = new THREE.Vector3(0, 1, 0);
+
+// An umpire at ease (the toss): stood tall, hands clasped in front at the
+// belt, the left over the right; drawn over his own idle (umpires.js), by weight w.
+const ARMS_LR = ['shoulderL', 'elbowL', 'handL', 'shoulderR', 'elbowR', 'handR'];
+const _qs = ARMS_LR.map(() => new THREE.Quaternion()), _h = new THREE.Vector3();
+export function standEasy(a, w) {
+  if (w <= 0.001) return;
+  const h = a.h, B = h.bones, sc = h.root.scale.y;
+  h.addRot('spine', -0.1 * w, 0, 0); h.addRot('chest', -0.05 * w, 0, 0); h.addRot('neck', -0.04 * w, 0, 0);
+  for (let i = 0; i < 6; i++) _qs[i].copy(B[ARMS_LR[i]].quaternion);
+  h.update();
+  a.forward(_f); _l.set(_f.z, 0, -_f.x);
+  h.worldPos('hips', _h);
+  for (let k = 0; k < 2; k++) {
+    const side = k ? 'R' : 'L', sg = k ? -1 : 1;
+    _t.copy(_h).addScaledVector(_f, 0.2 * sc).addScaledVector(_l, sg * 0.03 * sc).addScaledVector(_u, (0.06 + (k ? -0.015 : 0.015)) * sc);
+    h.worldPos(k ? 'shoulderR' : 'shoulderL', _s);
+    _p.copy(_s).addScaledVector(_l, sg * 0.45).addScaledVector(_u, -0.4).addScaledVector(_f, -0.15);
+    h.ikArm(side, _t, _p);
+  }
+  if (w < 1) for (let i = 0; i < 6; i++) { _q.copy(B[ARMS_LR[i]].quaternion); B[ARMS_LR[i]].quaternion.copy(_qs[i]).slerp(_q, w); }
+}
+
+// A glove punch / handshake toward a point (world: the other man's hand, or your head):
+// the right hand out toward it, at chest height, by weight w.
+export function reachTo(a, p, w) {
+  if (w <= 0.001 || !p) return;
+  const sc = a.h.root.scale.y, sh = frame(a);
+  _t.set(p.x - sh.x, 0, p.z - sh.z);
+  const d = Math.sqrt(_t.x * _t.x + _t.z * _t.z) || 1, r = Math.min(0.5 * sc, d * 0.5);
+  _t.multiplyScalar(r / d).add(sh); _t.y = sh.y - 0.3 * sc;
+  _p.copy(sh).addScaledVector(_l, -0.6).addScaledVector(_u, -0.5);
+  armTo(a, _t, _p, w);
+}

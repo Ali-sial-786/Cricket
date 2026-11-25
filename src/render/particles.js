@@ -217,6 +217,16 @@ export class Particles {
     }
   }
   fireworks(p) { this.celebrate(p, true); }
+  // The result (ceremony.js): the cannons on the roof in front of you (x, z: you; dx, dz: the way you face)
+  // and either side of it: paper over the whole end of the ground. Two volleys of a six's: ~430 of the pool.
+  finale(x, z, dx, dz) {
+    if (!this.celebrations) return;
+    for (let k = -1; k <= 1; k += 2) {
+      const a = Math.atan2(dx, dz) + k * 0.6, ax = Math.sin(a), az = Math.cos(a);
+      _fp.x = x + ax * 95; _fp.z = z + az * 95;
+      this.celebrate(_fp, true);
+    }
+  }
 
   // The wicket broken: chips of wood off the stumps and bails, and a puff of dust off the crease
   // (the bails themselves fly and the LEDs flash: objects.js).
@@ -289,6 +299,6 @@ export class Particles {
     A.position.needsUpdate = A.alpha.needsUpdate = A.size.needsUpdate = true;
   }
 }
-const _c = new THREE.Color();
+const _c = new THREE.Color(), _fp = { x: 0, y: 0, z: 0 };
 const DEG = 180 / Math.PI;
 const pick = (a) => a[(Math.random() * a.length) | 0];
