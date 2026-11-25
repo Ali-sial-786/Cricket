@@ -140,7 +140,8 @@ export class Particles {
       const a = R() * Math.PI * 2, s = (0.15 + R() * 0.5) * (0.5 + k);
       this.spawn(p.x + Math.cos(a) * 0.02, 0.03 + R() * 0.03, p.z + Math.sin(a) * 0.02,
         Math.cos(a) * s + fx * (0.4 + R() * 0.9) * k, 0.15 + R() * 0.45 * k, Math.sin(a) * s + fz * (0.4 + R() * 0.9) * k,
-        { color: pick(PITCH_DUST), life: 0.9 + R() * 0.7, size: 0.09 + 0.09 * k, grow: 0.35, drag: 2.6, grav: -0.05, alpha: 0.5 + 0.2 * k, kind: PUFF });
+        // (thin: six puffs at half opacity on one spot added up to a pale disc of light on the strip)
+        { color: pick(PITCH_DUST), life: 0.7 + R() * 0.5, size: 0.06 + 0.05 * k, grow: 0.3, drag: 2.6, grav: -0.12, alpha: 0.13 + 0.09 * k, kind: PUFF });
     }
     for (let i = 0; i < 10; i++) {
       const a = (R() - 0.5) * 1.6, s = (1 + R() * 2.4) * (0.4 + k);

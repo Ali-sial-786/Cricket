@@ -454,7 +454,7 @@ export class FielderActor extends Actor {
         // (and to his own depth: some crouch lower than others)
         const k = sstep(0, 1, this.ready) * (0.8 + 0.25 * hash01(this.seed, 7.7));
         applyClip(h, 'set', t + this.idleOff, k, MASK_LEGS);
-        for (const [b, x, z] of READY_TOP) { _e2.set(x, 0, z); _q.setFromEuler(_e2); h.bones[b].quaternion.slerp(_q, k); }
+        for (let i = 0; i < READY_TOP.length; i++) { const r = READY_TOP[i]; _e2.set(r[1], 0, r[2]); _q.setFromEuler(_e2); h.bones[r[0]].quaternion.slerp(_q, k); }
       }
       this.apply();
       gest = !act && !s.ceremony; idleOK = !act && !s.await && !s.ceremony;
@@ -1187,7 +1187,8 @@ function yawOfQ(q) { _yq.set(0, 0, 1).applyQuaternion(q); return Math.atan2(_yq.
 // How much of a full (baseball-style) body turn each cricket shot uses.
 const SWING_AMP = { pull: 0.85, hook: 0.85, slog: 0.9, cut: 0.5, drive: 0.5, flick: 0.45, defend: 0.12, leave: 0 };
 const _sw = {};
-const ARM_STRETCH = 1;                 // (the arms are adult length in the asset now)
+const ARM_STRETCH = 1;
+const ARM_BONES = ['elbowL', 'handL', 'elbowR', 'handR'];       // (the bones an arm's stretch moves)                 // (the arms are adult length in the asset now)
 const PALM = 0.075;                 // wrist to the middle of the palm (where a handle sits)
 const HAND_GAP = 0.105;
 // The batting stance (a crouch with the head out over the toes, cf. the classic side-on stance).
@@ -1210,8 +1211,8 @@ export class BatterActor extends Actor {
     this.footL = new THREE.Vector3(); this.footR = new THREE.Vector3();
     this.mode = 'bat';        // 'bat' (driven by a bat pose) | 'run' | 'idle'
     // The model's arms are short for holding a bat out in front: lengthen them a little.
-    for (const b of ['elbowL', 'handL', 'elbowR', 'handR']) this.h.bones[b].position.multiplyScalar(ARM_STRETCH);
-    this.armRest = Object.fromEntries(['elbowL', 'handL', 'elbowR', 'handR'].map((b) => [b, this.h.bones[b].position.clone()]));
+    for (const b of ARM_BONES) this.h.bones[b].position.multiplyScalar(ARM_STRETCH);
+    this.armRest = Object.fromEntries(ARM_BONES.map((b) => [b, this.h.bones[b].position.clone()]));
     this.stretchArms = false;     // your figure: the arms may lengthen so the gloves are always on your bat (gripBat)
     this.h.update();
     this.armLen = this.h.worldPos('shoulderR', new THREE.Vector3()).distanceTo(this.h.worldPos('elbowR', new THREE.Vector3()))
@@ -2071,7 +2072,7 @@ export class BatterActor extends Actor {
   // Arm bones back to their own length (after stretchTo).
   restArms() {
     if (!this._stretched) return;
-    for (const [b, p] of Object.entries(this.armRest)) this.h.bones[b].position.copy(p);
+    for (let i = 0; i < ARM_BONES.length; i++) this.h.bones[ARM_BONES[i]].position.copy(this.armRest[ARM_BONES[i]]);
     this._stretched = false;
   }
 

@@ -103,9 +103,9 @@ export class PlayerBowlerActor extends Actor {
   // pose: {p, q} grip pose in the world (null hides it); alpha: 0..1 (below ~0.5 the hand is not drawn);
   // dz: m to add along the pitch (the run-up moved the rig after the controllers were read).
   showHand(pose, alpha = 1, dz = 0) {
-    const m = this.hand, u = this.h.material.userData.uniforms;
+    const m = this.hand, u = this.h.u;
     m.visible = !!pose && alpha > 0.5;
-    u.uHideHand.value = m.visible && this.h.ghost ? this.h.boneList.indexOf(this.h.bones.handR) : -1;
+    this.h.setHideHand(m.visible && this.h.ghost ? this.h.boneList.indexOf(this.h.bones.handR) : -1);
     if (!m.visible) return;
     m.position.set(pose.p.x, pose.p.y, pose.p.z + dz);
     m.quaternion.set(pose.q.x, pose.q.y, pose.q.z, pose.q.w);
