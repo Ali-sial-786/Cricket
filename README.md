@@ -193,9 +193,10 @@ view also faces forward by itself before each ball, on recenter, catches and rep
   (7 m in front of the batter, at eye height) for a bowled, an lbw, a near miss or an edge, side-on at the
   popping crease for a run-out or a stumping (frozen for a moment as the stumps break), and a tracking spot picked
   from the ball's own flight (the ball kept near the middle of the view): a four or six is bat on ball down the line,
-  then a spot by the rope 8-15 m from where the ball goes over (a six: 10-20 m from where it lands in the seats),
-  the ball coming to you, the fielder chasing, the boards and the crowd going up; a catch is the shot down the line,
-  then a spot close to the fielder for the flight and the take. Real speed for the
+  then a low spot 6-10 m inside the rope from where the ball goes over (a six: 7-11 m from where it comes down),
+  looking out across the rope, the ball coming to you, ending on it crossing (a six: on the stand going up); a catch
+  or a drop is the shot, then a camera 5-8 m in front of the catcher at chest height, there before the ball, slowed
+  through the hands closing and holding on him for a beat. Real speed for the
   build-up, slow motion through the key moment (a small *SLOW MOTION* tag). At most 6 s for a wicket, 5 s for a
   boundary or a close call. Each angle is a fixed spot that turns to follow the ball; there is one cut at most, a
   quick dip to dark and back (0.08 s), and the replay comes in and goes out in about a tenth of a second. After an appeal, a DRS review or the third umpire, the
