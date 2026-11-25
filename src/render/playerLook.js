@@ -72,6 +72,7 @@ export function lookFor(seed, team, role = 'player') {
   L.nose = r() * 2 - 1;                            // shorter / flatter .. longer / more prominent
   L.brow = r() * 2 - 1;                            // a flat brow .. a heavy brow ridge
   L.jaw = r() * 2 - 1;                             // narrow .. square
+  { const e = r(); L.expr = e < 0.5 ? 0 : e < 0.78 ? 1 : 2; }   // relaxed / focused (narrowed eyes, lowered brows) / a slight smile
   if (role === 'self') { L.sweatband = 0; L.sleeves = 0; L.build = 0; }
   return L;
 }

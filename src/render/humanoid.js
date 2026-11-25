@@ -609,7 +609,7 @@ const KIT_GLSL_COMMON = /* glsl */`
   // kit1 + seed, kit2 + lod, kit3 + team, kit4 + no head, skin + gloved, hair + hidden hand,
   // panel + shades, iris + name length, look (build, hair volume, sleeves, sweatband),
   // look2 (beard, stubble, hair cut, zinc), crest rect, sponsor rect, brim + tens, the name's
-  // 12 glyphs, units, look3 (age, nose, brow, jaw). The kit's first two colours and the sleeves / sweatband go on to the
+  // 12 glyphs, units, look3 (age, nose, brow, jaw), look4 (expression). The kit's first two colours and the sleeves / sweatband go on to the
   // fragments as flat varyings (cloth and skin use them); the rest is fetched where it is used.
   #define FIG(i) texelFetch(boneTexture, ivec2((i) & 15, 14 + ((i) >> 4)), 0)
   flat varying vec3 vK1; flat varying vec3 vK2; flat varying vec2 vLookZW;
@@ -654,6 +654,7 @@ function figureValues() {
     uPanel: { value: new THREE.Color(0x173f8c) }, uIris: { value: new THREE.Color(0x3b2414) },
     uLook: { value: new THREE.Vector4(0, 0, 0, 0) }, uLook2: { value: new THREE.Vector4(0, 0, 1, 0) },
     uLook3: { value: new THREE.Vector4(0, 0, 0, 0) },    // age, nose, brow, jaw (FIG(17))
+    uLook4: { value: new THREE.Vector4(0, 0, 0, 0) },    // expression: 1 focused, 2 smile (FIG(18).x)
     uCrestUV: { value: new THREE.Vector4() }, uSponsorUV: { value: new THREE.Vector4() },
     uTeamIx: { value: 0 },         // 0/1 the teams (sponsor, name, number), 2 officials (crest only)
     uNum: { value: new THREE.Vector2(-1, -1) },        // back number: glyphs of the tens and units (-1 none)
@@ -828,6 +829,18 @@ function kitMaterial(fig = null) {
           transformed.z += 0.0028 * L3.z * brow;
           float jaw = smoothstep(uFaceMisc.w + 0.006, uFaceMisc.w - 0.02, position.y) * smoothstep(1.47, 1.5, position.y) * smoothstep(0.02, 0.06, ax);
           transformed.x += position.x * 0.06 * L3.w * jaw;
+          // his expression (FIG(18).x): a slight smile lifts the mouth's corners and the cheeks
+          float ex = FIG(18).x;
+          if (ex > 1.5) {
+            float dm = position.y - uFaceMisc.w;
+            float corner = exp(-pow((ax - 0.026) / 0.012, 2.0) - dm * dm / 0.00008);
+            transformed.y += 0.0028 * corner; transformed.z -= 0.0012 * corner; transformed.x += sign(position.x) * 0.0012 * corner;
+            transformed.y += 0.0015 * exp(-pow((ax - 0.045) / 0.015, 2.0) - pow((position.y - uEye.y + 0.028) / 0.012, 2.0));
+          }
+        }
+        // a focused man's brows come down and in (the brow hair, slot 6 in front of the face)
+        if (k > 5.5 && k < 6.5 && position.z > uEye.w - 0.012 && FIG(18).x > 0.5 && FIG(18).x < 1.5) {
+          transformed.y -= 0.0022 + 0.0018 * smoothstep(0.04, 0.012, abs(position.x));
         }
 `);
     sh.fragmentShader = sh.fragmentShader
@@ -1143,7 +1156,7 @@ function kitMaterial(fig = null) {
       vec3 uSkin = FIG(4).rgb, uHair = FIG(5).rgb; float uSeed = FIG(0).w;
       vec2 e = vec2(abs(vBind.x) - uEye.x, vBind.y - uEye.y);
       float r = uEye.z, u = clamp(e.x / (r * 1.75), -1.0, 1.0);
-      float ageE = FIG(17).x;      // (an older man's lids sit lower and his eyes look narrower)
+      float ageE = FIG(17).x + (abs(FIG(18).x - 1.0) < 0.5 ? 0.55 : FIG(18).x > 1.5 ? 0.25 : 0.0);      // (an older man's lids sit lower; a focused man narrows his eyes, a smiling one a little)
       float up = r * (0.44 - 0.12 * ageE - 0.32 * u * u) + 0.14 * r * u, lo = -r * (0.62 - 0.08 * ageE - 0.34 * u * u) + 0.1 * r * u;
       // a blink every few seconds (each man on his own clock): the upper lid comes down for ~0.15 s
       float bp = fract(uTime / (3.7 + 1.9 * uSeed) + uSeed * 7.3);
@@ -1337,6 +1350,7 @@ export class Humanoid {
     u.uLook.value.set(look.build, look.hairVol, look.sleeves, look.sweatband);
     u.uLook2.value.set(look.beard, look.stubble, look.hairCut, look.zinc);
     u.uLook3.value.set(look.age, look.nose, look.brow, look.jaw);
+    u.uLook4.value.set(look.expr || 0, 0, 0, 0);
     if (vary) scale *= look.scale;
     u.uSeed.value = rnd(9);
     u.uShades.value = this.opts.shades ? 1 : 0;
@@ -1442,7 +1456,7 @@ export class Humanoid {
   // Look like another figure (skin, hair, face, build, shirt name and number): the two figures that draw the same man.
   copyLook(o) {
     const u = this.u, v = o.u;
-    for (const k of ['uSkin', 'uHair', 'uIris', 'uLook', 'uLook2', 'uLook3']) u[k].value.copy(v[k].value);
+    for (const k of ['uSkin', 'uHair', 'uIris', 'uLook', 'uLook2', 'uLook3', 'uLook4']) u[k].value.copy(v[k].value);
     this.lookChanged();
     this.setNumber(o.number);
     this.setName(o.name);
@@ -1713,7 +1727,7 @@ export class Humanoid {
     const v4 = (i, v) => { const k = o + i * 4; M[k] = v.x; M[k + 1] = v.y; M[k + 2] = v.z; M[k + 3] = v.w; };
     c3(0, u.uKit1.value, u.uSeed.value); c3(1, u.uKit2.value, u.uLod.value); c3(2, u.uKit3.value, u.uTeamIx.value); c3(3, u.uKit4.value, u.uNoHead.value);
     c3(4, u.uSkin.value, u.uGloved.value); c3(5, u.uHair.value, u.uHideHand.value); c3(6, u.uPanel.value, u.uShades.value); c3(7, u.uIris.value, u.uNameLen.value);
-    v4(8, u.uLook.value); v4(9, u.uLook2.value); v4(10, u.uCrestUV.value); v4(11, u.uSponsorUV.value); v4(17, u.uLook3.value);
+    v4(8, u.uLook.value); v4(9, u.uLook2.value); v4(10, u.uCrestUV.value); v4(11, u.uSponsorUV.value); v4(17, u.uLook3.value); v4(18, u.uLook4.value);
     { const k = o + 48, b = u.uBrim.value; M[k] = b.x; M[k + 1] = b.y; M[k + 2] = b.z; M[k + 3] = u.uNum.value.x; }
     for (let i = 0; i < 12; i++) M[o + 52 + i] = u.uName.value[i];
     M[o + 64] = u.uNum.value.y;
