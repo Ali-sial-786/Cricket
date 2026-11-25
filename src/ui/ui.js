@@ -90,7 +90,7 @@ export class UI {
       m.transparent = false; m.depthWrite = true; }
     this.board.mesh.position.copy(game.env.screen.pos);
     this.board.mesh.lookAt(game.env.screen.look);
-    game.env.stadium.add(this.board.mesh);
+    if (game.env.adoptScreen) game.env.adoptScreen(this.board); else game.env.stadium.add(this.board.mesh);
     this.boardData = { lines: ['CREASE VR', 'Nets'] };
     this.boardSting = null;      // { kind, word, sub, until }: a call up on the screen
     this.boardOver = null;       // { lines, until }: a beat's card on the screen (ceremony.js)

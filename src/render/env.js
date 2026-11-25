@@ -179,6 +179,8 @@ export function buildEnvironment(scene) {
   const env = {
     root, stadium, pitchGroup, crowd, sky, ground,
     screen: { pos: screenPos, look: new THREE.Vector3(0, screenPos.y - 5, CZ) },
+    // The stadium screen's panel (ui.js), placed: drawn with the LED boards (stadium.js).
+    adoptScreen(panel) { stadium.add(panel.mesh); bowl.adoptScreen(panel); },
     update(dt, t) {
       bowl.update(t);
       skyView.update(t);
