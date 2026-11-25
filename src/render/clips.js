@@ -106,7 +106,7 @@ export function applyClip(h, name, time, weight = 1, mask = MASK_ALL) {
 const CONTACT = [0.03, 0.09];
 const EMPTY = new Float32Array(1024);
 export function floorCorrection(low) {
-  const [c0, c1] = CONTACT;
+  const c0 = CONTACT[0], c1 = CONTACT[1];
   const w = low <= c0 ? 1 : low >= c1 ? 0 : 1 - (low - c0) / (c1 - c0);
   return -low * w;
 }
