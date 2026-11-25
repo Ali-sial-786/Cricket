@@ -8,13 +8,14 @@
 import * as THREE from 'three';
 import { PITCH } from '../physics/pitch.js';
 import { CONFIG } from '../config.js';
-import { part, merge, vertexColorMat } from './util.js';
+import { part, merge } from './util.js';
 import { buildLights } from './lighting.js';
 import { buildSky } from './sky.js';
 import { buildGround } from './ground.js';
 import { buildStadium } from './stadium.js';
 import { buildCrowd } from './crowd.js';
 import { freezeStatic } from './drawCost.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 const CZ = PITCH.centerZ;
 const rand = mulberry(7);
@@ -62,6 +63,51 @@ function sightscreenTexture() {
   }, { aniso: 4 });
 }
 
+// The rope (cushion and 30-yard discs, ground.js), the sightscreens' faces and their frames, posts
+// and bogies: three looks, one draw (they were three materials: a switch each, twice a frame).
+// One Lambert with the rope's map, the screen's map as a second sampler and vertex colours; aKind
+// picks per triangle (0 rope: its map, 1 screen face: the screen map and its faint emissive lift,
+// 2 frame: vertex colour only), so each keeps exactly the colour it had. Two-sided, as the rope
+// was; the screens' back faces are dropped in the shader, as they were culled (drawn, they would
+// tie with the front faces at the edges). Nothing here is ever 140 m from a camera: no fog.
+function groundFurniture(rope, faces, frame, screenMap) {
+  const kinds = [];
+  const prep = (g, kind, white) => {
+    g = g.clone();
+    if (!g.index) { const n = g.attributes.position.count, ix = new Uint32Array(n); for (let i = 0; i < n; i++) ix[i] = i; g.setIndex(new THREE.BufferAttribute(ix, 1)); }
+    const n = g.attributes.position.count;
+    if (!g.attributes.uv) g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(n * 2), 2));
+    if (white) g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(n * 3).fill(1), 3));
+    g.setAttribute('aKind', new THREE.BufferAttribute(new Float32Array(n).fill(kind), 1));
+    for (const k of Object.keys(g.attributes)) if (!['position', 'normal', 'uv', 'color', 'aKind'].includes(k)) g.deleteAttribute(k);
+    kinds.push(g);
+  };
+  rope.updateMatrix();
+  prep(rope.geometry.clone().applyMatrix4(rope.matrix), 0, true);
+  for (const f of faces) prep(f, 1, true);
+  prep(frame, 2, false);
+  const geo = mergeGeometries(kinds, false);
+  geo.computeBoundingSphere();
+  const mat = new THREE.MeshLambertMaterial({ map: rope.material.map, vertexColors: true, emissive: 0x0d1117, side: THREE.DoubleSide, fog: false });
+  mat.onBeforeCompile = (sh) => {
+    sh.uniforms.uScreen = { value: screenMap };
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', '#include <common>\nattribute float aKind;\nvarying float vKind;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvKind = aKind;');
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', '#include <common>\nuniform sampler2D uScreen;\nvarying float vKind;')
+      // (a kind is the same over a whole triangle, so each fetch keeps its own derivatives)
+      .replace('#include <map_fragment>', 'vec2 dUx = dFdx(vMapUv), dUy = dFdy(vMapUv);\nif (vKind > 0.5 && !gl_FrontFacing) discard;\nif (vKind < 0.5) diffuseColor *= textureGrad(map, vMapUv, dUx, dUy);\nelse if (vKind < 1.5) diffuseColor *= textureGrad(uScreen, vMapUv, dUx, dUy);')
+      .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\nif (vKind < 0.5 || vKind > 1.5) totalEmissiveRadiance = vec3(0.0);');
+  };
+  mat.customProgramCacheKey = () => 'ground-furniture';
+  mat.userData.uniforms = { uScreen: { value: screenMap } };      // (warmup.js: its textures)
+  rope.removeFromParent();
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.name = 'boundary';
+  return mesh;
+}
+
 export function buildEnvironment(scene) {
   const root = new THREE.Group(); root.name = 'environment';
   const stadium = new THREE.Group(); stadium.name = 'stadium';
@@ -74,7 +120,7 @@ export function buildEnvironment(scene) {
   const { hemi, sun, fill } = buildLights(root, scene);
   const skyView = buildSky(stadium, CZ);
   const sky = skyView.sky;
-  const { ground, pitchMesh } = buildGround(stadium, pitchGroup);
+  const { ground, pitchMesh, rope } = buildGround(stadium, pitchGroup);
   pitchGroup.userData.pitchMesh = pitchMesh;
 
   // ---------------------------------------------------------- stadium + crowd
@@ -96,14 +142,12 @@ export function buildEnvironment(scene) {
   const ssTex = sightscreenTexture();
   // (a faint emissive lift: the screen in the stands' shade is a dark face, not a hole; no fog on
   // the screens: never 140 m from a camera, where the haze starts, so it only cost uniforms)
-  const ssFaceMat = new THREE.MeshLambertMaterial({ map: ssTex, color: 0xffffff, emissive: 0x0d1117, fog: false });
-  const ss = [];
+  const ss = [], faces = [];
   for (const dir of [-1, 1]) {
     const z = CZ + dir * (CONFIG.field.boundaryRadius + 6);
-    const face = new THREE.Mesh(new THREE.PlaneGeometry(SW, SH), ssFaceMat);
-    face.position.set(0, SB + SH / 2, z);
-    if (dir > 0) face.rotation.y = Math.PI;                    // face the pitch
-    stadium.add(face);
+    const face = new THREE.PlaneGeometry(SW, SH);
+    if (dir > 0) face.rotateY(Math.PI);                       // face the pitch
+    faces.push(face.translate(0, SB + SH / 2, z));
     const back = z + dir * 0.18;                              // behind the face
     ss.push(part(new THREE.BoxGeometry(SW, SH, 0.3), 0x3a4049, [0, SB + SH / 2, back]));
     // Frame: top, bottom and side rails, standing a little proud of the face.
@@ -125,7 +169,7 @@ export function buildEnvironment(scene) {
       for (const wz of [0.4, 3.9]) ss.push(part(new THREE.CylinderGeometry(0.28, 0.28, 0.16, 12), 0x1d2025, [x, 0.28, back + dir * wz], [0, 0, Math.PI / 2]));
     }
   }
-  stadium.add(new THREE.Mesh(merge(ss), vertexColorMat({ fog: false })));
+  stadium.add(groundFurniture(rope, faces, merge(ss), ssTex));
 
   scene.add(root);
   // Nothing built here moves (the crowd and the LED boards move in their shaders; MR moves
