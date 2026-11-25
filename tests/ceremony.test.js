@@ -196,3 +196,12 @@ test('every beat leaves nothing behind: no walkers, no borrowed marks, the coin 
   assert.ok(!C.cardOn);
   assert.equal(C.cast, null);
 });
+
+test('a wicket behind you straight after its replay: the cut is made while the view is still dark, no second dip', () => {
+  const p = beatPlan(BEATS.wicket, 'on', { behind: true, behindDark: true });
+  const early = p.steps.filter((s) => s.t < 0.5);
+  assert.ok(early.some((s) => s.cue === 'vantage' && s.t === 0), 'the cut at once');
+  assert.ok(!early.some((s) => s.cue === 'fade' && s.out != null), 'no fade down to dark first');
+  const lit = beatPlan(BEATS.wicket, 'on', { behind: true, behindLit: true }).steps.filter((s) => s.t < 0.5);
+  assert.ok(lit.some((s) => s.cue === 'fade' && s.out != null), 'from a lit view: down to dark, then the cut');
+});
