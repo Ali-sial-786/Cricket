@@ -30,6 +30,8 @@ const STRIP_W = 3.2;                                // the square's strips (= th
 const SQ_HALF_W = PITCH.stripHalfWidth + 4 * STRIP_W, SQ_Z0 = PITCH.stripMinZ - 1.5, SQ_Z1 = PITCH.stripMaxZ + 1.5;
 // The pitch mesh: the strip plus a band of square grass all round (the popping creases reach past the strip).
 const PM_HALF_W = 1.95, PM_Z0 = PITCH.stripMinZ - 0.35, PM_Z1 = PITCH.stripMaxZ + 0.35;
+// The sightscreens (env.js builds them from this): face width / height, bottom edge, distance behind the rope.
+export const SIGHTSCREEN = { w: 26, h: 10.2, bottom: 0.6, behindRope: 6 };
 const STRIPE_W = 3.2;                               // outfield mowing stripes (the pitch sits in the middle of one)
 
 // Square grass round the live strip: the pitch map's border and the macro map
@@ -136,10 +138,24 @@ function macroTexture() {
   g.setTransform(kl, 0, 0, kl, (S / 2) * kl, (S / 2 - CZ) * kl);
   g.fillStyle = rgb(OUT); g.fillRect(-S, CZ - S, 2 * S, 2 * S);
   // Large-scale variation: lusher, drier and bluer patches tens of metres across.
+  // (strong enough to read at 30-70 m from the crease: the far field is otherwise one flat green)
   for (let i = 0; i < 80; i++) {
     const a = r() * Math.PI * 2, d = Math.sqrt(r()) * 84, rr = 6 + r() * 24;
-    const col = [[135, 169, 81], [70, 136, 62], [84, 143, 96], [122, 164, 74]][i % 4];
-    blob(g, Math.sin(a) * d, CZ + Math.cos(a) * d, rr, rr * (0.6 + r() * 0.6), col, 0.10 + r() * 0.08, r() * 3);
+    const col = [[135, 169, 81], [66, 132, 60], [84, 143, 96], [122, 164, 74]][i % 4];
+    blob(g, Math.sin(a) * d, CZ + Math.cos(a) * d, rr, rr * (0.6 + r() * 0.6), col, 0.2 + r() * 0.14, r() * 3);
+  }
+  // Drier patches: a few paler, straw-tinged areas where the irrigation does not quite reach.
+  for (let i = 0; i < 14; i++) {
+    const a = r() * Math.PI * 2, d = 30 + r() * 30, rr = 5 + r() * 9;
+    blob(g, Math.sin(a) * d, CZ + Math.cos(a) * d, rr, rr * (0.5 + r() * 0.5), [150, 166, 92], 0.16 + r() * 0.1, r() * 3);
+  }
+  // Wear where the fielders stand, ball after ball (batting end at z 0, off side +x): the
+  // ring (slips, gully, point, cover, mid-off, mid-on, mid-wicket, square leg, fine leg) and the
+  // deep men inside the rope. Paler, a little sandier, in scuffed clusters.
+  for (const [x, z, sz] of [[4.5, 6.5, 1.3], [9, 3, 1], [18, -2, 1.2], [20, -14, 1.3], [9, -27, 1.1], [-9, -27, 1.1], [-20, -14, 1.3], [-18, -1, 1.2], [-14, 17, 1],
+    [22, -68, 1.5], [-22, -68, 1.5], [54, -32, 1.5], [-54, -32, 1.5], [-60, -2, 1.4], [60, -2, 1.4], [-32, 41, 1.4], [32, 41, 1.4], [0, 52, 1.2]]) {
+    blob(g, x, z, 3.2 * sz, 2.4 * sz, [150, 162, 98], 0.26, r() * 3);
+    for (let k = 0; k < 6; k++) blob(g, x + (r() - 0.5) * 3 * sz, z + (r() - 0.5) * 3 * sz, (0.6 + r() * 0.9) * sz, (0.5 + r() * 0.6) * sz, [162, 164, 104], 0.28, r() * 3);
   }
   // Mid-scale mottling (0.5..3 m): what the eye reads between the blades and the patches.
   for (let i = 0; i < 2600; i++) {
@@ -147,14 +163,16 @@ function macroTexture() {
     blob(g, Math.sin(a) * d, CZ + Math.cos(a) * d, rr, rr * (0.5 + r() * 0.5), r() < 0.5 ? [130, 172, 81] : [65, 125, 59], 0.10 + r() * 0.08, r() * 3);
   }
   // The cross-cut: faint bands across the stripes (the mower's second pass), 4.8 m wide.
+  // (stronger than a hint: these are what still separate 40 m from 60 m down the ground)
   for (let z = CZ - S / 2 - 2.4; z < CZ + S / 2; z += 9.6) {
-    g.fillStyle = 'rgba(255,255,230,0.03)'; g.fillRect(-S, z, 2 * S, 4.8);
-    g.fillStyle = 'rgba(0,20,0,0.035)'; g.fillRect(-S, z + 4.8, 2 * S, 4.8);
+    g.fillStyle = 'rgba(255,255,230,0.08)'; g.fillRect(-S, z, 2 * S, 4.8);
+    g.fillStyle = 'rgba(0,20,0,0.085)'; g.fillRect(-S, z + 4.8, 2 * S, 4.8);
   }
-  // The pale ring inside the rope (fielders' and stewards' traffic, drier).
+  // A darker, lusher ring inside the rope (less trodden, watered by the edge sprinklers), with a
+  // pale worn track right along the rope where the fielders chase and the stewards walk.
   {
-    const gr = g.createRadialGradient(0, CZ, R - 9, 0, CZ, R - 0.2);
-    gr.addColorStop(0, rgb([140, 172, 90], 0)); gr.addColorStop(0.7, rgb([140, 172, 90], 0.28)); gr.addColorStop(1, rgb([146, 172, 93], 0.36));
+    const gr = g.createRadialGradient(0, CZ, R - 10, 0, CZ, R - 0.2);
+    gr.addColorStop(0, rgb([60, 118, 52], 0)); gr.addColorStop(0.55, rgb([60, 118, 52], 0.3)); gr.addColorStop(0.86, rgb([62, 120, 54], 0.36)); gr.addColorStop(0.9, rgb([138, 160, 92], 0.3)); gr.addColorStop(1, rgb([140, 162, 92], 0.34));
     g.fillStyle = gr; g.beginPath(); g.arc(0, CZ, R - 0.2, 0, Math.PI * 2); g.fill();
     // Beyond the rope: a duller apron, and a dark contact line where the cushion sits.
     g.save(); g.beginPath(); g.arc(0, CZ, S, 0, Math.PI * 2); g.arc(0, CZ, R + 0.15, 0, Math.PI * 2, true); g.fillStyle = rgb([78, 131, 65], 0.55); g.fill('evenodd'); g.restore();
@@ -245,9 +263,38 @@ function macroTexture() {
     img.data[i * 4] = 255 * (1 + (sr - 1) * m); img.data[i * 4 + 1] = 255 * (1 + (sg - 1) * m); img.data[i * 4 + 2] = 255 * (1 + (sb - 1) * m); img.data[i * 4 + 3] = 255;
   }
   mg.putImageData(img, 0, 0);
+  // The low things' sun shadows, finer (512^2, 34 cm): the boards and the rope cushion along the
+  // edge (each a strip of quads: its foot, and its top edge pushed down the sun's rays) and the
+  // sightscreens. 'darken' keeps the deepest, so a shadow inside the stands' shade is not doubled.
+  const M2 = 512, k2 = M2 / S, [mc2, mg2] = canvas2d(M2, M2);
+  mg2.imageSmoothingEnabled = true; mg2.drawImage(mc, 0, 0, M2, M2);
+  mg2.setTransform(k2, 0, 0, k2, (S / 2) * k2, (S / 2 - CZ) * k2);
+  mg2.globalCompositeOperation = 'darken';
+  const shadeCss = (f) => `rgb(${Math.round(255 * (1 + (sr - 1) * f))},${Math.round(255 * (1 + (sg - 1) * f))},${Math.round(255 * (1 + (sb - 1) * f))})`;
+  const strip = (rr, h, f) => {
+    mg2.beginPath();
+    for (let i = 0; i < 360; i++) {
+      const a0 = (i * Math.PI) / 180, a1 = ((i + 1.05) * Math.PI) / 180;
+      const x0 = Math.sin(a0) * rr, z0 = CZ + Math.cos(a0) * rr, x1 = Math.sin(a1) * rr, z1 = CZ + Math.cos(a1) * rr;
+      mg2.moveTo(x0, z0); mg2.lineTo(x1, z1); mg2.lineTo(x1 + h * SHADOW_X, z1 + h * SHADOW_Z); mg2.lineTo(x0 + h * SHADOW_X, z0 + h * SHADOW_Z); mg2.closePath();
+    }
+    mg2.fillStyle = shadeCss(f); mg2.fill();
+  };
+  const ledR = R + CONFIG.field.boardsOffset;
+  strip(ledR + 0.1, CONFIG.field.boardsHeight, 0.95);
+  strip(R, 0.17, 0.8);
+  // Contact: a darker line where each stands on the grass, both sides.
+  mg2.lineWidth = 0.45;
+  for (const rr of [ledR + 0.1, R]) { mg2.strokeStyle = shadeCss(0.55); mg2.beginPath(); mg2.arc(0, CZ, rr, 0, Math.PI * 2); mg2.stroke(); }
+  for (const dir of [-1, 1]) {
+    const zs = CZ + dir * (R + SIGHTSCREEN.behindRope), w = SIGHTSCREEN.w / 2 + 0.4, h = SIGHTSCREEN.bottom + SIGHTSCREEN.h;
+    mg2.beginPath();
+    mg2.moveTo(-w, zs); mg2.lineTo(w, zs); mg2.lineTo(w + h * SHADOW_X, zs + h * SHADOW_Z); mg2.lineTo(-w + h * SHADOW_X, zs + h * SHADOW_Z); mg2.closePath();
+    mg2.fillStyle = shadeCss(0.95); mg2.fill();
+  }
   g.setTransform(1, 0, 0, 1, 0, 0);
   g.globalCompositeOperation = 'multiply';
-  g.drawImage(mc, 0, 0, N, N);
+  g.drawImage(mc2, 0, 0, N, N);
   g.globalCompositeOperation = 'source-over';
   // (No read-back: the canvas goes up as it is. The mowing stripes are drawn by the shader.)
   const t = new THREE.CanvasTexture(c);

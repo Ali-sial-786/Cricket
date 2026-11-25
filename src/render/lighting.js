@@ -23,7 +23,8 @@ export const FILL_COLOR = new THREE.Color(0xb7cdf0);
 export const FILL_INTENSITY = 0.4;
 // Aerial haze: the sky's horizon colour, so distant things melt into it.
 export const HAZE_COLOR = new THREE.Color(0xcfdbe6);
-export const FOG_NEAR = 140, FOG_FAR = 900;
+// (from 60 m: a touch of aerial perspective on the far stands, ~8% at 120 m; nothing near the play)
+export const FOG_NEAR = 60, FOG_FAR = 760;
 
 // Ground shadow projection: a point at height y lands on the turf at
 // (x + y * SHADOW_X, z + y * SHADOW_Z) (away from the sun).

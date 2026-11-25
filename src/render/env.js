@@ -11,7 +11,7 @@ import { CONFIG } from '../config.js';
 import { part, merge } from './util.js';
 import { buildLights } from './lighting.js';
 import { buildSky } from './sky.js';
-import { buildGround } from './ground.js';
+import { buildGround, SIGHTSCREEN } from './ground.js';
 import { buildStadium } from './stadium.js';
 import { buildCrowd } from './crowd.js';
 import { freezeStatic } from './drawCost.js';
@@ -138,13 +138,13 @@ export function buildEnvironment(scene) {
   // charcoal-navy with panel seams, a soft top-to-bottom sheen and a little
   // weathering) in a galvanised frame, on posts with back braces and wheeled
   // bogies, so it reads as a screen and not as a hole in the world.
-  const SW = 26, SH = 10.2, SB = 0.6;                         // face width, height, bottom edge
+  const { w: SW, h: SH, bottom: SB } = SIGHTSCREEN;           // face width, height, bottom edge (ground.js: its baked shadow)
   const ssTex = sightscreenTexture();
   // (a faint emissive lift: the screen in the stands' shade is a dark face, not a hole; no fog on
   // the screens: never 140 m from a camera, where the haze starts, so it only cost uniforms)
   const ss = [], faces = [];
   for (const dir of [-1, 1]) {
-    const z = CZ + dir * (CONFIG.field.boundaryRadius + 6);
+    const z = CZ + dir * (CONFIG.field.boundaryRadius + SIGHTSCREEN.behindRope);
     const face = new THREE.PlaneGeometry(SW, SH);
     if (dir > 0) face.rotateY(Math.PI);                       // face the pitch
     faces.push(face.translate(0, SB + SH / 2, z));
