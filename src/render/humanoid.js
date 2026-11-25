@@ -68,6 +68,7 @@ function prepareRig(meta, bin) {
   // Proportions (bind space, joints and skin together, before the skeleton is set up from them).
   athleteBuild(lods, J, meta);
   adultFace(lods, meta);
+  sculptHead(lods, meta);
   fitClothes(lods, J, meta);
   const down = new THREE.Vector3(0, -1, 0), d = new THREE.Vector3();
   const bindQ = {}, canon = {};
@@ -252,6 +253,101 @@ function adultFace(lods, meta) {
       P.setXYZ(v, x, y, z);
     }
   }
+}
+
+// A sculpted adult head from the source's round cartoon one, in bind space at load (every LOD,
+// skin, lips, brows and hair cap moved alike; no vertex added): a cranium longer front to back than
+// wide with flatter temples, a brow ridge over recessed eye sockets, a nose with a bridge, a
+// projecting tip and wings, cheekbones over hollows, lips with volume over a philtrum, a chin and a
+// jaw with a defined angle, and the sternomastoids running from behind the ears to the collar.
+// Each feature is a smooth field (a few Gaussians); the lids round the eyeballs are left exactly
+// where they are, so nothing opens up round the eyes. Per-player variation (FIG(17): nose, brow,
+// jaw, age) moves these same features further in the vertex shader.
+function sculptHead(lods, meta) {
+  const eyeY = meta.eyeY, chinY = meta.chinY;
+  let mouthY = 1.58, ex = 0.032, ez = 0.15;
+  { const m = lods[0].find((p) => p.name === 'Details_Mouth'); if (m) { const P = m.geo.attributes.position; let y = 0; for (let v = 0; v < P.count; v++) y += P.getY(v); mouthY = y / P.count; } }
+  { const ir = lods[0].find((p) => p.name === 'Details_Iris'); if (ir) { const P = ir.geo.attributes.position; let x = 0, z = 0, n = 0; for (let v = 0; v < P.count; v++) if (P.getX(v) > 0) { x += P.getX(v); z += P.getZ(v); n++; } if (n) { ex = x / n; ez = z / n; } } }
+  const noseY = mouthY + 0.42 * (eyeY - mouthY);
+  const G = (t) => Math.exp(-t * t), G2 = (a, b) => Math.exp(-a * a - b * b);
+  const ss = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+  const out = [0, 0, 0];
+  // displacement at a bind point (head-local fields); returns out
+  const field = (x, y, z, cranOnly) => {
+    out[0] = 0; out[1] = 0; out[2] = 0;
+    const ax = Math.abs(x), sx = x < 0 ? -1 : 1;
+    // cranium: longer front to back, flatter at the temples (above the brows and ears)
+    const cr = ss(eyeY + 0.02, eyeY + 0.05, y);
+    out[0] -= x * 0.07 * cr * ss(0.04, 0.08, ax) * ss(-0.06, 0.0, z);
+    out[2] -= 0.013 * cr * ss(0.02, -0.04, z) * ss(1.795, 1.73, y);
+    if (cranOnly) return out;
+    const front = ss(0.08, 0.12, z);
+    // the lids round the eyeballs stay put
+    const lid = 1 - G2((ax - ex) / 0.021, (y - eyeY) / 0.0135);
+    // the face narrower below the eyes (the cartoon's broad cheeks and jaw), the ears left where they are
+    const lowF = ss(eyeY + 0.005, eyeY - 0.02, y) * ss(chinY - 0.02, chinY + 0.01, y) * ss(-0.01, 0.04, z) * (1 - ss(0.078, 0.088, ax) * ss(0.06, 0.03, z));
+    out[0] -= x * 0.09 * lowF;
+    // the face a wedge seen from above, not a flat plate: from the nose back to the cheeks and
+    // temples (the source's cheeks stand level with its nose); the eyes go back with it (below)
+    const wedge = ss(chinY - 0.015, chinY + 0.01, y) * ss(eyeY + 0.07, eyeY + 0.035, y) * ss(0.0, 0.06, z) * (1 - ss(0.078, 0.088, ax) * ss(0.06, 0.03, z));
+    const wv = 3.2 * Math.max(0, ax - 0.012) ** 2, we = 3.2 * (ex - 0.012) ** 2;
+    out[2] -= (we + (wv - we) * lid) * wedge;          // (round the eyes: as the eyeball goes)
+    // the neck slimmer between the jaw and the collar
+    out[0] -= x * 0.08 * ss(1.485, 1.505, y) * ss(chinY + 0.005, chinY - 0.02, y) * ss(0.04, -0.02, z - 0.04);
+    // brow ridge (glabella to the outer brow), the nasion recessed under it
+    out[2] += 0.008 * G((y - eyeY - 0.021) / 0.009) * ss(0.072, 0.045, ax) * front * lid;
+    out[2] -= 0.0045 * G2(ax / 0.011, (y - eyeY - 0.004) / 0.008) * front;
+    // eye sockets: the hollow between the brow and the lid, and under the lid toward the cheek
+    out[2] -= 0.0028 * G2((ax - ex) / 0.018, (y - eyeY - 0.012) / 0.005) * lid * front;
+    out[2] -= 0.002 * G2((ax - ex - 0.004) / 0.016, (y - eyeY + 0.016) / 0.005) * lid * front;
+    // nose: the bridge rising from the nasion to a projecting tip, the columella back to the lip
+    const ny = (y - noseY) / (eyeY - noseY);          // 0 at the nose's base, 1 at the eyes
+    const dors = ss(1.05, 0.15, ny) * ss(-0.35, 0.05, ny);
+    out[2] += 0.016 * dors * (1 - 0.6 * ny) * G(ax / (0.0065 + 0.004 * (1 - ny))) * front;
+    out[2] += 0.004 * G2(ax / 0.009, (y - noseY + 0.004) / 0.004) * front;          // the columella
+    out[0] += sx * 0.002 * G2((ax - 0.015) / 0.006, (y - noseY - 0.002) / 0.006) * front;   // the wings
+    // cheekbones out and forward, the hollow under them in
+    const cb = G2((ax - 0.05) / 0.015, (y - eyeY + 0.024) / 0.009);
+    out[0] += sx * 0.004 * cb; out[2] += 0.003 * cb * front;
+    const ho = G2((ax - 0.052) / 0.016, (y - noseY + 0.014) / 0.016);
+    out[0] -= sx * 0.006 * ho; out[2] -= 0.004 * ho * ss(0.04, 0.09, z);
+    // lips with volume, the philtrum's ridge, the fold under the lower lip
+    out[2] += 0.0028 * G2(ax / 0.02, (y - mouthY - 0.006) / 0.004) * front;
+    out[2] += 0.0032 * G2(ax / 0.019, (y - mouthY + 0.006) / 0.0045) * front;
+    out[2] -= 0.0025 * G2(ax / 0.022, (y - mouthY + 0.016) / 0.004) * front;
+    // the chin forward and square, the jaw's angle out and its lower edge defined
+    out[2] += 0.008 * G2(ax / 0.021, (y - chinY - 0.012) / 0.011) * front;
+    out[1] -= 0.004 * G2(ax / 0.022, (y - chinY - 0.006) / 0.008) * front;
+    const go = G2((ax - 0.066) / 0.012, (y - chinY - 0.03) / 0.014) * ss(-0.02, 0.02, z) * ss(0.11, 0.07, z);
+    out[0] += sx * 0.006 * go; out[1] -= 0.003 * go;
+    const sub = ss(chinY + 0.004, chinY - 0.012, y) * ss(1.49, 1.51, y) * ss(0.0, 0.06, z);
+    out[2] -= 0.006 * sub;                             // under the jaw: in toward the throat
+    // the sternomastoids, from behind the ears down and in to the top of the breastbone
+    const t = Math.min(1, Math.max(0, (1.6 - y) / 0.14)), px = 0.058 - 0.046 * t, pz = -0.012 + 0.07 * t;
+    const sm = G2((ax - px) / 0.011, (z - pz) / 0.014) * ss(1.455, 1.48, y) * ss(1.61, 1.58, y);
+    out[0] += sx * 0.0035 * sm; out[2] += 0.0025 * sm;
+    return out;
+  };
+  // (the eyeballs move as a whole with the lids round them: the field at each eye's centre)
+  const eyeD = [field(ex, eyeY, ez, false).slice(), field(-ex, eyeY, ez, false).slice()];
+  for (const L of lods) for (const p of L) {
+    const name = p.name;
+    if (name === 'Details_Sclera' || name === 'Details_Iris' || name === 'Details_Pupil') {
+      const P = p.geo.attributes.position;
+      for (let v = 0; v < P.count; v++) { const d = eyeD[P.getX(v) > 0 ? 0 : 1]; P.setXYZ(v, P.getX(v) + d[0], P.getY(v) + d[1], P.getZ(v) + d[2]); }
+      continue;
+    }
+    if (name !== 'Athlete_Body' && name !== 'Details_Mouth' && name !== 'Details_Hair' && name !== 'HairCap') continue;
+    const P = p.geo.attributes.position, cran = name === 'HairCap';
+    for (let v = 0; v < P.count; v++) {
+      const x = P.getX(v), y = P.getY(v), z = P.getZ(v);
+      if (y < 1.44) continue;
+      const d = field(x, y, z, cran);
+      P.setXYZ(v, x + d[0], y + d[1], z + d[2]);
+    }
+  }
+  // the skull the headgear fits round: narrower at the temples, a little longer behind
+  if (meta.skull) { const r = meta.skull.r; meta.skull = { c: [meta.skull.c[0], meta.skull.c[1], meta.skull.c[2] - 0.005], r: [r[0] * 0.96, r[1], r[2] + 0.005] }; }
 }
 
 // Where the face's features are on this model (bind space), for the painted face map.
