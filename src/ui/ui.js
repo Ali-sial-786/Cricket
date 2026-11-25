@@ -78,19 +78,19 @@ export class UI {
     this.setTab = 'gameplay';
 
     // HUD (world-locked, beside the pitch): the score bug.
-    this.hud = new CanvasPanel({ width: 1.3, height: 0.95, ppm: 600, name: 'hud', bg: 'rgba(9,15,27,0.88)', interactive: false });
+    this.hud = new CanvasPanel({ width: 1.3, height: 0.95, ppm: 600, name: 'hud', bg: 'rgba(9,15,27,0.88)', interactive: false, renderer: game.renderer });
     this.scene.add(this.hud.mesh);
     this.hudData = { title: 'Crease VR', score: '', sub: '', players: '', drs: '', last: '', big: '', bigColor: '#ffd34d', detail: '', footer: '' };
 
     // Big stadium scoreboard: an opaque LED face, mipmapped (it is seen from
     // ~85 m: 1024 px across ~16°, so it must filter down cleanly).
-    this.board = new CanvasPanel({ width: 24, height: 9, ppm: 1024 / 24, name: 'scoreboard', bg: null, interactive: false, fog: true });
+    this.board = new CanvasPanel({ width: 24, height: 9, ppm: 1024 / 24, name: 'scoreboard', bg: null, interactive: false, fog: true, renderer: game.renderer });
     { const t = this.board.tex, m = this.board.mesh.material;
       t.generateMipmaps = true; t.minFilter = THREE.LinearMipmapLinearFilter; t.anisotropy = 4;
       m.transparent = false; m.depthWrite = true; }
     this.board.mesh.position.copy(game.env.screen.pos);
     this.board.mesh.lookAt(game.env.screen.look);
-    game.env.stadium.add(this.board.mesh);
+    if (game.env.adoptScreen) game.env.adoptScreen(this.board); else game.env.stadium.add(this.board.mesh);
     this.boardData = { lines: ['CREASE VR', 'Nets'] };
     this.boardSting = null;      // { kind, word, sub, until }: a call up on the screen
     this.boardOver = null;       // { lines, until }: a beat's card on the screen (ceremony.js)
@@ -876,6 +876,7 @@ export class UI {
   }
 
   update() {
+    CanvasPanel.tick();
     this.updatePrompt(this.game.realDt || 0.016);
     if (this.menu.pressed && this.clock >= this.pressUntil) this.menu.release();
     this.menu.update();

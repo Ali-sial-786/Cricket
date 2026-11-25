@@ -14,6 +14,7 @@
 //     (behind the bowler, sightscreen wedge)                   ~241 big screen
 //     towers at 45, 135, 225, 315; roofs over the stands between them
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { buildFoliage } from './trees.js';
 import { CONFIG } from '../config.js';
 import { KIND } from './crowd.js';
@@ -1037,7 +1038,7 @@ export function buildStadium(root, lights) {
   root.add(group);
 
   return {
-    group, spots, blocks, screenPos, screenLook, ledTex: led.tex,
+    group, spots, blocks, screenPos, screenLook, ledTex: led.tex, adoptScreen: led.adoptScreen,
     standTop: BOWL.top, standBack: BOWL.outerR,
     update(t) { led.update(t); },
   };
@@ -1048,24 +1049,25 @@ export function buildStadium(root, lights) {
 // slide (one uniform), while the panels in front of the sightscreens stay dark.
 function buildLed(ledR, ledH, liveAt, ribbonAt) {
   const tex = ledAtlas();
-  const uniforms = { ...THREE.UniformsUtils.clone(THREE.UniformsLib.fog), map: { value: tex }, uFlip: { value: new THREE.Vector2() } };
+  const uniforms = { ...THREE.UniformsUtils.clone(THREE.UniformsLib.fog), map: { value: tex }, uFlip: { value: new THREE.Vector2() }, uScreen: { value: null } };
   const mat = new THREE.ShaderMaterial({
     uniforms, fog: true, toneMapped: false,
     vertexShader: `#include <common>
       #include <fog_pars_vertex>
-      uniform vec2 uFlip; attribute vec2 aLed; varying vec2 vUv; varying float vB;
+      uniform vec2 uFlip; attribute vec2 aLed; attribute float aScr; varying vec2 vUv; varying float vB; varying float vScr;
       void main() {
         vUv = uv + vec2(aLed.x > 1.5 ? uFlip.y : aLed.x > 0.5 ? uFlip.x : 0.0, 0.0);
-        vB = aLed.y;
+        vB = aLed.y; vScr = aScr;
         vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
         gl_Position = projectionMatrix * mvPosition;
         #include <fog_vertex>
       }`,
     fragmentShader: `#include <common>
       #include <fog_pars_fragment>
-      uniform sampler2D map; varying vec2 vUv; varying float vB;
+      uniform sampler2D map; uniform sampler2D uScreen; varying vec2 vUv; varying float vB; varying float vScr;
       void main() {
-        gl_FragColor = vec4(texture2D(map, vUv).rgb * vB, 1.0);
+        // (vScr: the stadium screen's face, drawn here as its own opaque basic material drew it)
+        gl_FragColor = vec4(vScr > 0.5 ? texture2D(uScreen, vUv).rgb : texture2D(map, vUv).rgb * vB, 1.0);
         #include <colorspace_fragment>
         #include <fog_fragment>
       }`,
@@ -1098,13 +1100,29 @@ function buildLed(ledR, ledH, liveAt, ribbonAt) {
   geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
   geo.setAttribute('aLed', new THREE.Float32BufferAttribute(led, 2));
+  geo.setAttribute('aScr', new THREE.Float32BufferAttribute(new Float32Array(pos.length / 3), 1));
   geo.setIndex(idx);
   geo.computeBoundingSphere();
   const mesh = new THREE.Mesh(geo, mat);
   mesh.name = 'led';
   // Every 30 s the ads slide on by one (0.8 s); the ribbon a quarter-cycle later.
   const step = (t, off) => { const c = (t + off) / 30, k = Math.floor(c), f = (c - k) * 30; return (k + smooth(29.2, 30, f)) / 4; };
-  return { mesh, tex, update(t) { uniforms.uFlip.value.set(step(t, 0) % 1, step(t, 7.5) % 1); } };
+  // The stadium screen (ui.js, a canvas panel) joins this draw: its quad in the boards' frame, its
+  // canvas as a second texture (one material switch an eye fewer). The panel's own mesh is kept
+  // (its visibility, its updates) but no camera draws it.
+  const adoptScreen = (panel) => {
+    panel.mesh.updateMatrixWorld(true); mesh.updateMatrixWorld(true);
+    const q = panel.mesh.geometry.clone().applyMatrix4(new THREE.Matrix4().copy(mesh.matrixWorld).invert().multiply(panel.mesh.matrixWorld));
+    const n = q.attributes.position.count;
+    q.deleteAttribute('normal');
+    q.setAttribute('aLed', new THREE.BufferAttribute(new Float32Array(n * 2).fill(0).map((v, i) => (i % 2 ? 1 : 0)), 2));
+    q.setAttribute('aScr', new THREE.BufferAttribute(new Float32Array(n).fill(1), 1));
+    mesh.geometry = mergeGeometries([geo, q], false);
+    mesh.geometry.computeBoundingSphere();
+    uniforms.uScreen.value = panel.tex;
+    panel.mesh.layers.set(31);
+  };
+  return { mesh, tex, adoptScreen, update(t) { uniforms.uFlip.value.set(step(t, 0) % 1, step(t, 7.5) % 1); } };
 }
 
 // The lamp heads' glow without post-processing: one camera-facing card per

@@ -90,9 +90,19 @@ export function fillFit(g, text, x, y, maxW, weight, size, min = Math.min(size, 
   return r.size;
 }
 
+// Big panels that change during play (the stadium screen, the HUD) can take `renderer`: their
+// redraw is then sent to the GPU through a small GPU canvas, a band at a time (three's own upload
+// of the whole CPU canvas cost ~1.5-2 ms of the frame here, several times that on the headset;
+// this costs ~0.05 ms), and only one of them is redrawn in any one frame: the other waits a frame
+// (both used to change on the same ball). CanvasPanel.tick() (ui.update) counts the frames.
+const BAND = 64;
+let _frame = 0, _bigFrame = -1;
 export class CanvasPanel {
-  constructor({ width = 1.0, height = 0.62, ppm = 700, name = 'panel', bg = 'rgba(14,20,30,0.88)', interactive = true, fog = false } = {}) {
+  static tick() { _frame++; }
+
+  constructor({ width = 1.0, height = 0.62, ppm = 700, name = 'panel', bg = 'rgba(14,20,30,0.88)', interactive = true, fog = false, renderer = null } = {}) {
     this.w = width; this.h = height;
+    this.renderer = renderer;
     this.canvas = document.createElement('canvas');
     this.canvas.width = Math.round(width * ppm);
     this.canvas.height = Math.round(height * ppm);
@@ -154,9 +164,38 @@ export class CanvasPanel {
 
   update() {
     if (!this.dirty) return;
+    if (this.renderer) {
+      if (_bigFrame === _frame) return;            // (another big panel changed this frame: next frame)
+      _bigFrame = _frame;
+    }
     this.dirty = false;
     this.draw();
-    this.tex.needsUpdate = true;
+    if (!this.renderer || !this.upload()) this.tex.needsUpdate = true;
+  }
+
+  // The canvas into the texture already on the GPU, a band at a time through a GPU canvas
+  // (copied exactly; the texture rows the same as three's upload). false: not on the GPU yet.
+  upload() {
+    const R = this.renderer, t = this.tex, p = R.properties.get(t);
+    if (!p.__webglTexture || p.__version !== t.version) return false;
+    const gl = R.getContext(), W = this.W, H = this.H, B = Math.min(BAND, H);
+    if (!this.stage) {
+      const c = document.createElement('canvas'); c.width = W; c.height = B;
+      this.stage = c.getContext('2d', { willReadFrequently: false });     // (a GPU canvas: the copy to the texture stays on the GPU)
+      this.stage.globalCompositeOperation = 'copy';
+    }
+    R.state.bindTexture(gl.TEXTURE_2D, p.__webglTexture);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, t.flipY);
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, t.premultiplyAlpha);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, t.unpackAlignment);
+    gl.pixelStorei(gl.UNPACK_COLORSPACE_CONVERSION_WEBGL, gl.NONE);
+    for (let y0 = 0; y0 < H; y0 += B) {
+      const y = Math.min(y0, H - B);
+      this.stage.drawImage(this.canvas, 0, y, W, B, 0, 0, W, B);
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, t.flipY ? H - y - B : y, gl.RGBA, gl.UNSIGNED_BYTE, this.stage.canvas);
+    }
+    if (t.generateMipmaps && t.minFilter !== THREE.LinearFilter && t.minFilter !== THREE.NearestFilter) gl.generateMipmap(gl.TEXTURE_2D);
+    return true;
   }
 
   draw() {
