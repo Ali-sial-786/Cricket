@@ -952,8 +952,8 @@ function kitMaterial(fig = null) {
         kitH += wv * 0.00005 * sin((cp.x + cp.y) * 2400.0);
         float ax = abs(vBind.x);
         float wob = sin(vBind.x * 53.0 + vBind.z * 41.0) * 1.6 + sin(vBind.x * 23.0 - vBind.z * 67.0);
-        kitH += 0.0011 * sin(vBind.y * 150.0 + wob) * exp(-pow((vBind.y - 0.5) / 0.055, 2.0));
-        kitH += 0.0012 * sin(vBind.y * 190.0 + wob * 1.3) * exp(-pow((vBind.y - 0.17) / 0.045, 2.0));
+        kitH += 0.0022 * sin(vBind.y * 150.0 + wob) * exp(-pow((vBind.y - 0.5) / 0.055, 2.0));
+        kitH += 0.002 * sin(vBind.y * 190.0 + wob * 1.3) * exp(-pow((vBind.y - 0.17) / 0.045, 2.0));
         kitH += 0.0009 * sin(vBind.y * 110.0 - ax * 140.0 + wob * 0.5) * exp(-pow((vBind.y - 0.8) / 0.06, 2.0)) * smoothstep(0.02, 0.07, ax);
         }
         // the side stripe (trousers.js: colour.g = the angle round the leg, .b its radius)
@@ -971,8 +971,12 @@ function kitMaterial(fig = null) {
         vec2 ap = vec2(abs(vBind.x) - 0.17, vBind.y - 1.3);
         float an = atan(ap.y, ap.x);
         kitH += 0.0011 * sin(an * 9.0) * exp(-dot(ap, ap) / 0.004) * step(0.0, -ap.x + 0.04) * smoothstep(0.012, 0.04, length(ap));
-        kitH += 0.0013 * sin(vBind.y * 150.0 + vBind.x * 25.0) * exp(-pow((vBind.y - 1.12) / 0.045, 2.0));
+        kitH += 0.0024 * sin(vBind.y * 150.0 + vBind.x * 25.0) * exp(-pow((vBind.y - 1.12) / 0.045, 2.0));
         kitH += 0.0009 * sin(vBind.y * 210.0 - abs(vBind.x) * 90.0) * smoothstep(0.2, 0.26, abs(vBind.x));
+        // (the shirt's drape: soft vertical folds from the chest to the waist, pulled in at the
+        // tuck, and the sleeve bunched toward its hem; big enough to read at a few metres)
+        kitH += 0.003 * sin(vBind.x * 70.0 + sin(vBind.y * 24.0 + vBind.z * 30.0) * 1.8) * smoothstep(1.32, 1.18, vBind.y) * smoothstep(1.06, 1.14, vBind.y) * (1.0 - step(0.5, vArmW));
+        { vec2 at = armAt(vBind); kitH += 0.0024 * sin(at.x * 140.0 + vBind.z * 60.0) * step(0.5, vArmW) * smoothstep(0.1, 0.2, at.x) * smoothstep(0.42, 0.3, at.x); }
         }
         if (s > 6.5 && s < 7.5) {
           // the yoke panel: sublimated pinstripes
@@ -1018,7 +1022,7 @@ function kitMaterial(fig = null) {
       }
       // headgear crest (cap, hat band)
       if ((s > 1.5 && s < 3.5) && vHeadW > 0.5 && vBind.z > 0.1) { vec4 t = decalAt(vBind.xy, uCapAt, FIG(10), 0.0); c = mix(c, t.rgb, t.a); }
-      c *= 1.0 + 18.0 * kitH;                  // folds: a little darker in their hollows
+      c *= 1.0 + 55.0 * clamp(kitH, -0.004, 0.004);   // folds: darker in their hollows, lighter on their crests (readable at a few metres)
     } else if (skin) {
       gSSS = 1.0;
       // ---- arms: long sleeves (the shirt's colour, a cuff) or a sweatband
