@@ -201,7 +201,19 @@ export function buildGear(RIG, part, o, lod = 0) {
   if (o.shades && RIG.face && !lod) shades(P, part, RIG, hc, S, lod);     // (far: painted on, kitMaterial)
   if (o.gloves) for (const s of ['L', 'R']) (o.keeper ? keeperGlove : battingGlove)(P, part, s, S, lod, o.playerGrip);
   if (o.pads) for (const s of ['L', 'R']) pad(P, part, s, !!o.keeper, S, lod);
+  if (!lod) collarLid(P, part, RIG);
   return P;
+}
+
+// A lid across the shirt's collar opening, inside the neck (never seen from outside). Your own body
+// through your eyes has no head: looking down, and down and back at a ball going through to the
+// keeper, you see a closed collar, not into the shirt (kitMaterial FP_BODY draws it as shirt).
+function collarLid(P, part, RIG) {
+  const B = new Builder(), C = RIG.J.chest, y = 1.484 - C.y, zc = 0.022 - C.z, n = 14, ring = [];
+  const c = B.v([0, y, zc], [0, y - 1, zc]);
+  for (let i = 0; i < n; i++) { const a = (i / n) * Math.PI * 2; ring.push(B.v([Math.sin(a) * 0.096, y, zc + Math.cos(a) * 0.07], [0, y - 1, zc])); }
+  for (let i = 0; i < n; i++) B.tri(c, ring[i], ring[(i + 1) % n]);
+  part(P, B.geo(), 'chest', KIT.shirt, [0, 0, 0], null, null, { ao: 0.55 });
 }
 
 function helmet(P, part, c, R, S, lod) {
@@ -273,11 +285,14 @@ function shades(P, part, RIG, c, S, lod) {
   const F = RIG.face, J = RIG.J.head;
   // (fitted to this head: the lens sits ~2 cm in front of the eyes, clear of the brow and the nose, and wraps to the temples)
   const R = RIG.skull ? RIG.skull.r : [0.086, 0.1, 0.11];
-  const ey = F.eye[1] - J.y + 0.001, zc = c[2], rz = F.front - J.z - zc + 0.02, rx = R[0] + 0.012, tm = 0.95;
-  const at = (t, y, d = 0) => [(rx + d) * Math.sin(t), y, zc + (rz + d) * Math.cos(t)];
+  const ey = F.eye[1] - J.y + 0.001, zc = c[2], rz = F.front - J.z - zc + 0.015, rx = R[0] + 0.01, tm = 0.95;
+  // (and curved top to bottom: the lens bulges out at the eyes' height)
+  const at = (t, y, d = 0) => { const b = d + 0.004 * Math.max(0, 1 - Math.pow((y - ey) / 0.017, 2)); return [(rx + b) * Math.sin(t), y, zc + (rz + b) * Math.cos(t)]; };
   // (a taller sport lens, cut up over the nose)
-  const top = (t) => ey + 0.0175 - 0.005 * Math.pow(Math.abs(t) / tm, 2);
-  const bot = (t) => ey - 0.02 + 0.011 * Math.pow(Math.abs(t) / tm, 3) + 0.011 * Math.exp(-Math.pow(t / 0.17, 2));
+  // (a slim sport lens, cut up over the nose and narrowing to the temples)
+  // (two lobes, one over each eye, cut up over the nose and narrowing to the temples)
+  const top = (t) => ey + 0.0135 - 0.005 * Math.pow(Math.abs(t) / tm, 2) - 0.0015 * Math.exp(-Math.pow(t / 0.12, 2));
+  const bot = (t) => ey - 0.0175 + 0.012 * Math.pow(Math.abs(t) / tm, 3) + 0.013 * Math.exp(-Math.pow(t / 0.15, 2)) - 0.002 * Math.exp(-Math.pow((Math.abs(t) - 0.38) / 0.16, 2));
   const nu = S(24, 10), nv = lod ? 1 : 3, B = new Builder(), out = [], inn = [];
   for (let j = 0; j <= nv; j++) {
     const ro = [], ri = [];
@@ -354,11 +369,11 @@ function hat(P, part, c, R, S, lod) {
 // the thigh, side wings wrap round the leg; straps go round the back.
 function pad(P, part, s, keeper, S, lod) {
   const knee = 'knee' + s, hip = 'hip' + s, sx = s === 'L' ? 1 : -1;
-  const W = keeper ? 1.5 : 1.75;                        // wrap half-angle (rad)
+  const W = keeper ? 1.5 : 2.0;                         // wrap half-angle (rad): the wings curl round behind the calf
   const yt = (a) => mix(keeper ? 0.1 : 0.215, keeper ? 0.04 : 0.07, sstep(0.55, 1.45, Math.abs(a)));
   const yb = (a) => mix(keeper ? -0.425 : -0.445, -0.385, sstep(0.25, 1.6, Math.abs(a)));
   // (the inside hugs the fitted trousers, trousers.js: about 7 cm round the shin, 1 cm of lining)
-  const rin = (a, y) => { const k = 1 + (keeper ? 0 : 0.14 * sstep(0.06, 0.2, y)), w = sstep(0.6, 1.7, Math.abs(a)), tuck = 1 - 0.24 * sstep(1.2, W, Math.abs(a)); return [mix(0.088, 0.077, w) * k * tuck, mix(0.092, 0.08, w) * k * tuck]; };   // (the wings tuck in round the calf)
+  const rin = (a, y) => { const k = 1 + (keeper ? 0 : 0.14 * sstep(0.06, 0.2, y)), w = sstep(0.6, 1.7, Math.abs(a)), tuck = 1 - 0.3 * sstep(1.15, W, Math.abs(a)); return [mix(0.084, 0.072, w) * k * tuck, mix(0.09, 0.076, w) * k * tuck]; };   // (the wings tuck in round the calf, and close behind it)
   const cz = 0.008;
   const canes = (a, y) => {
     const front = 1 - sstep(1.0, 1.25, Math.abs(a));

@@ -55,7 +55,7 @@ export function lookFor(seed, team, role = 'player') {
     skin: SKIN_TONES[skinIx],
     hair: older ? pick([0x6b6560, 0x9a9089, 0x3a3532]) : hair,
     iris: skinIx <= 1 ? pick(IRIS) : pick([IRIS[0], IRIS[1], IRIS[2], IRIS[6]]),
-    build: (r() - 0.35) * 0.012,                     // m of girth added to the cloth and arms (-4 .. +8 mm)
+    build: (r() - 0.45) * 0.008,                     // m of girth added to the cloth and arms (-3.6 .. +4.4 mm)
     hairVol: r() * 0.006,                            // m: hair standing off the scalp below the cap
     hairCut: 0.35 + r() * 0.65,                      // 0.35 cropped .. 1 full
     beard: beardRoll < 0.16 ? 0.5 + r() * 0.5 : beardRoll < 0.24 ? 0.22 : 0,    // a beard (short .. full) / goatee / none
@@ -67,6 +67,11 @@ export function lookFor(seed, team, role = 'player') {
     scale: role === 'self' ? 1 : 0.955 + r() * 0.09, // height (only where the caller lets it vary)
     name: pick(NAMES),
   };
+  // (drawn after the rest, so every earlier draw, and so every man's look, is as it was)
+  L.age = older ? 0.65 + r() * 0.35 : role === 'umpire' ? 0.4 + r() * 0.3 : Math.pow(r(), 1.4) * 0.75;   // 0 young .. 1 lined
+  L.nose = r() * 2 - 1;                            // shorter / flatter .. longer / more prominent
+  L.brow = r() * 2 - 1;                            // a flat brow .. a heavy brow ridge
+  L.jaw = r() * 2 - 1;                             // narrow .. square
   if (role === 'self') { L.sweatband = 0; L.sleeves = 0; L.build = 0; }
   return L;
 }
