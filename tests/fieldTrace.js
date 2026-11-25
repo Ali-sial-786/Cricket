@@ -41,7 +41,7 @@ const STRIKER = { x: -0.4, z: -1.1 }, NON = { x: -1.35, z: -18.75 };
 // pace, the batters running, the ball dead, the huddle, the walk back, the
 // next ball. keeper: also unhit balls to (and past) the keeper. Returns
 // { digest, frames, outcomes } (outcomes: a line per ball, for reading).
-export function playPassage({ seed = 1, balls = 12, bowlerFields = true, spinner = false, keeper = true, greedy = 0, onBall = null, digest = true } = {}) {
+export function playPassage({ seed = 1, balls = 12, bowlerFields = true, spinner = false, keeper = true, greedy = 0, onBall = null, digest = true, frameDigests = null } = {}) {
   const rng = makeRng(seed);
   const world = new PhysicsWorld(undefined, seed + 100);
   const L = new Fielding({ rng: makeRng(seed + 7), catchSkill: 0.7, throwSkill: 1, spinner, bowlerFields });
@@ -63,6 +63,7 @@ export function playPassage({ seed = 1, balls = 12, bowlerFields = true, spinner
       L.update(DT, t, world.ball.active ? world.ball : null, world);
       L.events.length = 0;
       if (digest) digestField(D, L);
+      if (frameDigests) frameDigests.push(D.hex());
     }
   };
   const ko = { x: 0, z: STRIKER.z, r: PLAYER_CLEAR, path: 2.1 };

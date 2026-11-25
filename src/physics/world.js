@@ -11,6 +11,7 @@ import { BallState, aeroParams, integrateFlight } from './ball.js';
 import { BatGeometry, resolveBatContact } from './bat.js';
 import { Wicket } from './wicket.js';
 import { PITCH, groundDistance } from './pitch.js';
+import { STAND, standHeightAt, roofUnderAt, frontWallAt, bearing } from './stands.js';
 import { CONFIG } from '../config.js';
 
 // Bat provider that interpolates between the two most recent frame samples.
@@ -224,14 +225,18 @@ export class PhysicsWorld {
     }
 
     // The advertising boards: a ball along the ground (or below their top)
-    // stops against them and drops back, instead of rolling on through.
+    // stops against them and drops back, instead of rolling on through. Only
+    // from the field side: a ball that has carried over them (a six) is past
+    // them, and comes down in the stand (below), not back onto the boards.
     const F = this.cfg.field, rB = F.boundaryRadius + (F.boardsOffset ?? 3.2) - R, gd = groundDistance(b.pos.x, b.pos.z);
-    if (gd > rB && b.pos.y < (F.boardsHeight ?? 0.975)) {
+    const top = F.boardsHeight ?? 0.975;
+    if (gd > rB && b.pos.y < top && groundDistance(_pa.x, _pa.z) <= rB + BOARDS_T) {
       const nx = b.pos.x / gd, nz = (b.pos.z - PITCH.centerZ) / gd;
       b.pos.x = nx * rB; b.pos.z = PITCH.centerZ + nz * rB;
       const vr = b.vel.x * nx + b.vel.z * nz;
       if (vr > 0) { b.vel.x -= 1.3 * vr * nx; b.vel.z -= 1.3 * vr * nz; }     // (coefficient of restitution 0.3)
-    }
+    } else if (gd > rB) this.beyondBoards(b, gd, rB + R + BOARDS_T + R, top, t1);
+    if (!b.active) return;                        // (into the crowd)
 
     // Boundary.
     if (!b.crossedBoundary && groundDistance(b.pos.x, b.pos.z) > this.cfg.field.boundaryRadius) {
@@ -241,4 +246,38 @@ export class PhysicsWorld {
 
     if (b.stopped) this.emit({ type: 'stopped', t: t1, pos: b.pos.clone() });
   }
+
+  // Past the boards (gd from the middle, > the boards' field face). A ball
+  // behind them that comes back at them meets their back (rO: the ball's
+  // centre against it); one that meets the stand's surface (the front wall,
+  // the tiers, the bank, the pavilion) or a roof is in the crowd: it is gone
+  // (no bounce back onto the field), and a 'stand' event says where.
+  beyondBoards(b, gd, rO, top, t1) {
+    const R = this.P.r, z = b.pos.z - PITCH.centerZ;
+    if (gd < rO && b.pos.y < top && groundDistance(_pa.x, _pa.z) >= rO) {
+      const nx = b.pos.x / gd, nz = z / gd;
+      b.pos.x = nx * rO; b.pos.z = PITCH.centerZ + nz * rO;
+      const vr = b.vel.x * nx + b.vel.z * nz;
+      if (vr < 0) { b.vel.x -= 1.3 * vr * nx; b.vel.z -= 1.3 * vr * nz; }
+      return;
+    }
+    const a = bearing(b.pos.x, z);
+    // (the stand's front wall, from the grass behind the boards: a ball below its top comes back off it)
+    const rW = STAND.wallR - R;
+    if (gd > rW && b.pos.y < STAND.wallTop && groundDistance(_pa.x, _pa.z) <= rW && frontWallAt(a)) {
+      const nx = b.pos.x / gd, nz = z / gd;
+      b.pos.x = nx * rW; b.pos.z = PITCH.centerZ + nz * rW;
+      const vr = b.vel.x * nx + b.vel.z * nz;
+      if (vr > 0) { b.vel.x -= 1.3 * vr * nx; b.vel.z -= 1.3 * vr * nz; }
+      return;
+    }
+    const h = standHeightAt(gd, a), ru = roofUnderAt(gd, a);
+    const inStand = h >= 0 ? b.pos.y - R <= h : gd > STAND.outerR && b.pos.y <= R;     // (out of the ground altogether: wherever it comes down)
+    const onRoof = ru >= 0 && b.pos.y + R >= ru && b.pos.y - R <= ru + STAND.roof.t;
+    if (!inStand && !onRoof) return;
+    const speed = b.vel.length();
+    b.active = false;
+    this.emit({ type: 'stand', t: t1, pos: b.pos.clone(), speed, onFull: b.batted && b.bouncesSinceBat === 0, batted: b.batted, roof: onRoof });
+  }
 }
+const BOARDS_T = 0.08;            // m: the boards' thickness (their back is this far behind the face)
