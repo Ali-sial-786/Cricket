@@ -127,6 +127,8 @@ export async function warmUp(game, progress = () => {}) {
   // prompt that shrinks to fit met four or five at once, mid-play)
   try { prewarmFonts(); } catch { /* fonts are met at first use instead */ }
   T.fonts = performance.now() - t0 - T.drs;
+  // the ceremony's strap canvas and coin texture (drawn and uploaded here, not at the first toss)
+  try { if (game.ceremony && game.ceremony.prewarm) game.ceremony.prewarm(r); } catch { /* made at first use instead */ }
   // 1. programs: the scene with everything shown, both LODs' geometry, then the variants
   progress(0, 'Preparing the shaders');
   try { T.parallel = !!r.getContext().getExtension('KHR_parallel_shader_compile'); } catch { T.parallel = false; }
