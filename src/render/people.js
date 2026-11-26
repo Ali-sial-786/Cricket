@@ -6,7 +6,8 @@ import { poseEvery } from './humanoid.js';
 import { toV3, toQ } from './util.js';
 import { sstep, clamp, hyp } from './anim.js';
 import { CONFIG } from '../config.js';
-import { walkTask, stepWalk, fadeNearHead, bendAround, FIELD_CLEAR, MERGE_BACK } from './crew.js';
+import { walkTask, stepWalk, fadeNearHead, bendAround, MERGE_BACK } from './crew.js';
+import { FAST_CLEAR } from '../game/playerSpace.js';
 import { live, lastCrowd, joyAt } from './gestures.js';
 
 // The runner in your kit is not drawn close to your head (you are looking out
@@ -379,7 +380,7 @@ const NS_BACKUP = 1.5;       // m he walks down the pitch as the ball is bowled
 // (v.running is the run's state for this frame, its own object: its speed and heading are
 // set to the walk's for the drawing)
 const STEP_NEAR = 3.0, NS_ASIDE = 2.15;
-const RUN_CLEAR = FIELD_CLEAR + 0.4;      // a man running flat out past you: a stride wider than a walker
+const RUN_CLEAR = FAST_CLEAR;      // a man running between the wickets is fast: playerSpace.js
 // A running batter's drawn place (v: his view, v.avoid your head): his run, its lane bent round you
 // (crew.js bendAround), then, pulled up near you, his walk on out to your side; he faces the way the
 // drawn path goes, so the bend is run, not slid. Nothing made per frame.

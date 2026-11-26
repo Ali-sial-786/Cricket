@@ -8,7 +8,7 @@
 import * as THREE from 'three';
 import { Fielding, STUMP_CLEAR } from './fielding.js';
 import { planRuns, planMoreRuns } from './running.js';
-import { EYE_CLEAR, FIELD_CLEAR } from './playerSpace.js';
+import { EYE_CLEAR, FIELD_CLEAR, FAST_CLEAR } from './playerSpace.js';
 import { overthrowRuns } from './throwing.js';
 import { Vec3, clamp, smoothstep as sstep, hypot2, hypot3 } from '../physics/math.js';
 import { PITCH } from '../physics/pitch.js';
@@ -30,8 +30,22 @@ function circle(pool, i, x, z, r, soft) {
 const BATTER_CLEAR = 0.95;     // (a batter's stance / lean on the bat reaches forward)
 const UMPIRE_CLEAR = 0.9;      // (his signals reach out)
 const BOWLER_CLEAR = 0.8;
-const PLAYER_PATH = 2.1;       // anyone running or walking past you gives you this much room
-export const HUDDLE_YOU = FIELD_CLEAR + 0.35;    // the ring of a huddle round you (you took the wicket)
+const PLAYER_PATH = FAST_CLEAR;   // anyone running past you gives you this much room (playerSpace.js)
+export const HUDDLE_YOU = FAST_CLEAR + 0.3;     // the ring of a huddle round you (you took the wicket): its jumps and arms out outside FAST_CLEAR
+export const HUDDLE_AWAY = FAST_CLEAR + 1.6;    // a huddle round someone else forms at least this far from you
+// After Fielding.celebrateWicket: nobody's way to the huddle ends nearer you than `min` (a deep man coming
+// part of the way in, past your end, would jog up to the edge of your space): his stop is put out along
+// his line from you, so his jog -- fast -- passes you wide. Once a wicket.
+export function clearHuddle(L, hp, min) {
+  for (const f of L.fielders) {
+    const T = f.state === 'huddle' && f.target;
+    if (!T) continue;
+    const dx = T.x - hp.x, dz = T.z - hp.z, d = hypot2(dx, dz);
+    if (d >= min) continue;
+    const ux = d > 1e-3 ? dx / d : f.pos.x - hp.x, uz = d > 1e-3 ? dz / d : f.pos.z - hp.z, ul = hypot2(ux, uz) || 1;
+    T.x = hp.x + ux / ul * min; T.z = hp.z + uz / ul * min;
+  }
+}
 const LANE_CLEAR = 1.5;        // half-width of your run-up lane kept empty between balls
 const BOWL_CREASE_Z = PITCH.bowlingStumpsZ + PITCH.poppingOffset;
 const THROW_HINTS = [HINTS.toKeeper, HINTS.toBowler];     // (asked for every frame: one list, not one a frame)
@@ -107,7 +121,14 @@ export class FieldController {
       if (bw && bw.visible) { const dz = PITCH.centerZ - bw.pos.z, dx = -bw.pos.x, d = hypot2(dx, dz), k = d > 1e-3 ? Math.min(3.5, d) / d : 0; focus = { x: bw.pos.x + dx * k, z: bw.pos.z + dz * k }; }
       else if (g.session && g.session.isBowling) { const p = this.playerSpot(); if (p) { focus = p; r = HUDDLE_YOU; } }
     }
-    if (focus) L.celebrateWicket(t, focus, center, r, budget);
+    // (a huddle round a man near you -- the keeper's catch, a run-out at your end -- forms further off: its
+    // jumps and arms out are fast, outside FAST_CLEAR; the man joins it there)
+    const hp = this.playerSpot();
+    if (focus && hp && r !== HUDDLE_YOU) {
+      const dx = focus.x - hp.x, dz = focus.z - hp.z, d = hypot2(dx, dz);
+      if (d < HUDDLE_AWAY) { const k = d > 1e-3 ? HUDDLE_AWAY / d : 0; focus = { x: hp.x + (k ? dx * k : 0), z: hp.z + (k ? dz * k : -HUDDLE_AWAY) }; center = -1; }
+    }
+    if (focus) { L.celebrateWicket(t, focus, center, r, budget); if (hp) clearHuddle(L, hp, r === HUDDLE_YOU ? HUDDLE_YOU : HUDDLE_AWAY); }
   }
   // Everyone in place for the next ball at once (a skip to the next ball, the
   // view dark): the catching view over, every fielder on his mark (the AI

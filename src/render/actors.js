@@ -17,6 +17,7 @@ import { clipsReady, applyClip, applyLocomotion, strideAt, clipInfo, settle, MAS
 import { shotFor, poseShot } from './shots.js';
 import { steadyKnees, legsNow, legsBlend, kneeWay, footYaw } from './legs.js';
 import { CONFIG } from '../config.js';
+import { FAST_CLEAR } from '../game/playerSpace.js';
 import { BatGeometry } from '../physics/bat.js';
 import { PITCH } from '../physics/pitch.js';
 import { steerAmong } from '../game/fielding.js';
@@ -286,6 +287,7 @@ export class FielderActor extends Actor {
   // made (the pose's own rates); fdt: this frame's (what is walked off a lunge).
   pose(dt, s, ctx, fdt) {
     const h = this.h, t = ctx.t;
+    this._cam = ctx.cam || null;
     // A dive carries the body off its spot (offX / offZ). When the dive is over
     // the body is not put back: what is left of the offset is walked off.
     let offX = 0, offZ = 0, lunging = false, gest = false, idleOK = false;
@@ -529,6 +531,17 @@ export class FielderActor extends Actor {
     const tx = lunging ? offX : 0, tz = lunging ? offZ : 0;
     const ex = tx - O.x, ez = tz - O.z, d = Math.sqrt(ex * ex + ez * ez), st = (lunging ? LUNGE_RATE : 1.6) * dt;
     if (d <= st) { O.x = tx; O.z = tz; } else { O.x += ex / d * st; O.z += ez / d * st; }
+    // (a dive or a lunge -- fast -- never carries the body within FAST_CLEAR of your eye: playerSpace.js; a
+    // man already that near dives where he stands; not the keeper, who stands behind you and must reach the ball)
+    const e = this.keeper ? null : this._cam;
+    if (e && (O.x !== 0 || O.z !== 0)) {
+      const bx = this.pos.x - e.x, bz = this.pos.z - e.z, b2 = bx * bx + bz * bz, R2 = FAST_CLEAR * FAST_CLEAR;
+      if (b2 < R2) { O.x = O.z = 0; }
+      else {
+        const a = O.x * O.x + O.z * O.z, bo = 2 * (bx * O.x + bz * O.z), c = b2 - R2, disc = bo * bo - 4 * a * c;
+        if (bo < 0 && disc > 0) { const k = (-bo - Math.sqrt(disc)) / (2 * a); if (k < 1) { O.x *= k; O.z *= k; } }
+      }
+    }
     r.x += O.x - offX; r.z += O.z - offZ;
   }
   // Calm enough for the pose LOD: nothing to do with the ball, no reaction, standing or on his way at a jog.
