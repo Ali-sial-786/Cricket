@@ -64,3 +64,22 @@ test('the last ball again: between balls (the result; batting, the walk back too
   R.pending = { at: 13 }; assert.equal(R.againReady(), false, 'its own replay still to come'); R.pending = null;
   R.marks = {}; assert.equal(R.againReady(), false, 'no ball yet');
 });
+
+test('read off the tape: a lofted shot down by a fielder, a hard hit stopped by the rope, a ball past the batter\'s head', () => {
+  // a stand-in tape: the ball's place as a function of tape time, the figures fixed
+  const tapeOf = (pos, people) => { const R = replay('highlights'); R.tapeBall = (t, o) => { const p = pos(t); o.x = p[0]; o.y = p[1]; o.z = p[2]; return true; }; R.bodiesAt = () => people; return R; };
+  const man = (x, z) => ({ a: { x, y: 1.85, z }, b: { x, y: 0.95, z }, c: { x, y: 0.05, z } });
+  // lofted 2.5 s to 25 m away, up 7.5 m, coming down 3 m from a fielder (and in a gap)
+  const loft = (t) => { const u = Math.max(0, t - 10); return u < 2.5 ? [0, Math.max(0.036, 12 * u - 4.9 * u * u), -25 * u / 2.5] : [0, 0.036, -25]; };
+  assert.ok(tapeOf(loft, [man(2, -27)]).flight(10, 14).safeT > 12, 'down by a fielder');
+  assert.equal(tapeOf(loft, [man(20, -27)]).flight(10, 14).safeT, null, 'down in a gap');
+  // 30 m/s along the ground, stopped 62 m from the middle
+  const hard = (t) => { const u = Math.max(0, t - 10), d = Math.min(30 * u, 52); return [d, 0.036, -10.06]; };
+  assert.ok(tapeOf(hard, []).flight(10, 14).savedT > 11.5, 'stopped by the rope');
+  const soft = (t) => { const u = Math.max(0, t - 10), d = Math.min(12 * u, 52); return [d, 0.036, -10.06]; };
+  assert.equal(tapeOf(soft, []).flight(10, 14).savedT, null, 'not hit hard');
+  // a bouncer 20 cm past the striker's head (the figure at the crease)
+  const R = tapeOf((t) => [0.35 + 0.12 + 0.036 + 0.02, 1.85 - 0.12, -1.4 + 25 * (t - 10)], [man(0.35, -0.4)]);
+  const gap = R.headGap(10.04, false);
+  assert.ok(gap != null && gap < 0.3, `past the head by ${gap}`);
+});
