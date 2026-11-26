@@ -123,3 +123,54 @@ export function replayAt(m, t) {
   const dead = m.dead ?? t;
   return Math.max(dead + tailFor(m) + 0.05, t + (t - dead > 0.5 ? 1.0 : 0));
 }
+
+// ---------------------------------------------------------------- what a view shows
+// What fills a view from cam (x, y, z) facing (yaw, pitch), as shares of an n x n
+// grid of rays over hfov x vfov degrees: { turf, boards, screen, stand, sky } (the ground
+// inside the boards; the advertising boards, BOARD_R m from the middle and
+// BOARD_TOP m tall; a sightscreen; the stands and the crowd above / beyond them, up to 25° above
+// level; the sky). For the tests, the harness and the director's choice of a
+// boundary's last angle (at plan time, never per frame): its last picture must
+// not be a board close-up or a sightscreen.
+export const BOARD_R = 68.2, BOARD_TOP = 0.975;
+// The sightscreens (render/ground.js SIGHTSCREEN): a dark face 26 m wide, 0.6-10.8 m up, 6 m behind the rope
+// straight behind either end. A picture full of one is as bad as one full of boards.
+export const SCREEN = { half: 13, bottom: 0.6, top: 10.8, dist: 71 };
+export function viewShares(cam, yaw, pitch = 0, { hfov = 100, vfov = 90, n = 24, nv = n, cz = -10.06 } = {}) {
+  const out = { turf: 0, boards: 0, screen: 0, stand: 0, sky: 0 };
+  const cy = Math.cos(yaw), sy = Math.sin(yaw), tH = Math.tan(hfov / 2 * Math.PI / 180), tV = Math.tan(vfov / 2 * Math.PI / 180);
+  const cp = Math.cos(pitch), sp = Math.sin(pitch);
+  for (let i = 0; i < n; i++) for (let j = 0; j < nv; j++) {
+    const u = ((i + 0.5) / n * 2 - 1) * tH, v = ((j + 0.5) / nv * 2 - 1) * tV;
+    // camera space: forward (0, 0, 1) as yaw 0 faces +z; right = -x... (yaw: atan2(x, z))
+    const fy = sp + v * cp, fh = cp - v * sp;                       // pitched forward / up
+    let dx = sy * fh + cy * u, dz = cy * fh - sy * u, dy = fy;
+    const L = Math.sqrt(dx * dx + dy * dy + dz * dz); dx /= L; dy /= L; dz /= L;
+    // the boards: |p - c| = BOARD_R in xz, BOARD_TOP >= y >= 0
+    const ox = cam.x, oz = cam.z - cz, a = dx * dx + dz * dz, b = 2 * (ox * dx + oz * dz), c = ox * ox + oz * oz - BOARD_R * BOARD_R;
+    let tb = Infinity;
+    if (a > 1e-9) { const disc = b * b - 4 * a * c; if (disc >= 0) { const t = (-b + Math.sqrt(disc)) / (2 * a); if (t > 0) tb = t; } }
+    const tg = dy < -1e-6 ? -cam.y / dy : Infinity;
+    // a sightscreen: the plane z = cz ± SCREEN.dist, |x| <= half, bottom..top
+    let ts = Infinity;
+    for (let e = -1; e <= 1; e += 2) {
+      if (Math.abs(dz) < 1e-9) continue;
+      const t = (cz + e * SCREEN.dist - cam.z) / dz;
+      if (t <= 0 || t >= ts) continue;
+      const x = cam.x + dx * t, y = cam.y + dy * t;
+      if (Math.abs(x) <= SCREEN.half && y >= SCREEN.bottom && y <= SCREEN.top) ts = t;
+    }
+    // (the boards stop a ray only where it meets them below their top; above, it goes on to the screen or the stand)
+    const yb = cam.y + dy * tb, tbv = tb < Infinity && yb <= BOARD_TOP && yb >= 0 ? tb : Infinity;
+    // (the ground beyond the boards is under the stands: a ray coming down there meets the crowd first)
+    const tgv = tg < Infinity && (ox + dx * tg) ** 2 + (oz + dz * tg) ** 2 <= BOARD_R * BOARD_R ? tg : Infinity;
+    if (ts < tgv && ts < tbv) out.screen++;
+    else if (tgv < tbv) out.turf++;
+    else if (tbv < Infinity) out.boards++;
+    else if (Math.asin(dy) < 25 * Math.PI / 180) out.stand++;
+    else out.sky++;
+  }
+  const N = n * nv;
+  out.turf /= N; out.boards /= N; out.screen /= N; out.stand /= N; out.sky /= N;
+  return out;
+}

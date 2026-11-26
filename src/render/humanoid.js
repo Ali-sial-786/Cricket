@@ -1165,14 +1165,20 @@ function kitMaterial(fig = null) {
       float cover = smoothstep(0.0, 0.4 - 0.25 * uLook2.z, vHairE);
       vec2 hq = vBind.xz - uSkull.xz;
       float an = atan(hq.x, hq.y);
-      float strands = sin(an * 260.0 + sin(vBind.y * 120.0) * 3.0) * (1.0 - smoothstep(0.0006, 0.0013, fw));
+      // (faded by the stripes' own rate on screen, not by distance: they are finer toward the crown, and from
+      // 1.5 m they beat with the pixels into a fingerprint. Gone before two pixels a stripe.)
+      float hph = an * 260.0 + sin(vBind.y * 120.0) * 3.0;
+      float strands = sin(hph) * (1.0 - smoothstep(0.7, 1.5, fwidth(hph)));
+      // (locks of a centimetre or so carry the hair's grain at the distances where the strands are gone)
+      float lph = an * 38.0 + sin(vBind.y * 45.0 + an * 3.0) * 2.2;
+      float locks = sin(lph) * (1.0 - smoothstep(0.7, 1.5, fwidth(lph)));
       bool brow = vBind.z > uEye.w - 0.01;            // (the brows, not the scalp)
       // (the brows: hair, drawn as hair, its strokes running outward and a little up)
       if (brow) { float st = 0.75 + 0.25 * sin((abs(vBind.x) * 900.0 - vBind.y * 1400.0)) * (1.0 - smoothstep(0.0005, 0.001, fw)); c = mix(c, uSkin * 0.45, 0.25) * st; gSpec = 0.04; }
       else {
-        c = mix(uSkin * 0.82, c * (0.85 + 0.15 * strands), cover * (0.55 + 0.45 * uLook2.z));
+        c = mix(uSkin * 0.82, c * (0.86 + 0.1 * strands + 0.07 * locks), cover * (0.55 + 0.45 * uLook2.z));
         kitH += 0.00008 * strands * uLook2.z;
-        gSpec *= cover * uLook2.z;
+        gSpec *= 0.55 * cover * uLook2.z;          // (a sheen, not a polished cap)
       }
     } else if (gKind > 3.5 && gKind < 4.5) {
       // ---- eyes: lids painted over the top and bottom of the eyeball (the source's

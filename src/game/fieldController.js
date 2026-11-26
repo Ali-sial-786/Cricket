@@ -416,7 +416,7 @@ export class FieldController {
       const fx = -2 * (hq.x * hq.z + hq.w * hq.y), fz = -(1 - 2 * (hq.x * hq.x + hq.y * hq.y)), fl = hypot2(fx, fz);
       if (fl > 1e-3) { af.x = fx / fl; af.z = fz / fl; }
     }
-    g.batterView.avoidFwd = af;
+    g.batterView.avoidFwd = g.nonStrikerView.avoidFwd = af;
     if (g.umpires.keepClear) g.umpires.keepClear(g.umpires.visible ? hp : null, dt, PLAYER_CLEAR);
     const ump = g.umpires.visible ? g.umpires.spots() : null;
     const obs = this._fObs || (this._fObs = []), P = this._fPool || (this._fPool = []);
