@@ -199,10 +199,11 @@ view also faces forward by itself before each ball, on recenter, catches and rep
   for a bowled, an lbw or an appeal; side-on at the popping crease for a run-out or a stumping, frozen for a
   moment as the stumps break; a camera 5-8 m in front of the catcher at chest height for a catch, a drop or a
   diving stop, there before the ball; for a four, a spot 12-16 m from where it goes over with the chasing fielder
-  in the picture, or, with nobody near, a low camera (1.6 m) just inside the rope 5-8 m along it, the ball running
-  at it into the rope; for a six, 2.5 m up 8-12 m from where it comes down, in front of the seats, the ball
-  dropping into the picture and the view settling on the people rising there (behind a sightscreen, the stand
-  beside it). Each later take is 4 s at most and comes from a short list of broadcast positions; one that would
+  in the picture, or, with nobody near, a camera 2 m up looking out across the rope at the ball running into it (in
+  front of a sightscreen or the pavilion, from just inside the boards looking back in); for a six, 2.5 m up 8-12 m
+  from where it comes down, in front of the seats, the ball dropping into the picture and the view settling on the
+  people rising there (behind a sightscreen or into the top tier, the whole arc from high at long-on / long-off).
+  The ball that wins the match or ends an innings is always replayed. Each later take is 4 s at most and comes from a short list of broadcast positions; one that would
   be inside a fielder, off its subject, looking up into the sky or ending on a sightscreen, the big screen or
   the pavilion is left out. Between takes the view dips to dark and back (0.08 s); the replay comes in and goes
   out in about a tenth of a second. Skipping skips the whole sequence. After an appeal, a DRS review or the third umpire, the

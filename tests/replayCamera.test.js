@@ -8,6 +8,7 @@ import { pathStats, replayAt, tailFor, TAIL, TAIL_OUT, nearestOnBody, CLEAR, vie
 import { hypot2 } from '../src/physics/math.js';
 
 const DT = 1 / 90, PRE = 2, T0 = 100, D2R = Math.PI / 180, CZ = -10.06;
+const clamp1 = (v) => Math.max(-1, Math.min(1, v));
 const wrap = (a) => { while (a > Math.PI) a -= 2 * Math.PI; while (a < -Math.PI) a += 2 * Math.PI; return a; };
 
 // A ball on the tape: in the bowler's hand, bowled to the bat in 0.6 s, then
@@ -135,6 +136,7 @@ test('classify: wickets, boundaries, close calls and every moment a viewer would
   assert.deepEqual(C({ res: { kind: 'left' }, headGap: 0.2 }), { story: 'bouncer', tier: 'close' }, 'a bouncer past the helmet');
   assert.deepEqual(C({ res: { kind: 'runs', runs: 1 }, safe: true }), { story: 'safe', tier: 'close' }, 'lofted, down safe by a fielder');
   assert.deepEqual(C({ res: { kind: 'runs', runs: 2 }, saved: true }), { story: 'saved', tier: 'close' }, 'hit hard, stopped before the rope');
+  assert.deepEqual(C({ res: { kind: 'runs', runs: 1 }, last: true }), { story: 'last', tier: 'close' }, 'the winning single / the last ball of an innings');
   // routine
   for (const f of [{ res: { kind: 'left' } }, { res: { kind: 'runs', runs: 0 } }, { res: { kind: 'runs', runs: 1 } }, { res: { kind: 'beaten', padded: true } },
     { res: { kind: 'beaten' }, nearMiss: 0.4 }, { res: { kind: 'beaten' }, nearMiss: 0.3, batGap: 0.25 }, { res: { kind: 'left' }, nearMiss: 0.2 }, { res: { kind: 'left' }, headGap: 0.6 },
@@ -226,7 +228,8 @@ test('every later take comes from the broadcast positions (CANON) and passes the
     }
     // what each story's second take is
     const want = { bowled: 'line', lbw: 'line', four: 'rope', six: 'crowd', caught: 'catch', dropped: 'catch', dive: 'catch', runout: 'square', stumped: 'square' }[story];
-    if (want && !(story === 'six' && behindScreen(tape, p.focus))) assert.ok(p.takes.length >= 2 && p.shots[p.takes[1].shot].canon === want, `${at}: take 2 ${p.takes[1] ? p.shots[p.takes[1].shot].canon : 'none'} (want ${want})`);
+    if (want && story === 'six' && behindScreen(tape, p.focus)) assert.ok(p.takes.length >= 2 && /^long|keeperHigh|screenSide/.test(p.shots[p.takes[1].shot].canon), `${at}: six behind a sightscreen without take 2`);
+    else if (want) assert.ok(p.takes.length >= 2 && p.shots[p.takes[1].shot].canon === want, `${at}: take 2 ${p.takes[1] ? p.shots[p.takes[1].shot].canon : 'none'} (want ${want})`);
     if (['routine', 'beaten', 'edge', 'bouncer'].includes(story)) assert.equal(p.takes.length, 1, `${at}: take 1 only`);
   }
   assert.ok(seen.size >= 8, [...seen].join(' '));
@@ -281,7 +284,7 @@ test('the ball stays near the middle of the view (±20°) while it is followed: 
     // (a six's view leaves the ball once it has come down, for the crowd: counted up to the landing)
     // (take 1 from the bowler's end follows only as far as its gentle reach: a ball beyond it ends that take)
     const reach = DIRECTOR.arm.yawLim + DIRECTOR.cone;
-    const k = inCone(walk(p, tape).filter((f) => (story !== 'six' || f.t <= p.focus + 0.05) && !(p.shots[f.shot].kind === 'arm' && Math.abs(Math.atan2(f.bx - f.x, f.bz - f.z)) > reach)));
+    const k = inCone(walk(p, tape).filter((f) => (story !== 'six' || f.t <= Math.min(p.focus + 0.05, ...p.shots.filter((q) => q.stand && q.i0 >= 0).map((q) => q.stand.t))) && !(p.shots[f.shot].kind === 'arm' && Math.abs(Math.atan2(f.bx - f.x, f.bz - f.z)) > reach)));
     assert.ok(k >= (tier === 'boundary' ? 0.85 : 0.9), `${name}: ball inside ±20° on ${(k * 100).toFixed(0)}% of the frames`);
   }
 });
@@ -329,7 +332,7 @@ const ballPx = (d) => 2 * Math.atan(BALL_R / Math.max(0.1, d)) / D2R * PXDEG;
 const NONE = (s) => s.screen + s.bigscreen + s.pavilion;     // what a picture must never be made of
 
 test('a six: the subject is the crowd where it lands, the ball coming down into the picture; never a sightscreen, the big screen or the pavilion', () => {
-  for (const [name, v, extra] of [['over mid-wicket', [-17, 17, -14]], ['straight', [1, 18, -24]], ['square (off side, by the pavilion)', [19, 16, -8]], ['square (leg side)', [-19, 16, -8]],
+  for (const [name, v, extra] of [['over mid-wicket', [-17, 17, -14]], ['straight', [1, 18, -24]], ['square (off side, by the pavilion)', [19, 16, -8]], ['square (leg side)', [-19, 16, -8]], ['straight, deeper', [1.2, 17, -27]], ['straight, into the top tier', [0.8, 23, -31]],
     ['into the seats (recorded land)', [-18, 19, -14], { landAt: 1 }]]) {
     const pts = shot(v), tape0 = tapeOf(pts);
     // (another branch lets a six fly on into the seats: the tape's own landing time, if the marks carry one, is used)
@@ -338,7 +341,12 @@ test('a six: the subject is the crowd where it lands, the ball coming down into 
     const sh = p.shots[p.S[p.n - 1]], F = walk(p, tape), e = F[F.length - 1], land = p.focus;
     // (one that comes down behind a sightscreen, among its braces: no spot beside it sees the ball land and
     // the people, so there is no crowd take; the bowler's end shows it go)
-    if (behindScreen(tape, land)) { assert.equal(p.takes.length, 1, `${name}: behind the sightscreen`); continue; }
+    if (behindScreen(tape, land)) {
+      // (behind a sightscreen: the whole arc from high at long-on / long-off or behind the keeper)
+      assert.ok(p.takes.length === 2 && /^long|keeperHigh|screenSide/.test(sh.canon), `${name}: behind the sightscreen, take 2 from ${sh.canon}`);
+      assert.ok(takeOK(p, 1, tape).ok, `${name}: ${takeOK(p, 1, tape).why}`);
+      continue;
+    }
     assert.equal(sh.kind, 'track', name);
     assert.ok(sh.pos.y >= 2 && sh.pos.y <= 3, `${name}: ${sh.pos.y} m up`);
     const dl = hypot2(sh.subj.x - sh.pos.x, sh.subj.z - sh.pos.z);
@@ -434,8 +442,15 @@ test('a four: ends on the ball into the rope with a subject: the fielder chasing
       assert.ok(2 * Math.atan(0.9 / dF) / D2R * PXDEG >= 100, `${name}: the fielder ${dF.toFixed(1)} m away`);
     } else {
       assert.ok(ballPx(dB) >= 6, `${name}: the ball ${ballPx(dB).toFixed(1)} px (${dB.toFixed(1)} m) as it crosses`);
-      assert.ok(sh.pos.y >= 1.4 && sh.pos.y <= 1.8, `${name}: a low camera by the rope, not ${sh.pos.y} m up`);
-      assert.ok(hypot2(sh.pos.x, sh.pos.z - CZ) >= 61.5, `${name}: just inside the rope, not ${hypot2(sh.pos.x, sh.pos.z - CZ).toFixed(1)} m out`);
+      assert.ok(ballPx(Math.hypot(e.bx - e.x, e.by - e.y, e.bz - e.z)) >= 6, `${name}: the ball ${ballPx(Math.hypot(e.bx - e.x, e.by - e.y, e.bz - e.z)).toFixed(1)} px at the end`);
+      assert.ok(sh.pos.y >= 1.9 && sh.pos.y <= 2.3, `${name}: 2 m up, not ${sh.pos.y} m`);
+      // inside the rope looking out across it (no more than 60° off straight out); or, in front of a
+      // sightscreen / the pavilion, just inside the boards outside the ball's path, looking back in
+      const rc = hypot2(sh.pos.x, sh.pos.z - CZ);
+      const out = Math.acos(clamp1(((C.x - sh.pos.x) * C.x + (C.z - sh.pos.z) * (C.z - CZ)) / (hypot2(C.x, C.z - CZ) * hypot2(C.x - sh.pos.x, C.z - sh.pos.z)))) / D2R;
+      if (rc < 66) assert.ok(rc >= 50 && rc <= 58.1 && out <= 60, `${name}: ${rc.toFixed(1)} m out, ${out.toFixed(0)}° off looking out across the rope`);
+      else assert.ok(rc <= 69.5 && out >= 90, `${name}: ${rc.toFixed(1)} m out (by the boards), ${out.toFixed(0)}° off straight out (looking back in)`);
+      assert.ok(s.boards <= 0.2, `${name}: boards ${(s.boards * 100).toFixed(0)}% of the middle of the last picture`);
     }
   }
 });
