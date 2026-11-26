@@ -444,8 +444,16 @@ export class FielderActor extends Actor {
     } else if (this.speed > 0.25) {
       this.poseKey = 'move';
       this.locomote(t, this.keeper ? 0.05 : 0);
+      // (a ceremony's walk -- out to the toss, past you at the result: a stroll, not a fielder's
+      // business-like walk: tall, head up, the arms swinging freely)
+      if ((s.ceremony || this.ceremonyWalk) && this.speed < 2.6) {
+        const sw = 0.2 * Math.sin(this.phase) * sstep(0.3, 1.0, this.speed);
+        h.addRot('shoulderL', sw, 0, 0); h.addRot('shoulderR', -sw, 0, 0);
+        h.addRot('elbowL', -0.12, 0, 0); h.addRot('elbowR', -0.12, 0, 0);
+        h.addRot('spine', -0.05, 0, 0); h.addRot('neck', -0.04, 0, 0);
+      }
       this.apply();
-      gest = !act;
+      gest = !act && !s.ceremony;
     } else if (clips && !this.keeper) {
       // Standing at his mark; as the bowler runs in, down into a low, wide set.
       this.poseKey = 'stand';
@@ -1203,7 +1211,7 @@ function pinBack(foot, crease) {
   if (!crease || crease.z == null || !(crease.pin > 0)) return;
   foot.z = mix(foot.z, crease.z, Math.min(1, crease.pin));
 }
-const STANCE = { footL: [-0.31, -1.43], footR: [-0.35, -0.95] };
+const STANCE = { footL: [-0.31, -1.40], footR: [-0.34, -0.99] };
 const STANCE_MID = [(STANCE.footL[0] + STANCE.footR[0]) / 2, (STANCE.footL[1] + STANCE.footR[1]) / 2];
 const _mi = new THREE.Matrix4(), _yq = new THREE.Vector3(), _zAxis = new THREE.Vector3(0, 0, 1);
 // Heading of a rotation's +Z about the vertical.
@@ -1217,7 +1225,9 @@ const PALM = 0.075;                 // wrist to the middle of the palm (where a 
 const HAND_GAP = 0.105;
 // The batting stance (a crouch with the head out over the toes, cf. the classic side-on stance).
 const ELBOW_FWD = 0.2;               // elbows out in front of the shoulders, over the hands
-const STANCE_LEAN = 0.52, STANCE_KNEES = 0.05, STANCE_DROP = 0.18, FRONT_OPEN = 0.3;
+// (feet about shoulder width, knees softly flexed over the toes, the front toe opened a little down
+// the pitch: a deep, wide crouch splayed the pads like wings from behind -- review 5 #10)
+const STANCE_LEAN = 0.38, STANCE_KNEES = 0.04, STANCE_DROP = 0.18, FRONT_OPEN = 0.42;
 const FOOT_FRONT = 0.2, FOOT_BACK = 0.26;      // your feet: front foot ahead of your head, back foot behind it             // bottom hand to top hand, up the handle
 const GRIP_ROLL = 0.8;              // how far a hand may roll round the handle from the textbook grip (rad)
 const POLE_RATE = 10;              // rad/s: your figure's elbow bend direction turns at most this fast (steadyPole)

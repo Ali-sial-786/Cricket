@@ -72,6 +72,7 @@ export class BatterView {
       const k = a.task;
       // (from his stance into the walk: cross-faded from the pose he was in, bat and all)
       if (this.wasBat) { a.handover(); this.wasBat = false; a.rebase(a.h.root.position.x, a.h.root.position.z); }
+      if (this._roff) { this._roff.x = this._roff.z = 0; this._roff.side = 0; }      // (his step aside is in his place now)
       if (k.kind === 'merge' && this.avoid) {
         // (not into you: out to your side -- the side he is on -- and a little back, where you are not
         // looking; chosen once, so he does not swap sides as you turn)
@@ -114,6 +115,10 @@ export class BatterView {
           if (s) { a.pos.x = hx + dx * s; a.pos.z = hz + dz * s; } else a.pos.x = hx - R;
         }
       }
+      // Pulled up at your end: he does not stand in front of you while the run is
+      // sorted out -- he walks straight on out to your side (the place he would go to
+      // to become you, crew.js: the 'merge' walk then starts from there).
+      if (this.runnerOnly && this.avoid && !this.running.dive) stepAside(this, a, dt, MERGE_BACK, 0.4);
       if (rx != null) a.rebase(rx, rz);          // (the run starts under his pelvis: the body stays where the shot left it)
       // (he fades in as he leaves you; the fade by distance is only a last resort now)
       let fade = this.runnerOnly && this.avoid ? fadeNearHead(hyp(a.pos.x - this.avoid.x, a.pos.z - this.avoid.z)) : 1;
@@ -127,6 +132,8 @@ export class BatterView {
       return;
     }
     if (this.runnerOnly) { a.h.setFade(0); return; }       // (your runner with nowhere to go: not drawn)
+    // (a ceremony has him where he is -- the result's batters meeting: standing there, not back in his stance)
+    if (this.hold) { a.h.setFade(1); a.h.replayVisible = true; a.speed = 0; a.updateMoving(dt, t, null, false, 0, joyAt(t)); this.wasBat = false; return; }
     a.h.setFade(1);
     a.h.replayVisible = true;
     // His side has won (the result): out of his stance, bat and arms up.
@@ -375,6 +382,24 @@ const BODY_GAP = 0.32;       // any joint of a lunging body to another's trunk a
 // standing on his spot) he walks there, and the next ball waits for him.
 const NS_Z = -19.0;          // just behind the popping crease (bat grounded in his ground)
 const NS_BACKUP = 1.5;       // m he walks down the pitch as the ball is bowled
+// A batter pulled up near your head after a run (the run itself leaves him at the edge of
+// your space): he walks on, at a walk, out to your side -- the side he is on, lat m across
+// and back m behind you -- instead of standing in your face while the run is sorted out.
+// v._roff: his kept offset from where the run has him; eased back off once he runs again.
+// (v.running is the run's state for this frame, its own object: its speed and heading are
+// set to the walk's for the drawing)
+const STEP_NEAR = 3.0, NS_ASIDE = 2.15;
+function stepAside(v, a, dt, lat, back) {
+  const O = v._roff || (v._roff = { x: 0, z: 0, side: 0 }), F = v.avoidFwd, fx = F ? F.x : 0, fz = F ? F.z : -1, hx = v.avoid.x, hz = v.avoid.z;
+  if (v.running.speed < 0.4 && (O.side || hyp(a.pos.x - hx, a.pos.z - hz) < STEP_NEAR)) {
+    if (!O.side) O.side = (-fz * (a.pos.x - hx) + fx * (a.pos.z - hz)) >= 0 ? 1 : -1;
+    const tx = hx - fz * O.side * lat - fx * back - a.pos.x, tz = hz + fx * O.side * lat - fz * back - a.pos.z;
+    const ex = tx - O.x, ez = tz - O.z, d = hyp(ex, ez), st = 1.5 * dt;
+    if (d > st) { O.x += ex / d * st; O.z += ez / d * st; v.running.speed = 1.5; v.running.heading = Math.atan2(ex, ez); } else { O.x = tx; O.z = tz; }
+  } else { O.side = 0; const d = hyp(O.x, O.z), st = 3 * dt; if (d > st) { O.x -= O.x / d * st; O.z -= O.z / d * st; } else O.x = O.z = 0; }
+  a.pos.x += O.x; a.pos.z += O.z;
+}
+
 export class NonStrikerView {
   constructor(scene) {
     this.actor = new BatterActor(scene, { team: 'home', seed: 23 });
@@ -403,12 +428,15 @@ export class NonStrikerView {
       a.task = null;
       a.h.setFade(1); a.h.replayVisible = true;
       a.pos.set(this.running.x, 0, this.running.z);
+      // (run in to your end and pulled up there: out to your side, a good step further off than the run left him)
+      if (this.avoid && !this.running.dive) stepAside(this, a, dt, NS_ASIDE, 0.5);
       a.speed = this.running.speed;
       a.turnToward(this.running.heading, dt, this.running.moving ? 7 : 4.5);
       if (this.running.dive) a.updateDive(dt, t, this.running.dive); else a.updateMoving(dt, t, ball, false, 0, joyAt(t));
       this.moving = true;
       return;
     }
+    if (this._roff) this._roff.x = this._roff.z = this._roff.side = 0;      // (his step aside is in his place now)
     // Backing up: a few steps down the pitch as the ball is bowled.
     const backing = !!opts.backingUp && !a.task;
     if (backing) this.backing = Math.min(NS_BACKUP, this.backing + dt * 1.5);
@@ -445,7 +473,7 @@ export class NonStrikerView {
       return;
     }
     a.speed = 0;
-    a.turnToward(this.restFace(), dt, 3);
+    a.turnToward(this.hold && this.holdFace != null ? this.holdFace : this.restFace(), dt, 3);
     a.h.setFade(1); a.h.replayVisible = true;
     // (with the ball dead: now and then a few taps of the bat at his crease, a look round instead of at the bowler)
     let tap = 0;
@@ -455,7 +483,7 @@ export class NonStrikerView {
       else if (Math.abs(r) > 0.75 && u < 2.4) look = _look2.set(this.home.x * 12, 1.4, -8);
     }
     const joy = joyAt(t);
-    if (joy > 0.001) a.updateMoving(dt, t, null, false, 0, joy);           // (his side has won: off his bat, arms and bat up)
+    if (joy > 0.001 || this.hold) a.updateMoving(dt, t, null, false, 0, joy);     // (his side has won: off his bat, arms and bat up; a ceremony: standing, bat carried)
     else a.updateLeaning(dt, t, look, tap);
     this.moving = false;
   }

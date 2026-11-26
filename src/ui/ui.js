@@ -165,7 +165,7 @@ export class UI {
   prompt(text, secs = 3, color = '#ffffff') {
     if (text && this.quiet === 'clear') return;
     if (text === this.promptText && color === this.promptColor) { this.promptUntil = this.clock + secs; return; }
-    this.promptText = text; this.promptColor = color; this.promptUntil = this.clock + secs; this.promptAt = this.clock;
+    this.promptText = text; this.promptColor = color; this.promptUntil = this.clock + secs; this.promptAt = this.clock; this._stale = false;
     this.promptKind = text ? stingKind(text) : 'info';
     if (text && SCREEN_STINGS.has(this.promptKind)) this.screenSting(this.promptKind, text);
     this.drawPrompt();
@@ -251,6 +251,10 @@ export class UI {
     // the delivery card wait (their time does not run meanwhile) and come up after it.
     const strap = !!(g.ceremony && g.ceremony.cardUp);
     if (strap) { this.promptUntil += dt; this.promptAt += dt; this.hintUntil += dt; }
+    // (a message that was up when a beat's strap came, held behind it for more than a moment -- the
+    // ball's own result, BOWLED!, behind its wicket ceremony -- is stale by then: dropped, not shown late)
+    if (strap) { if (!this._strapT) this._stale = this.clock < this.promptUntil; this._strapT = (this._strapT || 0) + dt; }
+    else if (this._strapT) { if (this._stale && this._strapT > 1.0) { this.promptUntil = 0; this.promptText = ''; this.drawPrompt(); } this._strapT = 0; this._stale = false; }
     this._wasQuiet = quiet;
     const clear = replay || quiet || strap;
     const card = !!this.cardData && !this.menuOpen && !clear && g.state === 'play';
