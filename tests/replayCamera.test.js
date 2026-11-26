@@ -228,7 +228,7 @@ test('every later take comes from the broadcast positions (CANON) and passes the
     }
     // what each story's second take is
     const want = { bowled: 'line', lbw: 'line', four: 'rope', six: 'crowd', caught: 'catch', dropped: 'catch', dive: 'catch', runout: 'square', stumped: 'square' }[story];
-    if (want && story === 'six' && behindScreen(tape, p.focus)) assert.ok(p.takes.length >= 2 && /^long|keeperHigh/.test(p.shots[p.takes[1].shot].canon), `${at}: six behind a sightscreen without take 2`);
+    if (want && story === 'six' && behindScreen(tape, p.focus)) assert.ok(p.takes.length >= 2 && /^long|keeperHigh|screenSide/.test(p.shots[p.takes[1].shot].canon), `${at}: six behind a sightscreen without take 2`);
     else if (want) assert.ok(p.takes.length >= 2 && p.shots[p.takes[1].shot].canon === want, `${at}: take 2 ${p.takes[1] ? p.shots[p.takes[1].shot].canon : 'none'} (want ${want})`);
     if (['routine', 'beaten', 'edge', 'bouncer'].includes(story)) assert.equal(p.takes.length, 1, `${at}: take 1 only`);
   }
@@ -332,7 +332,7 @@ const ballPx = (d) => 2 * Math.atan(BALL_R / Math.max(0.1, d)) / D2R * PXDEG;
 const NONE = (s) => s.screen + s.bigscreen + s.pavilion;     // what a picture must never be made of
 
 test('a six: the subject is the crowd where it lands, the ball coming down into the picture; never a sightscreen, the big screen or the pavilion', () => {
-  for (const [name, v, extra] of [['over mid-wicket', [-17, 17, -14]], ['straight', [1, 18, -24]], ['square (off side, by the pavilion)', [19, 16, -8]], ['square (leg side)', [-19, 16, -8]],
+  for (const [name, v, extra] of [['over mid-wicket', [-17, 17, -14]], ['straight', [1, 18, -24]], ['square (off side, by the pavilion)', [19, 16, -8]], ['square (leg side)', [-19, 16, -8]], ['straight, deeper', [1.2, 17, -27]], ['straight, into the top tier', [0.8, 23, -31]],
     ['into the seats (recorded land)', [-18, 19, -14], { landAt: 1 }]]) {
     const pts = shot(v), tape0 = tapeOf(pts);
     // (another branch lets a six fly on into the seats: the tape's own landing time, if the marks carry one, is used)
@@ -343,7 +343,7 @@ test('a six: the subject is the crowd where it lands, the ball coming down into 
     // the people, so there is no crowd take; the bowler's end shows it go)
     if (behindScreen(tape, land)) {
       // (behind a sightscreen: the whole arc from high at long-on / long-off or behind the keeper)
-      assert.ok(p.takes.length === 2 && /^long|keeperHigh/.test(sh.canon), `${name}: behind the sightscreen, take 2 from ${sh.canon}`);
+      assert.ok(p.takes.length === 2 && /^long|keeperHigh|screenSide/.test(sh.canon), `${name}: behind the sightscreen, take 2 from ${sh.canon}`);
       assert.ok(takeOK(p, 1, tape).ok, `${name}: ${takeOK(p, 1, tape).why}`);
       continue;
     }

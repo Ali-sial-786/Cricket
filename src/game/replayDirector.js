@@ -218,7 +218,7 @@ export function takeOK(p, j, tape) {
   let sx, sy, sz, far;
   if (sh.kind === 'catch') { if (!(tape.figure && tape.figure(sh.who, p.T[ik], o))) { o.x = sh.face.x; o.z = sh.face.z; } sx = o.x; sy = 1.1; sz = o.z; far = C.figFar; }
   else if (sh.kind === 'crease' || sh.kind === 'line') { sx = sh.face.x; sy = sh.face.y; sz = sh.face.z; far = C.figFar + 6; }
-  else { tape.ball(p.T[ik], o); sx = o.x; sy = o.y; sz = o.z; far = C.ballFar; }
+  else { tape.ball(p.T[ik], o); sx = o.x; sy = o.y; sz = o.z; far = sh.far ?? C.ballFar; }
   const h = hypot2(sx - c.x, sz - c.z);
   if (h > far) return { ok: false, why: `the subject ${h.toFixed(0)} m away` };
   let off = Math.abs(wrap(Math.atan2(sx - c.x, sz - c.z) - p.W[ik]));
@@ -368,7 +368,7 @@ function recipe(story, tier, m, tape) {
     // whole arc from high at long-on / long-off (or behind the keeper), the view going on to the people beside it)
     const behind = six && Math.abs(subj.x) < SCREEN.half + 2.5 && Math.abs(subj.z - CZ) > SCREEN.dist - 2;
     const k2 = shot(behind
-      ? { kind: 'track', canon: 'fixed', cands: FIXED.filter((c) => /^long|keeperHigh/.test(c.name)), stand: stands[0], stands, lookMax: 50, fov: DIRECTOR.fov.wide, subj, dists: [0], heights: [0], endDist: [15, 50] }
+      ? { kind: 'track', canon: 'fixed', cands: FIXED.filter((c) => /^long|keeperHigh|screenSide/.test(c.name)), stand: stands[0], stands, lookMax: 50, far: 75, fov: DIRECTOR.fov.wide, subj, dists: [0], heights: [0], endDist: [15, 50] }
       : six
       ? { kind: 'track', canon: 'crowd', rope: true, seats: true, stand: stands[0], stands, fov: DIRECTOR.fov.track, subj, dists: [8, 10, 12], heights: [2.5], endDist: [8, 13], rimMax: Math.max(63.5, Math.min(re + (screened ? 5 : -4), 80)), kMax: screened ? 18 : 8 }
       : fielder
@@ -647,7 +647,7 @@ function spotCost(c, S, sh, lim) {
   if (sh.cands) {
     // (a broadcast position: not ending on a sightscreen, the big screen, the pavilion or sky)
     const A = sh.stand ? standLook(c, sh) : sh.subj, v = viewShares(c, Math.atan2(A.x - c.x, A.z - c.z), 0, { hfov: 40, vfov: 30, n: 10, nv: 8 });
-    cost += (v.screen + v.bigscreen + v.pavilion + v.covers) * 40 + v.sky * 10 + v.boards * 10 + (dE > DIRECTOR.checks.ballFar ? 50 : 0);
+    cost += (v.screen + v.bigscreen + v.pavilion + v.covers) * 40 + v.sky * 10 + v.boards * 10 + (dE > (sh.far ?? DIRECTOR.checks.ballFar) ? 50 : 0);
   }
   cost += turn / Math.PI * 0.6;
   // (by the rope: never ending on a sightscreen, the dark wedges straight behind either end)
