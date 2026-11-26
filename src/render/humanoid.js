@@ -842,7 +842,7 @@ function kitMaterial(fig = null) {
         else if (k < 3.5) kc = FIG(2).rgb;
         else if (k < 4.5) { kc = FIG(3).rgb; push = uLook.x * 0.45 * vSeg.x; }
         else if (k < 5.5) {
-          kc = FIG(4).rgb; mt = vec4(0.45, 0.05, 6.0, 1.0);
+          kc = FIG(4).rgb; mt = vec4(vHeadW > 0.5 ? 0.2 : 0.45, 0.05, 6.0, 1.0);   // (the face: little wrap, so its planes show and the far cheek falls into shade)
           vec2 at = armAt(position);
           float arm = step(0.5, vArmW) * step(at.x, 0.97);
           push = uLook.x * 0.5 * upperW + arm * (uLook.z * 0.0035 * step(0.1, at.x) + uLook.w * 0.003 * step(0.82, at.x) * step(at.x, 0.95));
@@ -864,8 +864,8 @@ function kitMaterial(fig = null) {
         }
         else if (k < 7.5) { kc = FIG(6).rgb; push = uLook.x * (trunkW + 0.6 * upperW); }
         else if (k < 8.5) { kc = FIG(4).rgb * vec3(0.82, 0.66, 0.64); mt = vec4(0.45, 0.12, 16.0, 1.0); }
-        else if (k > 23.5 && k < 24.5) mt = vec4(0.3, 0.7, 90.0, 4.0);
-        else if (k < 25.5) { kc = FIG(7).rgb; mt = vec4(0.3, 0.7, 90.0, 4.0); }
+        else if (k > 23.5 && k < 24.5) mt = vec4(0.3, 1.0, 220.0, 4.0);       // (a small, sharp highlight of the sun: the catch-light)
+        else if (k < 25.5) { kc = FIG(7).rgb; mt = vec4(0.3, 1.0, 220.0, 4.0); }
         else if (k < 26.5) mt = vec4(0.2, 0.5, 60.0, 4.0);
         else if (k > 29.5 && k < 30.5) mt = vec4(0.0, 0.6, 70.0, 2.0);
         else if (k < 31.5) mt = vec4(0.12, 0.06, 12.0, 5.0);
@@ -884,6 +884,16 @@ function kitMaterial(fig = null) {
         float br = sin(uTime * (1.45 + 0.4 * uSeed) + uSeed * 40.0);
         push += 0.0022 * br * trunkW * smoothstep(1.12, 1.3, position.y) * smoothstep(1.47, 1.38, position.y) * step(k, 7.5);
         transformed += objectNormal * push;
+        // the gaze (FIG(18).w: yaw and pitch, see Humanoid.updateGaze): the eyeballs turn about their centres
+        if (k > 23.5 && k < 26.5 && FIG(18).w > 0.5) {
+          vec3 d = position - vec3(sign(position.x) * uEye.x, uEye.y, uEye.w - 0.0128);
+          if (dot(d, d) < 0.0003) {
+            float gw = FIG(18).w, gy = (floor(gw / 128.0) - 64.0) * 0.01, gp = (gw - floor(gw / 128.0) * 128.0 - 64.0) * 0.01;
+            vec3 r = vec3(d.x, cos(gp) * d.y + sin(gp) * d.z, cos(gp) * d.z - sin(gp) * d.y);
+            r = vec3(cos(gy) * r.x + sin(gy) * r.z, r.y, cos(gy) * r.z - sin(gy) * r.x);
+            transformed += r - d; vBind += r - d;
+          }
+        }
         #ifdef FP_BODY
           // your own shoulders as you see them from above: lower and narrower (the deltoid falls away
           // from the collar), so looking down they are the tops of your arms, not a dome under your chin
@@ -1152,7 +1162,7 @@ function kitMaterial(fig = null) {
         // (the painted creases a third deeper than before: the mesh's own shading is soft)
         // (the painted and the socket shades scaled down on light skin: the same shade reads twice as
         // strong there, and made the fair players look fifty)
-        float shk = mix(1.0, 0.55, smoothstep(0.15, 0.45, dot(FIG(4).rgb, vec3(0.3, 0.55, 0.15))));
+        float shk = mix(1.0, 0.45, smoothstep(0.15, 0.45, dot(FIG(4).rgb, vec3(0.3, 0.55, 0.15))));
         float m = 1.0 + (0.9 * f.r - 0.45) * 0.45 * shk;          // (the head's own geometry carries the form now: the paint only accents it)
         c *= m;
         // skin is not one colour: warmer, redder cheeks, nose and lips, a darker, cooler jaw and upper
@@ -1209,6 +1219,10 @@ function kitMaterial(fig = null) {
         c = mix(c, mix(hc, c * 0.55, 0.35) * strands, beard * 0.72);
         gSSS *= 1.0 - beard; gSpec = mix(gSpec, 0.1, beard); gShin = mix(gShin, 12.0, beard);
         kitH += beard * 0.00004 * sin(bph2) * (1.0 - smoothstep(0.3, 0.8, fwidth(bph2)));
+        // a soft shadow under the brow and in the eye's inner corner (depth, not a line)
+        { float bs = exp(-pow(length(vec2(ax - uEye.x + 0.002, yy - uEye.y - 0.009) / vec2(0.016, 0.0055)), 2.0));
+          float ic = exp(-pow(length(vec2(ax - uEye.x + 0.0155, yy - uEye.y + 0.0005) / vec2(0.004, 0.0045)), 2.0));
+          c *= 1.0 - (0.1 * bs + 0.1 * ic) * shk; }
         c = mix(c, uHair * 0.35, liner * 0.92);
         c = mix(c, vec3(0.78, 0.76, 0.72), white);
         // forehead, nose and cheekbones are a little shinier
@@ -1244,6 +1258,11 @@ function kitMaterial(fig = null) {
       // wide-open stare), a lash line on the upper lid, the white shaded under it
       vec3 uSkin = FIG(4).rgb, uHair = FIG(5).rgb; float uSeed = FIG(0).w;
       vec2 e = vec2(abs(vBind.x) - uEye.x, vBind.y - uEye.y);
+      vec2 eo = e;     // (the iris's own pattern turns with the eyeball; the lids, e, stay)
+      if (FIG(18).w > 0.5) {
+        float gw = FIG(18).w, gy = (floor(gw / 128.0) - 64.0) * 0.01, gp = (gw - floor(gw / 128.0) * 128.0 - 64.0) * 0.01;
+        eo = vec2(e.x - sign(vBind.x) * sin(gy) * 0.0128, e.y - sin(gp) * 0.0128);
+      }
       float r = uEye.z, u = clamp(e.x / 0.0152, -1.0, 1.0);      // (headMesh.js: the lids' opening, 30 mm across)
       float ageE = FIG(17).x + (abs(FIG(18).x - 1.0) < 0.5 ? 0.55 : FIG(18).x > 1.5 ? 0.25 : 0.0);      // (an older man's lids sit lower; a focused man narrows his eyes, a smiling one a little)
       // (just inside the lids' own edges, so the lid's margin and the lash line are one line: the upper lid
@@ -1259,17 +1278,18 @@ function kitMaterial(fig = null) {
       c = mix(c, uSkin * 0.95, lid);
       float lash = exp(-pow((e.y - up - 0.0003) / 0.0008, 2.0)) * (1.0 - smoothstep(0.8, 1.05, abs(u)));
       c = mix(c, uHair * 0.22, clamp(lash, 0.0, 1.0) * 0.95);
+      c *= 1.0 - 0.35 * exp(-pow((e.y - up + 0.0007) / 0.0006, 2.0)) * (1.0 - lid);      // (the lid's thickness: its shadow on the eye)
       c = mix(c, uSkin * 0.8, exp(-pow((e.y - lo + 0.0004) / 0.0007, 2.0)) * 0.15);   // (the lower lid: no lashes, a light edge)
       // the iris: a dark ring at its edge, lighter flecks round the pupil, the pupil black; and a
       // catch-light (the sky in the wet eye) on the same side of both eyes
-      float ir = length(e) / (uEye.z * 0.84);
+      float ir = length(eo) / (uEye.z * 0.84);
       if (s > 24.5 && s < 25.5) {
-        float fl = 0.88 + 0.12 * sin(atan(e.y, e.x) * 23.0);
-        c *= mix(1.3 * fl, 0.45, smoothstep(0.6, 1.0, ir));
+        float fl = 0.88 + 0.12 * sin(atan(eo.y, eo.x) * 23.0);
+        c *= mix(1.3 * fl, 0.3, smoothstep(0.72, 0.98, ir));      // (a darker limbal ring)
         c = mix(c, vec3(0.012), smoothstep(0.42, 0.36, ir));
       }
       vec2 cl = vec2(vBind.x - sign(vBind.x) * uEye.x - 0.0024, e.y - 0.0026);
-      totalEmissiveRadiance += vec3(0.85, 0.88, 0.92) * smoothstep(0.0014, 0.0008, length(cl)) * (1.0 - lid);
+      totalEmissiveRadiance += vec3(0.85, 0.88, 0.92) * 0.35 * smoothstep(0.0012, 0.0007, length(cl)) * (1.0 - lid);
       gSpec = mix(gSpec, 0.1, lid); gShin = mix(gShin, 16.0, lid); gSSS = lid;
     } else if (gKind > 5.5) {
       // sunglass lenses: a dark smoked lens with a blue-violet mirror coat, deeper toward the bottom
@@ -1516,6 +1536,42 @@ export class Humanoid {
       const d = Math.sqrt(dx * dx + dz * dz);
       h.setLod(d > (h.lodNear || nearDist) * (h.lod === 0 ? 1.15 : 1) ? 1 : 0);
     }
+    Humanoid.updateGaze(viewer);
+  }
+
+  // The eyes turn, slowly, to you when you are within 3 m and inside ~40 degrees of where the head
+  // faces (the two nearest such men only). Written into the look block (FIG(18).w) only when the
+  // angle has moved by 2 degrees; a near figure's bone texture is uploaded each frame for its pose
+  // anyway, so this adds no upload.
+  static updateGaze(viewer) {
+    const G = Humanoid._gz || (Humanoid._gz = { m: new THREE.Matrix4(), v: new THREE.Vector3(), near: [] });
+    const near = G.near; near.length = 0;
+    for (const h of Humanoid.all) {
+      if (!h.root.visible || h.lod !== 0 || h.ghost || !h.bones || !h.bones.head) continue;
+      const p = h.root.position, dx = p.x - viewer.x, dz = p.z - viewer.z, d2 = dx * dx + dz * dz;
+      if (d2 < 9) near.push([d2, h]);
+      else if (h._gaze) h._gazeTo(0, 0, true);
+    }
+    near.sort((a, b) => a[0] - b[0]);
+    const F = RIG.face, ey = F.eye[1] - RIG.J.head.y, ez = F.front - 0.0128 - RIG.J.head.z;
+    near.forEach(([, h], i) => {
+      let ty = 0, tp = 0;
+      if (i < 2) {
+        const v = G.v.copy(viewer).applyMatrix4(G.m.copy(h.bones.head.matrixWorld).invert());
+        v.y -= ey; v.z -= ez;
+        const l = v.length();
+        if (l > 1e-3 && v.z / l > 0.77) { ty = Math.max(-0.35, Math.min(0.35, Math.atan2(v.x, v.z))); tp = Math.max(-0.2, Math.min(0.2, Math.atan2(v.y, Math.hypot(v.x, v.z)))); }
+      }
+      h._gazeTo(ty, tp, false);
+    });
+  }
+  _gazeTo(ty, tp, snap) {
+    const g = this._gaze || (this._gaze = { y: 0, p: 0, wy: 0, wp: 0 });
+    if (snap) { g.y = ty; g.p = tp; } else { g.y += (ty - g.y) * 0.06; g.p += (tp - g.p) * 0.06; }
+    if (Math.abs(g.y - g.wy) < 0.035 && Math.abs(g.p - g.wp) < 0.035 && !(snap && (g.wy || g.wp))) return;
+    g.wy = g.y; g.wp = g.p;
+    this.u.uLook4.value.w = (Math.round(g.y * 100) + 64) * 128 + (Math.round(g.p * 100) + 64);
+    this.lookChanged();
   }
 
   // Shirt number on the back (0 = none), printed from the lettering glyphs.

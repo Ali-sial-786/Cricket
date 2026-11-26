@@ -259,7 +259,7 @@ function paintFace(F) {
         shade -= 0.1 * Math.exp(-sq((ax - nw) / 0.0035)) * ss(ey + 0.004, ey - 0.012, y) * ss(ny - 0.012, ny + 0.002, y);
         shade += 0.07 * Math.exp(-sq(ax / 0.0045)) * ss(ey - 0.004, ny + 0.01, y) * ss(ny - 0.004, ny + 0.012, y);
         const nost = ell(ax, y, 0.0085, ny - 0.0045, 0.0042, 0.0022);
-        shade -= 0.25 * ss(1.2, 0.5, nost);
+        shade -= 0.2 * ss(1.4, 0.25, nost);     // (a soft dark oval, not a hole)
         // wing crease round the nostril
         shade -= 0.07 * Math.exp(-sq((ell(ax, y, 0.011, ny - 0.002, 0.0085, 0.0065) - 1) / 0.25));
         // under the nose
@@ -281,12 +281,12 @@ function paintFace(F) {
           const inLip = up ? ss(top + 0.0011, top - 0.0011, y - my) : ss(bot - 0.0013, bot + 0.0013, y - my);
           lips = Math.max(lips, inLip * (up ? 1 : 0.8));
           shade -= 0.3 * Math.exp(-sq((y - my - 0.0014 * ux * ux) / 0.0008)) * ss(1.02, 0.65, ux);        // the parting
-          shade -= 0.06 * ss(0.0018, 0, Math.abs(ux - 1)) * Math.exp(-sq((y - my) / 0.003));                  // corners
+          shade -= 0.1 * ss(0.0022, 0, Math.abs(ux - 1)) * Math.exp(-sq((y - my) / 0.003));                  // corners
           shade -= 0.05 * up * inLip;
           shade += 0.06 * (1 - up ? 1 : 0) * Math.exp(-sq((y - my + 0.0045) / 0.002)) * ss(0.8, 0.2, ux);   // lower lip highlight
         }
-        shade -= 0.06 * Math.exp(-sq(ax / 0.0035)) * ss(my + 0.006, my + 0.009, y) * ss(ny - 0.006, ny - 0.011, y);   // philtrum groove
-        shade -= 0.04 * Math.exp(-sq((y - (my - 0.0115)) / 0.005)) * Math.exp(-sq(ax / 0.016));                       // under the lower lip
+        shade -= 0.07 * Math.exp(-sq(ax / 0.0035)) * ss(my + 0.006, my + 0.009, y) * ss(ny - 0.006, ny - 0.011, y);   // philtrum groove
+        shade -= 0.07 * Math.exp(-sq((y - (my - 0.0105)) / 0.0045)) * Math.exp(-sq(ax / 0.014));     // (the soft cleft of shadow under the lip)                       // under the lower lip
       }
       // --- cheekbones catch light; temples and jaw sides fall off
       if (Math.abs(y - ey + 0.024) < 0.05) shade += 0.05 * Math.exp(-sq(ell(ax, y, ex + 0.008, ey - 0.024, 0.02, 0.014)));
