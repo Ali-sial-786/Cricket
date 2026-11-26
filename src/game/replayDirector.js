@@ -406,7 +406,7 @@ function recipe(story, tier, m, tape) {
     if (!six) {
       const fielder = nearestFigure(tape, key, subj, DIRECTOR.fourChase);
       if (!fielder) return { story, tier, shots, segs, takes, key: hit, focus: key };
-      const k2 = shot({ kind: 'track', canon: 'rope', rope: true, fov: DIRECTOR.fov.track, subj, fielder, pair: fielder.k, dists: [8, 10, 12], heights: [1.8], endDist: [5, 18], rimMax: 60 });
+      const k2 = shot({ kind: 'track', canon: 'rope', rope: true, fov: DIRECTOR.fov.track, subj, fielder, pair: fielder.k, dists: [7, 8.5, 10], heights: [1.8], endDist: [5, 18], rimMax: 60 });
       takeTwo(k2, 'THE CHASE', key, Math.max(hit + 0.1, key - DIRECTOR.t2.lead), Math.min(last, key + 0.3));
       return { story, tier, shots, segs, takes, key: hit, focus: key };
     }
