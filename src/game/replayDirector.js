@@ -80,7 +80,7 @@ export const DIRECTOR = {
   safeHigh: 3,
   savedSpeed: 22, savedR: 52,  // m/s off the bat, m from the middle (less 8): a hard hit stopped in the deep
   // the checks every later take's camera passes, or there is no such take (takeOK)
-  checks: { clear: 1.5, minY: 1.2, off: 25 * D2R, up: 40 * D2R, none: 0.1, sky: 0.15, boards: 0.35, ballFar: 55, figFar: 10 },
+  checks: { clear: 1.5, minY: 1.2, off: 25 * D2R, offCatch: 32 * D2R, up: 40 * D2R, none: 0.1, sky: 0.15, boards: 0.35, ballFar: 55, figFar: 10 },
 };
 
 // The broadcast positions a later take's camera comes from (DIRECTOR / takeOK): fixed ones round the
@@ -221,7 +221,9 @@ export function takeOK(p, j, tape) {
   else { tape.ball(p.T[ik], o); sx = o.x; sy = o.y; sz = o.z; far = C.ballFar; }
   const h = hypot2(sx - c.x, sz - c.z);
   if (h > far) return { ok: false, why: `the subject ${h.toFixed(0)} m away` };
-  if (sh.kind !== 'crease' && h > 1 && Math.abs(wrap(Math.atan2(sx - c.x, sz - c.z) - p.W[ik])) > C.off) return { ok: false, why: 'the subject off the middle at its moment' };
+  let off = Math.abs(wrap(Math.atan2(sx - c.x, sz - c.z) - p.W[ik]));
+  if (sh.kind === 'catch' && tape.ball(p.T[ik], o)) off = Math.min(off, Math.abs(wrap(Math.atan2(o.x - c.x, o.z - c.z) - p.W[ik])));   // (his hands, the ball in them)
+  if (sh.kind !== 'crease' && h > 1 && off > (sh.kind === 'catch' ? C.offCatch : C.off)) return { ok: false, why: `the subject ${(off / D2R).toFixed(0)}° off the middle at its moment` };
   if (Math.atan2(sy - c.y, Math.max(0.5, h)) > C.up) return { ok: false, why: 'looking up at it' };
   // (what is behind matters where the subject is far: a close subject fills the picture)
   if (sh.kind !== 'track') return { ok: true, why: '' };
