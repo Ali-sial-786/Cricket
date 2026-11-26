@@ -51,8 +51,8 @@ export function headField(H, eyes = true) {
     const tw = 1 - 0.1 * sstep(cran.c[2], cran.c[2] + cran.r[2], z) * sstep(E + 0.07, E + 0.0, y);
     let d = ell(ax / tw, y, z, cran.c, cran.r);
     // midface, muzzle, the soft tissue under the jaw
-    d = smin(d, ell(ax, y, z, [0, E - 0.03, zE - 0.052], [0.056, 0.05, 0.065]), 0.02);
-    d = smin(d, ell(ax, y, z, [0, mouth + 0.003, zE - 0.041], [0.044, 0.034, 0.045]), 0.024);   // (broad and flat: no snout, no creases at its sides)
+    d = smin(d, ell(ax, y, z, [0, E - 0.03, zE - 0.052], [0.053, 0.05, 0.066]), 0.02);   // (the cheeks turning back toward the ears)
+    d = smin(d, ell(ax, y, z, [0, mouth + 0.003, zE - 0.038], [0.043, 0.034, 0.045]), 0.024);   // (broad and flat: no snout, no creases at its sides)
     // full cheeks: a smooth convex surface from the cheekbone down to the jaw
     d = smin(d, ell(ax, y, z, [0.034, mouth + 0.014, zE - 0.03], [0.023, 0.027, 0.03]), 0.024);   // (no sag under the jaw line)
     d = smin(d, ell(ax, y, z, [0, C + 0.014, zE - 0.048], [0.042, 0.012, 0.044]), 0.016);
@@ -62,8 +62,10 @@ export function headField(H, eyes = true) {
     d = smin(d, cone(ax, y, z, go, [0.05, E - 0.028, zE - 0.098], 0.013, 0.011), 0.012);
     d = smin(d, ell(ax, y, z, [0, C + 0.014, zF - 0.017], [0.027, 0.017, 0.013]), 0.02);   // the chin
     // neck (to below the collar), the sternomastoids
-    const nx = ax / 0.053, nz = (z - czN) / 0.056;
-    let n = Math.sqrt(nx * nx + nz * nz) * 0.053 - 0.053;
+    // (about 15% narrower than the head at mid-neck, sloping out into the shoulders under the collar)
+    const nf = 0.02 * sstep(E - 0.16, E - 0.225, y), nrx = 0.046 + nf, nrz = 0.049 + nf;
+    const nx = ax / nrx, nz = (z - czN) / nrz;
+    let n = Math.sqrt(nx * nx + nz * nz) * nrx - nrx;
     n = smax(n, y - (E - 0.01), 0.03);
     d = smin(d, n, 0.03);
     d = smin(d, cone(ax, y, z, [0.044, E - 0.045, zE - 0.128], [0.013, 1.45, zE - 0.058], 0.011, 0.012), 0.012);
@@ -82,6 +84,7 @@ export function headField(H, eyes = true) {
     if (eyes) {
       // sockets carved in front of each eyeball, lids over it with an almond opening
       d = smax(d, -ell(ax, y, z, [ex, E + 0.001, zE + 0.01], [0.017, 0.0115, 0.009]), 0.008);
+      d = smax(d, -ell(ax, y, z, [ex - 0.002, E + 0.009, zE + 0.009], [0.016, 0.0065, 0.0075]), 0.008);   // (under the brow: brow, socket, cheekbone one soft S)
       const dx = ax - ex, dy = y - E;
       const ox = dx / 0.0152, oy = (dy - 0.08 * dx) / (dy > 0 ? 0.0053 : 0.006), open = Math.sqrt(ox * ox + oy * oy) - 1;   // < 0 in the almond
       let lid = Math.sqrt(dx * dx + dy * dy + (z - zE) * (z - zE)) - (re + 0.0017);
@@ -253,7 +256,7 @@ export function replaceHead(lods, J, meta) {
         if (Math.sign(P.getX(v)) !== side) continue;
         let x = P.getX(v), y = P.getY(v), z = P.getZ(v);
         if (p.name !== 'Details_Sclera') { x = ic[0] + (x - ic[0]) * ik; y = ic[1] + (y - ic[1]) * ik; }
-        P.setXYZ(v, side * ex + (x - c0[0]) * k, E + (y - c0[1]) * k, zE + (z - c0[2]) * k);
+        P.setXYZ(v, side * ex + (x - c0[0]) * k, E + (y - c0[1]) * k, zE - 0.001 + (z - c0[2]) * k);   // (a millimetre in behind the lids)
       }
     }
   }
