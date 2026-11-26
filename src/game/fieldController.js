@@ -31,7 +31,7 @@ const BATTER_CLEAR = 0.95;     // (a batter's stance / lean on the bat reaches f
 const UMPIRE_CLEAR = 0.9;      // (his signals reach out)
 const BOWLER_CLEAR = 0.8;
 const PLAYER_PATH = FAST_CLEAR;   // anyone running past you gives you this much room (playerSpace.js)
-export const HUDDLE_YOU = FAST_CLEAR + 0.3;     // the ring of a huddle round you (you took the wicket): its jumps and arms out outside FAST_CLEAR
+export const HUDDLE_YOU = FAST_CLEAR + 0.45;    // the ring of a huddle round you (you took the wicket): its jumps and arms out outside FAST_CLEAR
 export const HUDDLE_AWAY = FAST_CLEAR + 1.6;    // a huddle round someone else forms at least this far from you
 // After Fielding.celebrateWicket: nobody's way to the huddle ends nearer you than `min` (a deep man coming
 // part of the way in, past your end, would jog up to the edge of your space): his stop is put out along
