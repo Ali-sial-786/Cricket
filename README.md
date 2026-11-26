@@ -187,26 +187,20 @@ view also faces forward by itself before each ball, on recenter, catches and rep
   lens inserts remain the way to see sharply.
 * **Settings → Replays** (*highlights* / *every ball* / *off*): by default the balls worth seeing again get a
   replay: every wicket and boundary, every catch held or put down, every appeal given or not, every run-out or
-  stumping chance (the stumps broken or not), edges anywhere, a play-and-miss within 25 cm of the stumps or 10 cm
-  of the edge, a bouncer past the helmet, a lofted shot that comes down near a fielder, a hard hit stopped before
-  the rope, a diving stop, overthrows. Leaves well wide, dots and pushed singles do not (*every ball* gives them a
-  short one, 2.5 s at most). A replay is a sequence of whole takes, each one continuous shot from a fixed spot
-  that turns gently to follow the ball. **Take 1, always**, is from the bowler's end, behind the arm: the last
-  strides and the release at real speed, slow motion through the moment at the bat (or the stumps, the pad, the
-  catch at the keeper), and what follows for as long as the ball stays in view (a shot behind square ends it on
-  the batter's follow-through instead of whipping round), 5 s at most. **Take 2**, only where another angle shows
-  something more (a small *ANOTHER ANGLE* style tag names it): down the line of the stumps in front of the batter
-  for a bowled, an lbw or an appeal; side-on at the popping crease for a run-out or a stumping, frozen for a
-  moment as the stumps break; a camera 5-8 m in front of the catcher at chest height for a catch, a drop or a
-  diving stop, there before the ball; for a four, a spot 12-16 m from where it goes over with the chasing fielder
-  in the picture, or, with nobody near, a camera 2 m up looking out across the rope at the ball running into it (in
-  front of a sightscreen or the pavilion, from just inside the boards looking back in); for a six, 2.5 m up 8-12 m
-  from where it comes down, in front of the seats, the ball dropping into the picture and the view settling on the
-  people rising there (behind a sightscreen or into the top tier, the whole arc from high at long-on / long-off).
-  The ball that wins the match or ends an innings is always replayed. Each later take is 4 s at most and comes from a short list of broadcast positions; one that would
-  be inside a fielder, off its subject, looking up into the sky or ending on a sightscreen, the big screen or
-  the pavilion is left out. Between takes the view dips to dark and back (0.08 s); the replay comes in and goes
-  out in about a tenth of a second. Skipping skips the whole sequence. After an appeal, a DRS review or the third umpire, the
+  stumping chance, edges anywhere, a play-and-miss within 25 cm of the stumps or 10 cm of the edge, a bouncer past
+  the helmet, a lofted shot that comes down near a fielder, a hard hit stopped in the deep, overthrows, and the
+  ball that wins the match or ends an innings. A replay is one or two whole takes, each one continuous shot from a
+  fixed spot that turns gently to follow the ball. **Take 1, always**, is from the bowler's end, just behind the
+  stumps on the bowling arm's side: from the last stride at real speed, 0.6 s of slow motion round the moment at
+  the bat (or the stumps, the pad), and a beat after. **Take 2** only when there is something to see in it, and
+  only from a short list of broadcast positions: the line of the stumps in front of the batter (bowled, lbw, a
+  review), side-on at the crease with a freeze as the stumps break (run-out, stumping), the catcher three-quarter
+  on and close (a catch, a drop, a stop), the fielder chasing a four to the rope (a four nobody chases has take 1
+  only), the people where a six comes down going up (or the whole arc from high at long-on / long-off). A take
+  whose subject would be small, off the middle or missing is left out. About 4 s for a boundary, 5 s for a wicket.
+  So that an over is not mostly replays: a four's second take only for the first four of an over, and one other
+  close call an over (take 1 only), reviews aside. *Every ball* gives every ball at least take 1. Between takes
+  the view dips to dark and back (0.08 s); skipping skips the whole replay. After an appeal, a DRS review or the third umpire, the
   replay comes after the verdict; the result banner comes back once the replay is over. In the headset the play is
   where you face when you bat, wherever you happened to be looking when it started. A small *REPLAY* label shows
   for the first 1.5 s. Your **off-hand trigger** (the hand without the bat or the ball: the left one) skips it at
