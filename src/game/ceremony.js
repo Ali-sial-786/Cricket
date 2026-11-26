@@ -81,25 +81,28 @@ export function winnersFocus(L, bw, out = { x: 0, z: 0 }) {
   return out;
 }
 // The winners gathered at `focus` for the result (a chase lost on a dot: nobody caught or broke anything):
-// the GATHER_N nearest of the field, put (in the dark) a few strides out on their own line to it, jogging in
-// to a ring round it -- each a huddle man (Fielding's 'huddle' state: arms up, high fives). you: your eye,
-// that nobody is put or ends up within FIELD_CLEAR of. Made once a result.
-const GATHER_N = 6, GATHER_OUT = 3.2, GATHER_R = 1.2;
+// the GATHER_N nearest of the field. The nearest stands in the middle, arms up (Fielding's huddle centre);
+// the next three jog in from a few strides out, each from his own distance, to their own places in a
+// loose ring (high fives); the last two come from further and stop a step outside it, clapping -- so
+// they arrive one after another, not in step, and do not all do the same thing. you: your eye, that
+// nobody is put or ends up within FIELD_CLEAR of. Made once a result.
+const GATHER_N = 6, GATHER_OUT = 3.0, GATHER_R = [0, 1.15, 1.35, 1.25, 2.3, 2.6];
 export function gatherAt(L, focus, t, you = null) {
   const F = L.fielders.filter((f) => !f.bowler).sort((a, b) => hypot2(a.pos.x - focus.x, a.pos.z - focus.z) - hypot2(b.pos.x - focus.x, b.pos.z - focus.z)).slice(0, GATHER_N);
   F.forEach((f, i) => {
     const d = hypot2(f.pos.x - focus.x, f.pos.z - focus.z) || 1, ux = (f.pos.x - focus.x) / d, uz = (f.pos.z - focus.z) / d;
-    const a = Math.atan2(ux, uz) + (i % 2 ? 0.25 : -0.25);
-    f.pos.set(focus.x + ux * Math.min(d, GATHER_OUT + i * 0.5), 0, focus.z + uz * Math.min(d, GATHER_OUT + i * 0.5));
-    (f.target = f.target || f.pos.clone()).set(focus.x + Math.sin(a) * GATHER_R, 0, focus.z + Math.cos(a) * GATHER_R);
+    const a = Math.atan2(ux, uz) + ((i * 0.618) % 1 - 0.5) * 0.9, out = i === 0 ? 0 : Math.min(d, GATHER_OUT + i * 1.1);
+    f.pos.set(focus.x + ux * out, 0, focus.z + uz * out);
+    (f.target = f.target || f.pos.clone()).set(focus.x + Math.sin(a) * GATHER_R[i], 0, focus.z + Math.cos(a) * GATHER_R[i]);
     if (you) for (const p of [f.pos, f.target]) {
       const dx = p.x - you.x, dz = p.z - you.z, dd = hypot2(dx, dz);
       if (dd < FIELD_CLEAR + 0.2) { const k = (FIELD_CLEAR + 0.2) / (dd || 1); p.x = you.x + dx * k; p.z = you.z + dz * k; }
     }
-    f.vel.set(0, 0, 0); f.speed = 0; f.state = 'huddle'; f.action = null;
+    f.vel.set(0, 0, 0); f.speed = 0; f.action = null; f.huddleMood = null; f.huddleUntil = t + 60;
     (f.huddleAt = f.huddleAt || f.pos.clone()).set(focus.x, 0, focus.z);
-    f.huddleInner = true; f.huddleCenter = false; f.huddleMood = null; f.huddleUntil = t + 60;
-    f.face = f.yaw = Math.atan2(focus.x - f.pos.x, focus.z - f.pos.z);
+    if (i === 0) { f.state = 'set'; f.target = null; f.huddleCenter = true; f.huddleInner = true; }       // (in the middle: arms up)
+    else { f.state = 'huddle'; f.huddleCenter = false; f.huddleInner = i < 4; }                          // (the ring: high fives; outside it: a clap)
+    f.face = f.yaw = Math.atan2(focus.x - f.pos.x, focus.z - f.pos.z) + (i === 0 ? 0.9 : 0);
   });
   L.huddle = { focus: { x: focus.x, z: focus.z }, t0: t, center: -1 };
   return F.length;
