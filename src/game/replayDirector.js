@@ -369,7 +369,7 @@ function recipe(story, tier, m, tape) {
       : six
       ? { kind: 'track', canon: 'crowd', rope: true, seats: true, stand: stands[0], stands, fov: DIRECTOR.fov.track, subj, dists: [8, 10, 12], heights: [2.5], endDist: [8, 13], rimMax: Math.max(63.5, Math.min(re + (screened ? 5 : -4), 80)), kMax: screened ? 18 : 8 }
       : fielder
-        ? { kind: 'track', canon: 'rope', rope: true, fov: DIRECTOR.fov.track, subj, fielder, pair: fielder.k, dists: [12, 14, 16], heights: [1.8], endDist: [11, 17], rimMax: 55.5 }
+        ? { kind: 'track', canon: 'rope', rope: true, fov: DIRECTOR.fov.track, subj, fielder, pair: fielder.k, dists: [12, 14, 16], heights: [2.0], endDist: [11, 17], rimMax: 55.5 }
         : { kind: 'track', canon: 'rope', rope: true, outside: screened || Math.abs(wrap(Math.atan2(subj.x, subj.z - CZ) - Math.PI / 2)) < 16 * D2R, fov: DIRECTOR.fov.track, subj, dists: [9, 11, 13], heights: [2.2], endDist: [8, 13.5], rimMax: 58,
           alt: { kind: 'track', canon: 'fixed', cands: FIXED, fov: DIRECTOR.fov.wide, subj, dists: [0], heights: [0], endDist: [15, 50] } });
     const i1 = begin(behind ? 'THE ARC' : six ? 'IN THE CROWD' : 'AT THE ROPE', key);

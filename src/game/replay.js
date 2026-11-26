@@ -264,6 +264,9 @@ export class Replay {
     return best == null ? null : Math.max(0, best);
   }
 
+  // A fielder had the ball in his hand at tape time t (the play's own mark).
+  heldAt(t) { const h = this.marks.held; return h != null && t >= h; }
+
   // The hit ball's flight (tape s hit..end): a lofted one (DIRECTOR.safeHigh m up) that came down within
   // DIRECTOR.safeNear m of a fielder (safeT: when it landed); one hit hard (DIRECTOR.savedSpeed) stopped
   // within a few metres of the rope (savedT: when it stopped).
@@ -271,11 +274,14 @@ export class Replay {
     const D = DIRECTOR, o = { x: 0, y: 0, z: 0 };
     let top = 0, v0 = 0, safeT = null, savedT = null, up = false, px = null, pz = 0, py = 0;
     for (let t = hit + 1 / 60; t <= Math.min(end, hit + 6); t += 1 / 60) {
-      if (!this.tapeBall(t, o)) { px = null; continue; }
+      const seen = this.tapeBall(t, o), far = hypot2(o.x, o.z - PITCH_CZ) >= D.savedR - 8;
+      // (stopped out there: it slows to a walk, or a fielder has it in his hand)
+      if (savedT == null && v0 >= D.savedSpeed && far && (!seen || this.heldAt(t))) savedT = t;
+      if (!seen) { px = null; continue; }
       if (px != null) {
         const v = hypot3(o.x - px, o.y - py, o.z - pz) * 60;
         if (t < hit + 0.2) v0 = Math.max(v0, v);
-        if (savedT == null && v0 >= D.savedSpeed && hypot2(o.x, o.z - PITCH_CZ) >= D.savedR - 8 && v < 6) savedT = t;
+        if (savedT == null && v0 >= D.savedSpeed && far && v < 6) savedT = t;
       }
       top = Math.max(top, o.y);
       if (o.y > 0.3) up = true;
