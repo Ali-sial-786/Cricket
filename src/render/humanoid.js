@@ -72,6 +72,7 @@ function prepareRig(meta, bin) {
   sculptHead(lods, meta);
   const headL = replaceHead(lods, J, meta);
   fitClothes(lods, J, meta);
+  slimBoots(lods, J, meta);
   const down = new THREE.Vector3(0, -1, 0), d = new THREE.Vector3();
   const bindQ = {}, canon = {};
   for (const b of meta.bones) { bindQ[b] = new THREE.Quaternion(); canon[b] = J[b].clone(); }
@@ -177,6 +178,30 @@ function athleteBuild(lods, J, meta) {
   if (meta.headCentre) meta.headCentre = hs(meta.headCentre);
   if (meta.headSize) meta.headSize = meta.headSize.map((r) => r * HEAD_K);
   for (const k of ['eyeY', 'chinY', 'headTop']) if (meta[k]) meta[k] = Jh.y + (meta[k] - Jh.y) * HEAD_K;
+}
+
+// Boots: a smaller toe box (REVIEW7: oversized slippers at 3 m): narrower and lower toward the toe,
+// a touch shorter; the heel and the ankle (and the trousers' hem over them) as they were.
+function slimBoots(lods, J, meta) {
+  const ss = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+  const ia = meta.bones.indexOf('ankleL'), ib = meta.bones.indexOf('ankleR');
+  let y0 = Infinity;                    // the soles' bottom
+  for (const p of lods[0]) { const P = p.geo.attributes.position, SI = p.geo.attributes.skinIndex; if (SI) for (let v = 0; v < P.count; v++) { const b = SI.getComponent(v, 0); if (b === ia || b === ib) y0 = Math.min(y0, P.getY(v)); } }
+  const sy = y0 + 0.014;                // (the sole itself keeps its height)
+  for (const L of lods) for (const p of L) {
+    const P = p.geo.attributes.position, SI = p.geo.attributes.skinIndex, SW = p.geo.attributes.skinWeight;
+    if (!SI) continue;
+    for (let v = 0; v < P.count; v++) {
+      let wl = 0, wr = 0;
+      for (let k = 0; k < 4; k++) { const b = SI.getComponent(v, k); if (b === ia) wl += SW.getComponent(v, k); else if (b === ib) wr += SW.getComponent(v, k); }
+      if (wl + wr < 0.5) continue;
+      const A = wl > wr ? J.ankleL : J.ankleR, x = P.getX(v), y = P.getY(v), z = P.getZ(v);
+      const f = ss(0.015, 0.1, z - A.z) * ss(A.y + 0.03, A.y - 0.01, y);
+      if (f <= 0) continue;
+      const cx = A.x + Math.sign(A.x) * 0.004;
+      P.setXYZ(v, cx + (x - cx) * (1 - 0.1 * f), y > sy ? sy + (y - sy) * (1 - 0.18 * f) : y, A.z + (z - A.z) * (1 - 0.07 * f));
+    }
+  }
 }
 
 // Clothes that fit: the trousers rebuilt (trousers.js), the shirt taken in
@@ -837,7 +862,7 @@ function kitMaterial(fig = null) {
         else if (k > 29.5 && k < 30.5) mt = vec4(0.0, 0.6, 70.0, 2.0);
         else if (k < 31.5) mt = vec4(0.12, 0.06, 12.0, 5.0);
         else if (k < 32.5) mt = vec4(0.0, 1.4, 140.0, 6.0);
-        else if (k < 33.5) { mt = vec4(0.35, 0.045, 9.0, 5.0); kc = vec3(0.97, 0.96, 0.93); }     // (boots: matte white leather)
+        else if (k < 33.5) { mt = vec4(0.35, 0.022, 7.0, 5.0); kc = vec3(0.93, 0.92, 0.9); }     // (boots: matte white leather, half the old shine)
         else if (k < 34.5) { kc = FIG(2).rgb; mt = vec4(0.18, 0.022, 260.0, 2.0); }     // (matte painted shell; the clear coat is a small, sharp highlight)
         else if (k < 35.5) { kc = vK2; mt = vec4(0.1, 0.25, 45.0, 2.0); }
         else if (k < 36.5) { kc = mix(vec3(0.9), vK1, 0.6); mt = vec4(0.3, 0.07, 14.0, 5.0); }
@@ -1264,7 +1289,9 @@ function kitMaterial(fig = null) {
           c = mix(c, vec3(0.93), lace * smoothstep(0.35, 0.15, abs(fract(f.x * 70.0) - 0.5)) * fine);
           c *= 1.0 - 0.2 * lace * smoothstep(0.24, 0.3, abs(sx));
           c = mix(c, uKit1, smoothstep(-0.055, -0.065, f.x) * smoothstep(0.07, 0.08, f.y));
-          c = mix(c, vec3(0.14), smoothstep(0.07, 0.06, f.y) * 0.85);       // (the sole's rim)
+          // (the tongue's edges in shade either side of the laces; the sole a dark band with a clean top edge)
+          c *= 1.0 - 0.16 * smoothstep(0.38, 0.3, abs(sx)) * smoothstep(0.22, 0.3, abs(sx)) * step(0.02, f.x) * step(f.x, 0.14) * step(0.095, f.y);
+          c = mix(c, vec3(0.055, 0.055, 0.06), smoothstep(0.0255, 0.0235, f.y));
         }
       }
       if (vSeg.y > 0.4 && vBind.y < uLegAxis.w + 0.25) {
