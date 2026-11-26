@@ -91,7 +91,7 @@ export const DIRECTOR = {
   savedSpeed: 22, savedR: 52,  // m/s off the bat, m from the middle (less 8): a hard hit stopped in the deep
   // the checks every later take's camera passes, or there is no such take (takeOK)
   // (a figure at least figH of the picture's height, vfov high; the ball at least ballPx at pxPerRad, its own size)
-  checks: { clear: 1.5, minY: 1.2, off: 20 * D2R, up: 40 * D2R, none: 0.1, sky: 0.15, boards: 0.35, figH: 0.08, vfov: 90 * D2R, ballPx: 8, ballR: 0.036, pxPerRad: 20 / D2R },
+  checks: { clear: 1.5, minY: 1.2, off: 20 * D2R, offArc: 45 * D2R, up: 40 * D2R, none: 0.1, sky: 0.15, boards: 0.35, figH: 0.08, crowd: 0.6, vfov: 90 * D2R, ballPx: 8, ballR: 0.036, pxPerRad: 20 / D2R },
 };
 
 // The broadcast positions a later take's camera comes from (DIRECTOR / takeOK): fixed ones round the
@@ -250,15 +250,15 @@ export function takeOK(p, j, tape) {
 
 // Take j's subject at sample i: within DIRECTOR.checks.off of the middle and big enough at headset density
 // (a figure at least `figH` of the picture's height, the ball at least `ballPx`), never looked up at more than
-// `up`; a six's crowd (its last picture, end = true): the people at least half of the middle.
+// `up`; a six's crowd (its last picture, end = true): the people at least `crowd` of the middle.
 function subjectAt(p, sh, tape, i, end) {
   const C = DIRECTOR.checks, c = sh.pos, o = { x: 0, y: 0, z: 0 }, t = p.T[i], yaw = p.W[i];
   const off = (x, z) => Math.abs(wrap(Math.atan2(x - c.x, z - c.z) - yaw));
   const figFar = C.figH > 0 ? 1.8 / (2 * Math.tan(C.figH * C.vfov / 2)) : Infinity, ballFar = C.ballR / Math.tan(C.ballPx / C.pxPerRad / 2);
-  if (sh.stand && (end || t >= sh.stand.t)) {
+  if (sh.stand && end) {
     // (a six's people: the middle of the picture is them)
     const v = viewShares(c, yaw, 0, { hfov: 40, vfov: 30, n: 16, nv: 12 });
-    return v.stand >= 0.5 ? { ok: true } : { ok: false, why: `the people ${(v.stand * 100).toFixed(0)}% of the middle` };
+    return v.stand >= C.crowd ? { ok: true } : { ok: false, why: `the people ${(v.stand * 100).toFixed(0)}% of the middle` };
   }
   let x, y, z, size;
   if (sh.kind === 'catch' || sh.pair != null) {
@@ -270,7 +270,7 @@ function subjectAt(p, sh, tape, i, end) {
   } else if (sh.kind === 'crease' || sh.kind === 'line') { x = sh.face.x; y = sh.face.y; z = sh.face.z; size = 'figure'; }
   else { if (!tape.ball(t, o)) return { ok: false, why: 'no ball' }; x = o.x; y = o.y; z = o.z; size = sh.arc || sh.seats ? 'arc' : 'ball'; }   // (a six: the ball and its trail dropping in, the people the subject)
   const h = hypot2(x - c.x, z - c.z), d = hypot3(x - c.x, y - c.y, z - c.z);
-  if (sh.kind !== 'crease' && h > 1 && off(x, z) > C.off) return { ok: false, why: `the subject ${(off(x, z) / D2R).toFixed(0)}° off the middle` };
+  if (sh.kind !== 'crease' && h > 1 && off(x, z) > (sh.arc ? C.offArc : C.off)) return { ok: false, why: `the subject ${(off(x, z) / D2R).toFixed(0)}° off the middle` };
   if (Math.atan2(y - c.y, Math.max(0.5, h)) > C.up) return { ok: false, why: 'looking up at it' };
   if (size === 'figure' && d > figFar) return { ok: false, why: `the figure ${d.toFixed(0)} m away (small)` };
   if (size === 'ball' && d > ballFar) return { ok: false, why: `the ball ${d.toFixed(0)} m away (under ${C.ballPx} px)` };
