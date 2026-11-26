@@ -139,7 +139,7 @@ const LINE_OFF = 3.0, LINE_N = 6, LINE_GAP = 1.6, PASS_IN = -0.1;   // the resul
 const MEET = { x: 0.4, z: CZ };   // where the batters meet in the middle
 const _meetA = new THREE.Vector3(), _bw = { x: 0, z: 0 };
 const STRAP = 0.82;
-export const TOSS_CARD = { yaw: -0.49, dist: 1.1, drop: 0.16 };     // the call card at the toss (0.64 x 0.42 m): rad to your left, m off, m below your standing eye height
+export const TOSS_CARD = { yaw: -0.56, dist: 1.25, drop: 0.18 };     // the call card at the toss (0.64 x 0.42 m): rad to your left, m off, m below your standing eye height
 const STRAP_YAWS = [0, -0.26, 0.26, -0.5, 0.5, -0.72, 0.72];     // rad either side of where you look               // the strap's scale (1.12 x 0.38 m at 2 m: ~31 degrees wide)
 
 // ---------------------------------------------------------------- the beats
@@ -1108,7 +1108,7 @@ export class Ceremony {
     if (!(m && m.visible && v && this.cast && ui.compact && ui.compact())) return;
     // (from the spot the beat put you at, not your head: it stays put while you turn to point at it)
     // (to the left of the captain, by yaw only from the way the spot faces, at a fixed height: its near edge
-    // ~12 degrees off him -- clear of him and the coin -- its centre ~8 degrees below your level gaze, so it
+    // ~18 degrees off him -- clear of him and the coin -- its centre ~8 degrees below your level gaze, so it
     // is all in view for a head pitched anywhere from 25 down to 20 up; upright, level, turned to face you
     // -- no tilt, no roll)
     const a = TOSS_CARD.yaw, c = Math.cos(a), sn = Math.sin(a), fx = v.dx * c - v.dz * sn, fz = v.dx * sn + v.dz * c;
