@@ -32,7 +32,7 @@ import { Vec3, hypot2, hypot3 } from '../physics/math.js';
 import { PITCH } from '../physics/pitch.js';
 import { CONFIG } from '../config.js';
 import { pathStats, replayAt, tailFor, TAIL } from './replayFraming.js';
-import { classify, direct, planAt, replayMode, wants, missBy, DIRECTOR } from './replayDirector.js';
+import { classify, direct, planAt, replayMode, wants, missBy, prewarm, DIRECTOR } from './replayDirector.js';
 import { decisionPending } from './quickSkip.js';
 export { TAIL, tailFor };
 
@@ -66,6 +66,9 @@ export class Replay {
     game.scene.add(this.label);
     this.slowTag = buildSlowTag();
     game.scene.add(this.slowTag);
+    // (the planner compiled once while the game loads, not in the first replay's frame)
+    const idle = globalThis.requestIdleCallback || ((f) => setTimeout(f, 1500));
+    idle(() => { try { prewarm(); } catch { /* (only a warm-up) */ } });
   }
 
   // ---------------------------------------------------------------- layout
@@ -430,7 +433,7 @@ export class Replay {
     ui.prompt('', 0);
     if ('boardSting' in ui) ui.boardSting = null;
     this.labelSub = xr ? `off-hand (${this.skipHand().hand}) trigger: next ball` : 'Space skips · N: next ball';
-    setLabel(this.label, 'REPLAY', this.labelSub);
+    setLabel(this.label, (plan.takes && plan.takes[0] && plan.takes[0].name) || 'REPLAY', this.labelSub);
     this.label.visible = true; this.label.material.opacity = 1; this.labelT = 0;
     this.slowTag.visible = false; this.slowTag.material.opacity = 0;
     if (g.ballView.trail) g.ballView.clearTrail?.();
@@ -837,7 +840,9 @@ function setLabel(m, title, sub) {
   x.clearRect(0, 0, W, H);
   x.fillStyle = 'rgba(8,14,26,0.66)';
   rr(x, 0, 0, W, H, 18); x.fill();
-  x.font = font(900, 38);
+  let fs = 38;
+  x.font = font(900, fs);
+  while (fs > 24 && x.measureText(title).width > W - 110) x.font = font(900, fs -= 2);   // (a long take name fits the tag)
   const tw = x.measureText(title).width + 64;
   x.save(); rr(x, 0, 0, W, H, 18); x.clip();
   x.beginPath(); x.moveTo(0, 0); x.lineTo(tw + 14, 0); x.lineTo(tw, 52); x.lineTo(0, 52); x.closePath();
