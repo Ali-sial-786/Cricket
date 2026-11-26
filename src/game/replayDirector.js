@@ -27,13 +27,13 @@
 //    key moment, then cut. Budgets: wicket 6 s, boundary / close call 5 s, a
 //    routine ball ("every ball") 2.5 s.
 // Everything is laid out once, when the replay starts (~1-3 ms), from the tape.
-import { keepClear, blocksSight, nearestOnBody, CLEAR } from './replayFraming.js';
+import { keepClear, blocksSight, nearestOnBody, viewShares, CLEAR } from './replayFraming.js';
 import { hypot2, hypot3 } from '../physics/math.js';
 
 const D2R = Math.PI / 180;
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const wrap = (a) => { while (a > Math.PI) a -= 2 * Math.PI; while (a < -Math.PI) a += 2 * Math.PI; return a; };
-const CZ = -10.06, Z_BAT = 0, Z_BOWL = -20.12, POP = 1.22;
+const CZ = -10.06, Z_BAT = 0, Z_BOWL = -20.12, POP = 1.22, BOARD_REACH = 68.2;
 
 export const MODES = ['highlights', 'every', 'off'];
 export const BUDGET = { wicket: 6, boundary: 5, close: 5, routine: 2.5 };
@@ -167,35 +167,56 @@ function recipe(story, tier, m, tape) {
   }
   if (story === 'four' || story === 'six') {
     // Two angles, one cut: the line camera for bat on ball (slowed) and the
-    // ball leaving; then a low spot 6-10 m inside the rope from where the ball
-    // crosses it (a six: 7-11 m from where it comes down in the stand), looking
-    // out across the ball's line so it comes to the camera, slowed over its
-    // last 0.6 s: the ball and the fielder chasing it large, the boards and
-    // the crowd behind. A four ends on the ball crossing the rope; a six on it
-    // landing and the stand going up.
+    // ball leaving; then the end of its journey, framed so that the turf, the
+    // rope and the people are the picture and the boards only a band behind:
+    //   a four, with a fielder chasing (within 12 m of where it crosses): from
+    //   11-16 m inside the rope at 1.8 m, ball and fielder in the picture
+    //   together; with nobody near: a crane, 4 m up, 9-14 m in, looking down
+    //   onto the ball and the rope (on a monitor; in the headset you look down
+    //   to it). Slowed over its last 0.5 s, the replay ends 0.12 s after the
+    //   ball crosses the rope (never on a ball stopped against the boards);
+    //   a six: a crane 5 m up, 16-28 m in front of where it comes down (the
+    //   recorded `land` if the tape has it, else where it stops falling, else
+    //   its last recorded place: it may stop at the rope or fly on into the
+    //   seats), the arc coming down into the stand, then the view settles on
+    //   the crowd going up there.
     if (hit == null) return recipe('routine', tier, m, tape);
     const six = story === 'six', cross = m.cross ?? dead;
-    const land = six ? landingAfter(tape, cross, last) : cross;
+    const land = six ? Math.min(last, m.land ?? landingAfter(tape, cross, last)) : cross;
     const key = six ? land : cross;
-    const endT = Math.min(last, key + (six ? 0.9 : 0.25));
+    const endT = Math.min(last, key + (six ? 0.9 : 0.12));
     const k1 = line(), tB = lineFrom(), outT = lineUntil(hit + 0.5);
-    const subj = ballAt(tape, key);
-    const re = hypot2(subj.x, subj.z - CZ) || 1;
-    const stand = six ? { t: key + 0.15, x: subj.x + subj.x / re * 9, y: 5, z: subj.z + (subj.z - CZ) / re * 9 } : null;
-    const k2 = shot({ kind: 'track', rope: true, stand, fov: DIRECTOR.fov.line, subj, fielder: nearestFigure(tape, key, subj, 18),
-      dists: six ? [7, 9, 11] : [6, 8, 10], heights: six ? [2.0] : [1.3], endDist: six ? [7, 11] : [6, 10] });
+    const subj = ballAt(tape, key), re = hypot2(subj.x, subj.z - CZ) || 1;
+    const fielder = six ? null : nearestFigure(tape, key, subj, 12);
+    // (over the rope straight in front of a sightscreen: from near, its 26 x 10 m dark face would be a wall;
+    // a high wide angle 30-40 m back sees the ball's path to it with the screen a panel behind)
+    const screened = Math.abs(subj.x) < 16 && Math.abs(subj.z - CZ) > 50;
+    // (the crowd it lands among: straight behind either end there is only a sightscreen and covered seats,
+    // so the view settles on the people nearest it, just outside that wedge)
+    let sa = Math.atan2(subj.x, subj.z - CZ);
+    for (const axis of [0, Math.PI]) { const d = wrap(sa - axis); if (Math.abs(d) < 18 * D2R) sa = axis + (d < 0 ? -18 : 18) * D2R; }
+    const sr = Math.max(re, BOARD_REACH) + 6;
+    const stand = six ? { t: key + 0.1, x: Math.sin(sa) * sr, y: Math.max(subj.y, 1) + 4, z: CZ + Math.cos(sa) * sr } : null;
+    const k2 = shot(screened
+      ? { kind: 'track', rope: true, stand, fov: DIRECTOR.fov.wide, subj, dists: [30, 35, 40], heights: [6.0], endDist: [28, 42], rimMax: 50, kMax: 5 }
+      : six
+      ? { kind: 'track', rope: true, stand, fov: DIRECTOR.fov.wide, subj, dists: [18, 22, 26], heights: [5.0], endDist: [16, 28], rimMax: 52, kMax: 5 }
+      : fielder
+        ? { kind: 'track', rope: true, fov: DIRECTOR.fov.track, subj, fielder, pair: fielder.k, dists: [12, 14, 16], heights: [1.8], endDist: [11, 17], rimMax: 55.5 }
+        : { kind: 'track', rope: true, fov: DIRECTOR.fov.track, subj, dists: [9, 11.5, 14], heights: [4.0], endDist: [9, 15], rimMax: 56 });
     // (a ball driven back down the pitch leaves the line camera at once: the shot from behind the arm instead)
     const viaArm = (Math.min(hit + 0.2, outT) - tB) / S + Math.max(0, outT - hit - 0.2) < 0.7, k0 = viaArm ? arm() : -1;
-    let slow = S, from = Math.max(viaArm ? hit + 0.35 : outT, key - (six ? 1.7 : 1.5)), overRate = S, slowFrom = 0.6;
+    let slow = S, from = Math.max(viaArm ? hit + 0.35 : outT, key - (six ? 1.8 : 1.6)), overRate = S, slowFrom = 0.5;
+    const slowTo = six ? 0.3 : 0.12;
     const build = () => {
       segs.length = 0;
       if (viaArm) seg(rel - 0.7, hit + 0.35, 1, k0);
       else { seg(tB, Math.min(hit + 0.2, outT), slow, k1); seg(hit + 0.2, outT, 1, k1); }
-      seg(from, key - slowFrom, 1, k2); seg(Math.max(from, key - slowFrom), Math.min(endT, key + 0.3), overRate, k2); seg(key + 0.3, endT, 1, k2);
+      seg(from, key - slowFrom, 1, k2); seg(Math.max(from, key - slowFrom), Math.min(endT, key + slowTo), overRate, k2); seg(key + slowTo, endT, 1, k2);
     };
     build();
     // (over budget: less slow motion; then the rope camera picks the ball up later, never with under 1.2 s to go)
-    fit([() => { slow = 0.45; build(); }, () => { overRate = 0.4; build(); }, () => { slowFrom = 0.45; build(); },
+    fit([() => { slow = 0.45; build(); }, () => { overRate = 0.4; build(); }, () => { slowFrom = 0.4; build(); },
       () => { const over = segsLength(segs) - B; from = Math.min(key - 0.9, from + over); build(); }]);
     return { story, tier, shots, segs, key: hit, focus: key };
   }
@@ -377,11 +398,11 @@ export function chooseSpot(samples, sh, bodies, lim) {
   if (sh.rope) {
     // Inside the rope, `dists` m from the subject (further if it came down deep in the stand), on bearings
     // up to 80° either side of straight in from it.
-    const re = hypot2(E.x, E.z - CZ) || 1, ix = -E.x / re, iz = -(E.z - CZ) / re, rim = DIRECTOR.rim + 2.5, kMax = sh.stand ? 6 : 8;
+    const re = hypot2(E.x, E.z - CZ) || 1, ix = -E.x / re, iz = -(E.z - CZ) / re, rim = sh.rimMax ?? DIRECTOR.rim + 2.5, kMax = sh.kMax ?? 8;
     for (const d0 of sh.dists) for (let k = -kMax; k <= kMax; k++) {
       const c = Math.cos(k * 10 * D2R), sn = Math.sin(k * 10 * D2R), ux = ix * c - iz * sn, uz = ix * sn + iz * c;
       let d = d0;
-      while (d < d0 + 14 && hypot2(E.x + ux * d, E.z + uz * d - CZ) > rim) d += 1;     // (no nearer than the rope allows)
+      while (d < d0 + 20 && hypot2(E.x + ux * d, E.z + uz * d - CZ) > rim) d += 1;     // (no nearer the boards than the shot allows)
       for (const y of sh.heights) cands.push({ x: E.x + ux * d, y, z: E.z + uz * d });
     }
   } else for (const d of sh.dists) for (let k = 0; k < 24; k++) {
@@ -403,7 +424,7 @@ export function chooseSpot(samples, sh, bodies, lim) {
   for (const b of endBodies) { const d = hypot2(b.b.x - E.x, b.b.z - E.z); if (d < nd) { nd = d; nearest = b; } }
   let best = null;
   for (const c of cands) {
-    if (hypot2(c.x, c.z - CZ) > (sh.rope ? DIRECTOR.rim + 2.5 : DIRECTOR.rim)) continue;
+    if (hypot2(c.x, c.z - CZ) > (sh.rope ? (sh.rimMax ?? DIRECTOR.rim + 2.5) + 1e-6 : DIRECTOR.rim)) continue;
     if (Math.abs(c.x) < 2.2 && c.z > -23 && c.z < 2.5 && !sh.near) continue;     // (not on the pitch, in the way of play)
     const cost = spotCost(c, samples, sh, lim) + crowdCost(c, bodies, endBodies, nearest, E);
     if (!best || cost < best.cost) best = { cost, c };
@@ -448,6 +469,12 @@ function spotCost(c, S, sh, lim) {
     const re = hypot2(sh.subj.x, sh.subj.z - CZ) || 1, cosOut = ((sh.subj.x - c.x) * sh.subj.x + (sh.subj.z - c.z) * (sh.subj.z - CZ)) / (re * Math.max(1e-3, dE));
     const ang = Math.acos(clamp(cosOut, -1, 1)) / D2R;
     if (ang > 40) cost += (ang - 40) * 0.12;
+    // what the last picture shows, looking at where it ends (a crane looks down onto it): boards or a
+    // sightscreen filling it cost a lot (a coarse 10 x 8 look, at plan time)
+    // (looked at level, as a headset viewer sees it until he looks down; and the whole view for a sightscreen at its side)
+    const A = sh.stand || sh.subj, ay = Math.atan2(A.x - c.x, A.z - c.z), sv = viewShares(c, ay, 0, { hfov: 40, vfov: 30, n: 10, nv: 8 });
+    const sw = viewShares(c, ay, 0, { hfov: 100, vfov: 90, n: 12, nv: 8 });
+    cost += (sv.boards + sv.screen) * 25 + sw.screen * 30;
     // the fielder chasing it in the picture with the ball
     const F = sh.fielder;
     if (F) { const off = Math.abs(wrap(Math.atan2(F.x - c.x, F.z - c.z) - Math.atan2(sh.subj.x - c.x, sh.subj.z - c.z))); if (off < 25 * D2R && hypot2(F.x - c.x, F.z - c.z) > 2.5) cost -= 0.8; }
@@ -487,7 +514,7 @@ function layout(R, tape, lim, xr) {
     S[i] = g.shot; RT[i] = g.rate;
   }
   // where each shot stands (a track spot is picked from the ball over its samples)
-  const o = { x: 0, y: 0, z: 0 };
+  const o = { x: 0, y: 0, z: 0 }, o2 = { x: 0, y: 0, z: 0 };
   for (let k = 0; k < R.shots.length; k++) {
     const sh = R.shots[k];
     let i0 = -1, i1 = -1;
@@ -519,6 +546,11 @@ function layout(R, tape, lim, xr) {
     for (let i = sh.i0; i <= sh.i1; i++) {
       const follow = !sh.fixed && (sh.follow == null || T[i] >= sh.follow);
       if (sh.kind === 'catch') { if (tape.figure && tape.figure(sh.who, T[i], o)) { hx = o.x; hy = 1.1; hz = o.z; } }   // (on the catcher, as he moves)
+      else if (sh.pair != null && follow && tape.ball(T[i], o)) {
+        // (the ball and the fielder chasing it in the picture together: the view on the point between them)
+        hx = o.x; hy = o.y; hz = o.z; seen = true;
+        if (tape.figure && tape.figure(sh.pair, T[i], o2)) { hx = (hx + o2.x) * 0.5; hz = (hz + o2.z) * 0.5; }
+      }
       else if (sh.stand && T[i] >= sh.stand.t) { const u = clamp((T[i] - sh.stand.t) / 0.5, 0, 1); hx += (sh.stand.x - hx) * u; hy += (sh.stand.y - hy) * u; hz += (sh.stand.z - hz) * u; }   // (a six: on to the stand going up)
       else if (follow && tape.ball(T[i], o)) { hx = o.x; hy = o.y; hz = o.z; seen = true; }
       else if (follow && !seen && sh.kind === 'track') { const j = firstVisible(tape, T, i, sh.i1, o); if (j) { hx = o.x; hy = o.y; hz = o.z; } }
