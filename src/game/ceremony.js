@@ -900,7 +900,7 @@ export class Ceremony {
       // you won bowling (or tied it): the batters walk past you, hands out (the side is round you already)
       const A = P.walkPast[0], B = P.walkPast[1], face = Math.atan2(-_f.x, -_f.z);
       if (bv && bv.shown) { const a = bv.actor; a.cut(); a.place(A.x0, A.z0, face); a.task = walkTask(_b.set(A.x1, 0, A.z1), null, { speed: 1.6, tol: 0.3 }); S.tasks.push(a); S.shakeA.push(a); bv.wasBat = false; bv.blend = null; }
-      if (ns && ns.visible) { S.nsHome = ns.home.clone(); ns.home.set(B.x1, 0, B.z1); const a = ns.actor; a.task = null; a.cut(); a.place(B.x0, B.z0, face); S.shakeA.push(a); }
+      if (ns && ns.visible) { S.nsHome = ns.home.clone(); ns.home.set(B.x1, 0, B.z1); const a = ns.actor; a.cut(); a.place(B.x0, B.z0, face); a.task = walkTask(ns.home, null, { speed: 1.6, tol: 0.3 }); S.tasks.push(a); S.shakeA.push(a); }     // (a walk, as the other: not a jog)
     }
   }
   // Each frame of the result: hands out to whoever passes you (and gloves together in the middle).
