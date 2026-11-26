@@ -68,6 +68,7 @@ function prepareRig(meta, bin) {
   // Proportions (bind space, joints and skin together, before the skeleton is set up from them).
   athleteBuild(lods, J, meta);
   adultFace(lods, meta);
+  sculptHead(lods, meta);
   fitClothes(lods, J, meta);
   const down = new THREE.Vector3(0, -1, 0), d = new THREE.Vector3();
   const bindQ = {}, canon = {};
@@ -252,6 +253,101 @@ function adultFace(lods, meta) {
       P.setXYZ(v, x, y, z);
     }
   }
+}
+
+// A sculpted adult head from the source's round cartoon one, in bind space at load (every LOD,
+// skin, lips, brows and hair cap moved alike; no vertex added): a cranium longer front to back than
+// wide with flatter temples, a brow ridge over recessed eye sockets, a nose with a bridge, a
+// projecting tip and wings, cheekbones over hollows, lips with volume over a philtrum, a chin and a
+// jaw with a defined angle, and the sternomastoids running from behind the ears to the collar.
+// Each feature is a smooth field (a few Gaussians); the lids round the eyeballs are left exactly
+// where they are, so nothing opens up round the eyes. Per-player variation (FIG(17): nose, brow,
+// jaw, age) moves these same features further in the vertex shader.
+function sculptHead(lods, meta) {
+  const eyeY = meta.eyeY, chinY = meta.chinY;
+  let mouthY = 1.58, ex = 0.032, ez = 0.15;
+  { const m = lods[0].find((p) => p.name === 'Details_Mouth'); if (m) { const P = m.geo.attributes.position; let y = 0; for (let v = 0; v < P.count; v++) y += P.getY(v); mouthY = y / P.count; } }
+  { const ir = lods[0].find((p) => p.name === 'Details_Iris'); if (ir) { const P = ir.geo.attributes.position; let x = 0, z = 0, n = 0; for (let v = 0; v < P.count; v++) if (P.getX(v) > 0) { x += P.getX(v); z += P.getZ(v); n++; } if (n) { ex = x / n; ez = z / n; } } }
+  const noseY = mouthY + 0.42 * (eyeY - mouthY);
+  const G = (t) => Math.exp(-t * t), G2 = (a, b) => Math.exp(-a * a - b * b);
+  const ss = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+  const out = [0, 0, 0];
+  // displacement at a bind point (head-local fields); returns out
+  const field = (x, y, z, cranOnly) => {
+    out[0] = 0; out[1] = 0; out[2] = 0;
+    const ax = Math.abs(x), sx = x < 0 ? -1 : 1;
+    // cranium: longer front to back, flatter at the temples (above the brows and ears)
+    const cr = ss(eyeY + 0.02, eyeY + 0.05, y);
+    out[0] -= x * 0.07 * cr * ss(0.04, 0.08, ax) * ss(-0.06, 0.0, z);
+    out[2] -= 0.013 * cr * ss(0.02, -0.04, z) * ss(1.795, 1.73, y);
+    if (cranOnly) return out;
+    const front = ss(0.08, 0.12, z);
+    // the lids round the eyeballs stay put
+    const lid = 1 - G2((ax - ex) / 0.021, (y - eyeY) / 0.0135);
+    // the face narrower below the eyes (the cartoon's broad cheeks and jaw), the ears left where they are
+    const lowF = ss(eyeY + 0.005, eyeY - 0.02, y) * ss(chinY - 0.02, chinY + 0.01, y) * ss(-0.01, 0.04, z) * (1 - ss(0.078, 0.088, ax) * ss(0.06, 0.03, z));
+    out[0] -= x * 0.09 * lowF;
+    // the face a wedge seen from above, not a flat plate: from the nose back to the cheeks and
+    // temples (the source's cheeks stand level with its nose); the eyes go back with it (below)
+    const wedge = ss(chinY - 0.015, chinY + 0.01, y) * ss(eyeY + 0.07, eyeY + 0.035, y) * ss(0.0, 0.06, z) * (1 - ss(0.078, 0.088, ax) * ss(0.06, 0.03, z));
+    const wv = 3.2 * Math.max(0, ax - 0.012) ** 2, we = 3.2 * (ex - 0.012) ** 2;
+    out[2] -= (we + (wv - we) * lid) * wedge;          // (round the eyes: as the eyeball goes)
+    // the neck slimmer between the jaw and the collar
+    out[0] -= x * 0.08 * ss(1.485, 1.505, y) * ss(chinY + 0.005, chinY - 0.02, y) * ss(0.04, -0.02, z - 0.04);
+    // brow ridge (glabella to the outer brow), the nasion recessed under it
+    out[2] += 0.008 * G((y - eyeY - 0.021) / 0.009) * ss(0.072, 0.045, ax) * front * lid;
+    out[2] -= 0.0045 * G2(ax / 0.011, (y - eyeY - 0.004) / 0.008) * front;
+    // eye sockets: the hollow between the brow and the lid, and under the lid toward the cheek
+    out[2] -= 0.0028 * G2((ax - ex) / 0.018, (y - eyeY - 0.012) / 0.005) * lid * front;
+    out[2] -= 0.002 * G2((ax - ex - 0.004) / 0.016, (y - eyeY + 0.016) / 0.005) * lid * front;
+    // nose: the bridge rising from the nasion to a projecting tip, the columella back to the lip
+    const ny = (y - noseY) / (eyeY - noseY);          // 0 at the nose's base, 1 at the eyes
+    const dors = ss(1.05, 0.15, ny) * ss(-0.35, 0.05, ny);
+    out[2] += 0.016 * dors * (1 - 0.6 * ny) * G(ax / (0.0065 + 0.004 * (1 - ny))) * front;
+    out[2] += 0.004 * G2(ax / 0.009, (y - noseY + 0.004) / 0.004) * front;          // the columella
+    out[0] += sx * 0.002 * G2((ax - 0.015) / 0.006, (y - noseY - 0.002) / 0.006) * front;   // the wings
+    // cheekbones out and forward, the hollow under them in
+    const cb = G2((ax - 0.05) / 0.015, (y - eyeY + 0.024) / 0.009);
+    out[0] += sx * 0.004 * cb; out[2] += 0.003 * cb * front;
+    const ho = G2((ax - 0.052) / 0.016, (y - noseY + 0.014) / 0.016);
+    out[0] -= sx * 0.006 * ho; out[2] -= 0.004 * ho * ss(0.04, 0.09, z);
+    // lips with volume, the philtrum's ridge, the fold under the lower lip
+    out[2] += 0.0028 * G2(ax / 0.02, (y - mouthY - 0.006) / 0.004) * front;
+    out[2] += 0.0032 * G2(ax / 0.019, (y - mouthY + 0.006) / 0.0045) * front;
+    out[2] -= 0.0025 * G2(ax / 0.022, (y - mouthY + 0.016) / 0.004) * front;
+    // the chin forward and square, the jaw's angle out and its lower edge defined
+    out[2] += 0.008 * G2(ax / 0.021, (y - chinY - 0.012) / 0.011) * front;
+    out[1] -= 0.004 * G2(ax / 0.022, (y - chinY - 0.006) / 0.008) * front;
+    const go = G2((ax - 0.066) / 0.012, (y - chinY - 0.03) / 0.014) * ss(-0.02, 0.02, z) * ss(0.11, 0.07, z);
+    out[0] += sx * 0.006 * go; out[1] -= 0.003 * go;
+    const sub = ss(chinY + 0.004, chinY - 0.012, y) * ss(1.49, 1.51, y) * ss(0.0, 0.06, z);
+    out[2] -= 0.006 * sub;                             // under the jaw: in toward the throat
+    // the sternomastoids, from behind the ears down and in to the top of the breastbone
+    const t = Math.min(1, Math.max(0, (1.6 - y) / 0.14)), px = 0.058 - 0.046 * t, pz = -0.012 + 0.07 * t;
+    const sm = G2((ax - px) / 0.011, (z - pz) / 0.014) * ss(1.455, 1.48, y) * ss(1.61, 1.58, y);
+    out[0] += sx * 0.0035 * sm; out[2] += 0.0025 * sm;
+    return out;
+  };
+  // (the eyeballs move as a whole with the lids round them: the field at each eye's centre)
+  const eyeD = [field(ex, eyeY, ez, false).slice(), field(-ex, eyeY, ez, false).slice()];
+  for (const L of lods) for (const p of L) {
+    const name = p.name;
+    if (name === 'Details_Sclera' || name === 'Details_Iris' || name === 'Details_Pupil') {
+      const P = p.geo.attributes.position;
+      for (let v = 0; v < P.count; v++) { const d = eyeD[P.getX(v) > 0 ? 0 : 1]; P.setXYZ(v, P.getX(v) + d[0], P.getY(v) + d[1], P.getZ(v) + d[2]); }
+      continue;
+    }
+    if (name !== 'Athlete_Body' && name !== 'Details_Mouth' && name !== 'Details_Hair' && name !== 'HairCap') continue;
+    const P = p.geo.attributes.position, cran = name === 'HairCap';
+    for (let v = 0; v < P.count; v++) {
+      const x = P.getX(v), y = P.getY(v), z = P.getZ(v);
+      if (y < 1.44) continue;
+      const d = field(x, y, z, cran);
+      P.setXYZ(v, x + d[0], y + d[1], z + d[2]);
+    }
+  }
+  // the skull the headgear fits round: narrower at the temples, a little longer behind
+  if (meta.skull) { const r = meta.skull.r; meta.skull = { c: [meta.skull.c[0], meta.skull.c[1], meta.skull.c[2] - 0.005], r: [r[0] * 0.96, r[1], r[2] + 0.005] }; }
 }
 
 // Where the face's features are on this model (bind space), for the painted face map.
@@ -513,7 +609,7 @@ const KIT_GLSL_COMMON = /* glsl */`
   // kit1 + seed, kit2 + lod, kit3 + team, kit4 + no head, skin + gloved, hair + hidden hand,
   // panel + shades, iris + name length, look (build, hair volume, sleeves, sweatband),
   // look2 (beard, stubble, hair cut, zinc), crest rect, sponsor rect, brim + tens, the name's
-  // 12 glyphs, units, look3 (age, nose, brow, jaw). The kit's first two colours and the sleeves / sweatband go on to the
+  // 12 glyphs, units, look3 (age, nose, brow, jaw), look4 (expression). The kit's first two colours and the sleeves / sweatband go on to the
   // fragments as flat varyings (cloth and skin use them); the rest is fetched where it is used.
   #define FIG(i) texelFetch(boneTexture, ivec2((i) & 15, 14 + ((i) >> 4)), 0)
   flat varying vec3 vK1; flat varying vec3 vK2; flat varying vec2 vLookZW;
@@ -558,6 +654,7 @@ function figureValues() {
     uPanel: { value: new THREE.Color(0x173f8c) }, uIris: { value: new THREE.Color(0x3b2414) },
     uLook: { value: new THREE.Vector4(0, 0, 0, 0) }, uLook2: { value: new THREE.Vector4(0, 0, 1, 0) },
     uLook3: { value: new THREE.Vector4(0, 0, 0, 0) },    // age, nose, brow, jaw (FIG(17))
+    uLook4: { value: new THREE.Vector4(0, 0, 0, 0) },    // expression: 1 focused, 2 smile (FIG(18).x)
     uCrestUV: { value: new THREE.Vector4() }, uSponsorUV: { value: new THREE.Vector4() },
     uTeamIx: { value: 0 },         // 0/1 the teams (sponsor, name, number), 2 officials (crest only)
     uNum: { value: new THREE.Vector2(-1, -1) },        // back number: glyphs of the tens and units (-1 none)
@@ -715,6 +812,12 @@ function kitMaterial(fig = null) {
         float br = sin(uTime * (1.45 + 0.4 * uSeed) + uSeed * 40.0);
         push += 0.0022 * br * trunkW * smoothstep(1.12, 1.3, position.y) * smoothstep(1.47, 1.38, position.y) * step(k, 7.5);
         transformed += objectNormal * push;
+        #ifdef FP_BODY
+          // your own shoulders as you see them from above: lower and narrower (the deltoid falls away
+          // from the collar), so looking down they are the tops of your arms, not a dome under your chin
+          float fpSh = smoothstep(1.28, 1.42, position.y) * smoothstep(0.08, 0.16, abs(position.x)) * (1.0 - clamp(foreW + vHandW, 0.0, 1.0));
+          transformed.y -= 0.03 * fpSh; transformed.x -= sign(position.x) * 0.028 * fpSh;
+        #endif
         // each man's own face (FIG(17): nose, brow, jaw), on the face's skin only: a longer or flatter
         // nose, a heavier or flatter brow ridge, a squarer or narrower jaw
         if (k > 4.5 && k < 8.5 && vHeadW > 0.3 && position.z > 0.03) {
@@ -726,6 +829,18 @@ function kitMaterial(fig = null) {
           transformed.z += 0.0028 * L3.z * brow;
           float jaw = smoothstep(uFaceMisc.w + 0.006, uFaceMisc.w - 0.02, position.y) * smoothstep(1.47, 1.5, position.y) * smoothstep(0.02, 0.06, ax);
           transformed.x += position.x * 0.06 * L3.w * jaw;
+          // his expression (FIG(18).x): a slight smile lifts the mouth's corners and the cheeks
+          float ex = FIG(18).x;
+          if (ex > 1.5) {
+            float dm = position.y - uFaceMisc.w;
+            float corner = exp(-pow((ax - 0.026) / 0.012, 2.0) - dm * dm / 0.00008);
+            transformed.y += 0.0028 * corner; transformed.z -= 0.0012 * corner; transformed.x += sign(position.x) * 0.0012 * corner;
+            transformed.y += 0.0015 * exp(-pow((ax - 0.045) / 0.015, 2.0) - pow((position.y - uEye.y + 0.028) / 0.012, 2.0));
+          }
+        }
+        // a focused man's brows come down and in (the brow hair, slot 6 in front of the face)
+        if (k > 5.5 && k < 6.5 && position.z > uEye.w - 0.012 && FIG(18).x > 0.5 && FIG(18).x < 1.5) {
+          transformed.y -= 0.0022 + 0.0018 * smoothstep(0.04, 0.012, abs(position.x));
         }
 `);
     sh.fragmentShader = sh.fragmentShader
@@ -850,8 +965,8 @@ function kitMaterial(fig = null) {
         kitH += wv * 0.00005 * sin((cp.x + cp.y) * 2400.0);
         float ax = abs(vBind.x);
         float wob = sin(vBind.x * 53.0 + vBind.z * 41.0) * 1.6 + sin(vBind.x * 23.0 - vBind.z * 67.0);
-        kitH += 0.0011 * sin(vBind.y * 150.0 + wob) * exp(-pow((vBind.y - 0.5) / 0.055, 2.0));
-        kitH += 0.0012 * sin(vBind.y * 190.0 + wob * 1.3) * exp(-pow((vBind.y - 0.17) / 0.045, 2.0));
+        kitH += 0.0022 * sin(vBind.y * 150.0 + wob) * exp(-pow((vBind.y - 0.5) / 0.055, 2.0));
+        kitH += 0.002 * sin(vBind.y * 190.0 + wob * 1.3) * exp(-pow((vBind.y - 0.17) / 0.045, 2.0));
         kitH += 0.0009 * sin(vBind.y * 110.0 - ax * 140.0 + wob * 0.5) * exp(-pow((vBind.y - 0.8) / 0.06, 2.0)) * smoothstep(0.02, 0.07, ax);
         }
         // the side stripe (trousers.js: colour.g = the angle round the leg, .b its radius)
@@ -869,8 +984,12 @@ function kitMaterial(fig = null) {
         vec2 ap = vec2(abs(vBind.x) - 0.17, vBind.y - 1.3);
         float an = atan(ap.y, ap.x);
         kitH += 0.0011 * sin(an * 9.0) * exp(-dot(ap, ap) / 0.004) * step(0.0, -ap.x + 0.04) * smoothstep(0.012, 0.04, length(ap));
-        kitH += 0.0013 * sin(vBind.y * 150.0 + vBind.x * 25.0) * exp(-pow((vBind.y - 1.12) / 0.045, 2.0));
+        kitH += 0.0024 * sin(vBind.y * 150.0 + vBind.x * 25.0) * exp(-pow((vBind.y - 1.12) / 0.045, 2.0));
         kitH += 0.0009 * sin(vBind.y * 210.0 - abs(vBind.x) * 90.0) * smoothstep(0.2, 0.26, abs(vBind.x));
+        // (the shirt's drape: soft vertical folds from the chest to the waist, pulled in at the
+        // tuck, and the sleeve bunched toward its hem; big enough to read at a few metres)
+        kitH += 0.003 * sin(vBind.x * 70.0 + sin(vBind.y * 24.0 + vBind.z * 30.0) * 1.8) * smoothstep(1.32, 1.18, vBind.y) * smoothstep(1.06, 1.14, vBind.y) * (1.0 - step(0.5, vArmW));
+        { vec2 at = armAt(vBind); kitH += 0.0024 * sin(at.x * 140.0 + vBind.z * 60.0) * step(0.5, vArmW) * smoothstep(0.1, 0.2, at.x) * smoothstep(0.42, 0.3, at.x); }
         }
         if (s > 6.5 && s < 7.5) {
           // the yoke panel: sublimated pinstripes
@@ -916,7 +1035,7 @@ function kitMaterial(fig = null) {
       }
       // headgear crest (cap, hat band)
       if ((s > 1.5 && s < 3.5) && vHeadW > 0.5 && vBind.z > 0.1) { vec4 t = decalAt(vBind.xy, uCapAt, FIG(10), 0.0); c = mix(c, t.rgb, t.a); }
-      c *= 1.0 + 18.0 * kitH;                  // folds: a little darker in their hollows
+      c *= 1.0 + 55.0 * clamp(kitH, -0.004, 0.004);   // folds: darker in their hollows, lighter on their crests (readable at a few metres)
     } else if (skin) {
       gSSS = 1.0;
       // ---- arms: long sleeves (the shirt's colour, a cuff) or a sweatband
@@ -1037,7 +1156,7 @@ function kitMaterial(fig = null) {
       vec3 uSkin = FIG(4).rgb, uHair = FIG(5).rgb; float uSeed = FIG(0).w;
       vec2 e = vec2(abs(vBind.x) - uEye.x, vBind.y - uEye.y);
       float r = uEye.z, u = clamp(e.x / (r * 1.75), -1.0, 1.0);
-      float ageE = FIG(17).x;      // (an older man's lids sit lower and his eyes look narrower)
+      float ageE = FIG(17).x + (abs(FIG(18).x - 1.0) < 0.5 ? 0.55 : FIG(18).x > 1.5 ? 0.25 : 0.0);      // (an older man's lids sit lower; a focused man narrows his eyes, a smiling one a little)
       float up = r * (0.44 - 0.12 * ageE - 0.32 * u * u) + 0.14 * r * u, lo = -r * (0.62 - 0.08 * ageE - 0.34 * u * u) + 0.1 * r * u;
       // a blink every few seconds (each man on his own clock): the upper lid comes down for ~0.15 s
       float bp = fract(uTime / (3.7 + 1.9 * uSeed) + uSeed * 7.3);
@@ -1116,6 +1235,15 @@ function kitMaterial(fig = null) {
       if (vHeadW > 0.5 && vBind.z > 0.1) { vec4 t = decalAt(vBind.xy, uCapAt, FIG(10), 0.0); c = mix(c, t.rgb, t.a); gSpec *= 1.0 - 0.3 * t.a; }
     }
     #ifdef FP_BODY
+      // (the sleeve's seam where it meets the body, and the yoke's edge along the shoulder: from
+      // above they say "shirt" where a plain dome said nothing)
+      if (shirt && gl_FrontFacing) {
+        vec2 at = armAt(vBind);
+        float seam = exp(-pow((at.x - 0.1) / 0.008, 2.0)) * step(0.0, at.x);
+        float yoke = exp(-pow((vBind.y - 1.418 + 0.05 * max(0.0, abs(vBind.x) - 0.2)) / 0.003, 2.0)) * step(0.072, abs(vBind.x)) * (1.0 - step(0.5, vArmW));
+        c *= 1.0 - 0.35 * clamp(seam + yoke, 0.0, 1.0);
+        kitH -= 0.0006 * seam;
+      }
       // (seen from inside: a trouser leg or a pad is dark lining; the shirt and anything above it is
       // the shirt, shaded, so an opening at the collar never shows a dark hollow)
       if (!gl_FrontFacing) {
@@ -1222,6 +1350,7 @@ export class Humanoid {
     u.uLook.value.set(look.build, look.hairVol, look.sleeves, look.sweatband);
     u.uLook2.value.set(look.beard, look.stubble, look.hairCut, look.zinc);
     u.uLook3.value.set(look.age, look.nose, look.brow, look.jaw);
+    u.uLook4.value.set(look.expr || 0, 0, 0, 0);
     if (vary) scale *= look.scale;
     u.uSeed.value = rnd(9);
     u.uShades.value = this.opts.shades ? 1 : 0;
@@ -1327,7 +1456,7 @@ export class Humanoid {
   // Look like another figure (skin, hair, face, build, shirt name and number): the two figures that draw the same man.
   copyLook(o) {
     const u = this.u, v = o.u;
-    for (const k of ['uSkin', 'uHair', 'uIris', 'uLook', 'uLook2', 'uLook3']) u[k].value.copy(v[k].value);
+    for (const k of ['uSkin', 'uHair', 'uIris', 'uLook', 'uLook2', 'uLook3', 'uLook4']) u[k].value.copy(v[k].value);
     this.lookChanged();
     this.setNumber(o.number);
     this.setName(o.name);
@@ -1598,7 +1727,7 @@ export class Humanoid {
     const v4 = (i, v) => { const k = o + i * 4; M[k] = v.x; M[k + 1] = v.y; M[k + 2] = v.z; M[k + 3] = v.w; };
     c3(0, u.uKit1.value, u.uSeed.value); c3(1, u.uKit2.value, u.uLod.value); c3(2, u.uKit3.value, u.uTeamIx.value); c3(3, u.uKit4.value, u.uNoHead.value);
     c3(4, u.uSkin.value, u.uGloved.value); c3(5, u.uHair.value, u.uHideHand.value); c3(6, u.uPanel.value, u.uShades.value); c3(7, u.uIris.value, u.uNameLen.value);
-    v4(8, u.uLook.value); v4(9, u.uLook2.value); v4(10, u.uCrestUV.value); v4(11, u.uSponsorUV.value); v4(17, u.uLook3.value);
+    v4(8, u.uLook.value); v4(9, u.uLook2.value); v4(10, u.uCrestUV.value); v4(11, u.uSponsorUV.value); v4(17, u.uLook3.value); v4(18, u.uLook4.value);
     { const k = o + 48, b = u.uBrim.value; M[k] = b.x; M[k + 1] = b.y; M[k + 2] = b.z; M[k + 3] = u.uNum.value.x; }
     for (let i = 0; i < 12; i++) M[o + 52 + i] = u.uName.value[i];
     M[o + 64] = u.uNum.value.y;
