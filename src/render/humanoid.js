@@ -16,6 +16,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { buildGear } from './gear.js';
 import { TEAMS, SKIN_TONES, HAIR, lookFor, lookTextures, ATLAS, glyphOf } from './playerLook.js';
 import { buildTrousers } from './trousers.js';
+import { replaceHead } from './headMesh.js';
 
 const PARENT = {
   hips: null, spine: 'hips', chest: 'spine', neck: 'chest', head: 'neck',
@@ -69,6 +70,7 @@ function prepareRig(meta, bin) {
   athleteBuild(lods, J, meta);
   adultFace(lods, meta);
   sculptHead(lods, meta);
+  const headL = replaceHead(lods, J, meta);
   fitClothes(lods, J, meta);
   const down = new THREE.Vector3(0, -1, 0), d = new THREE.Vector3();
   const bindQ = {}, canon = {};
@@ -116,6 +118,8 @@ function prepareRig(meta, bin) {
   }
   const floor = canon.ankleL.y - sole;
   const face = faceLandmarks(lods[0], meta);
+  // (the new head's own landmarks: headMesh.js)
+  Object.assign(face, { brow: headL.brow - 0.001, nose: headL.nose, chin: headL.C, mouth: [0.022, headL.mouth], front: headL.zF });
   lods.forEach((L, i) => L.forEach((p) => refinePart(p, i)));
   return { sole, toe, floor, bones: meta.bones, index: Object.fromEntries(meta.bones.map((b, i) => [b, i])), J, canon, bindQ, inverses, lods, headCentre: new THREE.Vector3(...meta.headCentre), headSize: new THREE.Vector3(...(meta.headSize || [0.1, 0.14, 0.125])), skull: meta.skull, face, geoCache: new Map() };
 }
@@ -617,6 +621,29 @@ const KIT_GLSL_COMMON = /* glsl */`
   uniform vec4 uSkull; uniform float uTime;
   varying vec3 vBind; varying float vArmW; varying vec2 vTro;
   flat varying float vSlot; flat varying vec4 vMat;
+  // The hair on the head (headMesh.js: the scalp is skin): how much of it covers a bind point, by
+  // haircut st (0 crop, 1 fade at the sides, 2 side part, 3 receding, 4 longer on top, 5 shaved);
+  // a soft hairline that dips at the temples, sideburns, a nape. vol: how far it stands (0..1).
+  float hairCover(vec3 p, float st, out float vol) {
+    vec3 q = p - uSkull.xyz;
+    float a = abs(atan(q.x, q.z));
+    float yl = 0.064;
+    yl = mix(yl, 0.05, smoothstep(0.0, 0.55, a));
+    yl = mix(yl, 0.004, smoothstep(0.55, 1.15, a));
+    yl = mix(yl, -0.048, smoothstep(1.15, 1.95, a));
+    yl = mix(yl, -0.086, smoothstep(1.95, 3.1, a));
+    if (abs(st - 3.0) < 0.5) yl += 0.02 * exp(-pow((a - 0.45) / 0.22, 2.0)) + 0.012 * (1.0 - smoothstep(0.0, 0.7, a));
+    float cv = smoothstep(yl - 0.004, yl + 0.005, q.y);
+    // sideburns down to the ear's middle
+    cv = max(cv, smoothstep(0.86, 0.98, a) * smoothstep(1.28, 1.14, a) * smoothstep(-0.034, -0.022, q.y) * smoothstep(0.012, 0.0, q.y - yl));
+    float sides = smoothstep(0.7, 1.0, a) * smoothstep(0.045, 0.0, q.y);
+    vol = cv;
+    if (abs(st - 1.0) < 0.5) { cv *= 1.0 - 0.65 * sides; vol *= 1.0 - sides; }
+    if (abs(st - 2.0) < 0.5) cv *= 1.0 - 0.6 * smoothstep(0.003, 0.0, abs(q.x - 0.028)) * step(0.05, q.y) * step(a, 1.3);
+    if (abs(st - 4.0) < 0.5) vol *= 1.0 + 1.2 * smoothstep(0.03, 0.08, q.y);
+    if (st > 4.5) { cv *= 0.5; vol = 0.0; }
+    return cv;
+  }
   // position along the arm (0 shoulder .. 1 wrist) of a bind-space point, and its distance off the arm's line
   vec2 armAt(vec3 p) {
     bool l = p.x > 0.0;
@@ -654,7 +681,7 @@ function figureValues() {
     uPanel: { value: new THREE.Color(0x173f8c) }, uIris: { value: new THREE.Color(0x3b2414) },
     uLook: { value: new THREE.Vector4(0, 0, 0, 0) }, uLook2: { value: new THREE.Vector4(0, 0, 1, 0) },
     uLook3: { value: new THREE.Vector4(0, 0, 0, 0) },    // age, nose, brow, jaw (FIG(17))
-    uLook4: { value: new THREE.Vector4(0, 0, 0, 0) },    // expression: 1 focused, 2 smile (FIG(18).x)
+    uLook4: { value: new THREE.Vector4(0, 0, 0, 0) },    // expression: 1 focused, 2 smile (FIG(18).x); haircut 0..5 (.y)
     uCrestUV: { value: new THREE.Vector4() }, uSponsorUV: { value: new THREE.Vector4() },
     uTeamIx: { value: 0 },         // 0/1 the teams (sponsor, name, number), 2 officials (crest only)
     uNum: { value: new THREE.Vector2(-1, -1) },        // back number: glyphs of the tens and units (-1 none)
@@ -782,6 +809,8 @@ function kitMaterial(fig = null) {
           vec2 at = armAt(position);
           float arm = step(0.5, vArmW) * step(at.x, 0.97);
           push = uLook.x * 0.5 * upperW + arm * (uLook.z * 0.0035 * step(0.1, at.x) + uLook.w * 0.003 * step(0.82, at.x) * step(at.x, 0.95));
+          // the hair stands off the scalp (headMesh.js: colour.g marks the ears, which have none)
+          if (vHeadW > 0.5 && color.g < 0.5) { float hv; hairCover(position, FIG(18).y, hv); push += (0.002 + uLook.y) * hv; }
         }
         else if (k < 6.5) {
           kc = FIG(5).rgb; mt = vec4(0.3, 0.16, 34.0, 3.0);
@@ -1049,25 +1078,20 @@ function kitMaterial(fig = null) {
         }
         if (band > 0.5) { c = uKit2; gWrap = 0.3; gSpec = 0.02; gShin = 6.0; gSSS = 0.0; kitH += 0.00008 * sin(at.x * 900.0) * (1.0 - smoothstep(0.001, 0.002, fw)); }
       }
-      // ---- hair below the cap's edge at the back and in front of the ears (the hair cap stops high)
-      if (vHeadW > 0.5) {
-        vec4 uLook2 = FIG(9); vec3 uHair = FIG(5).rgb;
-        vec3 q = vBind - uSkull.xyz;
-        float side = abs(q.x);
-        float back = smoothstep(0.02, -0.02, q.z) * smoothstep(0.088, 0.078, side);
-        float burn = smoothstep(0.072, 0.08, side) * smoothstep(0.075, 0.06, q.z) * smoothstep(0.035, 0.045, q.z) * smoothstep(-0.05, -0.035, q.y);
-        float y0 = uSkull.y - 0.078 + 0.022 * smoothstep(0.02, 0.07, side) - 0.002 * sin(q.x * 220.0);
-        float hairA = max(back * smoothstep(y0, y0 + 0.016, vBind.y), burn * 0.85) * (0.4 + 0.55 * uLook2.z);
-        if (hairA > 0.0) {
-          float st = 0.85 + 0.15 * sin(atan(q.x, q.z) * 260.0) * (1.0 - smoothstep(0.0006, 0.0013, fw));
-          c = mix(c, uHair * st, hairA); gSSS *= 1.0 - hairA; gSpec = mix(gSpec, 0.08, hairA);
+      // ---- the hair (headMesh.js: the scalp is skin): the haircut's cover in the hair's colour, its
+      // strands faded out by their own screen rate before they can alias, a soft broad sheen
+      if (vHeadW > 0.5 && vTro.x < 0.5) {
+        float hv, hcv = hairCover(vBind, FIG(18).y, hv);
+        if (hcv > 0.003) {
+          vec4 uLook2 = FIG(9); vec3 uHair = FIG(5).rgb;
+          vec3 q = vBind - uSkull.xyz;
+          float ph = atan(q.x, q.z) * 150.0 + q.y * 90.0;
+          float amp = 1.0 - smoothstep(0.35, 0.9, fwidth(ph));
+          vec3 hcol = uHair * (0.88 + 0.12 * sin(ph) * amp) * mix(0.75, 1.0, uLook2.z);
+          float dens = hcv * mix(0.55, 1.0, uLook2.z);
+          c = mix(c, hcol, dens);
+          gSSS *= 1.0 - dens; gSpec = mix(gSpec, 0.07, dens); gShin = mix(gShin, 7.0, dens); gWrap = mix(gWrap, 0.35, dens);
         }
-      }
-      // ---- the ears: their hollows in shadow (the bowl behind the rim)
-      if (vHeadW > 0.5 && abs(vBind.x) > uEye.x + 0.04 && vBind.z < uEye.w - 0.07) {
-        float earC = exp(-pow(length(vec2(vBind.y - uEye.y + 0.008, vBind.z - uSkull.z + 0.005) / vec2(0.02, 0.012)), 2.0));
-        c *= 1.0 - 0.4 * earC;
-        c *= mix(vec3(1.0), vec3(1.06, 0.92, 0.88), earC);
       }
       // ---- the face: painted map projected from the front of the head
       if (vBind.y > uFaceRect.y && vBind.z > uFaceMisc.x && vHeadW > 0.3) {
@@ -1075,7 +1099,7 @@ function kitMaterial(fig = null) {
         vec2 fu = (vBind.xy - uFaceRect.xy) / uFaceRect.zw;
         vec4 f = textureGrad(uFaceMap, fu, gBX.xy / uFaceRect.zw, gBY.xy / uFaceRect.zw);
         // (the painted creases a third deeper than before: the mesh's own shading is soft)
-        float m = 0.2 + 1.6 * f.r;
+        float m = 0.55 + 0.9 * f.r;          // (the head's own geometry carries the form now: the paint only accents it)
         c *= m;
         // skin is not one colour: warmer, redder cheeks, nose and lips, a darker, cooler jaw and upper
         // lip (the beard under the skin), a little paler forehead; and pores and blotches close up
@@ -1350,7 +1374,7 @@ export class Humanoid {
     u.uLook.value.set(look.build, look.hairVol, look.sleeves, look.sweatband);
     u.uLook2.value.set(look.beard, look.stubble, look.hairCut, look.zinc);
     u.uLook3.value.set(look.age, look.nose, look.brow, look.jaw);
-    u.uLook4.value.set(look.expr || 0, 0, 0, 0);
+    u.uLook4.value.set(look.expr || 0, look.hairStyle || 0, 0, 0);
     if (vary) scale *= look.scale;
     u.uSeed.value = rnd(9);
     u.uShades.value = this.opts.shades ? 1 : 0;

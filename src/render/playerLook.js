@@ -73,6 +73,8 @@ export function lookFor(seed, team, role = 'player') {
   L.brow = r() * 2 - 1;                            // a flat brow .. a heavy brow ridge
   L.jaw = r() * 2 - 1;                             // narrow .. square
   { const e = r(); L.expr = e < 0.5 ? 0 : e < 0.78 ? 1 : 2; }   // relaxed / focused (narrowed eyes, lowered brows) / a slight smile
+  // the haircut: 0 a short crop, 1 a fade at the sides, 2 a side part, 3 receding, 4 longer on top, 5 shaved
+  { const h = r(); L.hairStyle = L.age > 0.55 && h < 0.45 ? 3 : h < 0.24 ? 0 : h < 0.46 ? 1 : h < 0.62 ? 2 : h < 0.72 ? 3 : h < 0.9 ? 4 : 5; }
   if (role === 'self') { L.sweatband = 0; L.sleeves = 0; L.build = 0; }
   return L;
 }
