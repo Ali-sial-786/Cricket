@@ -83,3 +83,12 @@ test('read off the tape: a lofted shot down by a fielder, a hard hit stopped by 
   const gap = R.headGap(10.04, false);
   assert.ok(gap != null && gap < 0.3, `past the head by ${gap}`);
 });
+
+test('the over\'s tally: the second four of an over gets take 1 only, a second close call none; a new over starts afresh', () => {
+  const R = replay('highlights');
+  const four = () => { ball(R, { kind: 'boundary', runs: 4 }, { runs: 4, boundary: 4 }); const n = R.marks.maxTakes; R.pending = null; return n; };
+  const edge = () => { ball(R, { kind: 'runs', runs: 0 }, {}, { edge: true }); const n = R.marks.maxTakes; R.pending = null; return n; };
+  assert.equal(four(), 2); assert.equal(four(), 1); assert.equal(edge(), 1); assert.equal(edge(), 0);
+  four(); four();                                   // (balls 5 and 6)
+  assert.equal(four(), 2, 'a new over');
+});

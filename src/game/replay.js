@@ -32,7 +32,7 @@ import { Vec3, hypot2, hypot3 } from '../physics/math.js';
 import { PITCH } from '../physics/pitch.js';
 import { CONFIG } from '../config.js';
 import { pathStats, replayAt, tailFor, TAIL } from './replayFraming.js';
-import { classify, direct, planAt, replayMode, wants, missBy, prewarm, DIRECTOR } from './replayDirector.js';
+import { classify, direct, planAt, replayMode, replayTakes, missBy, prewarm, DIRECTOR } from './replayDirector.js';
 import { decisionPending } from './quickSkip.js';
 export { TAIL, tailFor };
 
@@ -312,7 +312,7 @@ export class Replay {
   }
 
   // The cut for the ball just finished (replayDirector.js direct), or null.
-  plan() {
+  plan(again = false) {
     const m = this.marks;
     if (m.release == null || !this.count) return null;
     const first = this.timeAt(0), last = this.timeAt(this.count - 1);
@@ -322,7 +322,7 @@ export class Replay {
     const M = { release: m.release, arrive, hit: m.hit, pad: m.pad, wicket: m.wicket, brk: m.break, brkEnd: m.breakEnd, caught: m.caught, held: m.held,
       dropT: m.dropT, diveT: m.diveT, throwAt: m.throwAt, cross: m.cross, land: m.land, dead: m.dead, safeT: m.safeT, savedT: m.savedT, overthrow: m.overthrow };   // (land: where a six came down, if play marked it)
     const tape = { first, last, ball: (t, o) => this.tapeBall(t, o), bodies: (t) => this.bodiesAt(t), figure: (k, t, o) => this.figureAt(k, t, o) };
-    const p = direct({ story: m.story, tier: m.tier, m: M, tape, xr: !!this.g.input.xr });
+    const p = direct({ story: m.story, tier: m.tier, m: M, tape, xr: !!this.g.input.xr, maxTakes: again ? 0 : m.maxTakes || 0 });
     if (p) p.arrive = arrive;
     return p;
   }
@@ -369,9 +369,22 @@ export class Replay {
     if (m.dead == null) m.dead = t;
     const s = this.whatHappened();
     m.story = s.story; m.tier = s.tier;
-    if (!wants(replayMode(this.g.settings), s.tier)) return false;
+    // (how many takes: by what happened and what this over has had already: replayDirector.js replayTakes)
+    m.maxTakes = replayTakes(replayMode(this.g.settings), s.story, s.tier, m.review != null, this.overNow());
+    if (!m.maxTakes) return false;
     this.pending = { at: replayAt(m, t) };
     return true;
+  }
+
+  // This over's tally of replays ({ fours, close }): a fresh one when the over (or the session) changes.
+  // The over: the innings' legal balls so far, else this session's balls counted here.
+  overNow() {
+    const ses = this.g.session, inn = ses && ses.innings;
+    if (this.tallySes !== ses) { this.tallySes = ses; this.tallyBalls = 0; this.tally = null; }
+    this.tallyBalls++;
+    const idx = inn && Number.isFinite(inn.legal) ? Math.floor(Math.max(0, inn.legal - 1) / 6) : Math.floor((this.tallyBalls - 1) / 6);
+    if (!this.tally || this.tally.idx !== idx) this.tally = { idx, fours: 0, close: 0 };
+    return this.tally;
   }
 
   // When the pending replay is due (game s; Infinity if none): its tail of
@@ -496,7 +509,7 @@ export class Replay {
     if (!this.active) {
       if (this.againReady()) {
         const b = g.input.right.buttons.b;
-        if (b.down) { if (b.swallow) b.swallow(); const p = this.plan(); if (p) { this.start(p, true); return; } }
+        if (b.down) { if (b.swallow) b.swallow(); const p = this.plan(true); if (p) { this.start(p, true); return; } }
         // (a card for it, once a game, on a later ball than the skip card's)
         const cs = g.coachSeen;
         if (g.coach && cs && !cs.has('again') && g.session.state === 'settle') {
