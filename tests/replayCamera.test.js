@@ -263,7 +263,7 @@ test('a six: a crane in front of the stand where it comes down, the view settlin
     assert.ok(hypot2(sh.pos.x, sh.pos.z - CZ) <= 52 + 1e-6, `${name}: ${hypot2(sh.pos.x, sh.pos.z - CZ).toFixed(1)} m out (too near the boards)`);
     // looking level (the headset's view), the middle of the last picture is the stand, not the boards
     const s = viewShares(sh.pos, e.yaw, 0, { hfov: 40, vfov: 30, n: 60 });
-    assert.ok(s.stand >= 0.5 && s.boards <= 0.1, `${name}: stand ${(s.stand * 100).toFixed(0)}%, boards ${(s.boards * 100).toFixed(0)}%`);
+    assert.ok(s.stand >= 0.5 && s.boards + s.screen <= 0.1, `${name}: stand ${(s.stand * 100).toFixed(0)}%, boards ${(s.boards * 100).toFixed(0)}%, sightscreen ${(s.screen * 100).toFixed(0)}%`);
     const c = viewShares(sh.pos, e.yaw, 0, { hfov: 2, vfov: 2, n: 4 });
     assert.ok(c.stand === 1, `${name}: the middle of the view is not the crowd`);
     // the arc comes down in view: within the comfort cone while it is followed
@@ -329,7 +329,7 @@ test('a catch: 5-8 m from the catcher, chest high, three-quarter on, there befor
 });
 
 test('a four: ends on the ball crossing the rope, turf and rope the picture, the boards a band behind; the fielder chasing in shot, or a crane', () => {
-  for (const [name, v, chaser] of [['straight', [3, 1.5, -29]], ['cover', [24, 3, -14]], ['square', [30, 2, 0]], ['fine leg', [-12, 1.5, 24]], ['cover, chased', [24, 3, -14], true], ['fine, chased', [-12, 1.5, 24], true]]) {
+  for (const [name, v, chaser] of [['straight', [3, 1.5, -29]], ['straight, lofted', [0.5, 7, -30]], ['straight behind', [0.5, 1.5, 30]], ['cover', [24, 3, -14]], ['square', [30, 2, 0]], ['fine leg', [-12, 1.5, 24]], ['cover, chased', [24, 3, -14], true], ['fine, chased', [-12, 1.5, 24], true]]) {
     const pts = shot(v), t0 = tapeOf(pts), cross = t0.crossAt(), C = { x: 0, y: 0, z: 0 }; t0.ball(cross, C);
     // a fielder chasing: 5 m inside the rope, beside the ball's line
     const ppl = [person(-0.4, -1.1), person(0.4, -21.6)];
@@ -338,7 +338,7 @@ test('a four: ends on the ball crossing the rope, turf and rope the picture, the
     assert.ok(p.end <= cross + 0.15, `${name}: runs ${(p.end - cross).toFixed(2)} s (tape) past the crossing`);
     const { e, sh, s } = lastPicture(p, tape, { x: C.x, y: 0.1, z: C.z });
     assert.ok(hypot2(sh.pos.x, sh.pos.z - CZ) <= 56 + 1e-6, `${name}: ${hypot2(sh.pos.x, sh.pos.z - CZ).toFixed(1)} m out (too near the boards)`);
-    assert.ok(s.boards <= 0.14, `${name}: boards ${(s.boards * 100).toFixed(0)}% of the subject area`);
+    assert.ok(s.boards + s.screen <= 0.14, `${name}: boards ${(s.boards * 100).toFixed(0)}%, sightscreen ${(s.screen * 100).toFixed(0)}% of the subject area`);
     assert.ok(s.turf >= 0.35, `${name}: turf ${(s.turf * 100).toFixed(0)}% of the subject area`);
     // the ball at the crossing near the middle of the view
     assert.ok(offOf(e) < DIRECTOR.cone, `${name}: ${(offOf(e) / D2R).toFixed(0)}° off the ball at the end`);

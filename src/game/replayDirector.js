@@ -27,7 +27,7 @@
 //    key moment, then cut. Budgets: wicket 6 s, boundary / close call 5 s, a
 //    routine ball ("every ball") 2.5 s.
 // Everything is laid out once, when the replay starts (~1-3 ms), from the tape.
-import { keepClear, blocksSight, nearestOnBody, CLEAR } from './replayFraming.js';
+import { keepClear, blocksSight, nearestOnBody, viewShares, CLEAR } from './replayFraming.js';
 import { hypot2, hypot3 } from '../physics/math.js';
 
 const D2R = Math.PI / 180;
@@ -459,6 +459,10 @@ function spotCost(c, S, sh, lim) {
     const re = hypot2(sh.subj.x, sh.subj.z - CZ) || 1, cosOut = ((sh.subj.x - c.x) * sh.subj.x + (sh.subj.z - c.z) * (sh.subj.z - CZ)) / (re * Math.max(1e-3, dE));
     const ang = Math.acos(clamp(cosOut, -1, 1)) / D2R;
     if (ang > 40) cost += (ang - 40) * 0.12;
+    // what the last picture shows, looking at where it ends (a crane looks down onto it): boards or a
+    // sightscreen filling it cost a lot (a coarse 10 x 8 look, at plan time)
+    const sp = Math.atan2(sh.subj.y - c.y, Math.max(0.5, dE)), sv = viewShares(c, Math.atan2(sh.subj.x - c.x, sh.subj.z - c.z), c.y > 3 && !sh.stand ? sp : 0, { hfov: 40, vfov: 30, n: 10, nv: 8 });
+    cost += (sv.boards + sv.screen) * 25;
     // the fielder chasing it in the picture with the ball
     const F = sh.fielder;
     if (F) { const off = Math.abs(wrap(Math.atan2(F.x - c.x, F.z - c.z) - Math.atan2(sh.subj.x - c.x, sh.subj.z - c.z))); if (off < 25 * D2R && hypot2(F.x - c.x, F.z - c.z) > 2.5) cost -= 0.8; }
