@@ -6,8 +6,9 @@
 //     player in slow motion (reach a hand to the ball), and the player picks
 //     the end a fielder throws to
 import * as THREE from 'three';
-import { Fielding, PLAYER_CLEAR, STUMP_CLEAR } from './fielding.js';
-import { planRuns, planMoreRuns, RUNNER_CLEAR } from './running.js';
+import { Fielding, STUMP_CLEAR } from './fielding.js';
+import { planRuns, planMoreRuns } from './running.js';
+import { EYE_CLEAR, FIELD_CLEAR } from './playerSpace.js';
 import { overthrowRuns } from './throwing.js';
 import { Vec3, clamp, smoothstep as sstep, hypot2, hypot3 } from '../physics/math.js';
 import { PITCH } from '../physics/pitch.js';
@@ -22,13 +23,15 @@ function circle(pool, i, x, z, r, soft) {
   return o;
 }
 
-// The player's space: no fielder, keeper or umpire's feet within PLAYER_CLEAR
-// of your head (on the ground), no runner within RUNNER_CLEAR.
+// The player's space (render/crew.js, one rule for every figure): no fielder, keeper or umpire's feet
+// within FIELD_CLEAR of your head (on the ground: EYE_CLEAR and the reach of a body in motion), no
+// runner's within EYE_CLEAR (his lane is drawn bent round you besides: people.js).
 // Fielders do not walk through the batters either.
 const BATTER_CLEAR = 0.95;     // (a batter's stance / lean on the bat reaches forward)
 const UMPIRE_CLEAR = 0.9;      // (his signals reach out)
 const BOWLER_CLEAR = 0.8;
 const PLAYER_PATH = 2.1;       // anyone running or walking past you gives you this much room
+export const HUDDLE_YOU = FIELD_CLEAR + 0.35;    // the ring of a huddle round you (you took the wicket)
 const LANE_CLEAR = 1.5;        // half-width of your run-up lane kept empty between balls
 const BOWL_CREASE_Z = PITCH.bowlingStumpsZ + PITCH.poppingOffset;
 const THROW_HINTS = [HINTS.toKeeper, HINTS.toBowler];     // (asked for every frame: one list, not one a frame)
@@ -97,12 +100,12 @@ export class FieldController {
     const bw0 = g.figures && g.figures.bowler.actor;
     if (bw0 && bw0.visible) budget = hypot2(bw0.home.x - bw0.pos.x, bw0.home.z - bw0.pos.z) / 2.6 + 3.5;
     else if (g.session && g.session.isBowling) budget = 11.5;          // (you bowl: the new batter has to walk out from the gate first)
-    if (L.outcome && L.outcome.by === 'you') r = 1.9;          // (you took it: they stand round the edge of your space)
+    if (L.outcome && L.outcome.by === 'you') r = HUDDLE_YOU;          // (you took it: they stand round the edge of your space)
     if (!focus) {
       const bw = g.figures && g.figures.bowler.actor;
       // (the AI bowler: where he is, a few steps toward the pitch -- he walks on toward his mark, the side comes to meet him)
       if (bw && bw.visible) { const dz = PITCH.centerZ - bw.pos.z, dx = -bw.pos.x, d = hypot2(dx, dz), k = d > 1e-3 ? Math.min(3.5, d) / d : 0; focus = { x: bw.pos.x + dx * k, z: bw.pos.z + dz * k }; }
-      else if (g.session && g.session.isBowling) { const p = this.playerSpot(); if (p) { focus = p; r = 1.9; } }
+      else if (g.session && g.session.isBowling) { const p = this.playerSpot(); if (p) { focus = p; r = HUDDLE_YOU; } }
     }
     if (focus) L.celebrateWicket(t, focus, center, r, budget);
   }
@@ -402,9 +405,9 @@ export class FieldController {
   keepClear(dt) {
     const g = this.game, L = this.logic, r = this.runs;
     const hp = this.playerSpot();
-    // (nobody stands within PLAYER_CLEAR of you; anyone on the move passes PLAYER_PATH wide)
-    const ko = this._ko || (this._ko = { x: 0, z: 0, r: PLAYER_CLEAR, path: PLAYER_PATH });
-    const rko = this._rko || (this._rko = { x: 0, z: 0, r: RUNNER_CLEAR, striker: false });
+    // (nobody stands within FIELD_CLEAR of you; anyone on the move passes PLAYER_PATH wide)
+    const ko = this._ko || (this._ko = { x: 0, z: 0, r: FIELD_CLEAR, path: PLAYER_PATH });
+    const rko = this._rko || (this._rko = { x: 0, z: 0, r: EYE_CLEAR, striker: false });
     if (hp) { ko.x = rko.x = hp.x; ko.z = rko.z = hp.z; rko.striker = this.playerBatting; }
     L.keepOut = hp ? ko : null;
     r.keepOut = hp ? rko : null;
@@ -417,7 +420,7 @@ export class FieldController {
       if (fl > 1e-3) { af.x = fx / fl; af.z = fz / fl; }
     }
     g.batterView.avoidFwd = g.nonStrikerView.avoidFwd = af;
-    if (g.umpires.keepClear) g.umpires.keepClear(g.umpires.visible ? hp : null, dt, PLAYER_CLEAR);
+    if (g.umpires.keepClear) g.umpires.keepClear(g.umpires.visible ? hp : null, dt, FIELD_CLEAR);
     const ump = g.umpires.visible ? g.umpires.spots() : null;
     const obs = this._fObs || (this._fObs = []), P = this._fPool || (this._fPool = []);
     let n = 0;
@@ -446,7 +449,7 @@ export class FieldController {
     if (bv.shown && bv.actor.visible) uo[n] = circle(UP, n++, bv.actor.pos.x, bv.actor.pos.z, BATTER_CLEAR, false);
     if (ns.visible) uo[n] = circle(UP, n++, ns.actor.pos.x, ns.actor.pos.z, BATTER_CLEAR, false);
     uo[n] = circle(UP, n++, 0, PITCH.bowlingStumpsZ, STUMP_CLEAR + 0.2, false);
-    if (hp) uo[n] = circle(UP, n++, hp.x, hp.z, PLAYER_CLEAR, false);
+    if (hp) uo[n] = circle(UP, n++, hp.x, hp.z, FIELD_CLEAR, false);
     uo.length = n;
     g.umpires.obstacles = uo;
     // ... and he walks round the umpire, the batters and both sets of stumps.
@@ -458,7 +461,7 @@ export class FieldController {
       if (ns.visible) bo[n] = circle(BP, n++, ns.actor.pos.x, ns.actor.pos.z, BATTER_CLEAR, false);
       bo[n] = circle(BP, n++, 0, PITCH.bowlingStumpsZ, STUMP_CLEAR, false);
       bo[n] = circle(BP, n++, 0, PITCH.battingStumpsZ, STUMP_CLEAR, false);
-      if (hp) bo[n] = circle(BP, n++, hp.x, hp.z, PLAYER_CLEAR, false);
+      if (hp) bo[n] = circle(BP, n++, hp.x, hp.z, FIELD_CLEAR, false);
       bo.length = n;
     }
   }

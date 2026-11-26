@@ -95,14 +95,18 @@ export function standEasy(a, w) {
 
 // A glove punch / handshake toward a point (world: the other man's hand, or your head):
 // the right hand out toward it, at chest height, by weight w.
-export function reachTo(a, p, w) {
+export function reachTo(a, p, w) { handOut(a, p, w, 'R'); }
+// The same with either hand (side 'L' | 'R'): a batter walking past holds out his free (left)
+// hand, upright -- his bat stays in the right, carried pointing down by his walk.
+export function handOut(a, p, w, side = 'R') {
   if (w <= 0.001 || !p) return;
-  const sc = a.h.root.scale.y, sh = frame(a);
+  const sc = a.h.root.scale.y, sg = side === 'R' ? 1 : -1;
+  frame(a); const sh = a.h.worldPos(side === 'R' ? 'shoulderR' : 'shoulderL', _s);
   _t.set(p.x - sh.x, 0, p.z - sh.z);
   const d = Math.sqrt(_t.x * _t.x + _t.z * _t.z) || 1, r = Math.min(0.5 * sc, d * 0.5);
   _t.multiplyScalar(r / d).add(sh); _t.y = sh.y - 0.3 * sc;
-  _p.copy(sh).addScaledVector(_l, -0.6).addScaledVector(_u, -0.5);
-  armTo(a, _t, _p, w);
+  _p.copy(sh).addScaledVector(_l, -0.6 * sg).addScaledVector(_u, -0.5);
+  if (side === 'R') armTo(a, _t, _p, w); else armSide(a, 'L', _t, _p, w);
 }
 
 // ---------------------------------------------------------------- two figures together

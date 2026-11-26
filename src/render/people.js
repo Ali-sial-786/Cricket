@@ -6,7 +6,7 @@ import { poseEvery } from './humanoid.js';
 import { toV3, toQ } from './util.js';
 import { sstep, clamp, hyp } from './anim.js';
 import { CONFIG } from '../config.js';
-import { walkTask, stepWalk, fadeNearHead, HEAD_CLEAR, MERGE_BACK, MERGE_PATH } from './crew.js';
+import { walkTask, stepWalk, fadeNearHead, bendAround, FIELD_CLEAR, MERGE_BACK } from './crew.js';
 import { live, lastCrowd, joyAt } from './gestures.js';
 
 // The runner in your kit is not drawn close to your head (you are looking out
@@ -73,6 +73,7 @@ export class BatterView {
       // (from his stance into the walk: cross-faded from the pose he was in, bat and all)
       if (this.wasBat) { a.handover(); this.wasBat = false; a.rebase(a.h.root.position.x, a.h.root.position.z); }
       if (this._roff) { this._roff.x = this._roff.z = 0; this._roff.side = 0; }      // (his step aside is in his place now)
+      if (this._bend) this._bend.on = false;
       if (k.kind === 'merge' && this.avoid) {
         // (not into you: out to your side -- the side he is on -- and a little back, where you are not
         // looking; chosen once, so he does not swap sides as you turn)
@@ -104,21 +105,10 @@ export class BatterView {
       if (this.wasBat) { a.handover(); this.wasBat = false; rx = a.h.root.position.x; rz = a.h.root.position.z; }
       this.blend = null;
       a.pos.set(this.running.x, 0, this.running.z);
-      // Your own runner leaves from you and comes back to you, but never through
-      // your head: drawn round it at HEAD_CLEAR (the run itself is the logic's).
-      if (this.runnerOnly && this.avoid) {
-        // (running past: HEAD_CLEAR; pulled up at your end: further off, MERGE_PATH -- not stood in your face)
-        const R = MERGE_PATH + (HEAD_CLEAR - MERGE_PATH) * sstep(0.5, 3, this.running.speed);
-        const hx = this.avoid.x, hz = this.avoid.z, dx = a.pos.x - hx, dz = a.pos.z - hz, d = hyp(dx, dz);
-        if (d < R) {
-          const s = d > 1e-4 ? R / d : 0;
-          if (s) { a.pos.x = hx + dx * s; a.pos.z = hz + dz * s; } else a.pos.x = hx - R;
-        }
-      }
-      // Pulled up at your end: he does not stand in front of you while the run is
-      // sorted out -- he walks straight on out to your side (the place he would go to
-      // to become you, crew.js: the 'merge' walk then starts from there).
-      if (this.runnerOnly && this.avoid && !this.running.dive) stepAside(this, a, dt, MERGE_BACK, 0.4);
+      // Your own runner leaves from you and comes back to you, but never through your head: his lane is
+      // drawn bent round it (the run itself is the logic's), and pulled up at your end he walks on out to
+      // your side -- the place he would go to to become you (crew.js: the 'merge' walk starts from there).
+      runRound(this, a, dt, this.runnerOnly ? MERGE_BACK : NS_ASIDE, this.runnerOnly ? 0.4 : 0.5);
       if (rx != null) a.rebase(rx, rz);          // (the run starts under his pelvis: the body stays where the shot left it)
       // (he fades in as he leaves you; the fade by distance is only a last resort now)
       let fade = this.runnerOnly && this.avoid ? fadeNearHead(hyp(a.pos.x - this.avoid.x, a.pos.z - this.avoid.z)) : 1;
@@ -389,6 +379,21 @@ const NS_BACKUP = 1.5;       // m he walks down the pitch as the ball is bowled
 // (v.running is the run's state for this frame, its own object: its speed and heading are
 // set to the walk's for the drawing)
 const STEP_NEAR = 3.0, NS_ASIDE = 2.15;
+const RUN_CLEAR = FIELD_CLEAR + 0.4;      // a man running flat out past you: a stride wider than a walker
+// A running batter's drawn place (v: his view, v.avoid your head): his run, its lane bent round you
+// (crew.js bendAround), then, pulled up near you, his walk on out to your side; he faces the way the
+// drawn path goes, so the bend is run, not slid. Nothing made per frame.
+function runRound(v, a, dt, lat, back) {
+  const r = v.running, e = v.avoid, B = v._bend || (v._bend = { x: 0, z: 0, px: 0, pz: 0, on: false });
+  if (!e) { B.on = false; return; }
+  const ux = Math.sin(r.heading), uz = Math.cos(r.heading), sx = a.pos.x >= e.x ? 1 : -1;
+  bendAround(a.pos.x, a.pos.z, ux, uz, e, RUN_CLEAR, B, -uz * sx >= 0 ? 1 : -1);
+  a.pos.x = B.x; a.pos.z = B.z;
+  if (!r.dive) stepAside(v, a, dt, lat, back);
+  const dx = a.pos.x - B.px, dz = a.pos.z - B.pz, d = hyp(dx, dz);
+  if (B.on && r.speed > 0.3 && d > 0.2 * r.speed * dt) r.heading = Math.atan2(dx, dz);
+  B.px = a.pos.x; B.pz = a.pos.z; B.on = true;
+}
 function stepAside(v, a, dt, lat, back) {
   const O = v._roff || (v._roff = { x: 0, z: 0, side: 0 }), F = v.avoidFwd, fx = F ? F.x : 0, fz = F ? F.z : -1, hx = v.avoid.x, hz = v.avoid.z;
   if (v.running.speed < 0.4 && (O.side || hyp(a.pos.x - hx, a.pos.z - hz) < STEP_NEAR)) {
@@ -428,8 +433,8 @@ export class NonStrikerView {
       a.task = null;
       a.h.setFade(1); a.h.replayVisible = true;
       a.pos.set(this.running.x, 0, this.running.z);
-      // (run in to your end and pulled up there: out to your side, a good step further off than the run left him)
-      if (this.avoid && !this.running.dive) stepAside(this, a, dt, NS_ASIDE, 0.5);
+      // (his lane bent round your head; run in to your end and pulled up there: on out to your side)
+      runRound(this, a, dt, NS_ASIDE, 0.5);
       a.speed = this.running.speed;
       a.turnToward(this.running.heading, dt, this.running.moving ? 7 : 4.5);
       if (this.running.dive) a.updateDive(dt, t, this.running.dive); else a.updateMoving(dt, t, ball, false, 0, joyAt(t));
@@ -437,6 +442,7 @@ export class NonStrikerView {
       return;
     }
     if (this._roff) this._roff.x = this._roff.z = this._roff.side = 0;      // (his step aside is in his place now)
+    if (this._bend) this._bend.on = false;
     // Backing up: a few steps down the pitch as the ball is bowled.
     const backing = !!opts.backingUp && !a.task;
     if (backing) this.backing = Math.min(NS_BACKUP, this.backing + dt * 1.5);

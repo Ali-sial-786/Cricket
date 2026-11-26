@@ -25,12 +25,13 @@ import { CanvasPanel, fitText } from '../ui/panel.js';
 import { C, font, rr, slant, vgrad, hgrad, caps, chip, teamBlock, teamByName, ballDot, drawIcon } from '../ui/theme.js';
 import { GATE, STRIKER_SPOT, walkTask } from '../render/crew.js';
 import { noteCrowd, envelope } from '../render/gestures.js';
-import { coinToss, nod, offerHand, standEasy, reachTo, handshake, glovePunch, embrace, TOSS_AT } from '../render/ceremonyPoses.js';
+import { coinToss, nod, offerHand, standEasy, reachTo, handOut, glovePunch, embrace, TOSS_AT } from '../render/ceremonyPoses.js';
 import { Humanoid } from '../render/humanoid.js';
 import { decisionPending } from './quickSkip.js';
 import { SQUADS } from './squad.js';
 import { PITCH } from '../physics/pitch.js';
 import { makeRng, hypot2 } from '../physics/math.js';
+import { EYE_CLEAR, FIELD_CLEAR, bendAround } from './playerSpace.js';
 
 export const CEREMONIES = ['on', 'short', 'off'];
 export const CEREMONY_NAMES = { on: 'full', short: 'cards only', off: 'off' };
@@ -40,6 +41,69 @@ const CZ = PITCH.centerZ;
 const PI = Math.PI;
 
 // Where a beat puts you (x, z: your head; dx, dz: the way you face).
+// How the result is staged, by who won (never nothing):
+//   'line'     you batted and won (or tied): your partner comes to you, their side walks past you
+//   'meet'     they batted and won, you bowled: the batters meet in the middle, your side walks past to them
+//   'walkPast' you bowled and won (or tied): your side round you, the batters walk past you
+//   'huddle'   you batted and lost: their side gathers round their bowler, you are cut to beside them
+export function resultStaging(winner, fieldingWon, isBowling) {
+  if (winner === 'tie') return isBowling ? 'walkPast' : 'line';
+  if (!fieldingWon) return isBowling ? 'meet' : 'line';
+  return isBowling ? 'walkPast' : 'huddle';
+}
+// The result's staged walks (straight, each from x0 z0 to x1 z1), from where you stand (e) and the way you
+// face on the ground (fx, fz: unit): the line LINE_OFF m to your right, evenly spaced, walking past you;
+// your partner from 8 m down the pitch to beside you on your left, 2.3 m off; the batters walking past
+// you just inside the line; the two batters meeting in the middle (you are cut to beside them). Made once
+// a result; tests/playerSpace.test.js samples every walk against your eye.
+export function resultPaths(how, e, fx, fz) {
+  const rx = -fz, rz = fx, seg = (x0, z0, x1, z1) => ({ x0, z0, x1, z1 });
+  const lane = (along, off = 0) => [e.x + rx * (LINE_OFF + off) + fx * along, e.z + rz * (LINE_OFF + off) + fz * along];
+  const P = { line: [], partner: null, meet: null, walkPast: null };
+  if (how === 'line' || how === 'meet') for (let k = 0; k < LINE_N; k++) P.line.push(seg(...lane(4 + k * LINE_GAP), ...lane(-11 + k * LINE_GAP)));
+  if (how === 'line') P.partner = seg(e.x + fx * 8, e.z + fz * 8, e.x + fx * 1.0 - rx * 2.05, e.z + fz * 1.0 - rz * 2.05);
+  if (how === 'meet') P.meet = [seg(MEET.x - 0.2, MEET.z + 3.2, MEET.x, MEET.z + 0.27), seg(MEET.x + 0.5, MEET.z - 3.4, MEET.x + 0.05, MEET.z - 0.27)];
+  // (the second a lane further out: he does not have to step round the first, in toward you)
+  if (how === 'walkPast') P.walkPast = [seg(...lane(7, PASS_IN), ...lane(-7, PASS_IN)), seg(...lane(8.6, PASS_IN + 0.9), ...lane(-7, PASS_IN + 0.9))];
+  return P;
+}
+// Where the winning side gathers when nobody caught or broke anything: the bowler's last spot (his figure,
+// seen or not), else the logic's bowler, else the middle of the men nearest the pitch. Never null with a field.
+export function winnersFocus(L, bw, out = { x: 0, z: 0 }) {
+  if (bw && bw.pos && (bw.pos.x !== 0 || bw.pos.z !== 0)) { out.x = bw.pos.x; out.z = bw.pos.z; return out; }
+  const F = L && L.fielders;
+  if (!F || !F.length) return null;
+  for (let i = 0; i < F.length; i++) if (F[i].bowler) { out.x = F[i].pos.x; out.z = F[i].pos.z; return out; }
+  const d = F.map((f) => hypot2(f.pos.x, f.pos.z - CZ)).sort((a, b) => a - b), lim = d[Math.min(5, d.length - 1)];
+  let n = 0; out.x = out.z = 0;
+  for (let i = 0; i < F.length; i++) if (hypot2(F[i].pos.x, F[i].pos.z - CZ) <= lim) { out.x += F[i].pos.x; out.z += F[i].pos.z; n++; }
+  out.x /= n; out.z /= n;
+  return out;
+}
+// The winners gathered at `focus` for the result (a chase lost on a dot: nobody caught or broke anything):
+// the GATHER_N nearest of the field, put (in the dark) a few strides out on their own line to it, jogging in
+// to a ring round it -- each a huddle man (Fielding's 'huddle' state: arms up, high fives). you: your eye,
+// that nobody is put or ends up within FIELD_CLEAR of. Made once a result.
+const GATHER_N = 6, GATHER_OUT = 3.2, GATHER_R = 1.2;
+export function gatherAt(L, focus, t, you = null) {
+  const F = L.fielders.filter((f) => !f.bowler).sort((a, b) => hypot2(a.pos.x - focus.x, a.pos.z - focus.z) - hypot2(b.pos.x - focus.x, b.pos.z - focus.z)).slice(0, GATHER_N);
+  F.forEach((f, i) => {
+    const d = hypot2(f.pos.x - focus.x, f.pos.z - focus.z) || 1, ux = (f.pos.x - focus.x) / d, uz = (f.pos.z - focus.z) / d;
+    const a = Math.atan2(ux, uz) + (i % 2 ? 0.25 : -0.25);
+    f.pos.set(focus.x + ux * Math.min(d, GATHER_OUT + i * 0.5), 0, focus.z + uz * Math.min(d, GATHER_OUT + i * 0.5));
+    (f.target = f.target || f.pos.clone()).set(focus.x + Math.sin(a) * GATHER_R, 0, focus.z + Math.cos(a) * GATHER_R);
+    if (you) for (const p of [f.pos, f.target]) {
+      const dx = p.x - you.x, dz = p.z - you.z, dd = hypot2(dx, dz);
+      if (dd < FIELD_CLEAR + 0.2) { const k = (FIELD_CLEAR + 0.2) / (dd || 1); p.x = you.x + dx * k; p.z = you.z + dz * k; }
+    }
+    f.vel.set(0, 0, 0); f.speed = 0; f.state = 'huddle'; f.action = null;
+    (f.huddleAt = f.huddleAt || f.pos.clone()).set(focus.x, 0, focus.z);
+    f.huddleInner = true; f.huddleCenter = false; f.huddleMood = null; f.huddleUntil = t + 60;
+    f.face = f.yaw = Math.atan2(focus.x - f.pos.x, focus.z - f.pos.z);
+  });
+  L.huddle = { focus: { x: focus.x, z: focus.z }, t0: t, center: -1 };
+  return F.length;
+}
 const toward = (x, z, tx, tz) => { const dx = tx - x, dz = tz - z, d = hypot2(dx, dz) || 1; return { x, z, dx: dx / d, dz: dz / d }; };
 export const SPOTS = {
   // on the pavilion side, on a low riser above the outfield (a fade cut takes you there): the square laid
@@ -52,7 +116,7 @@ export const SPOTS = {
   // between you and the square and runs out away from you to their marks (few of them are behind you)
   huddle: toward(37, CZ + 4, 0, CZ),
 };
-const HUDDLE_AT = 4.2;            // m in front of you the fielding side gathers before an innings
+export const HUDDLE_AT = 4.2, HUDDLE_RING = 1.5;     // m in front of you the fielding side gathers before an innings, and the ring's radius
 const WALK = 1.7;                 // m/s: walking out
 // The toss: who stands where (heading: Actor convention, atan2(dirX, dirZ)) and where the coin comes down.
 const TOSS = { captain: { x: 0.5, z: CZ + 1.2, face: -PI / 2 }, umpire: { x: 1.0, z: CZ + 2.5, face: Math.atan2(-1.05, -1.25) }, coin: { x: -0.05, z: CZ + 1.25 } };
@@ -60,7 +124,7 @@ const CAPTAIN = 4;                // the fielder figure who is the other captain
 const WALK_OUT = 14;              // m: the batters walk out from this far (and a new batter runs in from no further: hurryIn)
 const WICKET_DELAY = 1.0;         // game s after a wicket before its beat may start (the field gets together)
 const SKIP_OUT = 0.2, SKIP_IN = 0.35;
-const KEEP_OFF = 1.5;             // m round your head nobody in a beat comes inside
+const KEEP_OFF = EYE_CLEAR;       // m round your head nobody in a beat comes inside (the last resort: paths are planned round you, playerSpace.js)
 const AFTER_KEEP = 2.1;           // m: the same from the end of the result scene until its menu closes (2 m and a margin: the drawn figure is a frame behind the push)
 // (a figure's place p {x, z} put out to r m from your eye e, if it is nearer)
 function pushOff(p, e, r) {
@@ -68,10 +132,11 @@ function pushOff(p, e, r) {
   if (d >= r || d < 1e-4) return;
   p.x = e.x + dx / d * r; p.z = e.z + dz / d * r;
 }
-const LINE_OFF = 3.0, LINE_N = 6, LINE_GAP = 1.6, HAND_REACH = 1.15, PASS_IN = -0.1;   // (PASS_IN: the batters' path past you, off the line: close by the side round you, to shake hands) // the result's handshake line: m to your right, how many, m apart
+const LINE_OFF = 3.0, LINE_N = 6, LINE_GAP = 1.6, PASS_IN = -0.1;   // the result's handshake line: m to your right, how many, m apart (PASS_IN: the batters' path past you, just inside it)
 const MEET = { x: 0.4, z: CZ };   // where the batters meet in the middle
-const _meetA = new THREE.Vector3();
+const _meetA = new THREE.Vector3(), _bw = { x: 0, z: 0 };
 const STRAP = 0.82;
+export const TOSS_CARD = { yaw: -0.6, dist: 0.9, drop: 0.55 };     // the call card at the toss: rad to your left, m off, m below your eyes
 const STRAP_YAWS = [0, -0.26, 0.26, -0.5, 0.5, -0.72, 0.72];     // rad either side of where you look               // the strap's scale (1.12 x 0.38 m at 2 m: ~31 degrees wide)
 
 // ---------------------------------------------------------------- the beats
@@ -535,7 +600,7 @@ export class Ceremony {
         }
         case 'vantage': this.goTo(s.spot === 'behind' ? huddleSpot(ctx.focus) : s.spot === 'winners' ? ctx.winSpot : SPOTS[s.spot]); break;
         case 'clear': this.release(); this.castOff(); this.coin.hide(); this.flip = null; this.endStage(); break;
-        case 'release': this.release(); this.endStage(); break;
+        case 'release': this.release(); this.endStage(); if (this.cur && this.cur.name === 'result') this.clearForMenu(); break;
         case 'cast': this.castOn(); break;
         case 'card': this.showCard(s.card, ctx, s); break;
         case 'cardOff': this.hideCard(false); break;
@@ -598,7 +663,9 @@ export class Ceremony {
     const fieldingWon = ctx.fieldingWon;
     noteCrowd(fieldingWon ? 'wicketFor' : 'six', g.simTime);
     if (!fieldingWon && ctx.winner !== 'tie') noteCrowd('batWin', g.simTime);       // (the batters' bats go up: gestures.js joyAt)
-    if (fieldingWon && s && s.field && s.field.huddle) { try { s.field.logic.dead = true; s.field.huddle(); } catch { /* (no huddle: they stand) */ } }
+    if (fieldingWon && s && s.field && s.field.huddle) {
+      try { s.field.logic.dead = true; s.field.huddle(); } catch { /* (no huddle: they stand) */ }
+    }
     this.resultField = s && s.done && s.field ? s.field : null;
   }
 
@@ -636,10 +703,13 @@ export class Ceremony {
     for (let i = 0; i < S.walkers.length; i++) {
       const w = S.walkers[i];
       w.x += w.vx * dt; w.z += w.vz * dt;
-      const sp = hypot2(w.vx, w.vz), hd = Math.atan2(w.vx, w.vz);
-      if (w.kind === 'fielder') { const st = w.st; st.x = w.x; st.z = w.z; st.speed = sp; st.face = hd; w.a.update(ddt, st, C); }
+      // (a straight walk, its lane bent round your eye: playerSpace.js; he faces the way he goes)
+      const sp = hypot2(w.vx, w.vz), B = bendAround(w.x, w.z, w.vx / (sp || 1), w.vz / (sp || 1), C.cam, FIELD_CLEAR, _bw, 1);
+      const bx = B.x - (w.bx ?? B.x), bz = B.z - (w.bz ?? B.z), hd = bx * bx + bz * bz > 1e-8 ? Math.atan2(bx, bz) : Math.atan2(w.vx, w.vz);
+      w.bx = B.x; w.bz = B.z;
+      if (w.kind === 'fielder') { const st = w.st; st.x = B.x; st.z = B.z; st.speed = sp; st.face = hd; w.a.update(ddt, st, C); }
       else {
-        w.a.pos.set(w.x, 0, w.z); w.a.speed = sp; w.a.heading = hd;
+        w.a.pos.set(B.x, 0, B.z); w.a.speed = sp; w.a.heading = hd;
         if (w.kind === 'umpire') w.a.update(ddt, g.clock, null);
         else w.a.updateMoving(ddt, t, null);
       }
@@ -659,6 +729,16 @@ export class Ceremony {
     if (g.batterView && g.batterView.shown && !g.batterView.runnerOnly) pushOff(g.batterView.actor.pos, e, r);
     if (g.nonStrikerView && g.nonStrikerView.visible) pushOff(g.nonStrikerView.actor.pos, e, r);
     if (g.umpires && g.umpires.visible) { pushOff(g.umpires.main.pos, e, r); pushOff(g.umpires.leg.pos, e, r); }
+  }
+  // The result's last dark frame, the menu next: the field stood on its marks, the umpires on theirs and
+  // the batters gone off -- nobody walks across in front of the menu (through the wedge between your eyes
+  // and it) while it is up.
+  clearForMenu() {
+    const g = this.g, s = g.session, F = s && s.field, L = F && F.logic;
+    if (L && L.settleAll) { L.settleAll(); if (g.fieldView && g.fieldView.placeAll) g.fieldView.placeAll(L.states()); }
+    if (g.umpires && g.umpires.settleNow) g.umpires.settleNow();
+    if (g.batterView && g.batterView.shown && !g.batterView.runnerOnly) { g.batterView.actor.task = null; g.batterView.show(false); }
+    if (g.nonStrikerView && g.nonStrikerView.visible) { g.nonStrikerView.actor.task = null; g.nonStrikerView.show(false); }
   }
   walker(kind, a, x, z, vx, vz, st = null) {
     a.cut(); a.place(x, z, Math.atan2(vx, vz)); a.visible = true;
@@ -685,7 +765,7 @@ export class Ceremony {
     const g = this.g, s = g.session, L = s && s.field && s.field.logic, v = this.view;
     if (!L || !v) return;
     const H = { x: v.x + v.dx * HUDDLE_AT, z: v.z + v.dz * HUDDLE_AT };
-    const F = L.fielders.filter((f) => !f.bowler), n = F.length, base = Math.atan2(-v.dx, -v.dz), r = 1.5;
+    const F = L.fielders.filter((f) => !f.bowler), n = F.length, base = Math.atan2(-v.dx, -v.dz), r = HUDDLE_RING;
     F.forEach((f, i) => {
       const a = base + (i + 0.5) * 2 * PI / n;
       f.pos.set(H.x + Math.sin(a) * r, 0, H.z + Math.cos(a) * r);
@@ -745,7 +825,9 @@ export class Ceremony {
     if (!ctx.fieldingWon) return s.isBowling ? toward(-3.4, CZ + 0.6, MEET.x, MEET.z) : null;
     if (s.isBowling) return null;
     const L = s.field && s.field.logic;
-    const f = L && L.huddle && L.huddle.focus ? L.huddle.focus : s.bowlerFig && s.bowlerFig.actor && s.bowlerFig.actor.visible ? s.bowlerFig.actor.pos : null;
+    // (no catch, no wicket, no bowler figure to go to -- a chase lost on its last ball, a dot: the side
+    // gathers all the same, where the bowler was: resultScene)
+    const f = L && L.huddle && L.huddle.focus ? L.huddle.focus : (ctx.gather = winnersFocus(L, s.bowlerFig && s.bowlerFig.actor, { x: 0, z: 0 }));
     if (!f) return null;
     const side = f.x <= 0 ? -1 : 1;
     return toward(f.x + side * 5.5, f.z + 1.2, f.x, f.z);
@@ -762,40 +844,39 @@ export class Ceremony {
   // Everybody is from the session's own figures; endStage() puts back what was borrowed.
   resultScene(ctx) {
     const g = this.g, s = g.session, e = g.eye && g.eye.p, S = this.stage;
-    if (!s || !e || ctx.winner === 'tie') return;
-    const L = s.field && s.field.logic, ns = g.nonStrikerView, bv = g.batterView;
+    if (!s || !e) return;
+    const L = s.field && s.field.logic, ns = g.nonStrikerView, bv = g.batterView, how = resultStaging(ctx.winner, ctx.fieldingWon, s.isBowling);
     // your way and your right, on the ground
     _q.set(g.eye.q.x, g.eye.q.y, g.eye.q.z, g.eye.q.w);
     _f.set(0, 0, -1).applyQuaternion(_q); _f.y = 0; if (_f.lengthSq() < 1e-6) _f.set(0, 0, -1); _f.normalize();
-    const rx = -_f.z, rz = _f.x;
-    const lane = (k, along) => _a.set(e.x + rx * LINE_OFF + _f.x * along, 0, e.z + rz * LINE_OFF + _f.z * along);
+    const P = resultPaths(how, e, _f.x, _f.z);
     S.tasks = [];
-    if (!ctx.fieldingWon) {
-      if (!s.isBowling) {
-        // your partner, from 8 m down the pitch, to the edge of your space
+    if (how === 'line' || how === 'meet') {
+      if (how === 'line') {
+        // your partner, from 8 m down the pitch, to beside you
         if (ns && ns.visible) {
+          const w = P.partner;
           S.nsHome = ns.home.clone();
-          // (to your left, 2.3 m off: beside you, never in front of you or in the handshake line on your right)
-          ns.home.set(e.x + _f.x * 1.0 - rx * 2.05, 0, e.z + _f.z * 1.0 - rz * 2.05);
-          const a = ns.actor; a.task = null; a.cut(); a.place(e.x + _f.x * 8, e.z + _f.z * 8, Math.atan2(-_f.x, -_f.z));
+          ns.home.set(w.x1, 0, w.z1);
+          const a = ns.actor; a.task = null; a.cut(); a.place(w.x0, w.z0, Math.atan2(-_f.x, -_f.z));
           S.toYou = a;
         }
       } else {
         // the two batters walk to each other in the middle
         // (both held there once they arrive -- hold: not sent back to the crease / their bats when the walk ends)
-        if (bv && bv.shown) { const a = bv.actor; a.cut(); a.place(MEET.x - 0.2, MEET.z + 3.2, PI); a.task = walkTask(_meetA.set(MEET.x, 0, MEET.z + 0.27), PI, { speed: 1.6, tol: 0.1 }); bv.wasBat = false; bv.blend = null; bv.hold = true; S.tasks.push(a); }
-        if (ns && ns.visible) { S.nsHome = ns.home.clone(); ns.home.set(MEET.x + 0.05, 0, MEET.z - 0.27); const a = ns.actor; a.task = null; a.cut(); a.place(MEET.x + 0.5, MEET.z - 3.4, 0); ns.hold = true; ns.holdFace = 0; }
+        const A = P.meet[0], B = P.meet[1];
+        if (bv && bv.shown) { const a = bv.actor; a.cut(); a.place(A.x0, A.z0, PI); a.task = walkTask(_meetA.set(A.x1, 0, A.z1), PI, { speed: 1.6, tol: 0.1 }); bv.wasBat = false; bv.blend = null; bv.hold = true; S.tasks.push(a); }
+        if (ns && ns.visible) { S.nsHome = ns.home.clone(); ns.home.set(B.x1, 0, B.z1); const a = ns.actor; a.task = null; a.cut(); a.place(B.x0, B.z0, 0); ns.hold = true; ns.holdFace = 0; }
         S.meet = true;
       }
       // the line: the fielding side, past you
       if (L) {
         let k = 0;
         for (let i = 0; i < L.fielders.length && k < LINE_N; i++) {
-          const f = L.fielders[i];
+          const f = L.fielders[i], w = P.line[k];
           if (f.bowler) continue;
-          // (evenly spaced, LINE_GAP apart, and each walking to his own place well past you: the gaps stay as they are)
-          lane(k, 4 + k * LINE_GAP); f.pos.set(_a.x, 0, _a.z);
-          lane(k, -11 + k * LINE_GAP); (f.target = f.target || f.pos.clone()).set(_a.x, 0, _a.z);
+          f.pos.set(w.x0, 0, w.z0);
+          (f.target = f.target || f.pos.clone()).set(w.x1, 0, w.z1);
           f.vel.set(0, 0, 0); f.speed = 0; f.state = 'walkin'; f.action = null; f.huddleUntil = null;
           f.face = f.yaw = Math.atan2(-_f.x, -_f.z);
           S.shake.push(i); k++;
@@ -805,11 +886,21 @@ export class Ceremony {
         if (L.started) { L.started = false; S.startedOf = L; }
         if (g.fieldView && g.fieldView.placeAll) g.fieldView.placeAll(L.states());
       }
-    } else if (s.isBowling) {
-      // you won bowling: the batters walk past you, hands out (the side is round you already)
-      const go = (a, along) => { lane(0, along); a.cut(); a.place(_a.x + rx * PASS_IN, _a.z + rz * PASS_IN, Math.atan2(-_f.x, -_f.z)); lane(0, -7); a.task = walkTask(_b.set(_a.x + rx * PASS_IN, 0, _a.z + rz * PASS_IN), null, { speed: 1.6, tol: 0.3 }); S.tasks.push(a); S.shakeA.push(a); };
-      if (bv && bv.shown) { go(bv.actor, 7); bv.wasBat = false; bv.blend = null; }
-      if (ns && ns.visible) { S.nsHome = ns.home.clone(); lane(0, -7); ns.home.set(_a.x + rx * PASS_IN, 0, _a.z + rz * PASS_IN); lane(0, 8.6); const a = ns.actor; a.task = null; a.cut(); a.place(_a.x + rx * PASS_IN, _a.z + rz * PASS_IN, Math.atan2(-_f.x, -_f.z)); S.shakeA.push(a); }
+    } else if (how === 'huddle' && L) {
+      // you batted and lost: the nearest of their side, put in the dark a few strides out from where the
+      // bowler was (the huddle's own focus, if it has one), jogging in to it, arms up -- never an empty
+      // scene, however the last ball ended; the bowler's own figure, if it is off elsewhere, goes
+      const F = ctx.gather || (L.huddle && L.huddle.focus), B = g.figures && g.figures.bowler;
+      if (F) {
+        gatherAt(L, F, g.simTime, ctx.winSpot || e);
+        if (g.fieldView && g.fieldView.placeAll) g.fieldView.placeAll(L.states());
+        if (B && B.actor && B.actor.visible && (hypot2(B.actor.pos.x - F.x, B.actor.pos.z - F.z) > 4 || B.actor.speed > 0.5)) B.show(false);
+      }
+    } else if (how === 'walkPast') {
+      // you won bowling (or tied it): the batters walk past you, hands out (the side is round you already)
+      const A = P.walkPast[0], B = P.walkPast[1], face = Math.atan2(-_f.x, -_f.z);
+      if (bv && bv.shown) { const a = bv.actor; a.cut(); a.place(A.x0, A.z0, face); a.task = walkTask(_b.set(A.x1, 0, A.z1), null, { speed: 1.6, tol: 0.3 }); S.tasks.push(a); S.shakeA.push(a); bv.wasBat = false; bv.blend = null; }
+      if (ns && ns.visible) { S.nsHome = ns.home.clone(); ns.home.set(B.x1, 0, B.z1); const a = ns.actor; a.cut(); a.place(B.x0, B.z0, face); a.task = walkTask(ns.home, null, { speed: 1.6, tol: 0.3 }); S.tasks.push(a); S.shakeA.push(a); }     // (a walk, as the other: not a jog)
     }
   }
   // Each frame of the result: hands out to whoever passes you (and gloves together in the middle).
@@ -824,12 +915,10 @@ export class Ceremony {
       if (d < 4.2) { reachTo(a, e, 1 - sstep01((d - 2.8) / 1.4)); a.h.syncShadow(); }
     }
     for (let i = 0; i < S.shakeA.length; i++) {
-      // (the batters walking off past the side: a handshake with any man they pass within reach, else a hand out to you)
-      const a = S.shakeA[i], d = hypot2(a.pos.x - e.x, a.pos.z - e.z), A = g.fieldView && g.fieldView.actors;
-      let f = null, fd = HAND_REACH;
-      if (A) for (let j = 0; j < A.length; j++) { const o = A[j]; if (!o.visible) continue; const dd = hypot2(o.pos.x - a.pos.x, o.pos.z - a.pos.z); if (dd < fd) { fd = dd; f = o; } }
-      if (f) { handshake(a, f, 1 - sstep01((fd - 0.9) / (HAND_REACH - 0.9)), t, a.bat ? 'L' : 'R', 'R'); a.h.syncShadow(); f.h.syncShadow(); }
-      else if (d < 4.2) reachTo(a, e, 1 - sstep01((d - 2.8) / 1.4));
+      // (the batters walking off past the side: upright, the free hand out to you as they pass -- the bat
+      // carried in the other, pointing down; no reaching across to the fielders, which read as a lunge)
+      const a = S.shakeA[i], d = hypot2(a.pos.x - e.x, a.pos.z - e.z);
+      if (d < 4.6) { handOut(a, e, 1 - sstep01((d - 3.0) / 1.6), a.bat ? 'L' : 'R'); a.h.syncShadow(); }
     }
     if (S.toYou) { const a = S.toYou, d = hypot2(a.pos.x - e.x, a.pos.z - e.z); if (d < 3.2) reachTo(a, e, 1 - sstep01((d - 1.9) / 1.3)); }
     if (S.meet) {
@@ -1007,10 +1096,10 @@ export class Ceremony {
     const g = this.g, ui = g.ui, m = ui && ui.menu && ui.menu.mesh, v = this.view;
     if (!(m && m.visible && v && this.cast && ui.compact && ui.compact())) return;
     // (from the spot the beat put you at, not your head: it stays put while you turn to point at it)
-    // (a little to the left of the captain and below his face: ~17 degrees across, ~19 down -- within
-    // reach of your gaze, facing your eyes squarely: not off at the edge of the view, slanted)
-    const a = -0.3, c = Math.cos(a), sn = Math.sin(a), fx = v.dx * c - v.dz * sn, fz = v.dx * sn + v.dz * c, ey = g.eye ? g.eye.p.y : 1.6;
-    m.position.set(v.x + fx * 0.9, Math.max(0.7, ey - 0.31), v.z + fz * 0.9);
+    // (to the left of the captain, its near edge ~20 degrees across, down at his waist: you see him and the coin while you
+    // call -- facing your eyes squarely, level: not off at the edge of the view, slanted)
+    const a = TOSS_CARD.yaw, c = Math.cos(a), sn = Math.sin(a), fx = v.dx * c - v.dz * sn, fz = v.dx * sn + v.dz * c, ey = g.eye ? g.eye.p.y : 1.6;
+    m.position.set(v.x + fx * TOSS_CARD.dist, Math.max(0.7, ey - TOSS_CARD.drop), v.z + fz * TOSS_CARD.dist);
     m.lookAt(v.x, ey, v.z);
     m.updateMatrixWorld();
   }
