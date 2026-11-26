@@ -369,11 +369,11 @@ function hat(P, part, c, R, S, lod) {
 // the thigh, side wings wrap round the leg; straps go round the back.
 function pad(P, part, s, keeper, S, lod) {
   const knee = 'knee' + s, hip = 'hip' + s, sx = s === 'L' ? 1 : -1;
-  const W = keeper ? 1.5 : 2.0;                         // wrap half-angle (rad): the wings curl round behind the calf
+  const W = keeper ? 1.5 : 2.35;                        // wrap half-angle (rad): the wings curl round the calf (and leave it and the straps showing behind)
   const yt = (a) => mix(keeper ? 0.1 : 0.215, keeper ? 0.04 : 0.07, sstep(0.55, 1.45, Math.abs(a)));
   const yb = (a) => mix(keeper ? -0.425 : -0.445, -0.385, sstep(0.25, 1.6, Math.abs(a)));
   // (the inside hugs the fitted trousers, trousers.js: about 7 cm round the shin, 1 cm of lining)
-  const rin = (a, y) => { const k = 1 + (keeper ? 0 : 0.14 * sstep(0.06, 0.2, y)), w = sstep(0.6, 1.7, Math.abs(a)), tuck = 1 - 0.3 * sstep(1.15, W, Math.abs(a)); return [mix(0.084, 0.072, w) * k * tuck, mix(0.09, 0.076, w) * k * tuck]; };   // (the wings tuck in round the calf, and close behind it)
+  const rin = (a, y) => { const k = 1 + (keeper ? 0 : 0.14 * sstep(0.06, 0.2, y)), w = sstep(0.6, 1.7, Math.abs(a)), tuck = 1 - (keeper ? 0.3 : 0.46) * sstep(1.25, W, Math.abs(a)); return [mix(0.084, 0.072, w) * k * tuck, mix(0.09, 0.076, w) * k * tuck]; };   // (the wings tuck in round the calf, and close behind it)
   const cz = 0.008;
   const canes = (a, y) => {
     const front = 1 - sstep(1.0, 1.25, Math.abs(a));
@@ -438,7 +438,7 @@ function pad(P, part, s, keeper, S, lod) {
       const [rx, rz] = rin(a, y), t = thick(Math.atan2(Math.sin(a), Math.cos(a)), y);
       // from inside the wing, round the back of the trousers
       // (round the back of the fitted trousers, trousers.js: thigh ~9 cm, shin ~7 cm)
-      const rb = y > 0.1 ? 0.096 : 0.072, r = mix(rx + 0.004, rb, sstep(0, 0.3, back)), rzz = mix(rz + 0.004, rb, sstep(0, 0.3, back));
+      const rb = y > 0.1 ? 0.096 : 0.077, r = mix(rx + 0.004, rb, sstep(0, 0.3, back)), rzz = mix(rz + 0.004, rb, sstep(0, 0.3, back));
       pts.push([Math.sin(a) * r, y, cz + Math.cos(a) * rzz]);
     }
     part(P, tube(pts, 0.012, 4, { caps: false, ratio: 0.3, up: [0, 0, 1] }), knee, STRAP, [0, 0, 0], null, null, { blend: bl, ao: 0.85, m: 31 });
