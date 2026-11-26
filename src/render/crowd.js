@@ -578,7 +578,7 @@ export function buildCrowd(spots, { blocks, lights, maxCount = 26000, sectors = 
         const sp = PEOPLE[body];
         const kit = team === 1 ? KIT.home : team === 2 ? KIT.away : null;
         // Team fans mostly wear the shirt (a few just a cap or scarf); everyone else dresses for a day out.
-        const inKit = kit && rand() < (B.ultras ? 0.9 : B.strong ? 0.88 : 0.7);
+        const inKit = kit && rand() < (B.ultras ? 0.9 : 0.7 + 0.18 * (s.end ?? (B.strong ? 1 : 0)));
         const shirt = inKit ? pick(kit.a) : s.type === 'members' ? pick([0xf2efe6, 0x2b3550, 0xe8e2d0, 0x1f2a44, 0x9bb7d4, 0xffffff]) : pick(CASUAL);
         let accent;
         if (sp.jersey) accent = inKit ? pick(kit.b) : pick(CASUAL);
