@@ -339,6 +339,10 @@ test('a four: ends on the ball crossing the rope, turf and rope the picture, the
     const { e, sh, s } = lastPicture(p, tape, { x: C.x, y: 0.1, z: C.z });
     assert.ok(hypot2(sh.pos.x, sh.pos.z - CZ) <= 56 + 1e-6, `${name}: ${hypot2(sh.pos.x, sh.pos.z - CZ).toFixed(1)} m out (too near the boards)`);
     assert.ok(s.boards + s.screen <= 0.14, `${name}: boards ${(s.boards * 100).toFixed(0)}%, sightscreen ${(s.screen * 100).toFixed(0)}% of the subject area`);
+    // looking level (a headset viewer before he looks down): the middle no board close-up, the whole view no sightscreen wall
+    const lv = viewShares(sh.pos, e.yaw, 0, { hfov: 40, vfov: 30, n: 60 }), wide = viewShares(sh.pos, e.yaw, 0, { hfov: 100, vfov: 90, n: 60 });
+    assert.ok(lv.boards + lv.screen <= 0.16, `${name}: level, boards ${(lv.boards * 100).toFixed(0)}%, sightscreen ${(lv.screen * 100).toFixed(0)}%`);
+    assert.ok(wide.screen <= 0.06, `${name}: a sightscreen fills ${(wide.screen * 100).toFixed(0)}% of the view`);
     assert.ok(s.turf >= 0.35, `${name}: turf ${(s.turf * 100).toFixed(0)}% of the subject area`);
     // the ball at the crossing near the middle of the view
     assert.ok(offOf(e) < DIRECTOR.cone, `${name}: ${(offOf(e) / D2R).toFixed(0)}° off the ball at the end`);

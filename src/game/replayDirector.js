@@ -461,8 +461,10 @@ function spotCost(c, S, sh, lim) {
     if (ang > 40) cost += (ang - 40) * 0.12;
     // what the last picture shows, looking at where it ends (a crane looks down onto it): boards or a
     // sightscreen filling it cost a lot (a coarse 10 x 8 look, at plan time)
-    const sp = Math.atan2(sh.subj.y - c.y, Math.max(0.5, dE)), sv = viewShares(c, Math.atan2(sh.subj.x - c.x, sh.subj.z - c.z), c.y > 3 && !sh.stand ? sp : 0, { hfov: 40, vfov: 30, n: 10, nv: 8 });
-    cost += (sv.boards + sv.screen) * 25;
+    // (looked at level, as a headset viewer sees it until he looks down; and the whole view for a sightscreen at its side)
+    const ay = Math.atan2(sh.subj.x - c.x, sh.subj.z - c.z), sv = viewShares(c, ay, 0, { hfov: 40, vfov: 30, n: 10, nv: 8 });
+    const sw = viewShares(c, ay, 0, { hfov: 100, vfov: 90, n: 12, nv: 8 });
+    cost += (sv.boards + sv.screen) * 25 + sw.screen * 30;
     // the fielder chasing it in the picture with the ball
     const F = sh.fielder;
     if (F) { const off = Math.abs(wrap(Math.atan2(F.x - c.x, F.z - c.z) - Math.atan2(sh.subj.x - c.x, sh.subj.z - c.z))); if (off < 25 * D2R && hypot2(F.x - c.x, F.z - c.z) > 2.5) cost -= 0.8; }
