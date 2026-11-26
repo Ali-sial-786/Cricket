@@ -139,7 +139,7 @@ const LINE_OFF = 3.0, LINE_N = 6, LINE_GAP = 1.6, PASS_IN = -0.1;   // the resul
 const MEET = { x: 0.4, z: CZ };   // where the batters meet in the middle
 const _meetA = new THREE.Vector3(), _bw = { x: 0, z: 0 };
 const STRAP = 0.82;
-export const TOSS_CARD = { yaw: -0.6, dist: 0.9, drop: 0.55 };     // the call card at the toss: rad to your left, m off, m below your eyes
+export const TOSS_CARD = { yaw: -0.49, dist: 1.1, drop: 0.16 };     // the call card at the toss (0.64 x 0.42 m): rad to your left, m off, m below your standing eye height
 const STRAP_YAWS = [0, -0.26, 0.26, -0.5, 0.5, -0.72, 0.72];     // rad either side of where you look               // the strap's scale (1.12 x 0.38 m at 2 m: ~31 degrees wide)
 
 // ---------------------------------------------------------------- the beats
@@ -982,6 +982,7 @@ export class Ceremony {
     this.cast = { cap, st, ump };
   }
   castOff() {
+    this._tossY = null;
     const g = this.g, c = this.cast;
     if (!c) return;
     this.cast = null;
@@ -1106,11 +1107,14 @@ export class Ceremony {
     const g = this.g, ui = g.ui, m = ui && ui.menu && ui.menu.mesh, v = this.view;
     if (!(m && m.visible && v && this.cast && ui.compact && ui.compact())) return;
     // (from the spot the beat put you at, not your head: it stays put while you turn to point at it)
-    // (to the left of the captain, its near edge ~20 degrees across, down at his waist: you see him and the coin while you
-    // call -- facing your eyes squarely, level: not off at the edge of the view, slanted)
-    const a = TOSS_CARD.yaw, c = Math.cos(a), sn = Math.sin(a), fx = v.dx * c - v.dz * sn, fz = v.dx * sn + v.dz * c, ey = g.eye ? g.eye.p.y : 1.6;
-    m.position.set(v.x + fx * TOSS_CARD.dist, Math.max(0.7, ey - TOSS_CARD.drop), v.z + fz * TOSS_CARD.dist);
-    m.lookAt(v.x, ey, v.z);
+    // (to the left of the captain, by yaw only from the way the spot faces, at a fixed height: its near edge
+    // ~12 degrees off him -- clear of him and the coin -- its centre ~8 degrees below your level gaze, so it
+    // is all in view for a head pitched anywhere from 25 down to 20 up; upright, level, turned to face you
+    // -- no tilt, no roll)
+    const a = TOSS_CARD.yaw, c = Math.cos(a), sn = Math.sin(a), fx = v.dx * c - v.dz * sn, fz = v.dx * sn + v.dz * c;
+    if (this._tossY == null) this._tossY = (g.standEye || (g.eye ? g.eye.p.y : 1.6)) - TOSS_CARD.drop;
+    m.position.set(v.x + fx * TOSS_CARD.dist, this._tossY, v.z + fz * TOSS_CARD.dist);
+    m.rotation.set(0, Math.atan2(-fx, -fz), 0);
     m.updateMatrixWorld();
   }
 

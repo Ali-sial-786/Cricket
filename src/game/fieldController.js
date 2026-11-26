@@ -33,6 +33,32 @@ const BOWLER_CLEAR = 0.8;
 const PLAYER_PATH = FAST_CLEAR;   // anyone running past you gives you this much room (playerSpace.js)
 export const HUDDLE_YOU = FAST_CLEAR + 0.45;    // the ring of a huddle round you (you took the wicket): its jumps and arms out outside FAST_CLEAR
 export const HUDDLE_AWAY = FAST_CLEAR + 1.6;    // a huddle round someone else forms at least this far from you
+export const HUDDLE_ROUTE = 3.0;   // m: a man jogging to a huddle past you (you batting) goes round this circle from your eye
+// Each frame of a huddle while you bat: a man whose straight way to his place cuts the HUDDLE_ROUTE circle
+// round you heads instead for the circle's tangent point on your off side -- away from the bat hand
+// (side +1: the right of a right-hander facing down the pitch, +x) -- and so runs round its edge, then
+// straight on once his place is in clear view. f._hGoal keeps his place; f.target is his way there.
+// Only while a huddle is on (returns whether one still is): nothing in ordinary play.
+export function routeHuddle(L, hp, side = 1, R = HUDDLE_ROUTE) {
+  let any = false;
+  for (const f of L.fielders) {
+    if (f.state !== 'huddle' || !f.target) { if (f._hGoal && f.state !== 'huddle') f._hGoal = null; continue; }
+    any = true;
+    const G = f._hGoal || (f._hGoal = { x: f.target.x, z: f.target.z, W: f.target });
+    const px = f.pos.x - hp.x, pz = f.pos.z - hp.z, d = hypot2(px, pz), gx = G.x - f.pos.x, gz = G.z - f.pos.z, gl = hypot2(gx, gz);
+    // (does the straight way cut the circle? the nearest point of the segment to you)
+    const u = gl > 1e-6 ? Math.max(0, Math.min(1, -(px * gx + pz * gz) / (gl * gl))) : 0;
+    const cut = gl > 0.3 && d > R * 0.98 && hypot2(px + gx * u, pz + gz * u) < R;
+    if (!cut) { G.W.x = G.x; G.W.z = G.z; continue; }
+    const th = Math.acos(Math.min(1, R / d)), ph = Math.atan2(px, pz);
+    // (the two tangent points; the one on the chosen side, a touch past it so he keeps moving round)
+    const a1 = ph + th + 0.08, a2 = ph - th - 0.08;
+    const s1 = Math.sin(a1) * side, s2 = Math.sin(a2) * side;
+    const a = s1 >= s2 ? a1 : a2, Rr = R + 0.15;
+    G.W.x = hp.x + Math.sin(a) * Rr; G.W.z = hp.z + Math.cos(a) * Rr;
+  }
+  return any;
+}
 // After Fielding.celebrateWicket: nobody's way to the huddle ends nearer you than `min` (a deep man coming
 // part of the way in, past your end, would jog up to the edge of your space): his stop is put out along
 // his line from you, so his jog -- fast -- passes you wide. Once a wicket.
@@ -136,7 +162,7 @@ export class FieldController {
       const dx = focus.x - hp.x, dz = focus.z - hp.z, d = hypot2(dx, dz);
       if (d < HUDDLE_AWAY) { const k = d > 1e-3 ? HUDDLE_AWAY / d : 0; focus = { x: hp.x + (k ? dx * k : 0), z: hp.z + (k ? dz * k : -HUDDLE_AWAY) }; center = -1; }
     }
-    if (focus) { L.celebrateWicket(t, focus, center, r, budget); if (hp) clearHuddle(L, hp, you ? HUDDLE_YOU : HUDDLE_AWAY, you); }
+    if (focus) { L.celebrateWicket(t, focus, center, r, budget); if (hp) clearHuddle(L, hp, you ? HUDDLE_YOU : HUDDLE_AWAY, you); for (const f of L.fielders) f._hGoal = null; this._route = this.playerBatting; }
   }
   // Everyone in place for the next ball at once (a skip to the next ball, the
   // view dark): the catching view over, every fielder on his mark (the AI
@@ -516,6 +542,9 @@ export class FieldController {
       }
     }
     this.keepClear(dt);
+    // (a huddle while you bat: the men coming past you go round your off side, HUDDLE_ROUTE wide)
+    // (side: away from the bat hand -- the game bats right-handed; a settings.batHand 'left' would mirror it)
+    if (this._route) { const hp = this.playerSpot(); this._route = !!hp && routeHuddle(L, hp, g.settings && g.settings.batHand === 'left' ? -1 : 1); }
     // Where the ball goes back to once it is dead: the AI bowler's hand (his own
     // figure, or his fielding one while he is out), or the turf in front of you when you bowl.
     if (L.bowlerFields) {
