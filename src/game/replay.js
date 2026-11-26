@@ -235,7 +235,7 @@ export class Replay {
     if (!m.story) { const s = this.whatHappened(); m.story = s.story; m.tier = s.tier; }
     const arrive = this.arrival(m.release);
     const M = { release: m.release, arrive, hit: m.hit, pad: m.pad, wicket: m.wicket, brk: m.break, brkEnd: m.breakEnd, caught: m.caught, held: m.held,
-      dropT: m.dropT, diveT: m.diveT, throwAt: m.throwAt, cross: m.cross, dead: m.dead };
+      dropT: m.dropT, diveT: m.diveT, throwAt: m.throwAt, cross: m.cross, land: m.land, dead: m.dead };   // (land: where a six came down, if play marked it)
     const tape = { first, last, ball: (t, o) => this.tapeBall(t, o), bodies: (t) => this.bodiesAt(t), figure: (k, t, o) => this.figureAt(k, t, o) };
     const p = direct({ story: m.story, tier: m.tier, m: M, tape, xr: !!this.g.input.xr });
     if (p) p.arrive = arrive;

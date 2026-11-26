@@ -123,3 +123,36 @@ export function replayAt(m, t) {
   const dead = m.dead ?? t;
   return Math.max(dead + tailFor(m) + 0.05, t + (t - dead > 0.5 ? 1.0 : 0));
 }
+
+// ---------------------------------------------------------------- what a view shows
+// What fills a view from cam (x, y, z) facing (yaw, pitch), as shares of an n x n
+// grid of rays over hfov x vfov degrees: { turf, boards, stand, sky } (the ground
+// inside the boards; the advertising boards, BOARD_R m from the middle and
+// BOARD_TOP m tall; the stands and the crowd above / beyond them, up to 25° above
+// level; the sky). For the tests and the harness (not used in play): a replay's
+// last picture must not be a board close-up.
+export const BOARD_R = 68.2, BOARD_TOP = 0.975;
+export function viewShares(cam, yaw, pitch = 0, { hfov = 100, vfov = 90, n = 24, cz = -10.06 } = {}) {
+  const out = { turf: 0, boards: 0, stand: 0, sky: 0 };
+  const cy = Math.cos(yaw), sy = Math.sin(yaw), tH = Math.tan(hfov / 2 * Math.PI / 180), tV = Math.tan(vfov / 2 * Math.PI / 180);
+  const cp = Math.cos(pitch), sp = Math.sin(pitch);
+  for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
+    const u = ((i + 0.5) / n * 2 - 1) * tH, v = ((j + 0.5) / n * 2 - 1) * tV;
+    // camera space: forward (0, 0, 1) as yaw 0 faces +z; right = -x... (yaw: atan2(x, z))
+    const fy = sp + v * cp, fh = cp - v * sp;                       // pitched forward / up
+    let dx = sy * fh + cy * u, dz = cy * fh - sy * u, dy = fy;
+    const L = Math.hypot(dx, dy, dz); dx /= L; dy /= L; dz /= L;
+    // the boards: |p - c| = BOARD_R in xz, BOARD_TOP >= y >= 0
+    const ox = cam.x, oz = cam.z - cz, a = dx * dx + dz * dz, b = 2 * (ox * dx + oz * dz), c = ox * ox + oz * oz - BOARD_R * BOARD_R;
+    let tb = Infinity;
+    if (a > 1e-9) { const disc = b * b - 4 * a * c; if (disc >= 0) { const t = (-b + Math.sqrt(disc)) / (2 * a); if (t > 0) tb = t; } }
+    const tg = dy < -1e-6 ? -cam.y / dy : Infinity;
+    if (tg < tb) out.turf++;
+    else if (tb < Infinity && cam.y + dy * tb <= BOARD_TOP && cam.y + dy * tb >= 0) out.boards++;
+    else if (Math.asin(dy) < 25 * Math.PI / 180) out.stand++;
+    else out.sky++;
+  }
+  const N = n * n;
+  out.turf /= N; out.boards /= N; out.stand /= N; out.sky /= N;
+  return out;
+}
