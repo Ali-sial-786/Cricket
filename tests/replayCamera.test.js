@@ -3,7 +3,7 @@
 // helpers left in src/game/replayFraming.js (pathStats, replayAt, tailFor).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { classify, missBy, direct, planAt, replayMode, wants, segsLength, BUDGET, DIRECTOR, MODES } from '../src/game/replayDirector.js';
+import { classify, missBy, direct, planAt, replayMode, wants, segsLength, takeOK, BUDGET, DIRECTOR, MODES, CANON } from '../src/game/replayDirector.js';
 import { pathStats, replayAt, tailFor, TAIL, TAIL_OUT, nearestOnBody, CLEAR, viewShares } from '../src/game/replayFraming.js';
 import { hypot2 } from '../src/physics/math.js';
 
@@ -99,7 +99,7 @@ test('replayMode: highlights by default and for old saves ("bowler" meant on); e
   for (const t of ['wicket', 'boundary', 'close', 'routine']) assert.equal(wants('off', t), false, t);
 });
 
-test('classify: wickets, boundaries and close calls get a replay; leaves, dots and singles do not', () => {
+test('classify: wickets, boundaries, close calls and every moment a viewer would want again get a replay; leaves well wide, dots and singles do not', () => {
   const C = (f) => classify(f);
   const W = (kind, wicket) => C({ res: { kind }, wicket });
   assert.deepEqual(W('bowled', 'bowled'), { story: 'bowled', tier: 'wicket' });
@@ -126,9 +126,19 @@ test('classify: wickets, boundaries and close calls get a replay; leaves, dots a
   assert.deepEqual(C({ res: { kind: 'runs', runs: 1 }, direct: true, brk: true }), { story: 'direct', tier: 'close' });
   assert.deepEqual(C({ res: { kind: 'runs', runs: 1 }, dive: true }), { story: 'dive', tier: 'close' });
   assert.deepEqual(C({ res: { kind: 'runs', runs: 3, overthrows: 1 } }), { story: 'misfield', tier: 'close' });
+  // what a viewer expects to see again (DIRECTOR's thresholds)
+  assert.deepEqual(C({ res: { kind: 'runs', runs: 0 }, edge: true, behind: false }), { story: 'edge', tier: 'close' }, 'an edge anywhere (into the ground, past gully)');
+  assert.deepEqual(C({ res: { kind: 'runs', runs: 0 }, review: true }), { story: 'appeal', tier: 'close' }, 'an appeal turned down');
+  assert.deepEqual(C({ res: { kind: 'runs', runs: 1, closeCall: 1.0 } }), { story: 'runout', tier: 'close' }, 'a run-out chance, the stumps not broken');
+  assert.deepEqual(C({ res: { kind: 'beaten' }, nearMiss: 0.2 }), { story: 'beaten', tier: 'close' }, 'played and missed by 20 cm');
+  assert.deepEqual(C({ res: { kind: 'beaten' }, nearMiss: 0.5, batGap: 0.06 }), { story: 'beaten', tier: 'close' }, 'past the edge');
+  assert.deepEqual(C({ res: { kind: 'left' }, headGap: 0.2 }), { story: 'bouncer', tier: 'close' }, 'a bouncer past the helmet');
+  assert.deepEqual(C({ res: { kind: 'runs', runs: 1 }, safe: true }), { story: 'safe', tier: 'close' }, 'lofted, down safe by a fielder');
+  assert.deepEqual(C({ res: { kind: 'runs', runs: 2 }, saved: true }), { story: 'saved', tier: 'close' }, 'hit hard, stopped before the rope');
   // routine
   for (const f of [{ res: { kind: 'left' } }, { res: { kind: 'runs', runs: 0 } }, { res: { kind: 'runs', runs: 1 } }, { res: { kind: 'beaten', padded: true } },
-    { res: { kind: 'beaten' }, nearMiss: 0.4 }, { res: { kind: 'runs', runs: 0 }, edge: true, behind: false }, { res: { kind: 'runs', runs: 1, closeCall: 2.0 } }]) {
+    { res: { kind: 'beaten' }, nearMiss: 0.4 }, { res: { kind: 'beaten' }, nearMiss: 0.3, batGap: 0.25 }, { res: { kind: 'left' }, nearMiss: 0.2 }, { res: { kind: 'left' }, headGap: 0.6 },
+    { res: { kind: 'runs', runs: 1, closeCall: 2.0 } }]) {
     assert.deepEqual(C(f), { story: 'routine', tier: 'routine' }, JSON.stringify(f));
   }
 });
@@ -140,7 +150,7 @@ test('missBy: a ball that just missed the stumps, and one that hit them or was n
   assert.equal(missBy(null), null);
 });
 
-test('every kind of replay keeps to its length: wicket 6 s, boundary and close call 5 s, a routine ball 2.5 s', () => {
+test('every replay is a sequence of whole takes: take 1 at most 5 s (a routine ball 2.5 s), each later take at most 4 s, one dip between takes', () => {
   const cases = [
     ['routine', 'routine', shot(HITS.push)], ['routine', 'routine', shot(null), { noHit: true }],
     ['bowled', 'wicket', shot(null), { noHit: true, wicket: T0 + 0.62 }], ['lbw', 'wicket', shot(null), { noHit: true, pad: T0 + 0.58 }],
@@ -157,12 +167,77 @@ test('every kind of replay keeps to its length: wicket 6 s, boundary and close c
     assert.ok(p, `${story}: no plan`);
     assert.ok(p.len <= BUDGET[tier] + 1e-6, `${story} (${tier}): ${p.len.toFixed(2)} s`);
     assert.ok(p.len > 1.5, `${story}: ${p.len.toFixed(2)} s is too short to show anything`);
-    assert.ok(p.cuts.length <= 1, `${story}: ${p.cuts.length} cuts (one dip at most a replay)`);
+    assert.ok(p.takes.length >= 1 && p.takes.length <= (tier === 'wicket' ? 3 : 2), `${story}: ${p.takes.length} takes`);
+    assert.equal(p.cuts.length, p.takes.length - 1, `${story}: a cut only between takes`);
     assert.equal(Math.abs(segsLength(p.segs) - p.len) < 1e-9, true);
-    // the tape only goes forward; nothing past the tape
-    for (let i = 1; i < p.n; i++) assert.ok(p.T[i] >= p.T[i - 1] - 1e-9, `${story}: back in time at ${i}`);
+    for (let j = 0; j < p.takes.length; j++) {
+      const i0 = p.takes[j].i, i1 = j + 1 < p.takes.length ? p.takes[j + 1].i : p.n, secs = (i1 - i0) * p.du;
+      assert.ok(secs <= (j ? DIRECTOR.takes.later : tier === 'routine' ? BUDGET.routine : DIRECTOR.takes.first) + 0.02, `${story}: take ${j + 1} ${secs.toFixed(2)} s`);
+      // within a take the tape only goes forward (a later take goes back to show it again)
+      for (let i = i0 + 1; i < i1; i++) assert.ok(p.T[i] >= p.T[i - 1] - 1e-9, `${story}: back in time inside take ${j + 1}`);
+    }
+    if (tier === 'routine') assert.equal(p.takes.length, 1, `${story}: a routine ball gets take 1 only`);
     assert.ok(p.T[0] >= T0 - PRE - 1e-9 && p.T[p.n - 1] <= T0 - PRE + (pts.length - 1) * DT + 1e-9, story);
   }
+});
+
+// Recorded balls of every story, for the takes' tests.
+const BALLS = () => [
+  ['routine', 'routine', shot(HITS.push)], ['routine', 'routine', shot(HITS.pull)], ['routine', 'routine', shot(null), { noHit: true }],
+  ['bowled', 'wicket', shot(null), { noHit: true, wicket: T0 + 0.62 }], ['lbw', 'wicket', shot(null), { noHit: true, pad: T0 + 0.58 }], ['lbw', 'close', shot(null), { noHit: true, pad: T0 + 0.58 }],
+  ['beaten', 'close', shot(null), { noHit: true }], ['edge', 'close', shot(HITS.fine)], ['appeal', 'close', shot(null), { noHit: true }], ['bouncer', 'close', shot(null), { noHit: true }],
+  ['four', 'boundary', shot(HITS.cover)], ['four', 'boundary', shot(HITS.square)], ['four', 'boundary', shot([0.5, 1.2, -29])], ['four', 'boundary', shot([-6, 1, 30])],
+  ['six', 'boundary', shot([-17, 17, -14])], ['six', 'boundary', shot([1, 18, -24])],
+  ['caught', 'wicket', caughtAt([-12, 14, -10], 2.4).pts, { caught: T0 + 3.0 }], ['caught', 'wicket', caughtAt([1, 2, 20], 0.5).pts, { caught: T0 + 1.1 }],
+  ['dropped', 'close', shot([-12, 14, -10]), { dropT: T0 + 3.0 }], ['dive', 'close', shot(HITS.push), { diveT: T0 + 1.6 }],
+  ['runout', 'wicket', thrown({ x: 14, z: -32 }, 'bowling'), { brk: T0 + 3.8, brkEnd: 'bowling' }], ['runout', 'close', thrown({ x: -12, z: 4 }, 'batting'), { brk: T0 + 3.8, brkEnd: 'batting' }],
+  ['stumped', 'wicket', shot(null), { noHit: true, brk: T0 + 1.2, brkEnd: 'batting' }], ['misfield', 'close', shot(HITS.drive)], ['misfield', 'close', shot(HITS.push)],
+];
+
+test('take 1, always: from the bowler\'s end, one continuous shot from the last strides through the key moment, turning gently, slowed through it', () => {
+  for (const xr of [true, false]) for (const [story, tier, pts, extra] of BALLS()) {
+    const { p, tape } = plan(story, tier, pts, extra, xr), at = `${xr ? 'xr' : 'desk'} ${story}`;
+    assert.ok(p, `${at}: no replay`);
+    const t1 = p.takes[0], sh = p.shots[t1.shot], i1 = p.takes.length > 1 ? p.takes[1].i : p.n;
+    assert.equal(sh.kind, 'arm', at);
+    assert.equal(t1.i, 0, at);
+    for (let i = 0; i < i1; i++) assert.equal(p.S[i], t1.shot, `${at}: a cut inside take 1`);
+    assert.ok(p.T[0] <= T0 - 0.2, `${at}: take 1 starts ${(T0 - p.T[0]).toFixed(2)} s before the release (the last strides)`);
+    assert.ok(p.T[i1 - 1] >= T0 + 0.6 + 0.3, `${at}: take 1 ends before what happened at the bat`);
+    for (let i = 0; i < i1; i++) assert.ok(Math.abs(wrap(p.W[i])) <= DIRECTOR.arm.yawLim + 1e-6, `${at}: take 1 turned ${(p.W[i] / D2R).toFixed(0)}° off the pitch`);
+    if (tier !== 'routine') assert.ok(p.segs.some((g) => g.shot === t1.shot && g.rate < 0.6), `${at}: take 1 not slowed anywhere`);
+    else assert.ok(p.segs.every((g) => g.rate === 1), `${at}: a routine ball at real speed`);
+  }
+});
+
+test('every later take comes from the broadcast positions (CANON) and passes the checks; one that would not is left out', () => {
+  const seen = new Set();
+  for (const xr of [true, false]) for (const [story, tier, pts, extra] of BALLS()) {
+    const { p, tape } = plan(story, tier, pts, extra, xr), at = `${xr ? 'xr' : 'desk'} ${story}`;
+    for (let j = 1; j < p.takes.length; j++) {
+      const sh = p.shots[p.takes[j].shot];
+      assert.ok(CANON[sh.canon] && sh.canon !== 'arm', `${at}: take ${j + 1} from ${sh.canon}`);
+      const r = takeOK(p, j, tape);
+      assert.ok(r.ok, `${at}: take ${j + 1} (${sh.canon}): ${r.why}`);
+      for (let i = p.takes[j].i + 1; i < (j + 1 < p.takes.length ? p.takes[j + 1].i : p.n); i++) assert.equal(p.S[i], p.takes[j].shot, `${at}: a cut inside take ${j + 1}`);
+      seen.add(`${story}:${sh.canon}`);
+    }
+    // what each story's second take is
+    const want = { bowled: 'line', lbw: 'line', four: 'rope', six: 'crowd', caught: 'catch', dropped: 'catch', dive: 'catch', runout: 'square', stumped: 'square' }[story];
+    if (want) assert.ok(p.takes.length >= 2 && p.shots[p.takes[1].shot].canon === want, `${at}: take 2 ${p.takes[1] ? p.shots[p.takes[1].shot].canon : 'none'} (want ${want})`);
+    if (['routine', 'beaten', 'edge', 'bouncer'].includes(story)) assert.equal(p.takes.length, 1, `${at}: take 1 only`);
+  }
+  assert.ok(seen.size >= 8, [...seen].join(' '));
+  // a camera moved into the catcher fails: inside a figure; one turned off its subject fails
+  const { pts, catcher } = caughtAt([-12, 14, -10], 2.4), C = person(catcher.x + 0.3, catcher.z);
+  const { p, tape } = plan('caught', 'wicket', pts, { caught: T0 + 3.0 }, true, [person(-0.4, -1.1), person(0.4, -21.6), C]);
+  const sh = p.shots[p.takes[1].shot];
+  assert.ok(takeOK(p, 1, tape).ok);
+  const keep = { ...sh.pos };
+  sh.pos.x = C.c.x + 0.6; sh.pos.z = C.c.z;
+  assert.match(takeOK(p, 1, tape).why, /figure/);
+  Object.assign(sh.pos, keep); sh.canon = 'somewhere';
+  assert.match(takeOK(p, 1, tape).why, /broadcast/);
 });
 
 test('the angles: fixed spots (no flying), level, turning within the comfort limits; cuts only between angles', () => {
@@ -179,7 +254,7 @@ test('the angles: fixed spots (no flying), level, turning within the comfort lim
         assert.ok(Math.abs(wrap(b.yaw - a.yaw)) / du <= lim.wMax * 1.02, `${at}: turn ${(Math.abs(wrap(b.yaw - a.yaw)) / du / D2R).toFixed(0)}°/s`);
       }
       assert.equal(cuts, p.cuts.length, at);
-      assert.ok(p.cuts.length <= 1, `${at}: ${p.cuts.length} cuts (one dip at most a replay)`);
+      assert.ok(p.cuts.length <= 2 && p.cuts.length === p.takes.length - 1, `${at}: ${p.cuts.length} cuts (one dip between takes)`);
       for (const sh of p.shots) if (sh.i0 >= 0) {
         assert.ok(Math.hypot(sh.pos.x, sh.pos.z - CZ) <= (sh.seats ? 80 : DIRECTOR.rim + (sh.rope ? 3.7 : 0)) + 1e-6, `${at}: ${sh.kind} outside the rim (or, a six coming down behind the boards, the apron in front of the seats)`);
         assert.ok(sh.pos.y >= 1.3 && sh.pos.y <= 6.5, `${at}: ${sh.kind} at ${sh.pos.y} m`);
@@ -202,7 +277,9 @@ test('the ball stays near the middle of the view (±20°) while it is followed: 
     // so the ball's last moments turn the view at its comfort limit: 85% for a boundary)
     if (story === 'caught') continue;
     // (a six's view leaves the ball once it has come down, for the crowd: counted up to the landing)
-    const k = inCone(walk(p, tape).filter((f) => story !== 'six' || f.t <= p.focus + 0.05));
+    // (take 1 from the bowler's end follows only as far as its gentle reach: a ball beyond it ends that take)
+    const reach = DIRECTOR.arm.yawLim + DIRECTOR.cone;
+    const k = inCone(walk(p, tape).filter((f) => (story !== 'six' || f.t <= p.focus + 0.05) && !(p.shots[f.shot].kind === 'arm' && Math.abs(Math.atan2(f.bx - f.x, f.bz - f.z)) > reach)));
     assert.ok(k >= (tier === 'boundary' ? 0.85 : 0.9), `${name}: ball inside ±20° on ${(k * 100).toFixed(0)}% of the frames`);
   }
 });
@@ -219,9 +296,8 @@ test('slow motion through the key moment: the stumps, bat on ball, the catch; a 
   const r = plan('runout', 'wicket', shot(HITS.push), { brk: T0 + 3.4, brkEnd: 'bowling' }).p;
   assert.ok(r.segs.some((s) => s.rate === 0 && Math.abs(s.a - (T0 + 3.4)) < 1e-9 && s.dur >= 0.3), 'run-out: a freeze at the break');
   assert.ok(slowAt(r, T0 + 3.3) && slowAt(r, T0 + 3.5), 'run-out: slowed either side of it');
-  // the build-up runs at real speed (a bowled: from behind the arm); a boundary or a catch opens on the line camera, bat on ball slowed
-  assert.equal(b.segs[0].rate, 1);
-  for (const p of [f, c]) assert.equal(p.shots[p.S[0]].kind, 'line');
+  // the build-up runs at real speed; every replay opens from the bowler's end, bat on ball slowed there
+  for (const p of [b, f, c, r]) { assert.equal(p.segs[0].rate, 1); assert.equal(p.shots[p.S[0]].kind, 'arm'); }
   // a routine ball: real speed throughout
   assert.ok(plan('routine', 'routine', shot(HITS.push)).p.segs.every((s) => s.rate === 1));
 });

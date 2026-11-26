@@ -36,6 +36,7 @@ import { classify, direct, planAt, replayMode, wants, missBy, DIRECTOR } from '.
 import { decisionPending } from './quickSkip.js';
 export { TAIL, tailFor };
 
+const PITCH_CZ = (PITCH.battingStumpsZ + PITCH.bowlingStumpsZ) / 2;   // the middle of the ground (z)
 const RATE = 90;                 // recorded frames per second (max): every frame at 72 and 90 Hz
 const SECONDS = 24;              // ring buffer length (a ball can be live for 20 s)
 const CAP = RATE * SECONDS;
@@ -201,15 +202,88 @@ export class Replay {
 
   // ---------------------------------------------------------------- the story and the cut
   // What happened to the ball just finished (replayDirector.js classify).
+  // (Read off the tape once, when the ball is dead: how near the ball came to the stumps, the bat's edge
+  // and the batter's head; a lofted shot down by a fielder; a hard hit stopped before the rope.)
   whatHappened() {
     const m = this.marks, r = m.res || {}, o = m.out || {};
-    let nearMiss = null, behind = false;
+    let nearMiss = null, behind = false, batGap = null, headGap = null, safe = false, saved = false;
     if (this.count && m.release != null) {
       if (m.hit == null && !r.padded) nearMiss = missBy(this.passAt(m.release));
       if (m.edge && m.hit != null) for (let t = m.hit; t < m.hit + 1.5; t += 0.05) { if (this.tapeBall(t, _o) && _o.z > 1.5) { behind = true; break; } }
+      const arr = this.arrival(m.release);
+      if (arr != null && m.hit == null) { batGap = this.batGap(arr); headGap = this.headGap(arr, !!m.playerBatting); }
+      if (m.hit != null && m.caught == null && m.dropT == null && !o.boundary && !o.wicket) {
+        const f = this.flight(m.hit, m.dead ?? m.hit + 4);
+        if (f.safeT != null) { safe = true; m.safeT = f.safeT; }
+        if (f.savedT != null) { saved = true; m.savedT = f.savedT; }
+      }
     }
-    return classify({ res: r, wicket: o.wicket, boundary: o.boundary, review: m.review != null, edge: !!m.edge, behind, nearMiss,
+    return classify({ res: r, wicket: o.wicket, boundary: o.boundary, review: m.review != null, edge: !!m.edge, behind, nearMiss, batGap, headGap, safe, saved,
       dropped: m.dropT != null, dive: m.diveT != null, direct: !!m.direct, overthrow: m.overthrow != null, brk: m.break != null });
+  }
+
+  // How near (m) the ball passed the bat's blade (your bat as recorded) as it got to the batter; null: no bat.
+  batGap(arr) {
+    const C = CONFIG.bat, sh = -(C.handleLength - C.gripFromHandleTop), toe = sh - C.bladeLength, B = this.buf;
+    let best = null;
+    for (let t = arr - 0.12; t <= arr + 0.12; t += 1 / 90) {
+      const i = this.find(t), a = this.slotAt(i) * this.stride + 16;
+      if (B[a + 7] < 0.5 || !this.tapeBall(t, _o)) continue;
+      _q.set(B[a + 3], B[a + 4], B[a + 5], B[a + 6]);
+      const px = B[a], py = B[a + 1], pz = B[a + 2];
+      _v.set(0, 1, 0).applyQuaternion(_q);
+      // the ball onto the blade's axis (shoulder to toe), clamped
+      const k = clamp((_o.x - px) * _v.x + (_o.y - py) * _v.y + (_o.z - pz) * _v.z, toe, sh);
+      const d = hypot3(_o.x - (px + _v.x * k), _o.y - (py + _v.y * k), _o.z - (pz + _v.z * k)) - C.bladeWidth / 2 - CONFIG.ball.radius;
+      best = best == null ? d : Math.min(best, d);
+    }
+    return best == null ? null : Math.max(0, best);
+  }
+
+  // How near (m) the ball passed the batter's head: yours (as recorded) when you bat, else the striker's.
+  headGap(arr, mine) {
+    let best = null;
+    for (let t = arr - 0.1; t <= arr + 0.25; t += 1 / 90) {
+      if (!this.tapeBall(t, _o)) continue;
+      let hx, hy, hz;
+      if (mine) { const a = this.slotAt(this.find(t)) * this.stride, B = this.buf; hx = B[a]; hy = B[a + 1]; hz = B[a + 2]; }
+      else {
+        let bd = 2.5, h = null;
+        for (const b of this.bodiesAt(t)) { const d = hypot2(b.c.x, b.c.z + 0.6); if (d < bd) { bd = d; h = b; } }
+        if (!h) continue;
+        hx = h.a.x; hy = h.a.y - 0.12; hz = h.a.z;
+      }
+      const d = hypot3(_o.x - hx, _o.y - hy, _o.z - hz) - 0.12 - CONFIG.ball.radius;
+      best = best == null ? d : Math.min(best, d);
+    }
+    return best == null ? null : Math.max(0, best);
+  }
+
+  // The hit ball's flight (tape s hit..end): a lofted one (DIRECTOR.safeHigh m up) that came down within
+  // DIRECTOR.safeNear m of a fielder (safeT: when it landed); one hit hard (DIRECTOR.savedSpeed) stopped
+  // within a few metres of the rope (savedT: when it stopped).
+  flight(hit, end) {
+    const D = DIRECTOR, o = { x: 0, y: 0, z: 0 };
+    let top = 0, v0 = 0, safeT = null, savedT = null, up = false, px = null, pz = 0, py = 0;
+    for (let t = hit + 1 / 60; t <= Math.min(end, hit + 6); t += 1 / 60) {
+      if (!this.tapeBall(t, o)) { px = null; continue; }
+      if (px != null) {
+        const v = hypot3(o.x - px, o.y - py, o.z - pz) * 60;
+        if (t < hit + 0.2) v0 = Math.max(v0, v);
+        if (savedT == null && v0 >= D.savedSpeed && hypot2(o.x, o.z - PITCH_CZ) >= D.savedR - 8 && v < 6) savedT = t;
+      }
+      top = Math.max(top, o.y);
+      if (o.y > 0.3) up = true;
+      if (safeT == null && up && top >= D.safeHigh && o.y < 0.08) {
+        for (const b of this.bodiesAt(t)) {
+          if (Math.abs(b.c.x) < 3 && b.c.z > -23 && b.c.z < 3) continue;          // (the batters, the bowler, the umpire)
+          if (hypot2(b.c.x - o.x, b.c.z - o.z) <= D.safeNear) { safeT = t; break; }
+        }
+        if (safeT == null) up = false;                                          // (down in a gap: not near anyone)
+      }
+      px = o.x; py = o.y; pz = o.z;
+    }
+    return { safeT, savedT };
   }
 
   // The ball as it passed the batter's stumps (x, y), or null.
@@ -235,7 +309,7 @@ export class Replay {
     if (!m.story) { const s = this.whatHappened(); m.story = s.story; m.tier = s.tier; }
     const arrive = this.arrival(m.release);
     const M = { release: m.release, arrive, hit: m.hit, pad: m.pad, wicket: m.wicket, brk: m.break, brkEnd: m.breakEnd, caught: m.caught, held: m.held,
-      dropT: m.dropT, diveT: m.diveT, throwAt: m.throwAt, cross: m.cross, land: m.land, dead: m.dead };   // (land: where a six came down, if play marked it)
+      dropT: m.dropT, diveT: m.diveT, throwAt: m.throwAt, cross: m.cross, land: m.land, dead: m.dead, safeT: m.safeT, savedT: m.savedT, overthrow: m.overthrow };   // (land: where a six came down, if play marked it)
     const tape = { first, last, ball: (t, o) => this.tapeBall(t, o), bodies: (t) => this.bodiesAt(t), figure: (k, t, o) => this.figureAt(k, t, o) };
     const p = direct({ story: m.story, tier: m.tier, m: M, tape, xr: !!this.g.input.xr });
     if (p) p.arrive = arrive;
@@ -355,7 +429,8 @@ export class Replay {
     ui.clearHints?.();
     ui.prompt('', 0);
     if ('boardSting' in ui) ui.boardSting = null;
-    setLabel(this.label, 'REPLAY', xr ? `off-hand (${this.skipHand().hand}) trigger: next ball` : 'Space skips · N: next ball');
+    this.labelSub = xr ? `off-hand (${this.skipHand().hand}) trigger: next ball` : 'Space skips · N: next ball';
+    setLabel(this.label, 'REPLAY', this.labelSub);
     this.label.visible = true; this.label.material.opacity = 1; this.labelT = 0;
     this.slowTag.visible = false; this.slowTag.material.opacity = 0;
     if (g.ballView.trail) g.ballView.clearTrail?.();
@@ -442,7 +517,7 @@ export class Replay {
     // A cut: down to dark over its last moments, back in on the new angle; the end goes down to dark too.
     if (!busy) {
       const c = P.cuts[this.nextCut];
-      if (c != null && this.u >= c * P.du) { fade.cut(DIRECTOR.cutIn); this.nextCut++; this.camPrev = null; }
+      if (c != null && this.u >= c * P.du) { fade.cut(DIRECTOR.cutIn); this.nextCut++; this.camPrev = null; this.strap(c); }
       // (dark a frame before the cut: the last frame on the old angle is black, not 95%)
       else if (c != null && c * P.du - this.u <= DIRECTOR.cutOut) { if (!fade.fadingOut) fade.fadeOut(Math.max(0.014, c * P.du - this.u - 0.014)); }
       else if (c == null && P.len - this.u <= DIRECTOR.endOut && !fade.fadingOut) fade.fadeOut(Math.max(0.02, P.len - this.u));
@@ -459,11 +534,19 @@ export class Replay {
     this.moveCamera(dt);
     // A six: the ground goes up again as it lands in the stands (the look and the swell; no sound is played twice).
     const m = this.marks;
-    if (P.story === 'six' && !this.cheered && m.cross != null && this.rt >= m.cross) {
+    if (P.story === 'six' && !this.cheered && m.cross != null && this.rt >= m.cross && P.shots[_cam.shot] && P.shots[_cam.shot].seats) {   // (in the crowd's take)
       this.cheered = true;
       try { g.env && g.env.crowdReact && g.env.crowdReact('six', 1, g.ballView.mesh.position); } catch { /* (the stands are optional) */ }
       try { if (g.cheer) g.cheer(0.9); } catch { /* (the crowd's swell is optional) */ }
     }
+  }
+
+  // A new take (at the cut into it): its name on the label ("ANOTHER ANGLE", "THE CATCH", "SIDE-ON"...),
+  // up again for its moment. (Drawn once a take.)
+  strap(i) {
+    const T = this.path.takes;
+    if (!T) return;
+    for (let j = 1; j < T.length; j++) if (T[j].i === i) { setLabel(this.label, T[j].name, this.labelSub); this.label.visible = true; this.label.material.opacity = 1; this.labelT = 0; return; }
   }
 
   // Your figure's shot, a few poses a frame (always ahead of what is on screen;

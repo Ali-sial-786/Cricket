@@ -186,22 +186,26 @@ view also faces forward by itself before each ball, on recenter, catches and rep
   flips with / without). It costs GPU time: lower *Area* or *Quality* if the frame rate drops. Prescription
   lens inserts remain the way to see sharply.
 * **Settings → Replays** (*highlights* / *every ball* / *off*): by default the balls worth seeing again get a
-  replay, cut like a broadcast: wickets, fours and sixes, and close calls (a run-out or stumping that went the
-  batter's way, a dropped catch, an edge past the stumps, a ball that just missed them, an lbw shout, a direct hit,
-  a diving stop, overthrows). Leaves, dots and singles do not (*every ball* gives them a short one, 2.5 s at most).
-  The angle comes from what happened: high behind the bowler's arm for the run-up, down the line of the stumps
-  (7 m in front of the batter, at eye height) for a bowled, an lbw, a near miss or an edge, side-on at the
-  popping crease for a run-out or a stumping (frozen for a moment as the stumps break), and a tracking spot picked
-  from the ball's own flight (the ball kept near the middle of the view): a four or six is bat on ball down the line,
-  then, for a four, a spot 12-16 m from where it goes over with the chasing fielder in the picture, or, with nobody
-  near, a low camera (1.6 m) just inside the rope 5-8 m along it, the ball running at it into the rope, ending on it
-  crossing; for a six, 2.5 m up 8-12 m from where it comes down, in front of the seats, the ball dropping into the
-  picture and the view settling on the people rising there (behind a sightscreen, the stand beside it); a catch
-  or a drop is the shot, then a camera 5-8 m in front of the catcher at chest height, there before the ball, slowed
-  through the hands closing and holding on him for a beat. Real speed for the
-  build-up, slow motion through the key moment (a small *SLOW MOTION* tag). At most 6 s for a wicket, 5 s for a
-  boundary or a close call. Each angle is a fixed spot that turns to follow the ball; there is one cut at most, a
-  quick dip to dark and back (0.08 s), and the replay comes in and goes out in about a tenth of a second. After an appeal, a DRS review or the third umpire, the
+  replay: every wicket and boundary, every catch held or put down, every appeal given or not, every run-out or
+  stumping chance (the stumps broken or not), edges anywhere, a play-and-miss within 25 cm of the stumps or 10 cm
+  of the edge, a bouncer past the helmet, a lofted shot that comes down near a fielder, a hard hit stopped before
+  the rope, a diving stop, overthrows. Leaves well wide, dots and pushed singles do not (*every ball* gives them a
+  short one, 2.5 s at most). A replay is a sequence of whole takes, each one continuous shot from a fixed spot
+  that turns gently to follow the ball. **Take 1, always**, is from the bowler's end, behind the arm: the last
+  strides and the release at real speed, slow motion through the moment at the bat (or the stumps, the pad, the
+  catch at the keeper), and what follows for as long as the ball stays in view (a shot behind square ends it on
+  the batter's follow-through instead of whipping round), 5 s at most. **Take 2**, only where another angle shows
+  something more (a small *ANOTHER ANGLE* style tag names it): down the line of the stumps in front of the batter
+  for a bowled, an lbw or an appeal; side-on at the popping crease for a run-out or a stumping, frozen for a
+  moment as the stumps break; a camera 5-8 m in front of the catcher at chest height for a catch, a drop or a
+  diving stop, there before the ball; for a four, a spot 12-16 m from where it goes over with the chasing fielder
+  in the picture, or, with nobody near, a low camera (1.6 m) just inside the rope 5-8 m along it, the ball running
+  at it into the rope; for a six, 2.5 m up 8-12 m from where it comes down, in front of the seats, the ball
+  dropping into the picture and the view settling on the people rising there (behind a sightscreen, the stand
+  beside it). Each later take is 4 s at most and comes from a short list of broadcast positions; one that would
+  be inside a fielder, off its subject, looking up into the sky or ending on a sightscreen, the big screen or
+  the pavilion is left out. Between takes the view dips to dark and back (0.08 s); the replay comes in and goes
+  out in about a tenth of a second. Skipping skips the whole sequence. After an appeal, a DRS review or the third umpire, the
   replay comes after the verdict; the result banner comes back once the replay is over. In the headset the play is
   where you face when you bat, wherever you happened to be looking when it started. A small *REPLAY* label shows
   for the first 1.5 s. Your **off-hand trigger** (the hand without the bat or the ball: the left one) skips it at
