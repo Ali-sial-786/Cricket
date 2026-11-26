@@ -63,7 +63,8 @@ export function resultPaths(how, e, fx, fz) {
   if (how === 'line' || how === 'meet') for (let k = 0; k < LINE_N; k++) P.line.push(seg(...lane(4 + k * LINE_GAP), ...lane(-11 + k * LINE_GAP)));
   if (how === 'line') P.partner = seg(e.x + fx * 8, e.z + fz * 8, e.x + fx * 1.0 - rx * 2.05, e.z + fz * 1.0 - rz * 2.05);
   if (how === 'meet') P.meet = [seg(MEET.x - 0.2, MEET.z + 3.2, MEET.x, MEET.z + 0.27), seg(MEET.x + 0.5, MEET.z - 3.4, MEET.x + 0.05, MEET.z - 0.27)];
-  if (how === 'walkPast') P.walkPast = [seg(...lane(7, PASS_IN), ...lane(-7, PASS_IN)), seg(...lane(8.6, PASS_IN), ...lane(-7, PASS_IN))];
+  // (the second a lane further out: he does not have to step round the first, in toward you)
+  if (how === 'walkPast') P.walkPast = [seg(...lane(7, PASS_IN), ...lane(-7, PASS_IN)), seg(...lane(8.6, PASS_IN + 0.9), ...lane(-7, PASS_IN + 0.9))];
   return P;
 }
 // Where the winning side gathers when nobody caught or broke anything: the bowler's last spot (his figure,
@@ -135,7 +136,7 @@ const LINE_OFF = 3.0, LINE_N = 6, LINE_GAP = 1.6, PASS_IN = -0.1;   // the resul
 const MEET = { x: 0.4, z: CZ };   // where the batters meet in the middle
 const _meetA = new THREE.Vector3(), _bw = { x: 0, z: 0 };
 const STRAP = 0.82;
-export const TOSS_CARD = { yaw: -0.44, dist: 0.9, drop: 0.55 };     // the call card at the toss: rad to your left, m off, m below your eyes
+export const TOSS_CARD = { yaw: -0.6, dist: 0.9, drop: 0.55 };     // the call card at the toss: rad to your left, m off, m below your eyes
 const STRAP_YAWS = [0, -0.26, 0.26, -0.5, 0.5, -0.72, 0.72];     // rad either side of where you look               // the strap's scale (1.12 x 0.38 m at 2 m: ~31 degrees wide)
 
 // ---------------------------------------------------------------- the beats
@@ -885,11 +886,16 @@ export class Ceremony {
         if (L.started) { L.started = false; S.startedOf = L; }
         if (g.fieldView && g.fieldView.placeAll) g.fieldView.placeAll(L.states());
       }
-    } else if (how === 'huddle' && ctx.gather && L) {
-      // you batted and lost with nobody to gather round: the nearest of their side, in the dark, a few
-      // strides out from the bowler's spot, jogging in to it, arms up
-      gatherAt(L, ctx.gather, g.simTime, ctx.winSpot || e);
-      if (g.fieldView && g.fieldView.placeAll) g.fieldView.placeAll(L.states());
+    } else if (how === 'huddle' && L) {
+      // you batted and lost: the nearest of their side, put in the dark a few strides out from where the
+      // bowler was (the huddle's own focus, if it has one), jogging in to it, arms up -- never an empty
+      // scene, however the last ball ended; the bowler's own figure, if it is off elsewhere, goes
+      const F = ctx.gather || (L.huddle && L.huddle.focus), B = g.figures && g.figures.bowler;
+      if (F) {
+        gatherAt(L, F, g.simTime, ctx.winSpot || e);
+        if (g.fieldView && g.fieldView.placeAll) g.fieldView.placeAll(L.states());
+        if (B && B.actor && B.actor.visible && (hypot2(B.actor.pos.x - F.x, B.actor.pos.z - F.z) > 4 || B.actor.speed > 0.5)) B.show(false);
+      }
     } else if (how === 'walkPast') {
       // you won bowling (or tied it): the batters walk past you, hands out (the side is round you already)
       const A = P.walkPast[0], B = P.walkPast[1], face = Math.atan2(-_f.x, -_f.z);
@@ -1090,7 +1096,7 @@ export class Ceremony {
     const g = this.g, ui = g.ui, m = ui && ui.menu && ui.menu.mesh, v = this.view;
     if (!(m && m.visible && v && this.cast && ui.compact && ui.compact())) return;
     // (from the spot the beat put you at, not your head: it stays put while you turn to point at it)
-    // (to the left of the captain, ~25 degrees across, down at his waist: you see him and the coin while you
+    // (to the left of the captain, its near edge ~20 degrees across, down at his waist: you see him and the coin while you
     // call -- facing your eyes squarely, level: not off at the edge of the view, slanted)
     const a = TOSS_CARD.yaw, c = Math.cos(a), sn = Math.sin(a), fx = v.dx * c - v.dz * sn, fz = v.dx * sn + v.dz * c, ey = g.eye ? g.eye.p.y : 1.6;
     m.position.set(v.x + fx * TOSS_CARD.dist, Math.max(0.7, ey - TOSS_CARD.drop), v.z + fz * TOSS_CARD.dist);

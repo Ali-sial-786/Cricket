@@ -379,6 +379,7 @@ const NS_BACKUP = 1.5;       // m he walks down the pitch as the ball is bowled
 // (v.running is the run's state for this frame, its own object: its speed and heading are
 // set to the walk's for the drawing)
 const STEP_NEAR = 3.0, NS_ASIDE = 2.15;
+const RUN_CLEAR = FIELD_CLEAR + 0.4;      // a man running flat out past you: a stride wider than a walker
 // A running batter's drawn place (v: his view, v.avoid your head): his run, its lane bent round you
 // (crew.js bendAround), then, pulled up near you, his walk on out to your side; he faces the way the
 // drawn path goes, so the bend is run, not slid. Nothing made per frame.
@@ -386,7 +387,7 @@ function runRound(v, a, dt, lat, back) {
   const r = v.running, e = v.avoid, B = v._bend || (v._bend = { x: 0, z: 0, px: 0, pz: 0, on: false });
   if (!e) { B.on = false; return; }
   const ux = Math.sin(r.heading), uz = Math.cos(r.heading), sx = a.pos.x >= e.x ? 1 : -1;
-  bendAround(a.pos.x, a.pos.z, ux, uz, e, FIELD_CLEAR, B, -uz * sx >= 0 ? 1 : -1);
+  bendAround(a.pos.x, a.pos.z, ux, uz, e, RUN_CLEAR, B, -uz * sx >= 0 ? 1 : -1);
   a.pos.x = B.x; a.pos.z = B.z;
   if (!r.dive) stepAside(v, a, dt, lat, back);
   const dx = a.pos.x - B.px, dz = a.pos.z - B.pz, d = hyp(dx, dz);
