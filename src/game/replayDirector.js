@@ -170,15 +170,21 @@ export function direct({ story, tier, m, tape, xr = true, check = true }) {
   let p = layout(R, tape, lim, xr);
   // A later take whose camera does not pass the checks is left out (take 1 always plays): no take rather
   // than a weird one. (Laid out again without it: once more at most.)
-  // (a take with a second choice of camera (alt) tries that first)
-  let swapped = false;
-  for (let j = 1; check && j < p.takes.length; j++) {
-    const sh = p.shots[p.takes[j].shot];
-    if (sh.alt && !takeOK(p, j, tape).ok) { const a = sh.alt; delete sh.alt; for (const k of Object.keys(sh)) if (k !== 'i0' && k !== 'i1') delete sh[k]; Object.assign(sh, a); swapped = true; }
+  // (a take whose camera fails tries the next of its broadcast positions, then its second choice (alt):
+  // laid out again each time, a few times at most)
+  for (let round = 0; check && round < 4; round++) {
+    let again = false;
+    for (let j = 1; j < p.takes.length; j++) {
+      const sh = p.shots[p.takes[j].shot];
+      if (takeOK(p, j, tape).ok) continue;
+      if (sh.cands && sh.cands.length > 1) { const c = sh.pos; sh.cands = sh.cands.filter((q) => hypot2(q.x - c.x, q.z - c.z) > 1.2); again = true; }
+      else if (sh.alt) { const a = sh.alt; for (const k of Object.keys(sh)) if (k !== 'i0' && k !== 'i1') delete sh[k]; Object.assign(sh, a); again = true; }
+    }
+    if (!again) break;
+    p = layout(R, tape, lim, xr);
   }
-  if (swapped) p = layout(R, tape, lim, xr);
   const drop = [], why = [];
-  for (let j = 1; check && j < p.takes.length; j++) { const r = takeOK(p, j, tape); if (!r.ok) { drop.push(j); why.push(`${p.takes[j].name}: ${r.why}`); } }
+  for (let j = 1; check && j < p.takes.length; j++) { const r = takeOK(p, j, tape); if (!r.ok) { const sh = p.shots[p.takes[j].shot]; drop.push(j); why.push(`${p.takes[j].name} (${sh.canon} ${sh.pos.x.toFixed(0)},${sh.pos.z.toFixed(0)}): ${r.why}`); } }
   if (drop.length) {
     const keep = [], takes = [];
     for (let j = 0; j < R.takes.length; j++) {
