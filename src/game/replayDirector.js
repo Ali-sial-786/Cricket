@@ -534,7 +534,7 @@ export function chooseSpot(samples, sh, bodies, lim) {
     const rc = hypot2(c.x, c.z - CZ);
     if (rc > (sh.rope ? (sh.rimMax ?? DIRECTOR.rim + 2.5) + 1e-6 : DIRECTOR.rim) || rc < (sh.rimMin ?? 0)) continue;
     if (Math.abs(c.x) < 2.2 && c.z > -23 && c.z < 2.5 && !sh.near) continue;     // (not on the pitch, in the way of play)
-    if (Math.abs(c.x) < SCREEN.half + 1.5 && Math.abs(c.z - CZ) > SCREEN.dist - 1.5 && Math.abs(c.z - CZ) < SCREEN.dist + 2.5) continue;   // (not in a sightscreen)
+    if (Math.abs(c.x) < SCREEN.half + 2.5 && Math.abs(c.z - CZ) > SCREEN.dist - 1.5) continue;   // (not in a sightscreen, nor behind one among its braces)
     const cc = crowdCost(c, bodies, endBodies, nearest, E);
     for (const A of sh.stands || ONE) {
       if (A) sh.stand = A;

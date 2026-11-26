@@ -135,7 +135,7 @@ export function replayAt(m, t) {
 export const BOARD_R = 68.2, BOARD_TOP = 0.975;
 // The sightscreens (render/ground.js SIGHTSCREEN): a dark face 26 m wide, 0.6-10.8 m up, 6 m behind the rope
 // straight behind either end. A picture full of one is as bad as one full of boards.
-export const SCREEN = { half: 13, bottom: 0.6, top: 10.8, dist: 71 };
+export const SCREEN = { half: 13, bottom: 0.6, top: 10.8, dist: 71, back: 4.6 };   // (back: its braces and bogies behind the face)
 // The stands (render/stadium.js BOWL): the front wall 84 m out, rising to 22 m at 110 m; the pavilion between
 // 78° and 102° round from behind the batter (toward +x); the covered seats behind the sightscreens (350-10°,
 // 170-190°: nobody sits there); the big screen (it shows REPLAY during a replay) at 241°, 93.8 m out, 26.8 m
@@ -150,6 +150,7 @@ function circleT(ox, oz, dx, dz, R) {
   const disc = b * b - 4 * a * c; if (disc < 0) return Infinity;
   const t = (-b + Math.sqrt(disc)) / (2 * a); return t > 0 ? t : Infinity;
 }
+const SCREEN_PLANES = [0, SCREEN.back], SCREEN_ENDS = [-SCREEN.half, SCREEN.half];
 export function viewShares(cam, yaw, pitch = 0, { hfov = 100, vfov = 90, n = 24, nv = n, cz = -10.06 } = {}) {
   const out = { turf: 0, boards: 0, screen: 0, stand: 0, pavilion: 0, covers: 0, bigscreen: 0, sky: 0 };
   const cy = Math.cos(yaw), sy = Math.sin(yaw), tH = Math.tan(hfov / 2 * Math.PI / 180), tV = Math.tan(vfov / 2 * Math.PI / 180);
@@ -165,14 +166,24 @@ export function viewShares(cam, yaw, pitch = 0, { hfov = 100, vfov = 90, n = 24,
     // the boards: |p - c| = BOARD_R in xz, BOARD_TOP >= y >= 0
     const tb = circleT(ox, oz, dx, dz, BOARD_R);
     const tg = dy < -1e-6 ? -cam.y / dy : Infinity;
-    // a sightscreen: the plane z = cz ± SCREEN.dist, |x| <= half, bottom..top
+    // a sightscreen: the plane z = cz ± SCREEN.dist, |x| <= half, bottom..top (its face), and from behind
+    // its back and braces (the plane SCREEN.back further out, and its ends)
     let ts = Infinity;
     for (let e = -1; e <= 1; e += 2) {
-      if (Math.abs(dz) < 1e-9) continue;
-      const t = (cz + e * SCREEN.dist - cam.z) / dz;
-      if (t <= 0 || t >= ts) continue;
-      const x = cam.x + dx * t, y = cam.y + dy * t;
-      if (Math.abs(x) <= SCREEN.half && y >= SCREEN.bottom && y <= SCREEN.top) ts = t;
+      for (const dd of SCREEN_PLANES) {
+        if (Math.abs(dz) < 1e-9) continue;
+        const t = (cz + e * (SCREEN.dist + dd) - cam.z) / dz;
+        if (t <= 0 || t >= ts) continue;
+        const x = cam.x + dx * t, y = cam.y + dy * t;
+        if (Math.abs(x) <= SCREEN.half && y >= (dd ? 0 : SCREEN.bottom) && y <= SCREEN.top) ts = t;
+      }
+      for (const sx of SCREEN_ENDS) {
+        if (Math.abs(dx) < 1e-9) continue;
+        const t = (sx - cam.x) / dx;
+        if (t <= 0 || t >= ts) continue;
+        const z = (cam.z + dz * t - cz) * e, y = cam.y + dy * t;
+        if (z >= SCREEN.dist && z <= SCREEN.dist + SCREEN.back && y >= 0 && y <= SCREEN.top) ts = t;
+      }
     }
     // the big screen: its plane, facing the middle
     let tB = Infinity;

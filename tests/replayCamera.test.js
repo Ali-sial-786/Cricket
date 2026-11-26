@@ -181,6 +181,8 @@ test('every replay is a sequence of whole takes: take 1 at most 5 s (a routine b
   }
 });
 
+// A six coming down behind a sightscreen, among its braces (at tape time t).
+const behindScreen = (tape, t) => { const o = { x: 0, y: 0, z: 0 }; tape.ball(t, o); return Math.abs(o.x) < 15.5 && Math.abs(o.z - CZ) > 69; };
 // Recorded balls of every story, for the takes' tests.
 const BALLS = () => [
   ['routine', 'routine', shot(HITS.push)], ['routine', 'routine', shot(HITS.pull)], ['routine', 'routine', shot(null), { noHit: true }],
@@ -224,7 +226,7 @@ test('every later take comes from the broadcast positions (CANON) and passes the
     }
     // what each story's second take is
     const want = { bowled: 'line', lbw: 'line', four: 'rope', six: 'crowd', caught: 'catch', dropped: 'catch', dive: 'catch', runout: 'square', stumped: 'square' }[story];
-    if (want) assert.ok(p.takes.length >= 2 && p.shots[p.takes[1].shot].canon === want, `${at}: take 2 ${p.takes[1] ? p.shots[p.takes[1].shot].canon : 'none'} (want ${want})`);
+    if (want && !(story === 'six' && behindScreen(tape, p.focus))) assert.ok(p.takes.length >= 2 && p.shots[p.takes[1].shot].canon === want, `${at}: take 2 ${p.takes[1] ? p.shots[p.takes[1].shot].canon : 'none'} (want ${want})`);
     if (['routine', 'beaten', 'edge', 'bouncer'].includes(story)) assert.equal(p.takes.length, 1, `${at}: take 1 only`);
   }
   assert.ok(seen.size >= 8, [...seen].join(' '));
@@ -334,6 +336,9 @@ test('a six: the subject is the crowd where it lands, the ball coming down into 
     const ex = extra && extra.landAt ? { land: tape0.crossAt() + 0.45 } : {};
     const { p, tape } = plan('six', 'boundary', pts, ex);
     const sh = p.shots[p.S[p.n - 1]], F = walk(p, tape), e = F[F.length - 1], land = p.focus;
+    // (one that comes down behind a sightscreen, among its braces: no spot beside it sees the ball land and
+    // the people, so there is no crowd take; the bowler's end shows it go)
+    if (behindScreen(tape, land)) { assert.equal(p.takes.length, 1, `${name}: behind the sightscreen`); continue; }
     assert.equal(sh.kind, 'track', name);
     assert.ok(sh.pos.y >= 2 && sh.pos.y <= 3, `${name}: ${sh.pos.y} m up`);
     const dl = hypot2(sh.subj.x - sh.pos.x, sh.subj.z - sh.pos.z);
