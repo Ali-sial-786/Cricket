@@ -78,7 +78,7 @@ export const DIRECTOR = {
   runAttempt: 1.2,             // m: the batter home by no more than this as the throw came in (a run-out chance)
   safeNear: 5,                 // m: a lofted shot (over safeHigh m up) landing this close to a fielder
   safeHigh: 3,
-  savedSpeed: 22, savedR: 58,  // m/s off the bat, m from the middle: a hard hit stopped before the rope
+  savedSpeed: 22, savedR: 52,  // m/s off the bat, m from the middle (less 8): a hard hit stopped in the deep
   // the checks every later take's camera passes, or there is no such take (takeOK)
   checks: { clear: 1.5, minY: 1.2, off: 25 * D2R, up: 40 * D2R, none: 0.1, sky: 0.15, boards: 0.35, ballFar: 55, figFar: 10 },
 };
@@ -177,8 +177,8 @@ export function direct({ story, tier, m, tape, xr = true, check = true }) {
     if (sh.alt && !takeOK(p, j, tape).ok) { const a = sh.alt; delete sh.alt; for (const k of Object.keys(sh)) if (k !== 'i0' && k !== 'i1') delete sh[k]; Object.assign(sh, a); swapped = true; }
   }
   if (swapped) p = layout(R, tape, lim, xr);
-  const drop = [];
-  for (let j = 1; check && j < p.takes.length; j++) if (!takeOK(p, j, tape).ok) drop.push(j);
+  const drop = [], why = [];
+  for (let j = 1; check && j < p.takes.length; j++) { const r = takeOK(p, j, tape); if (!r.ok) { drop.push(j); why.push(`${p.takes[j].name}: ${r.why}`); } }
   if (drop.length) {
     const keep = [], takes = [];
     for (let j = 0; j < R.takes.length; j++) {
@@ -190,6 +190,7 @@ export function direct({ story, tier, m, tape, xr = true, check = true }) {
     R.segs = keep; R.takes = takes;
     p = layout(R, tape, lim, xr);
   }
+  p.leftOut = why;                // (the takes left out and why: for the harness and the tests)
   return p;
 }
 
