@@ -354,7 +354,9 @@ function recipe(story, tier, m, tape) {
     let end = Math.min(last, dead + 0.6, s1 + post, gone != null ? Math.max(s1 + 0.1, gone + 0.3) : Infinity);
     end = Math.max(end, Math.min(last, s1 + 0.1));
     let pre = T1.pre;
-    const build = () => { segs.length = i0; if (routine) seg(rel - pre, end, 1, k0); else { seg(rel - pre, s0, 1, k0); seg(s0, s1, S, k0); seg(s1, end, 1, k0); } };
+    // (never more than 1.1 s of build-up before the slow moment, whatever the marks say)
+    const a0 = () => Math.max(rel - pre, s0 - 1.1);
+    const build = () => { segs.length = i0; if (routine) seg(a0(), end, 1, k0); else { seg(a0(), s0, 1, k0); seg(s0, s1, S, k0); seg(s1, end, 1, k0); } };
     build();
     fit(i0, B, [() => { end = Math.max(s1 + 0.1, end - (lenFrom(i0) - B)); build(); }, () => { pre = 0.15; build(); }]);
     return end;
