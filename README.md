@@ -288,7 +288,8 @@ src/game/             game.js (orchestrator + frame loop), batting.js / bowling.
                       lbw.js + lbwFlow.js (appeal, decision, review), edgeTrack.js (what the ball touched: Snicko,
                       Hot Spot), reviews.js, thirdUmpire.js, scoring.js, scorecard.js,
                       squad.js, bowlerTypes.js + bowlingInput.js (your bowlers and their deliveries),
-                      replay.js (recording and replays)
+                      replay.js (recording and replays), ceremony.js (the presentation beats and the result scene),
+                      playerSpace.js (the player's space: how near a figure may come, walking or fast)
                       calibration.js, settings.js
 src/render/           env (stadium), objects (bat/ball/stumps/machine), humanoid (skinned athlete + IK), gear (helmets, pads, gloves),
                       actors + people + anim, clips (authored animation clips), umpires, drsView (review board + ball tracking;

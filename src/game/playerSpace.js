@@ -12,6 +12,11 @@ import { smoothstep as sstep } from '../physics/math.js';
 //     become you walks round to out to your side (crew.js MERGE_BACK) and fades there.
 // Checked for every ceremony, the result's four outcomes and the wicket huddle in tests/playerSpace.test.js.
 export const EYE_CLEAR = 1.5, BODY_REACH = 0.3, FIELD_CLEAR = EYE_CLEAR + BODY_REACH;
+// Anything moving fast -- a dive, a slide, a sprint, a run between the wickets, a celebration's jump with
+// the arms out -- keeps FAST_CLEAR from your eye (in a headset, fast movement nearer than that startles):
+// the field steers round it, a huddle near you forms outside it, runners' lanes bend round it, a dive
+// near you is drawn where the man stands (actors.js walkOff). Walking and standing keep EYE_CLEAR.
+export const FAST_CLEAR = 2.5;
 const BEND_IN = 3;          // m before he is level with you that a lane starts to bend out
 // A straight path (heading ux, uz: unit) drawn bent round your eye e: where he is level with you his
 // offset across the path is at least R, eased in from R + BEND_IN m out and back after -- a lane that
