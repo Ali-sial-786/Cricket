@@ -451,7 +451,7 @@ function roofShade(x, y, z) {
   const R = SUN_BLOCKERS.roof, r = Math.hypot(x, z);
   if (r < R.rF - 0.5 || y > R.yB || !SUN_BLOCKERS.roofed((Math.atan2(x, z) * 180) / Math.PI)) return 1;
   const el = Math.atan2(R.yF - y, Math.max(0.1, r - R.rF));          // how much sky shows under the lip
-  return 0.42 + 0.58 * Math.pow(Math.sin(Math.min(Math.PI / 2, Math.max(0, el))), 1.6);
+  return 0.35 + 0.65 * Math.pow(Math.sin(Math.min(Math.PI / 2, Math.max(0, el))), 2.2);
 }
 
 // lights: [{ dir: Vector3 toward the light, color: Color (x intensity) }], hemi: HemisphereLight
@@ -496,11 +496,19 @@ export function buildCrowd(spots, { blocks, lights, maxCount = 26000, sectors = 
     const s = spots[i];
     if (s.kind !== undefined && s.kind !== KIND.FAN) { fans.push(s); continue; }
     const B = blocks.get(s.block) || { home: 0.4, away: 0.1, occ: 0.85 };
-    // Fuller behind the bowler's arm and square of the wicket, thinner toward the back of each tier.
-    let occ = B.occ;
-    if (s.type === 'seat') occ += 0.05 * Math.cos(4 * Math.atan2(s.x, s.z)) - 0.16 * Math.min(1, (s.row || 0) / 14) + 0.06;
-    if (hole(s.block, s.row || 0, s.i || i) > occ + (rand() - 0.5) * 0.12) continue;
-    if (s.type === 'seat' && rand() < 0.07) continue;          // and single empty seats all over (5-10%: someone at the bar)
+    if (s.type === 'seat') {
+      // Empty seats come in patches of ~3 rows x 12 seats (20-40 seats: a coach party that never
+      // came, a block held for members), so the seat colour shows through at 80 m where a fan is
+      // 1-2 px; more toward the back of each tier and in the corners of the ground, fewer behind the
+      // bowler's arm and square of the wicket. Plus a few single empty seats.
+      const a = Math.atan2(s.x, s.z), r = Math.hypot(s.x, s.z), row = s.row || 0;
+      const u = Math.floor((a * r) / 6), v = Math.floor(row / 3);
+      const hv = Math.sin(s.block * 12.7 + u * 3.1 + v * 7.91 + holeSeed) * 43758.5453, h = hv - Math.floor(hv);
+      const dc = Math.abs(((((a * 180) / Math.PI + 360) % 90) + 90) % 90 - 45) / 45;   // 0 at a corner (45, 135, ...), 1 square / straight
+      const pPatch = (1 - B.occ) * 0.75 + 0.1 * Math.min(1, row / 14) + 0.1 * (1 - dc) * (1 - dc) - 0.03;
+      if (h < pPatch) continue;
+      if (rand() < 0.03) continue;
+    } else if (hole(s.block, s.row || 0, s.i || i) > B.occ + (rand() - 0.5) * 0.12) continue;
     fans.push(s);
   }
   const B_ULTRA = new Set(); for (const [id, B] of blocks) if (B.ultras) B_ULTRA.add(id);
@@ -570,7 +578,7 @@ export function buildCrowd(spots, { blocks, lights, maxCount = 26000, sectors = 
         const sp = PEOPLE[body];
         const kit = team === 1 ? KIT.home : team === 2 ? KIT.away : null;
         // Team fans mostly wear the shirt (a few just a cap or scarf); everyone else dresses for a day out.
-        const inKit = kit && rand() < (B.ultras ? 0.9 : 0.7);
+        const inKit = kit && rand() < (B.ultras ? 0.9 : B.strong ? 0.88 : 0.7);
         const shirt = inKit ? pick(kit.a) : s.type === 'members' ? pick([0xf2efe6, 0x2b3550, 0xe8e2d0, 0x1f2a44, 0x9bb7d4, 0xffffff]) : pick(CASUAL);
         let accent;
         if (sp.jersey) accent = inKit ? pick(kit.b) : pick(CASUAL);

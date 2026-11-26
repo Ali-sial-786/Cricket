@@ -51,6 +51,9 @@ const TOWERS = [45, 135, 225, 315];
 const TV = [160, 200, 340, 270];                       // camera platforms on the upper tier front
 const bayType = (b) => (b >= 2 && b <= 4 ? 'bank' : b >= 8 && b <= 9 ? 'pav' : 'stand');
 const AISLE = 0.8;                                      // degrees
+// A cross gangway in each tier (two rows with no seats, dark painted): far off, where a fan is 1-2 px, the
+// tiers read as blocks of 6-8 rows split by dark bands, not as an even speckle.
+const GW_LOW = 7, GW_UP = 6;                                  // (the first of two rows)
 
 // ------------------------------------------------------------------ atlas
 // Bands stacked down the texture (u repeats round the ground), multiplied by
@@ -367,7 +370,7 @@ function makeShade(sunDir) {
   const skyVis = (x, y, z) => {
     const r = Math.hypot(x, z), a = angOf(x, z);
     let k = 1;
-    if (r > ROOF.rF - 0.5 && y < ROOF.yB && roofed(a)) { const el = Math.atan2(roofY(ROOF.rF) - y, Math.max(0.1, r - ROOF.rF)); k = 0.7 + 0.3 * Math.sin(clamp(el, 0, Math.PI / 2)); }      // the sunlit field bounces a lot back in
+    if (r > ROOF.rF - 0.5 && y < ROOF.yB && roofed(a)) { const el = Math.atan2(roofY(ROOF.rF) - y, Math.max(0.1, r - ROOF.rF)); k = 0.3 + 0.7 * Math.pow(Math.sin(clamp(el, 0, Math.PI / 2)), 2.2); }      // (the field's bounce still reaches in, but the back rows only see the roof)
     if (typeAt(a) === 'stand' && r > lowEndR - 0.1 && r < BOWL.concourseR + 0.1 && y > lowEndY - 0.1 && y < BOWL.boxTop + 0.05) k *= 0.8;
     return k;
   };
@@ -428,7 +431,7 @@ export function buildStadium(root, lights) {
   const coneGeo = new THREE.ConeGeometry(1, 1, 9, 1, true);
   const T = (h) => B.tint(h);
   const C = {
-    concrete: T(0xb9b5ad), wall: T(0x24333f), seatLow: T(0x2f5266), seatUp: T(0x3b6276), seatAlt: T(0xc9ced4), cover: T(0x272d36),
+    concrete: T(0xb9b5ad), wall: T(0x24333f), seatLow: T(0x2f5266), seatUp: T(0x3b6276), seatAlt: T(0xc9ced4), cover: T(0x272d36), gangway: T(0x1d2024),
     members: T(0x2f5a3c), fascia: T(0x18222d), roofUnder: T(0xbcc5d2), roofTop: T(0xdfe3e6), steel: T(0xe9ecee), dark: T(0x14181d),
     grass: T(0x5e8f3e), cream: T(0xece3cf), green: T(0x3f6b55), white: T(0xf4f2ec), tower: T(0xa8afb6), tarp: T(0x47554e),
   };
@@ -488,10 +491,12 @@ export function buildStadium(root, lights) {
   for (let bay = 0; bay < 36; bay++) {
     const type = bayType(bay);
     for (let tier = 0; tier < 3; tier++) {
-      const away = bay >= 20 && bay <= 22, ultras = (bay === 14 || bay === 15) && tier === 0;
+      // Team ends that read from across the ground: the away section (200-240 deg, both tiers) and the
+      // home end behind the batter (320-20 deg) are each dominated by their colours; the rest is mixed.
+      const away = bay >= 20 && bay <= 23, homeEnd = bay >= 32 || bay <= 1, ultras = (bay === 14 || bay === 15) && tier === 0;
       const thin = tier === 1 && (bay === 26 || bay === 27 || bay === 31 || bay === 5);
       blocks.set(blockOf(bay, tier), {
-        home: away ? 0.1 : ultras ? 0.88 : 0.26 + rand() * 0.2, away: away ? 0.72 : ultras ? 0.02 : 0.05 + rand() * 0.08, ultras,
+        home: away ? 0.07 : ultras ? 0.88 : homeEnd ? 0.8 : 0.2 + rand() * 0.15, away: away ? 0.84 : ultras || homeEnd ? 0.02 : 0.06 + rand() * 0.08, ultras, strong: away || homeEnd,
         occ: tier === 2 ? 0.3 : type === 'bank' ? 0.5 : thin ? 0.55 : tier === 0 ? 0.86 + rand() * 0.1 : 0.74 + rand() * 0.16,
       });
     }
@@ -516,16 +521,16 @@ export function buildStadium(root, lights) {
       // Lower tier (behind a sightscreen: under a tarpaulin).
       if (covered) tarp(a0, a1, L, lowRowR, lowRowY, lowEndR, lowEndY);
       else for (let i = 0; i < L.rows; i++) {
-        const inVom = kind === 'vom' && i >= 3 && i <= 9;
+        const inVom = kind === 'vom' && i >= 3 && i <= 9, gw = i === GW_LOW || i === GW_LOW + 1;
         const yb = i ? lowRowY(i - 1) : L.y0 - 0.001, yt = lowRowY(i), r = lowRowR(i);
         if (inVom) {
           if (i === 3) sweep(a0, a1, r, yb, r, yt, 'ROW', TREAD, 1, {});
           continue;
         }
-        const band = kind === 'aisle' ? 'STEPS' : covered ? 'PLAIN' : 'ROW', ct = covered ? { tint: C.cover } : {};
+        const band = kind === 'aisle' ? 'STEPS' : covered ? 'PLAIN' : 'ROW', ct = covered ? { tint: C.cover } : gw && kind !== 'aisle' ? { tint: C.gangway } : {};
         if (i > 0) sweep(a0, a1, r, yb, r, yt, band, TREAD, 1, { sky: 0.85, ...ct });
         sweep(a0, a1, r, yt, r + L.depth, yt, band, TREAD, 0, ct);
-        if (kind !== 'aisle') {
+        if (kind !== 'aisle' && !gw) {
           const rs = r + L.depth - 0.14;
           sweep(a0, a1, rs, yt + 0.36, rs + 0.07, yt + 0.8, 'SEATS', 1, 0, { tint: seatTintLow });
           if (!covered && !(type === 'pav' && i > 11)) addSeats(a0, a1, r + L.depth - 0.36, yt, i, blockOf(bay, 0), type === 'pav' ? 'members' : 'seat', 0.5);
@@ -548,11 +553,11 @@ export function buildStadium(root, lights) {
       if (covered && inArc(mid, MEDIA[0], MEDIA[1])) mediaCentre(a0, a1);
       else if (covered) tarp(a0, a1, U, upRowR, upRowY, BOWL.backR, upEndY);
       else for (let j = 0; j < U.rows; j++) {
-        const yb = j ? upRowY(j - 1) : U.y0 - 0.001, yt = upRowY(j), r = upRowR(j);
-        const band = kind === 'aisle' ? 'STEPS' : covered ? 'PLAIN' : 'ROW', ct = covered ? { tint: C.cover } : {};
+        const yb = j ? upRowY(j - 1) : U.y0 - 0.001, yt = upRowY(j), r = upRowR(j), gw = j === GW_UP || j === GW_UP + 1;
+        const band = kind === 'aisle' ? 'STEPS' : covered ? 'PLAIN' : 'ROW', ct = covered ? { tint: C.cover } : gw && kind !== 'aisle' ? { tint: C.gangway } : {};
         if (j > 0) sweep(a0, a1, r, yb, r, yt, band, TREAD, 1, { sky: 0.85, ...ct });
         sweep(a0, a1, r, yt, r + U.depth, yt, band, TREAD, 0, ct);
-        if (kind !== 'aisle') {
+        if (kind !== 'aisle' && !gw) {
           const rs = r + U.depth - 0.14;
           sweep(a0, a1, rs, yt + 0.36, rs + 0.07, yt + 0.8, 'SEATS', 1, 0, { tint: seatTintUp });
           if (!covered) addSeats(a0, a1, r + U.depth - 0.36, yt, j, blockOf(bay, 1), 'seat', 0.5, j < 4);
