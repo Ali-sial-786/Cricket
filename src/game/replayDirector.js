@@ -11,6 +11,7 @@
 //                past the helmet, a lofted shot down by a fielder, a hard hit
 //                stopped before the rope, a direct hit, a diving stop, a
 //                misfield / overthrows (DIRECTOR's thresholds);
+//                and the ball that ends an innings or the match, whatever it was;
 //      routine   everything else (leaves well wide, dots, pushed singles): only
 //                "every ball".
 // 2. The takes. A replay is a sequence of whole takes, each ONE continuous
@@ -138,6 +139,7 @@ export function classify(f) {
   if (f.safe) return { story: 'safe', tier: 'close' };                      // (lofted, down safe by a fielder)
   if (f.saved) return { story: 'saved', tier: 'close' };                    // (hit hard, stopped before the rope)
   if (r.overthrows || f.overthrow) return { story: 'misfield', tier: 'close' };
+  if (f.last) return { story: 'last', tier: 'close' };                      // (the winning single, the innings' last ball)
   return { story: 'routine', tier: 'routine' };
 }
 
@@ -293,7 +295,7 @@ function recipe(story, tier, m, tape) {
     return end;
   };
 
-  if (story === 'routine' || story === 'beaten' || story === 'leave' || story === 'bouncer') {
+  if (story === 'routine' || story === 'beaten' || story === 'leave' || story === 'bouncer' || story === 'last') {
     // the bowler's end only (a beaten bat: the ball past the edge, into the keeper's gloves)
     takeOne(arr, tier === 'routine' ? 1.0 : Math.min(1.4, (m.held ?? dead) - arr + 0.35));
     return { story, tier, shots, segs, takes, key: arr };

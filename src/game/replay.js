@@ -221,7 +221,9 @@ export class Replay {
         if (f.savedT != null) { saved = true; m.savedT = f.savedT; }
       }
     }
-    return classify({ res: r, wicket: o.wicket, boundary: o.boundary, review: m.review != null, edge: !!m.edge, behind, nearMiss, batGap, headGap, safe, saved,
+    // (the ball that ends an innings or the match: the winning runs, the last wicket, the last ball)
+    const ses = this.g && this.g.session, last = !!(ses && ses.innings && ses.innings.complete);
+    return classify({ res: r, wicket: o.wicket, boundary: o.boundary, review: m.review != null, edge: !!m.edge, behind, nearMiss, batGap, headGap, safe, saved, last,
       dropped: m.dropT != null, dive: m.diveT != null, direct: !!m.direct, overthrow: m.overthrow != null, brk: m.break != null });
   }
 

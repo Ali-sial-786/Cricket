@@ -136,6 +136,7 @@ test('classify: wickets, boundaries, close calls and every moment a viewer would
   assert.deepEqual(C({ res: { kind: 'left' }, headGap: 0.2 }), { story: 'bouncer', tier: 'close' }, 'a bouncer past the helmet');
   assert.deepEqual(C({ res: { kind: 'runs', runs: 1 }, safe: true }), { story: 'safe', tier: 'close' }, 'lofted, down safe by a fielder');
   assert.deepEqual(C({ res: { kind: 'runs', runs: 2 }, saved: true }), { story: 'saved', tier: 'close' }, 'hit hard, stopped before the rope');
+  assert.deepEqual(C({ res: { kind: 'runs', runs: 1 }, last: true }), { story: 'last', tier: 'close' }, 'the winning single / the last ball of an innings');
   // routine
   for (const f of [{ res: { kind: 'left' } }, { res: { kind: 'runs', runs: 0 } }, { res: { kind: 'runs', runs: 1 } }, { res: { kind: 'beaten', padded: true } },
     { res: { kind: 'beaten' }, nearMiss: 0.4 }, { res: { kind: 'beaten' }, nearMiss: 0.3, batGap: 0.25 }, { res: { kind: 'left' }, nearMiss: 0.2 }, { res: { kind: 'left' }, headGap: 0.6 },
