@@ -463,7 +463,10 @@ function ringMarkerTexture(color, dotColor) {
 export function buildRingMarker(color = 0xffe14d, radius = 0.22, dotColor = color) {
   const g = new THREE.Group();
   const q = new THREE.Mesh(new THREE.PlaneGeometry(radius * 2.2, radius * 2.2),
-    new THREE.MeshBasicMaterial({ map: ringMarkerTexture(color, dotColor), transparent: true, depthWrite: false, toneMapped: false }));
+    new THREE.MeshBasicMaterial({ map: ringMarkerTexture(color, dotColor), transparent: true, depthWrite: false, toneMapped: false,
+      // (the pitch and the turf shadows are drawn with a depth bias toward the eye; at the shallow angle a
+      // bowler sees a marker 15-20 m away that bias is worth far more than the marker's 1 cm, and it hid it)
+      polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -8 }));
   q.rotation.x = -Math.PI / 2;
   q.position.y = 0.01;
   q.renderOrder = 2;
