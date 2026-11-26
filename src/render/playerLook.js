@@ -48,7 +48,7 @@ export function lookFor(seed, team, role = 'player') {
   const pick = (a) => a[Math.floor(r() * a.length)];
   const skinIx = Math.floor(r() * SKIN_TONES.length);
   // (fair-skinned men more often have lighter hair; most hair is dark)
-  const hair = skinIx <= 1 && r() < 0.45 ? pick([0x45311f, 0x6b4a2c, 0x8f6a3e, 0x2b1e15]) : pick([0x17110d, 0x2b1e15, 0x0b0b0b, 0x17110d, 0x45311f]);
+  const hair = skinIx <= 1 && r() < 0.45 ? pick([0x45311f, 0x6b4a2c, 0x8f6a3e, 0x2b1e15, 0xa8834f, 0x6a3420]) : pick([0x17110d, 0x2b1e15, 0x0b0b0b, 0x17110d, 0x45311f]);
   const older = role === 'umpire' && r() < 0.6;
   const beardRoll = r();
   const L = {
@@ -211,7 +211,7 @@ function paintFace(F) {
   const ss = (a, b, v) => { const t = sat((v - a) / (b - a)); return t * t * (3 - 2 * t); };
   const ell = (x, y, cx, cy2, ax, ay) => Math.sqrt(sq((x - cx) / ax) + sq((y - cy2) / ay));
   // the lid opening: headMesh.js's almond (30 mm across, the upper lid over the top of the iris)
-  const ow = 0.0152, oh = 0.0051;
+  const ow = 0.0152, oh = 0.0053;
   // (symmetric: the +x half is painted and mirrored; each feature only where it can reach)
   for (let j = 0; j < M; j++) {
     const y = y0 + (j + 0.5) / M * h;
@@ -226,13 +226,13 @@ function paintFace(F) {
       const dxE = ax - ex, dyE = y - ey;
       if (Math.abs(dxE) < ow * 2.2 && Math.abs(dyE) < oh * 5) {
       const tilt = dyE - dxE * 0.08;                                  // outer corners slightly up
-      const open = Math.sqrt(sq(dxE / ow) + sq(tilt / (tilt > 0 ? oh : 0.0058)));
+      const open = Math.sqrt(sq(dxE / ow) + sq(tilt / (tilt > 0 ? oh : 0.006)));
       shade -= 0.05 * Math.exp(-sq(ell(ax, y, ex - 0.002, ey + 0.002, ow * 1.2, oh * 2.6) / 1.0) * 1.2);      // socket
       // upper lid: a dark lash band just above the opening, thicker toward the outer corner
       const upper = tilt > 0 ? 1 : 0;
       const lashW = 0.0011 + 0.0011 * ss(-ow, ow, dxE);
       liner = Math.max(liner, upper * Math.exp(-sq((open - 1) * oh / lashW)) * ss(1.25, 0.6, Math.abs(dxE) / ow));
-      liner = Math.max(liner, (1 - upper) * 0.45 * Math.exp(-sq((open - 1) * oh / 0.0007)) * ss(1.1, 0.5, Math.abs(dxE) / ow));
+      liner = Math.max(liner, (1 - upper) * 0.1 * Math.exp(-sq((open - 1) * oh / 0.0007)) * ss(1.1, 0.5, Math.abs(dxE) / ow));
       // lid crease above
       shade -= 0.05 * upper * Math.exp(-sq(((open - 1.75) * oh) / 0.0016)) * ss(1.3, 0.6, Math.abs(dxE) / ow);
       // inside the opening: eye white with a painted iris (only seen on the eyeball-less far model)
@@ -280,7 +280,7 @@ function paintFace(F) {
           const top = 0.0048 * Math.pow(Math.max(0, 1 - ux * ux), 0.7) + bow * 0.5, bot = -0.0056 * Math.pow(Math.max(0, 1 - ux * ux), 0.7);   // (thin, tapering into the corners)
           const inLip = up ? ss(top + 0.0011, top - 0.0011, y - my) : ss(bot - 0.0013, bot + 0.0013, y - my);
           lips = Math.max(lips, inLip * (up ? 1 : 0.8));
-          shade -= 0.3 * Math.exp(-sq((y - my - 0.0009 * ux * ux) / 0.0008)) * ss(1.02, 0.65, ux);        // the parting
+          shade -= 0.3 * Math.exp(-sq((y - my - 0.0014 * ux * ux) / 0.0008)) * ss(1.02, 0.65, ux);        // the parting
           shade -= 0.06 * ss(0.0018, 0, Math.abs(ux - 1)) * Math.exp(-sq((y - my) / 0.003));                  // corners
           shade -= 0.05 * up * inLip;
           shade += 0.06 * (1 - up ? 1 : 0) * Math.exp(-sq((y - my + 0.0045) / 0.002)) * ss(0.8, 0.2, ux);   // lower lip highlight

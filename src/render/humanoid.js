@@ -120,7 +120,7 @@ function prepareRig(meta, bin) {
   const floor = canon.ankleL.y - sole;
   const face = faceLandmarks(lods[0], meta);
   // (the new head's own landmarks: headMesh.js)
-  Object.assign(face, { brow: headL.brow - 0.001, nose: headL.nose, chin: headL.C, mouth: [0.022, headL.mouth], front: headL.zF });
+  Object.assign(face, { brow: headL.brow - 0.001, nose: headL.nose, chin: headL.C, mouth: [0.0195, headL.mouth], front: headL.zF });
   lods.forEach((L, i) => L.forEach((p) => refinePart(p, i)));
   return { sole, toe, floor, bones: meta.bones, index: Object.fromEntries(meta.bones.map((b, i) => [b, i])), J, canon, bindQ, inverses, lods, headCentre: new THREE.Vector3(...meta.headCentre), headSize: new THREE.Vector3(...(meta.headSize || [0.1, 0.14, 0.125])), skull: meta.skull, face, geoCache: new Map() };
 }
@@ -652,24 +652,32 @@ const KIT_GLSL_COMMON = /* glsl */`
   float hairCover(vec3 p, float st, out float vol) {
     vec3 q = p - uSkull.xyz;
     float a = abs(atan(q.x, q.z));
+    // (the line: 5.5 cm over the brow in front, down at the temples, curving back ABOVE the ear (the ear
+    // is at a = 1.68..2.09, q.y = -0.065..-0.003) and leaving it clear, then down behind it to the nape)
     float yl = 0.059;
     yl = mix(yl, 0.048, smoothstep(0.0, 0.55, a));
-    yl = mix(yl, 0.004, smoothstep(0.55, 1.15, a));
-    yl = mix(yl, -0.048, smoothstep(1.15, 1.95, a));
-    yl = mix(yl, -0.086, smoothstep(1.95, 3.1, a));
-    if (abs(st - 3.0) < 0.5) yl += 0.02 * exp(-pow((a - 0.45) / 0.22, 2.0)) + 0.012 * (1.0 - smoothstep(0.0, 0.7, a));
+    yl = mix(yl, 0.02, smoothstep(0.55, 1.2, a));
+    yl = mix(yl, 0.01, smoothstep(1.2, 1.6, a));
+    yl = mix(yl, -0.055, smoothstep(2.2, 2.55, a));
+    yl = mix(yl, -0.086, smoothstep(2.55, 3.1, a));
+    if (abs(st - 3.0) < 0.5) yl += 0.028 * exp(-pow((a - 0.5) / 0.25, 2.0)) + 0.016 * (1.0 - smoothstep(0.0, 0.7, a));   // (receding: deep temples)
+    if (abs(st - 4.0) < 0.5) yl -= 0.008 * (1.0 - smoothstep(0.3, 0.7, a));                                              // (a fringe forward)
     float cv = smoothstep(yl - 0.004, yl + 0.005, q.y);
-    // sideburns down to the ear's middle
-    // (narrowing as they go down, soft at the end: not a rectangle)
-    float sw = 0.05 + 0.08 * smoothstep(-0.034, 0.004, q.y);
-    cv = max(cv, smoothstep(sw, sw - 0.035, abs(a - 1.1)) * smoothstep(-0.038, -0.024, q.y) * smoothstep(0.012, 0.0, q.y - yl));
+    // sideburns: about 2 cm wide in front of the ear, narrowing down to mid-ear (to the lobe on a longer
+    // cut, short on a fade), soft at the end
+    float sb = abs(st - 4.0) < 0.5 ? -0.05 : abs(st - 1.0) < 0.5 ? -0.02 : -0.034;
+    float sw = 0.06 + 0.07 * smoothstep(sb, yl, q.y);
+    cv = max(cv, smoothstep(sw, sw - 0.04, abs(a - 1.5)) * smoothstep(sb - 0.006, sb + 0.006, q.y) * step(q.y, yl + 0.01));
     float sides = smoothstep(0.7, 1.0, a) * smoothstep(0.045, 0.0, q.y);
     // (the hair thickens over two or three centimetres from its line, so the volume rises off the skin
-    // as a slope, not a step along the mesh's rows; a sideburn lies flat)
+    // as a slope, not a step along the mesh's rows; a sideburn lies flat). The cuts' silhouettes apart:
+    // a crop close, a fade bare at the sides, a side part swept over, a longer top standing up.
     vol = smoothstep(yl, yl + 0.028, q.y);
-    if (abs(st - 1.0) < 0.5) { cv *= 1.0 - 0.65 * sides; vol *= 1.0 - sides; }
-    if (abs(st - 2.0) < 0.5) cv *= 1.0 - 0.6 * smoothstep(0.003, 0.0, abs(q.x - 0.028)) * step(0.05, q.y) * step(a, 1.3);
-    if (abs(st - 4.0) < 0.5) vol *= 1.0 + 1.2 * smoothstep(0.03, 0.08, q.y);
+    if (st < 0.5) vol *= 0.6;
+    if (abs(st - 1.0) < 0.5) { cv *= 1.0 - 0.75 * sides; vol *= 1.0 - sides; }
+    if (abs(st - 2.0) < 0.5) { cv *= 1.0 - 0.6 * smoothstep(0.003, 0.0, abs(q.x - 0.028)) * step(0.05, q.y) * step(a, 1.3);
+      vol *= 1.0 + 0.8 * smoothstep(0.03, -0.01, q.x) * smoothstep(0.02, 0.06, q.y); }
+    if (abs(st - 4.0) < 0.5) vol *= 1.0 + 1.8 * smoothstep(0.02, 0.07, q.y);
     if (st > 4.5) { cv *= 0.5; vol = 0.0; }
     return cv;
   }
@@ -898,7 +906,7 @@ function kitMaterial(fig = null) {
           if (ex > 1.5 || ex < 0.5) {      // (relaxed: a third of the smile, so a resting face reads friendly)
             float sm = ex > 1.5 ? 1.0 : 0.5;
             float dm = position.y - uFaceMisc.w;
-            float corner = exp(-pow((ax - 0.026) / 0.012, 2.0) - dm * dm / 0.00008) * sm;
+            float corner = exp(-pow((ax - 0.023) / 0.011, 2.0) - dm * dm / 0.00008) * sm;
             transformed.y += 0.0028 * corner; transformed.z -= 0.0012 * corner; transformed.x += sign(position.x) * 0.0012 * corner;
             transformed.y += 0.0015 * sm * exp(-pow((ax - 0.045) / 0.015, 2.0) - pow((position.y - uEye.y + 0.028) / 0.012, 2.0));
           }
@@ -923,7 +931,7 @@ function kitMaterial(fig = null) {
         uniform vec4 uMakerUV; uniform vec4 uGlyph;
         uniform float uDetail;
         ${KIT_GLSL_COMMON}
-        float gWrap = 0.25, gSpec = 0.04, gShin = 10.0, gKind = 0.0, gSSS = 0.0, gShade = 0.0;
+        float gWrap = 0.25, gSpec = 0.04, gShin = 10.0, gKind = 0.0, gSSS = 0.0, gShade = 0.0; vec3 gSpecC = vec3(1.0);
         vec3 gBX, gBY;                     // screen derivatives of the bind position
         // a decal: r = centre, half size (bind metres), uvr = its atlas rect; flip: mirrored (read from behind)
         vec4 decalAt(vec2 p, vec4 r, vec4 uvr, float flip) {
@@ -957,7 +965,7 @@ function kitMaterial(fig = null) {
           vec3 H = normalize( directLight.direction + geometryViewDir );
           float nh = max( dot( geometryNormal, H ), 0.0 );
           float sp = gSpec * pow( nh, gShin ) * ( gShin + 8.0 ) * 0.04 * smoothstep( -0.05, 0.25, nl );
-          reflectedLight.directSpecular += directLight.color * sp * lit;
+          reflectedLight.directSpecular += directLight.color * sp * lit * gSpecC;
         }
         void RE_IndirectDiffuse_Lambert( const in vec3 irradiance, const in vec3 geometryPosition, const in vec3 geometryNormal, const in vec3 geometryViewDir, const in vec3 geometryClearcoatNormal, const in LambertMaterial material, inout ReflectedLight reflectedLight ) {
           reflectedLight.indirectDiffuse += irradiance * BRDF_Lambert( material.diffuseColor );
@@ -1132,7 +1140,8 @@ function kitMaterial(fig = null) {
           float dens = smoothstep(0.0, 0.6, hcv) * mix(0.85, 1.0, uLook2.z);
           c = mix(c, hcol, dens);
           kitH += 0.00008 * strands * dens;
-          gSSS *= 1.0 - dens; gSpec = mix(gSpec, 0.16 * 0.55, dens); gShin = mix(gShin, 14.0, dens); gWrap = mix(gWrap, 0.3, dens);
+          gSSS *= 1.0 - dens; gSpec = mix(gSpec, 0.07, dens); gShin = mix(gShin, 26.0, dens);
+          gSpecC = mix(vec3(1.0), uHair * 2.0 + 0.06, dens);     // (a narrow sheen in the hair's own colour, not a pale patch) gWrap = mix(gWrap, 0.3, dens);
         }
       }
       // ---- the face: painted map projected from the front of the head
@@ -1141,7 +1150,10 @@ function kitMaterial(fig = null) {
         vec2 fu = (vBind.xy - uFaceRect.xy) / uFaceRect.zw;
         vec4 f = textureGrad(uFaceMap, fu, gBX.xy / uFaceRect.zw, gBY.xy / uFaceRect.zw);
         // (the painted creases a third deeper than before: the mesh's own shading is soft)
-        float m = 1.0 + (0.9 * f.r - 0.45) * 0.45;          // (the head's own geometry carries the form now: the paint only accents it)
+        // (the painted and the socket shades scaled down on light skin: the same shade reads twice as
+        // strong there, and made the fair players look fifty)
+        float shk = mix(1.0, 0.55, smoothstep(0.15, 0.45, dot(FIG(4).rgb, vec3(0.3, 0.55, 0.15))));
+        float m = 1.0 + (0.9 * f.r - 0.45) * 0.45 * shk;          // (the head's own geometry carries the form now: the paint only accents it)
         c *= m;
         // skin is not one colour: warmer, redder cheeks, nose and lips, a darker, cooler jaw and upper
         // lip (the beard under the skin), a little paler forehead; and pores and blotches close up
@@ -1165,8 +1177,8 @@ function kitMaterial(fig = null) {
         float hollow = exp(-pow(length(vec2(ax - 0.05, yy - uFaceMisc.y + 0.012) / vec2(0.016, 0.02)), 2.0));
         float cbone = exp(-pow(length(vec2(ax - 0.048, yy - uEye.y + 0.022) / vec2(0.018, 0.008)), 2.0));
         float old = smoothstep(0.5, 1.0, age);      // (age 0.5 is about 35: nothing of it before)
-        c *= (1.0 - 0.05 * sock - 0.04 * hollow) * (1.0 + 0.05 * cbone);
-        c *= mix(1.0, 0.3 + 1.4 * f.r, 0.12 + 0.6 * old);
+        c *= (1.0 - (0.05 * sock + 0.04 * hollow) * shk) * (1.0 + 0.05 * cbone);
+        c *= mix(1.0, 0.3 + 1.4 * f.r, (0.12 + 0.6 * old) * shk);
         float fine = 1.0 - smoothstep(0.0005, 0.0011, fw);
         float fh = smoothstep(uEye.y + 0.03, uEye.y + 0.045, yy) * smoothstep(uEye.y + 0.08, uEye.y + 0.06, yy) * smoothstep(0.06, 0.03, ax);
         c *= 1.0 - old * 0.32 * fh * smoothstep(0.4, 1.0, sin(yy * 820.0 + sin(vBind.x * 40.0) * 1.5)) * fine;
@@ -1236,17 +1248,18 @@ function kitMaterial(fig = null) {
       float ageE = FIG(17).x + (abs(FIG(18).x - 1.0) < 0.5 ? 0.55 : FIG(18).x > 1.5 ? 0.25 : 0.0);      // (an older man's lids sit lower; a focused man narrows his eyes, a smiling one a little)
       // (just inside the lids' own edges, so the lid's margin and the lash line are one line: the upper lid
       // over the top of the iris, white either side of it)
-      float up = r * (0.71 - 0.14 * ageE - 0.42 * u * u) + 0.17 * r * u, lo = -r * (0.81 - 0.08 * ageE - 0.46 * u * u) + 0.17 * r * u;
+      float up = r * (0.74 - 0.14 * ageE - 0.44 * u * u) + 0.17 * r * u, lo = -r * (0.84 - 0.08 * ageE - 0.48 * u * u) + 0.17 * r * u;
       // a blink every few seconds (each man on his own clock): the upper lid comes down for ~0.15 s
-      float bp = fract(uTime / (3.7 + 1.9 * uSeed) + uSeed * 7.3);
-      up = mix(up, lo + 0.0006, smoothstep(0.0, 0.012, bp) * (1.0 - smoothstep(0.022, 0.04, bp)));
+      // (quick and not often: about 0.1 s every 5..8 s)
+      float bp = fract(uTime / (5.0 + 3.0 * uSeed) + uSeed * 7.3);
+      up = mix(up, lo + 0.0006, smoothstep(0.0, 0.005, bp) * (1.0 - smoothstep(0.011, 0.019, bp)));
       float px = max(fw, 0.0003);
-      c *= vec3(0.94, 0.91, 0.87) * mix(1.0, 0.72, smoothstep(up - 0.0035, up, e.y)) * mix(1.0, 0.9, smoothstep(lo + 0.002, lo, e.y));
+      c *= vec3(0.94, 0.91, 0.87) * mix(1.0, 0.84, smoothstep(up - 0.003, up, e.y)) * mix(1.0, 0.9, smoothstep(lo + 0.002, lo, e.y));
       float lid = max(smoothstep(up - px, up + px, e.y), smoothstep(lo + px, lo - px, e.y));
-      c = mix(c, uSkin * 0.86, lid);
-      float lash = exp(-pow((e.y - up - 0.0005) / 0.0012, 2.0)) * (1.0 - smoothstep(0.8, 1.05, abs(u)));
+      c = mix(c, uSkin * 0.95, lid);
+      float lash = exp(-pow((e.y - up - 0.0003) / 0.0008, 2.0)) * (1.0 - smoothstep(0.8, 1.05, abs(u)));
       c = mix(c, uHair * 0.22, clamp(lash, 0.0, 1.0) * 0.95);
-      c = mix(c, uSkin * 0.55, exp(-pow((e.y - lo + 0.0004) / 0.0007, 2.0)) * 0.5);
+      c = mix(c, uSkin * 0.8, exp(-pow((e.y - lo + 0.0004) / 0.0007, 2.0)) * 0.15);   // (the lower lid: no lashes, a light edge)
       // the iris: a dark ring at its edge, lighter flecks round the pupil, the pupil black; and a
       // catch-light (the sky in the wet eye) on the same side of both eyes
       float ir = length(e) / (uEye.z * 0.84);

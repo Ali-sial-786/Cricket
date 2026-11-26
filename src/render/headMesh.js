@@ -54,13 +54,13 @@ export function headField(H, eyes = true) {
     d = smin(d, ell(ax, y, z, [0, E - 0.03, zE - 0.052], [0.056, 0.05, 0.065]), 0.02);
     d = smin(d, ell(ax, y, z, [0, mouth + 0.003, zE - 0.041], [0.044, 0.034, 0.045]), 0.024);   // (broad and flat: no snout, no creases at its sides)
     // full cheeks: a smooth convex surface from the cheekbone down to the jaw
-    d = smin(d, ell(ax, y, z, [0.034, mouth + 0.012, zE - 0.03], [0.023, 0.032, 0.03]), 0.024);
-    d = smin(d, ell(ax, y, z, [0, C + 0.013, zE - 0.045], [0.044, 0.014, 0.05]), 0.016);
+    d = smin(d, ell(ax, y, z, [0.034, mouth + 0.014, zE - 0.03], [0.023, 0.027, 0.03]), 0.024);   // (no sag under the jaw line)
+    d = smin(d, ell(ax, y, z, [0, C + 0.014, zE - 0.048], [0.042, 0.012, 0.044]), 0.016);
     // the mandible: chin to angle, angle up the ramus
     const go = [0.048, C + 0.034, zE - 0.088];
-    d = smin(d, cone(ax, y, z, [0.015, C + 0.012, zF - 0.02], go, 0.012, 0.013), 0.018);
+    d = smin(d, cone(ax, y, z, [0.015, C + 0.012, zF - 0.017], go, 0.012, 0.013), 0.018);
     d = smin(d, cone(ax, y, z, go, [0.05, E - 0.028, zE - 0.098], 0.013, 0.011), 0.012);
-    d = smin(d, ell(ax, y, z, [0, C + 0.014, zF - 0.021], [0.028, 0.017, 0.013]), 0.02);   // the chin
+    d = smin(d, ell(ax, y, z, [0, C + 0.014, zF - 0.017], [0.027, 0.017, 0.013]), 0.02);   // the chin
     // neck (to below the collar), the sternomastoids
     const nx = ax / 0.053, nz = (z - czN) / 0.056;
     let n = Math.sqrt(nx * nx + nz * nz) * 0.053 - 0.053;
@@ -76,14 +76,14 @@ export function headField(H, eyes = true) {
     d = smin(d, ell(ax, y, z, [0, nose + 0.0045, zF + 0.0065], [0.0088, 0.0064, 0.0085]), 0.008);
     d = smin(d, ell(ax, y, z, [0.0115, nose + 0.0045, zF + 0.001], [0.0078, 0.0072, 0.008]), 0.009);
     // lips, the line between them
-    d = smin(d, ell(ax, y, z, [0, mouth + 0.005, zF - 0.008], [0.022, 0.005, 0.0075]), 0.008);
-    d = smin(d, ell(ax, y, z, [0, mouth - 0.0055, zF - 0.009], [0.02, 0.0056, 0.0075]), 0.008);
-    d = smax(d, -ell(ax, y, z, [0, mouth - 0.0002, zF - 0.002], [0.024, 0.0009, 0.008]), 0.0025);
+    d = smin(d, ell(ax, y, z, [0, mouth + 0.005, zF - 0.008], [0.0195, 0.005, 0.0075]), 0.008);
+    d = smin(d, ell(ax, y, z, [0, mouth - 0.0055, zF - 0.009], [0.0175, 0.0056, 0.0075]), 0.008);
+    d = smax(d, -ell(ax, y, z, [0, mouth - 0.0002, zF - 0.002], [0.021, 0.0009, 0.008]), 0.0025);
     if (eyes) {
       // sockets carved in front of each eyeball, lids over it with an almond opening
       d = smax(d, -ell(ax, y, z, [ex, E + 0.001, zE + 0.01], [0.017, 0.0115, 0.009]), 0.008);
       const dx = ax - ex, dy = y - E;
-      const ox = dx / 0.0152, oy = (dy - 0.08 * dx) / (dy > 0 ? 0.0051 : 0.0058), open = Math.sqrt(ox * ox + oy * oy) - 1;   // < 0 in the almond
+      const ox = dx / 0.0152, oy = (dy - 0.08 * dx) / (dy > 0 ? 0.0053 : 0.006), open = Math.sqrt(ox * ox + oy * oy) - 1;   // < 0 in the almond
       let lid = Math.sqrt(dx * dx + dy * dy + (z - zE) * (z - zE)) - (re + 0.0017);
       if (open < 0 && z > zE - 0.002) lid = Math.max(lid, -open * 0.005);                         // (the opening)
       d = smin(d, lid, 0.003);
