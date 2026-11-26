@@ -10,7 +10,7 @@ const ctx = new Proxy({}, { get: (o, k) => (k in o ? o[k] : () => ({ addColorSto
 globalThis.document ??= { createElement: () => ({ width: 0, height: 0, getContext: () => ctx, style: {} }) };
 const { EYE_CLEAR, FIELD_CLEAR, FAST_CLEAR, bendAround } = await import('../src/game/playerSpace.js');
 const { resultPaths, resultStaging, winnersFocus, gatherAt, HUDDLE_AT, HUDDLE_RING } = await import('../src/game/ceremony.js');
-const { HUDDLE_YOU, HUDDLE_AWAY, clearHuddle } = await import('../src/game/fieldController.js');
+const { HUDDLE_YOU, HUDDLE_AWAY, HUDDLE_ROUTE, clearHuddle, routeHuddle } = await import('../src/game/fieldController.js');
 const { Fielding } = await import('../src/game/fielding.js');
 const { makeRng } = await import('../src/physics/math.js');
 const { PITCH } = await import('../src/physics/pitch.js');
@@ -76,20 +76,21 @@ function field(you, seed = 7, bowlerFields = true) {
 }
 // The nearest a fielder comes to you, walking or standing (worst) and moving fast -- over 3 m/s: a jog
 // in to a huddle, a sprint (fast) -- frame by frame.
-function nearest(f, you, secs = 16) {
-  const dt = 1 / 60; let worst = Infinity, fast = Infinity;
+function nearest(f, you, secs = 16, each = null) {
+  const dt = 1 / 60; let worst = Infinity, fast = Infinity, leftOf = 0;
   const prev = f.fielders.map((p) => ({ x: p.pos.x, z: p.pos.z }));
   for (let k = 0; k < secs / dt; k++) {
+    if (each) each();
     f.update(dt, 100 + k * dt, null, null);
     f.fielders.forEach((p, i) => {
       const v = Math.hypot(p.pos.x - prev[i].x, p.pos.z - prev[i].z) / dt; prev[i].x = p.pos.x; prev[i].z = p.pos.z;
       if (k < 30 || p.bowler) return;          // (the marks they start from are the field's, not this test's)
       const d = Math.hypot(p.pos.x - you.x, p.pos.z - you.z);
       worst = Math.min(worst, d);
-      if (v > 3) fast = Math.min(fast, d);
+      if (v > 3) { fast = Math.min(fast, d); if (d < 6 && p.pos.x < you.x - 0.5 && Math.abs(p.pos.z - you.z) < 3) leftOf++; }
     });
   }
-  nearest.fast = fast;
+  nearest.fast = fast; nearest.leftOf = leftOf;
   return worst;
 }
 
@@ -97,10 +98,11 @@ test('the wicket huddle: round the bowler with you at the striker\'s end, round 
   // you batting, out: they gather to the AI bowler a few steps up the pitch from his follow-through
   let f = field(STRIKER, 7, false);
   assert.ok(f.celebrateWicket(100, { x: 1.0, z: -15.5 }, -1, undefined, 11.5) >= 3);
-  clearHuddle(f, STRIKER, HUDDLE_AWAY);          // (as FieldController.huddle does)
-  let d = nearest(f, STRIKER);
+  clearHuddle(f, STRIKER, HUDDLE_AWAY);          // (as FieldController.huddle does, and routeHuddle each frame)
+  let d = nearest(f, STRIKER, 16, () => routeHuddle(f, STRIKER, 1));
   assert.ok(d >= FIELD_CLEAR - 0.02, `a fielder came ${d.toFixed(2)} m from you at the striker's end`);
-  assert.ok(nearest.fast >= FAST_CLEAR - 0.05, `a fielder ran past ${nearest.fast.toFixed(2)} m from you at the striker's end`);
+  assert.ok(nearest.fast >= HUDDLE_ROUTE - 0.1, `a fielder ran past ${nearest.fast.toFixed(2)} m from you at the striker's end`);
+  assert.equal(nearest.leftOf, 0, 'nobody runs past on the bat side (your left, batting right-handed)');
   // you bowled it: they come round you, at the edge of your space
   f = field(BOWLER, 11, false);
   assert.ok(f.celebrateWicket(100, BOWLER, -1, HUDDLE_YOU, 11.5) >= 3);
