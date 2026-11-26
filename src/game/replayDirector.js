@@ -91,7 +91,7 @@ export const DIRECTOR = {
   savedSpeed: 22, savedR: 52,  // m/s off the bat, m from the middle (less 8): a hard hit stopped in the deep
   // the checks every later take's camera passes, or there is no such take (takeOK)
   // (a figure at least figH of the picture's height, vfov high; the ball at least ballPx at pxPerRad, its own size)
-  checks: { clear: 1.5, minY: 1.2, off: 20 * D2R, offArc: 45 * D2R, up: 40 * D2R, none: 0.1, sky: 0.15, boards: 0.35, figH: 0.08, crowd: 0.6, vfov: 90 * D2R, ballPx: 8, ballR: 0.036, pxPerRad: 20 / D2R },
+  checks: { clear: 1.5, minY: 1.2, off: 20 * D2R, offArc: 45 * D2R, up: 40 * D2R, none: 0.1, bigWide: 0.02, sky: 0.15, boards: 0.35, figH: 0.08, crowd: 0.6, vfov: 90 * D2R, ballPx: 8, ballR: 0.036, pxPerRad: 20 / D2R },
 };
 
 // The broadcast positions a later take's camera comes from (DIRECTOR / takeOK): fixed ones round the
@@ -243,6 +243,9 @@ export function takeOK(p, j, tape) {
   if (sh.kind !== 'track') return { ok: true, why: '' };
   const v = viewShares(c, p.W[i1], 0, { hfov: 40, vfov: 30, n: 16, nv: 12 });
   if (v.screen + v.bigscreen + v.pavilion > C.none) return { ok: false, why: 'ends on a sightscreen, the big screen or the pavilion' };
+  // (nor the big screen, which shows REPLAY, looming over the top of the headset's view)
+  const w = viewShares(c, p.W[i1], 0, { hfov: 100, vfov: 90, n: 20, nv: 18 });
+  if (w.bigscreen > C.bigWide) return { ok: false, why: `the big screen ${(w.bigscreen * 100).toFixed(0)}% of the view` };
   if (sh.seats && v.sky > C.sky) return { ok: false, why: 'ends on sky' };
   if (v.boards > C.boards) return { ok: false, why: 'ends on the boards' };
   return { ok: true, why: '' };
