@@ -135,42 +135,79 @@ export function replayAt(m, t) {
 export const BOARD_R = 68.2, BOARD_TOP = 0.975;
 // The sightscreens (render/ground.js SIGHTSCREEN): a dark face 26 m wide, 0.6-10.8 m up, 6 m behind the rope
 // straight behind either end. A picture full of one is as bad as one full of boards.
-export const SCREEN = { half: 13, bottom: 0.6, top: 10.8, dist: 71 };
+export const SCREEN = { half: 13, bottom: 0.6, top: 10.8, dist: 71, back: 4.6 };   // (back: its braces and bogies behind the face)
+// The stands (render/stadium.js BOWL): the front wall 84 m out, rising to 22 m at 110 m; the pavilion between
+// 78° and 102° round from behind the batter (toward +x); the covered seats behind the sightscreens (350-10°,
+// 170-190°: nobody sits there); the big screen (it shows REPLAY during a replay) at 241°, 93.8 m out, 26.8 m
+// wide, 22.2-34 m up.
+export const STAND = { front: 84, back: 110, top: 25, pavilion: [78, 102], covers: [[350, 10], [170, 190]] };
+export const BIG = { az: -2.08, r: 93.8, half: 13.4, bottom: 22.2, top: 34 };
+const inArc = (d, a0, a1) => (a0 <= a1 ? d >= a0 && d <= a1 : d >= a0 || d <= a1);
+// The far root of |p + t dir| = R in xz (p in the ground's centred frame), or Infinity.
+function circleT(ox, oz, dx, dz, R) {
+  const a = dx * dx + dz * dz, b = 2 * (ox * dx + oz * dz), c = ox * ox + oz * oz - R * R;
+  if (a < 1e-9) return Infinity;
+  const disc = b * b - 4 * a * c; if (disc < 0) return Infinity;
+  const t = (-b + Math.sqrt(disc)) / (2 * a); return t > 0 ? t : Infinity;
+}
+const SCREEN_PLANES = [0, SCREEN.back], SCREEN_ENDS = [-SCREEN.half, SCREEN.half];
 export function viewShares(cam, yaw, pitch = 0, { hfov = 100, vfov = 90, n = 24, nv = n, cz = -10.06 } = {}) {
-  const out = { turf: 0, boards: 0, screen: 0, stand: 0, sky: 0 };
+  const out = { turf: 0, boards: 0, screen: 0, stand: 0, pavilion: 0, covers: 0, bigscreen: 0, sky: 0 };
   const cy = Math.cos(yaw), sy = Math.sin(yaw), tH = Math.tan(hfov / 2 * Math.PI / 180), tV = Math.tan(vfov / 2 * Math.PI / 180);
   const cp = Math.cos(pitch), sp = Math.sin(pitch);
+  const bnx = Math.sin(BIG.az), bnz = Math.cos(BIG.az), bpx = bnx * BIG.r, bpz = cz + bnz * BIG.r;
   for (let i = 0; i < n; i++) for (let j = 0; j < nv; j++) {
     const u = ((i + 0.5) / n * 2 - 1) * tH, v = ((j + 0.5) / nv * 2 - 1) * tV;
-    // camera space: forward (0, 0, 1) as yaw 0 faces +z; right = -x... (yaw: atan2(x, z))
+    // camera space: forward (0, 0, 1) as yaw 0 faces +z (yaw: atan2(x, z))
     const fy = sp + v * cp, fh = cp - v * sp;                       // pitched forward / up
     let dx = sy * fh + cy * u, dz = cy * fh - sy * u, dy = fy;
     const L = Math.sqrt(dx * dx + dy * dy + dz * dz); dx /= L; dy /= L; dz /= L;
+    const ox = cam.x, oz = cam.z - cz;
     // the boards: |p - c| = BOARD_R in xz, BOARD_TOP >= y >= 0
-    const ox = cam.x, oz = cam.z - cz, a = dx * dx + dz * dz, b = 2 * (ox * dx + oz * dz), c = ox * ox + oz * oz - BOARD_R * BOARD_R;
-    let tb = Infinity;
-    if (a > 1e-9) { const disc = b * b - 4 * a * c; if (disc >= 0) { const t = (-b + Math.sqrt(disc)) / (2 * a); if (t > 0) tb = t; } }
+    const tb = circleT(ox, oz, dx, dz, BOARD_R);
     const tg = dy < -1e-6 ? -cam.y / dy : Infinity;
-    // a sightscreen: the plane z = cz ± SCREEN.dist, |x| <= half, bottom..top
+    // a sightscreen: the plane z = cz ± SCREEN.dist, |x| <= half, bottom..top (its face), and from behind
+    // its back and braces (the plane SCREEN.back further out, and its ends)
     let ts = Infinity;
     for (let e = -1; e <= 1; e += 2) {
-      if (Math.abs(dz) < 1e-9) continue;
-      const t = (cz + e * SCREEN.dist - cam.z) / dz;
-      if (t <= 0 || t >= ts) continue;
-      const x = cam.x + dx * t, y = cam.y + dy * t;
-      if (Math.abs(x) <= SCREEN.half && y >= SCREEN.bottom && y <= SCREEN.top) ts = t;
+      for (const dd of SCREEN_PLANES) {
+        if (Math.abs(dz) < 1e-9) continue;
+        const t = (cz + e * (SCREEN.dist + dd) - cam.z) / dz;
+        if (t <= 0 || t >= ts) continue;
+        const x = cam.x + dx * t, y = cam.y + dy * t;
+        if (Math.abs(x) <= SCREEN.half && y >= (dd ? 0 : SCREEN.bottom) && y <= SCREEN.top) ts = t;
+      }
+      for (const sx of SCREEN_ENDS) {
+        if (Math.abs(dx) < 1e-9) continue;
+        const t = (sx - cam.x) / dx;
+        if (t <= 0 || t >= ts) continue;
+        const z = (cam.z + dz * t - cz) * e, y = cam.y + dy * t;
+        if (z >= SCREEN.dist && z <= SCREEN.dist + SCREEN.back && y >= 0 && y <= SCREEN.top) ts = t;
+      }
     }
+    // the big screen: its plane, facing the middle
+    let tB = Infinity;
+    { const dn = dx * bnx + dz * bnz; if (Math.abs(dn) > 1e-6) { const t = ((bpx - cam.x) * bnx + (bpz - cam.z) * bnz) / dn; if (t > 0) { const x = cam.x + dx * t - bpx, z = cam.z + dz * t - bpz, y = cam.y + dy * t; if (Math.abs(x * bnz - z * bnx) <= BIG.half && y >= BIG.bottom && y <= BIG.top) tB = t; } } }
     // (the boards stop a ray only where it meets them below their top; above, it goes on to the screen or the stand)
-    const yb = cam.y + dy * tb, tbv = tb < Infinity && yb <= BOARD_TOP && yb >= 0 ? tb : Infinity;
-    // (the ground beyond the boards is under the stands: a ray coming down there meets the crowd first)
-    const tgv = tg < Infinity && (ox + dx * tg) ** 2 + (oz + dz * tg) ** 2 <= BOARD_R * BOARD_R ? tg : Infinity;
-    if (ts < tgv && ts < tbv) out.screen++;
-    else if (tgv < tbv) out.turf++;
-    else if (tbv < Infinity) out.boards++;
-    else if (Math.asin(dy) < 25 * Math.PI / 180) out.stand++;
-    else out.sky++;
+    const yb = cam.y + dy * tb, tbv = tb < Infinity && yb <= BOARD_TOP && yb >= 0 && (ox * ox + oz * oz) < BOARD_R * BOARD_R ? tb : Infinity;
+    // (the ground: inside the boards the turf, out to the stands' wall an apron, under the stands their seats)
+    let tgv = Infinity, groundStand = false;
+    if (tg < Infinity) { const r2 = (ox + dx * tg) ** 2 + (oz + dz * tg) ** 2; if (r2 <= STAND.front * STAND.front) tgv = tg; else groundStand = true; }
+    const near = Math.min(ts, tgv, tbv, tB);
+    if (near === Infinity && !groundStand && dy <= 0 && tg === Infinity) { out.sky++; continue; }
+    if (near < Infinity && near === ts) { out.screen++; continue; }
+    if (near < Infinity && near === tB) { out.bigscreen++; continue; }
+    if (near < Infinity && near === tgv) { out.turf++; continue; }
+    if (near < Infinity && near === tbv) { out.boards++; continue; }
+    // the stands, or over them: where the ray is at their back, and round which way it goes
+    const tf = circleT(ox, oz, dx, dz, STAND.front), tk = circleT(ox, oz, dx, dz, STAND.back);
+    if (!groundStand && (tk === Infinity || cam.y + dy * tk > STAND.top)) { out.sky++; continue; }
+    const th = Math.min(tf, tk), deg = ((Math.atan2(ox + dx * th, oz + dz * th) * 180 / Math.PI) + 360) % 360;
+    if (inArc(deg, STAND.pavilion[0], STAND.pavilion[1])) out.pavilion++;
+    else if (STAND.covers.some(([a0, a1]) => inArc(deg, a0, a1))) out.covers++;
+    else out.stand++;
   }
   const N = n * nv;
-  out.turf /= N; out.boards /= N; out.screen /= N; out.stand /= N; out.sky /= N;
+  for (const k in out) out[k] /= N;
   return out;
 }
