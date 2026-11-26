@@ -192,7 +192,7 @@ export function direct({ story, tier, m, tape, xr = true, check = true, maxTakes
       if (r.ok) continue;
       tried.push(`${sh.canon}: ${r.why}`);
       if (sh.cands && sh.cands.length > 1) { const c = sh.pos; sh.cands = sh.cands.filter((q) => hypot2(q.x - c.x, q.z - c.z) > 1.2); again = true; }
-      else if (sh.alt) { const a = sh.alt; for (const k of Object.keys(sh)) if (k !== 'i0' && k !== 'i1') delete sh[k]; Object.assign(sh, a); again = true; }
+      else if (sh.alt) { const a = sh.alt; for (const k of Object.keys(sh)) if (k !== 'i0' && k !== 'i1') delete sh[k]; Object.assign(sh, a); if (a.title) R.takes[j].name = a.title; again = true; }
     }
     if (!again) break;
     p = layout(R, tape, lim, xr);
@@ -422,7 +422,7 @@ function recipe(story, tier, m, tape) {
     }
     const sr = Math.max(re, SEATS) + 4;
     const stands = sas.map((sa) => ({ t: key + 0.1, x: Math.sin(sa) * sr, y: Math.max(subj.y, 2) + 3, z: CZ + Math.cos(sa) * sr }));
-    const arc = { kind: 'track', canon: 'fixed', arc: true, cands: FIXED.filter((c) => /^long|keeperHigh|screenSide/.test(c.name)), stand: { ...stands[0], t: key - 0.7 }, stands: stands.map((a) => ({ ...a, t: key - 0.7 })), lookMax: 50, far: 75, fov: DIRECTOR.fov.wide, subj, dists: [0], heights: [0], endDist: [15, 50] };
+    const arc = { kind: 'track', canon: 'fixed', arc: true, title: 'THE ARC', cands: FIXED.filter((c) => /^long|keeperHigh|screenSide/.test(c.name)), stand: { ...stands[0], t: key - 0.7 }, stands: stands.map((a) => ({ ...a, t: key - 0.7 })), lookMax: 50, far: 75, fov: DIRECTOR.fov.wide, subj, dists: [0], heights: [0], endDist: [15, 50] };
     const behind = Math.abs(subj.x) < SCREEN.half + 2.5 && Math.abs(subj.z - CZ) > SCREEN.dist - 2;
     const k2 = shot(behind ? arc : { kind: 'track', canon: 'crowd', rope: true, seats: true, stand: stands[0], stands, fov: DIRECTOR.fov.track, subj, dists: [10, 12.5, 15], heights: [2.5], endDist: [10, 15], rimMax: Math.max(63.5, Math.min(re + (screened ? 5 : 2), 82)), kMax: screened ? 18 : 8, alt: arc });
     takeTwo(k2, behind ? 'THE ARC' : 'IN THE CROWD', key, Math.max(hit + 0.1, key - DIRECTOR.t2.lead), Math.min(last, key + 0.9));
