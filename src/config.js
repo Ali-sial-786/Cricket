@@ -138,7 +138,8 @@ export const CONFIG = {
     fullTossHeight: [0.35, 1.25], // m at the batter for a full toss (waist-high no-balls not allowed)
     spinnerPaceKmh: 105,     // below this, wrist action gives a spin delivery; above, a cutter
     palmDot: 0.15,           // palm toward the batter above this, back of the hand below -this
-    assistStrength: 0.8,     // 0..1, how strongly the aim marker pulls deliveries (the marker is where the ball goes; your release nudges it)
+    assistStrength: 0.97,    // 0..1, how strongly the aim marker pulls deliveries (the marker is where the ball goes; a wild release
+                             // moves it a hand's width, no more: at 0.8 a 15 degree arm error was 0.6 m, which read as "still physical")
     spinMultiplier: 4.0,     // wrist roll rad/s × this = ball spin rad/s
     spinDeadzone: 2.5,       // rad/s of wrist roll ignored
     swingAmount: 0.75,       // swing value when inswing/outswing is chosen

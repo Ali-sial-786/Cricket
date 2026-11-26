@@ -610,8 +610,7 @@ export class UI {
           add('tog', 'sweepDrop', 'Sweep view drop', 'Holding sweep lowers your view to a kneeling sweeper’s', { on: s.sweepDrop !== false, fn: () => g.actions.toggle('sweepDrop') });
         } else if (tab === 'bowling') {
           add('step', 'pace', 'Bowl pace', 'Speed your arm action turns into', { value: `×${s.paceMultiplier.toFixed(2)}`, dec: () => g.actions.setting('paceMultiplier', -0.1, 1.0, 5), inc: () => g.actions.setting('paceMultiplier', 0.1, 1.0, 5) });
-          add('tog', 'assist', 'Aim assist', 'Pulls deliveries toward the floor target', { on: s.aimAssist, fn: () => g.actions.toggle('aimAssist') });
-          add('tog', 'marker', 'Aim marker', 'The target on the pitch (left stick moves it)', { on: s.aimMarker, fn: () => g.actions.toggle('aimMarker') });
+          add('tog', 'marker', 'Aim marker', 'The ball pitches on the target (left stick moves it). Off: where you throw it', { on: s.aimMarker, fn: () => g.actions.toggle('aimMarker') });
           add('tog', 'runup', 'Run-up', 'Run in to bowl; off: bowl from the crease', { on: s.runUp, fn: () => g.actions.toggle('runUp') });
           add('cyc', 'feel', 'Deliveries', 'Choose them, or let your wrist decide', { value: s.bowlByFeel ? 'by wrist action' : 'pick with A/B', fn: () => g.actions.toggle('bowlByFeel') });
           add('cyc', 'relcal', 'Calibrate release', 'Bowl a few balls to learn your release', { value: 'start', fn: () => g.actions.bowlCalib() });

@@ -47,7 +47,7 @@ export class BowlingSession {
     this.done = false;
     const s = game.settings;
     this.aim = { x: 0.08, z: -6.5 };
-    this.assist = s.aimAssist;
+    this.assist = s.aimMarker;
     this.reviews = new Reviews(CONFIG.match.reviews);   // 2 per side this innings
     this.lbw = new LbwFlow(game, this.reviews);
     this.third = new ThirdUmpireFlow(game);
@@ -397,8 +397,8 @@ export class BowlingSession {
       bowler: this.bowler,
       choice: this.choice,
       paceScale: this.run.paceFactor,
-      aim: g.settings.aimAssist ? this.aim : null,
-      assist: g.settings.aimAssist,
+      aim: g.settings.aimMarker ? this.aim : null,      // (the marker on = the ball pitches on it)
+      assist: g.settings.aimMarker,
       neutralElevDeg: this.neutralElev(),
       rng: g.rng,
     });
@@ -489,7 +489,7 @@ export class BowlingSession {
     const g = this.game;
     if (this.done) return;
     const L = g.input.left;
-    if (this.state !== 'live' && (g.settings.aimMarker || g.settings.aimAssist) && (Math.abs(L.stick.x) > 0.15 || Math.abs(L.stick.y) > 0.15)) {
+    if (this.state !== 'live' && g.settings.aimMarker && (Math.abs(L.stick.x) > 0.15 || Math.abs(L.stick.y) > 0.15)) {
       this.aim.x = clamp(this.aim.x - L.stick.x * 0.8 * dt, -1.0, 1.0);
       this.aim.z = clamp(this.aim.z - L.stick.y * 3.0 * dt, -13, -0.3);
       this.updateAim();
@@ -885,14 +885,14 @@ export class BowlingSession {
     const len = lengthName(PITCH.battingStumpsZ - this.aim.z);
     const target = `${len === 'good' ? 'good length' : len} · ${lineName(this.aim.x)}`;
     const sel = this.choice;
-    const key = [b.key, sel, target, s.bowlByFeel, s.runUp, s.aimMarker || s.aimAssist, g.input.xr].join('|');
+    const key = [b.key, sel, target, s.bowlByFeel, s.runUp, s.aimMarker, g.input.xr].join('|');
     if (key === this.cardKey) return;
     this.cardKey = key;
     g.ui.setBowlCard({
       title: b.label, pace: `${b.pace[0]}–${b.pace[1]} km/h`, byFeel: s.bowlByFeel, runUp: s.runUp,
       list: b.deliveryList.map((d) => ({ label: d.label, sel: !s.bowlByFeel && d.key === sel })),
       effect: s.bowlByFeel ? 'By feel: your wrist action decides the delivery' : deliveryInfo(b, sel).effect,
-      target: s.aimMarker || s.aimAssist ? target : 'where you throw it',
+      target: s.aimMarker ? target : 'where you throw it',
     });
   }
 

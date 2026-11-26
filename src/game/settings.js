@@ -27,8 +27,7 @@ export function defaultSettings() {
     batAngleDeg: 0,                // extra tilt of the bat relative to calibration
     batReach: 0.08,                // m: the bat this far out in front of your chest from your real hand (0 - 0.2)
     guardX: -0.05,                 // where your hand sits in stance (x, m): middle-and-leg
-    aimAssist: true,               // pull deliveries toward the floor marker (off: the ball goes where you throw it)
-    aimMarker: true,               // the floor target (left stick moves it)
+    aimMarker: true,               // the floor target (left stick moves it): the ball pitches on it. Off: the ball goes where you throw it
     aimV: 3,
     bowlByFeel: false,             // false: pick the delivery with A / B; true: the wrist action decides it
     runUp: true,                   // run in to bowl (hold right grip / left trigger); false: bowl from the crease
@@ -81,7 +80,8 @@ export function loadSettings() {
   if (!saved || saved.replayV !== 2) { s.replay = saved && saved.replay === 'off' ? 'off' : 'highlights'; s.replayV = 2; }
   else if (!['highlights', 'every', 'off'].includes(s.replay)) s.replay = 'highlights';
   // v3 of the aiming: the floor marker is the target again (once, for everyone).
-  if (!saved || saved.aimV !== 3) { s.aimAssist = true; s.aimMarker = true; s.aimV = 3; }
+  if (!saved || saved.aimV !== 3) { s.aimMarker = true; s.aimV = 3; }
+  delete s.aimAssist;                       // (one switch now: the marker on is the assist)
   // v2 of turning: the stick turns you smoothly, like turning your body (once, for everyone).
   if (!saved || saved.turnV !== 2) { s.turn = 'smooth'; s.turnV = 2; }
   return s;
