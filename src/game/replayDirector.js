@@ -33,7 +33,7 @@ import { hypot2, hypot3 } from '../physics/math.js';
 const D2R = Math.PI / 180;
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const wrap = (a) => { while (a > Math.PI) a -= 2 * Math.PI; while (a < -Math.PI) a += 2 * Math.PI; return a; };
-const CZ = -10.06, Z_BAT = 0, Z_BOWL = -20.12, POP = 1.22;
+const CZ = -10.06, Z_BAT = 0, Z_BOWL = -20.12, POP = 1.22, BOARD_REACH = 68.2;
 
 export const MODES = ['highlights', 'every', 'off'];
 export const BUDGET = { wicket: 6, boundary: 5, close: 5, routine: 2.5 };
@@ -188,7 +188,12 @@ function recipe(story, tier, m, tape) {
     const k1 = line(), tB = lineFrom(), outT = lineUntil(hit + 0.5);
     const subj = ballAt(tape, key), re = hypot2(subj.x, subj.z - CZ) || 1;
     const fielder = six ? null : nearestFigure(tape, key, subj, 12);
-    const stand = six ? { t: key + 0.1, x: subj.x + subj.x / re * 6, y: Math.max(subj.y, 1) + 4, z: subj.z + (subj.z - CZ) / re * 6 } : null;
+    // (the crowd it lands among: straight behind either end there is only a sightscreen and covered seats,
+    // so the view settles on the people nearest it, just outside that wedge)
+    let sa = Math.atan2(subj.x, subj.z - CZ);
+    for (const axis of [0, Math.PI]) { const d = wrap(sa - axis); if (Math.abs(d) < 18 * D2R) sa = axis + (d < 0 ? -18 : 18) * D2R; }
+    const sr = Math.max(re, BOARD_REACH) + 6;
+    const stand = six ? { t: key + 0.1, x: Math.sin(sa) * sr, y: Math.max(subj.y, 1) + 4, z: CZ + Math.cos(sa) * sr } : null;
     const k2 = shot(six
       ? { kind: 'track', rope: true, stand, fov: DIRECTOR.fov.wide, subj, dists: [18, 22, 26], heights: [5.0], endDist: [16, 28], rimMax: 52, kMax: 5 }
       : fielder
@@ -462,7 +467,7 @@ function spotCost(c, S, sh, lim) {
     // what the last picture shows, looking at where it ends (a crane looks down onto it): boards or a
     // sightscreen filling it cost a lot (a coarse 10 x 8 look, at plan time)
     // (looked at level, as a headset viewer sees it until he looks down; and the whole view for a sightscreen at its side)
-    const ay = Math.atan2(sh.subj.x - c.x, sh.subj.z - c.z), sv = viewShares(c, ay, 0, { hfov: 40, vfov: 30, n: 10, nv: 8 });
+    const A = sh.stand || sh.subj, ay = Math.atan2(A.x - c.x, A.z - c.z), sv = viewShares(c, ay, 0, { hfov: 40, vfov: 30, n: 10, nv: 8 });
     const sw = viewShares(c, ay, 0, { hfov: 100, vfov: 90, n: 12, nv: 8 });
     cost += (sv.boards + sv.screen) * 25 + sw.screen * 30;
     // the fielder chasing it in the picture with the ball

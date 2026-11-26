@@ -160,9 +160,13 @@ export function viewShares(cam, yaw, pitch = 0, { hfov = 100, vfov = 90, n = 24,
       const x = cam.x + dx * t, y = cam.y + dy * t;
       if (Math.abs(x) <= SCREEN.half && y >= SCREEN.bottom && y <= SCREEN.top) ts = t;
     }
-    if (ts < tg && ts < tb) out.screen++;
-    else if (tg < tb) out.turf++;
-    else if (tb < Infinity && cam.y + dy * tb <= BOARD_TOP && cam.y + dy * tb >= 0) out.boards++;
+    // (the boards stop a ray only where it meets them below their top; above, it goes on to the screen or the stand)
+    const yb = cam.y + dy * tb, tbv = tb < Infinity && yb <= BOARD_TOP && yb >= 0 ? tb : Infinity;
+    // (the ground beyond the boards is under the stands: a ray coming down there meets the crowd first)
+    const tgv = tg < Infinity && (ox + dx * tg) ** 2 + (oz + dz * tg) ** 2 <= BOARD_R * BOARD_R ? tg : Infinity;
+    if (ts < tgv && ts < tbv) out.screen++;
+    else if (tgv < tbv) out.turf++;
+    else if (tbv < Infinity) out.boards++;
     else if (Math.asin(dy) < 25 * Math.PI / 180) out.stand++;
     else out.sky++;
   }

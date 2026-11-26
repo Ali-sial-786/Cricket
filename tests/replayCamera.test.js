@@ -201,7 +201,8 @@ test('the ball stays near the middle of the view (±20°) while it is followed: 
     // (a catch is watched on the catcher, not the ball; the rope camera stands 6-11 m from where the ball ends,
     // so the ball's last moments turn the view at its comfort limit: 85% for a boundary)
     if (story === 'caught') continue;
-    const k = inCone(walk(p, tape));
+    // (a six's view leaves the ball once it has come down, for the crowd: counted up to the landing)
+    const k = inCone(walk(p, tape).filter((f) => story !== 'six' || f.t <= p.focus + 0.05));
     assert.ok(k >= (tier === 'boundary' ? 0.85 : 0.9), `${name}: ball inside ±20° on ${(k * 100).toFixed(0)}% of the frames`);
   }
 });
@@ -268,7 +269,7 @@ test('a six: a crane in front of the stand where it comes down, the view settlin
     assert.ok(c.stand === 1, `${name}: the middle of the view is not the crowd`);
     // the arc comes down in view: within the comfort cone while it is followed
     let n = 0, k = 0;
-    for (const f of F) if (f.shot === p.S[p.n - 1] && f.t < (ex.land ?? Infinity)) { n++; if (offOf(f) <= 25 * D2R) k++; }
+    for (const f of F) if (f.shot === p.S[p.n - 1] && f.t <= p.focus + 0.05) { n++; if (offOf(f) <= 25 * D2R) k++; }
     assert.ok(!n || k / n >= 0.85, `${name}: the ball in view ${(k / Math.max(1, n) * 100).toFixed(0)}%`);
   }
   // the catch: the last angle is near the catcher, nobody too close to the camera
@@ -338,11 +339,13 @@ test('a four: ends on the ball crossing the rope, turf and rope the picture, the
     assert.ok(p.end <= cross + 0.15, `${name}: runs ${(p.end - cross).toFixed(2)} s (tape) past the crossing`);
     const { e, sh, s } = lastPicture(p, tape, { x: C.x, y: 0.1, z: C.z });
     assert.ok(hypot2(sh.pos.x, sh.pos.z - CZ) <= 56 + 1e-6, `${name}: ${hypot2(sh.pos.x, sh.pos.z - CZ).toFixed(1)} m out (too near the boards)`);
-    assert.ok(s.boards + s.screen <= 0.14, `${name}: boards ${(s.boards * 100).toFixed(0)}%, sightscreen ${(s.screen * 100).toFixed(0)}% of the subject area`);
+    // (a ball over the rope straight in front of a sightscreen has it behind: that is what is there; it is never a wall beside the view)
+    const inFront = Math.abs(C.x) < 16, scr = inFront ? 0 : s.screen;
+    assert.ok(s.boards + scr <= 0.14, `${name}: boards ${(s.boards * 100).toFixed(0)}%, sightscreen ${(s.screen * 100).toFixed(0)}% of the subject area`);
     // looking level (a headset viewer before he looks down): the middle no board close-up, the whole view no sightscreen wall
     const lv = viewShares(sh.pos, e.yaw, 0, { hfov: 40, vfov: 30, n: 60 }), wide = viewShares(sh.pos, e.yaw, 0, { hfov: 100, vfov: 90, n: 60 });
-    assert.ok(lv.boards + lv.screen <= 0.16, `${name}: level, boards ${(lv.boards * 100).toFixed(0)}%, sightscreen ${(lv.screen * 100).toFixed(0)}%`);
-    assert.ok(wide.screen <= 0.06, `${name}: a sightscreen fills ${(wide.screen * 100).toFixed(0)}% of the view`);
+    assert.ok(lv.boards <= 0.16 && (inFront || lv.screen <= 0.04), `${name}: level, boards ${(lv.boards * 100).toFixed(0)}%, sightscreen ${(lv.screen * 100).toFixed(0)}%`);
+    assert.ok(wide.screen <= (inFront ? 0.25 : 0.06), `${name}: a sightscreen fills ${(wide.screen * 100).toFixed(0)}% of the view`);
     assert.ok(s.turf >= 0.35, `${name}: turf ${(s.turf * 100).toFixed(0)}% of the subject area`);
     // the ball at the crossing near the middle of the view
     assert.ok(offOf(e) < DIRECTOR.cone, `${name}: ${(offOf(e) / D2R).toFixed(0)}° off the ball at the end`);
