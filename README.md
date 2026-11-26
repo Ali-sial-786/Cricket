@@ -193,8 +193,10 @@ view also faces forward by itself before each ball, on recenter, catches and rep
   (7 m in front of the batter, at eye height) for a bowled, an lbw, a near miss or an edge, side-on at the
   popping crease for a run-out or a stumping (frozen for a moment as the stumps break), and a tracking spot picked
   from the ball's own flight (the ball kept near the middle of the view): a four or six is bat on ball down the line,
-  then a low spot 6-10 m inside the rope from where the ball goes over (a six: 7-11 m from where it comes down),
-  looking out across the rope, the ball coming to you, ending on it crossing (a six: on the stand going up); a catch
+  then, for a four, a spot 12-16 m from where it goes over with the chasing fielder in the picture, or, with nobody
+  near, a low camera (1.6 m) just inside the rope 5-8 m along it, the ball running at it into the rope, ending on it
+  crossing; for a six, 2.5 m up 8-12 m from where it comes down, in front of the seats, the ball dropping into the
+  picture and the view settling on the people rising there (behind a sightscreen, the stand beside it); a catch
   or a drop is the shot, then a camera 5-8 m in front of the catcher at chest height, there before the ball, slowed
   through the hands closing and holding on him for a beat. Real speed for the
   build-up, slow motion through the key moment (a small *SLOW MOTION* tag). At most 6 s for a wicket, 5 s for a
