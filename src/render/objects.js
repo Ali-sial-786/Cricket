@@ -444,10 +444,11 @@ function boardGeometry() {
 // A floor target: a coloured ring with a dark outline and a centre dot, drawn
 // in one textured quad (crisp and mipmapped at any distance).
 const _ringTex = new Map();
-function ringMarkerTexture(color, dotColor) {
-  const key = color + ':' + dotColor;
+function ringMarkerTexture(color, dotColor, beam = false) {
+  const key = color + ':' + dotColor + (beam ? ':b' : '');
   if (_ringTex.has(key)) return _ringTex.get(key);
-  const S = 256, c = document.createElement('canvas'); c.width = c.height = S;
+  // (with a beam the canvas is two squares: the ring above, the beam's gradient below; one texture, one draw)
+  const S = 256, c = document.createElement('canvas'); c.width = S; c.height = beam ? S * 2 : S;
   const g = c.getContext('2d'), m = S / 2;
   const css = (h) => '#' + new THREE.Color(h).getHexString();
   g.fillStyle = 'rgba(255,255,255,0.08)'; g.beginPath(); g.arc(m, m, m * 0.72, 0, Math.PI * 2); g.fill();
@@ -456,19 +457,45 @@ function ringMarkerTexture(color, dotColor) {
   g.lineWidth = m * 0.03; g.strokeStyle = 'rgba(255,255,255,0.7)'; g.beginPath(); g.arc(m, m, m * 0.9, 0, Math.PI * 2); g.stroke();
   g.fillStyle = 'rgba(10,14,20,0.55)'; g.beginPath(); g.arc(m, m, m * 0.24, 0, Math.PI * 2); g.fill();
   g.fillStyle = css(dotColor); g.beginPath(); g.arc(m, m, m * 0.17, 0, Math.PI * 2); g.fill();
+  if (beam) {
+    // a soft column of the marker's colour with a pale core: strongest at the ground, gone at the top
+    const col = new THREE.Color(color), r = Math.round(col.r * 255), gr = Math.round(col.g * 255), bl = Math.round(col.b * 255);
+    const img = g.createImageData(S, S), d = img.data;
+    for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+      const u = Math.abs(x - m) / m, up = 1 - y / (S - 1);                 // up: 0 at the ground (the canvas's bottom row), 1 at the top
+      const side = Math.max(0, 1 - u * u * 2.2), core = Math.max(0, 1 - u * 5);
+      const a = side * Math.pow(1 - up, 1.6) * 0.62, w = core * 0.75;
+      const i = (y * S + x) * 4;
+      d[i] = r + (255 - r) * w; d[i + 1] = gr + (255 - gr) * w; d[i + 2] = bl + (255 - bl) * w; d[i + 3] = Math.round(255 * Math.min(1, a + core * (1 - up) * 0.3));
+    }
+    g.putImageData(img, 0, S);
+  }
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
   _ringTex.set(key, t);
   return t;
 }
-export function buildRingMarker(color = 0xffe14d, radius = 0.22, dotColor = color) {
+// beam (m): also a thin upright column of light that tall over the marker, facing down the pitch. A flat ring
+// 17 m away is seen at 6 degrees: five pixels tall in the headset from the crease, two from the top of a run-up.
+export function buildRingMarker(color = 0xffe14d, radius = 0.22, dotColor = color, beam = 0) {
   const g = new THREE.Group();
-  const q = new THREE.Mesh(new THREE.PlaneGeometry(radius * 2.2, radius * 2.2),
-    new THREE.MeshBasicMaterial({ map: ringMarkerTexture(color, dotColor), transparent: true, depthWrite: false, toneMapped: false,
-      // (the pitch and the turf shadows are drawn with a depth bias toward the eye; at the shallow angle a
-      // bowler sees a marker 15-20 m away that bias is worth far more than the marker's 1 cm, and it hid it)
-      polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -8 }));
-  q.rotation.x = -Math.PI / 2;
-  q.position.y = 0.01;
+  const mat = new THREE.MeshBasicMaterial({ map: ringMarkerTexture(color, dotColor, beam > 0), transparent: true, depthWrite: false, toneMapped: false,
+    // (the pitch and the turf shadows are drawn with a depth bias toward the eye; at the shallow angle a
+    // bowler sees a marker 15-20 m away that bias is worth far more than the marker's 1 cm, and it hid it)
+    polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -8 });
+  let q;
+  if (beam > 0) {
+    const flat = new THREE.PlaneGeometry(radius * 2.2, radius * 2.2); flat.rotateX(-Math.PI / 2); flat.translate(0, 0.01, 0);
+    const up = new THREE.PlaneGeometry(radius * 0.42, beam); up.translate(0, beam / 2 + 0.012, 0);
+    const fu = flat.attributes.uv, uu = up.attributes.uv;
+    for (let i = 0; i < fu.count; i++) fu.setY(i, 0.5 + fu.getY(i) * 0.5);   // (the ring: the texture's upper half)
+    for (let i = 0; i < uu.count; i++) uu.setY(i, uu.getY(i) * 0.5);         // (the beam: its lower half)
+    mat.side = THREE.DoubleSide;
+    q = new THREE.Mesh(mergeGeometries([flat, up]), mat);
+  } else {
+    q = new THREE.Mesh(new THREE.PlaneGeometry(radius * 2.2, radius * 2.2), mat);
+    q.rotation.x = -Math.PI / 2;
+    q.position.y = 0.01;
+  }
   q.renderOrder = 2;
   g.add(q);
   g.renderOrder = 2;
