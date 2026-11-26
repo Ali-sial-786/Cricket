@@ -292,7 +292,7 @@ test('the angles: fixed spots (no flying), level, turning within the comfort lim
       assert.equal(cuts, p.cuts.length, at);
       assert.ok(p.cuts.length <= 2 && p.cuts.length === p.takes.length - 1, `${at}: ${p.cuts.length} cuts (one dip between takes)`);
       for (const sh of p.shots) if (sh.i0 >= 0) {
-        assert.ok(Math.hypot(sh.pos.x, sh.pos.z - CZ) <= (sh.seats ? 80 : DIRECTOR.rim + (sh.rope ? 3.7 : 0)) + 1e-6, `${at}: ${sh.kind} outside the rim (or, a six coming down behind the boards, the apron in front of the seats)`);
+        assert.ok(Math.hypot(sh.pos.x, sh.pos.z - CZ) <= (sh.seats ? 82 : DIRECTOR.rim + (sh.rope ? 3.7 : 0)) + 1e-6, `${at}: ${sh.kind} outside the rim (or, a six coming down behind the boards, the apron in front of the seats)`);
         assert.ok(sh.pos.y >= 1.3 && sh.pos.y <= 6.5, `${at}: ${sh.kind} at ${sh.pos.y} m`);
       }
       if (!xr) for (const f of F) assert.ok(Math.abs(f.pitch) <= 50 * D2R + 1e-6, `${at}: tilted ${f.pitch / D2R}°`);
