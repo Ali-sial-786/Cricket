@@ -345,7 +345,8 @@ test('a four: ends on the ball crossing the rope, turf and rope the picture, the
     // looking level (a headset viewer before he looks down): the middle no board close-up, the whole view no sightscreen wall
     const lv = viewShares(sh.pos, e.yaw, 0, { hfov: 40, vfov: 30, n: 60 }), wide = viewShares(sh.pos, e.yaw, 0, { hfov: 100, vfov: 90, n: 60 });
     assert.ok(lv.boards <= 0.16 && (inFront || lv.screen <= 0.04), `${name}: level, boards ${(lv.boards * 100).toFixed(0)}%, sightscreen ${(lv.screen * 100).toFixed(0)}%`);
-    assert.ok(wide.screen <= (inFront ? 0.25 : 0.06), `${name}: a sightscreen fills ${(wide.screen * 100).toFixed(0)}% of the view`);
+    assert.ok(wide.screen <= (inFront ? 0.15 : 0.06), `${name}: a sightscreen fills ${(wide.screen * 100).toFixed(0)}% of the view`);
+    if (inFront) assert.ok(hypot2(sh.pos.x, sh.pos.z - CZ) <= 50 + 1e-6 && sh.pos.y >= 5, `${name}: in front of a sightscreen: from high and well back`);
     assert.ok(s.turf >= 0.35, `${name}: turf ${(s.turf * 100).toFixed(0)}% of the subject area`);
     // the ball at the crossing near the middle of the view
     assert.ok(offOf(e) < DIRECTOR.cone, `${name}: ${(offOf(e) / D2R).toFixed(0)}° off the ball at the end`);
@@ -353,7 +354,7 @@ test('a four: ends on the ball crossing the rope, turf and rope the picture, the
       const F = ppl[2].c, off = Math.abs(wrap(Math.atan2(F.x - sh.pos.x, F.z - sh.pos.z) - e.yaw));
       assert.ok(off < 35 * D2R, `${name}: the fielder ${(off / D2R).toFixed(0)}° off the middle`);
       assert.ok(sh.pos.y <= 2.2, `${name}: ${sh.pos.y} m up`);
-    } else assert.ok(sh.pos.y >= 3 && sh.pos.y <= 5, `${name}: no fielder near: a crane, not ${sh.pos.y} m`);
+    } else assert.ok(sh.pos.y >= 3 && sh.pos.y <= (inFront ? 6 : 5), `${name}: no fielder near: a crane, not ${sh.pos.y} m`);
   }
 });
 

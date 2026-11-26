@@ -188,13 +188,18 @@ function recipe(story, tier, m, tape) {
     const k1 = line(), tB = lineFrom(), outT = lineUntil(hit + 0.5);
     const subj = ballAt(tape, key), re = hypot2(subj.x, subj.z - CZ) || 1;
     const fielder = six ? null : nearestFigure(tape, key, subj, 12);
+    // (over the rope straight in front of a sightscreen: from near, its 26 x 10 m dark face would be a wall;
+    // a high wide angle 30-40 m back sees the ball's path to it with the screen a panel behind)
+    const screened = Math.abs(subj.x) < 16 && Math.abs(subj.z - CZ) > 50;
     // (the crowd it lands among: straight behind either end there is only a sightscreen and covered seats,
     // so the view settles on the people nearest it, just outside that wedge)
     let sa = Math.atan2(subj.x, subj.z - CZ);
     for (const axis of [0, Math.PI]) { const d = wrap(sa - axis); if (Math.abs(d) < 18 * D2R) sa = axis + (d < 0 ? -18 : 18) * D2R; }
     const sr = Math.max(re, BOARD_REACH) + 6;
     const stand = six ? { t: key + 0.1, x: Math.sin(sa) * sr, y: Math.max(subj.y, 1) + 4, z: CZ + Math.cos(sa) * sr } : null;
-    const k2 = shot(six
+    const k2 = shot(screened
+      ? { kind: 'track', rope: true, stand, fov: DIRECTOR.fov.wide, subj, dists: [30, 35, 40], heights: [6.0], endDist: [28, 42], rimMax: 50, kMax: 5 }
+      : six
       ? { kind: 'track', rope: true, stand, fov: DIRECTOR.fov.wide, subj, dists: [18, 22, 26], heights: [5.0], endDist: [16, 28], rimMax: 52, kMax: 5 }
       : fielder
         ? { kind: 'track', rope: true, fov: DIRECTOR.fov.track, subj, fielder, pair: fielder.k, dists: [12, 14, 16], heights: [1.8], endDist: [11, 17], rimMax: 55.5 }
