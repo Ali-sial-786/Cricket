@@ -284,7 +284,7 @@ test('the ball stays near the middle of the view (±20°) while it is followed: 
     // (a six's view leaves the ball once it has come down, for the crowd: counted up to the landing)
     // (take 1 from the bowler's end follows only as far as its gentle reach: a ball beyond it ends that take)
     const reach = DIRECTOR.arm.yawLim + DIRECTOR.cone;
-    const k = inCone(walk(p, tape).filter((f) => (story !== 'six' || f.t <= p.focus + 0.05) && !(p.shots[f.shot].kind === 'arm' && Math.abs(Math.atan2(f.bx - f.x, f.bz - f.z)) > reach)));
+    const k = inCone(walk(p, tape).filter((f) => (story !== 'six' || f.t <= Math.min(p.focus + 0.05, ...p.shots.filter((q) => q.stand && q.i0 >= 0).map((q) => q.stand.t))) && !(p.shots[f.shot].kind === 'arm' && Math.abs(Math.atan2(f.bx - f.x, f.bz - f.z)) > reach)));
     assert.ok(k >= (tier === 'boundary' ? 0.85 : 0.9), `${name}: ball inside ±20° on ${(k * 100).toFixed(0)}% of the frames`);
   }
 });

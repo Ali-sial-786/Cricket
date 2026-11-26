@@ -172,11 +172,13 @@ export function direct({ story, tier, m, tape, xr = true, check = true }) {
   // than a weird one. (Laid out again without it: once more at most.)
   // (a take whose camera fails tries the next of its broadcast positions, then its second choice (alt):
   // laid out again each time, a few times at most)
+  const tried = [];
   for (let round = 0; check && round < 4; round++) {
     let again = false;
     for (let j = 1; j < p.takes.length; j++) {
-      const sh = p.shots[p.takes[j].shot];
-      if (takeOK(p, j, tape).ok) continue;
+      const sh = p.shots[p.takes[j].shot], r = takeOK(p, j, tape);
+      if (r.ok) continue;
+      tried.push(`${sh.canon}: ${r.why}`);
       if (sh.cands && sh.cands.length > 1) { const c = sh.pos; sh.cands = sh.cands.filter((q) => hypot2(q.x - c.x, q.z - c.z) > 1.2); again = true; }
       else if (sh.alt) { const a = sh.alt; for (const k of Object.keys(sh)) if (k !== 'i0' && k !== 'i1') delete sh[k]; Object.assign(sh, a); again = true; }
     }
@@ -196,7 +198,7 @@ export function direct({ story, tier, m, tape, xr = true, check = true }) {
     R.segs = keep; R.takes = takes;
     p = layout(R, tape, lim, xr);
   }
-  p.leftOut = why;                // (the takes left out and why: for the harness and the tests)
+  p.leftOut = why; p.tried = tried;   // (the takes left out and why, the positions tried: for the harness and the tests)
   return p;
 }
 
@@ -229,7 +231,7 @@ export function takeOK(p, j, tape) {
   if (h > far) return { ok: false, why: `the subject ${h.toFixed(0)} m away` };
   let off = Math.abs(wrap(Math.atan2(sx - c.x, sz - c.z) - p.W[ik]));
   if (sh.kind === 'catch' && tape.ball(p.T[ik], o)) off = Math.min(off, Math.abs(wrap(Math.atan2(o.x - c.x, o.z - c.z) - p.W[ik])));   // (his hands, the ball in them)
-  if (sh.kind !== 'crease' && h > 1 && off > (sh.kind === 'catch' ? C.offCatch : C.off)) return { ok: false, why: `the subject ${(off / D2R).toFixed(0)}° off the middle at its moment` };
+  if (sh.kind !== 'crease' && h > 1 && off > (sh.offMax ? sh.offMax * D2R : sh.kind === 'catch' ? C.offCatch : C.off)) return { ok: false, why: `the subject ${(off / D2R).toFixed(0)}° off the middle at its moment` };
   if (Math.atan2(sy - c.y, Math.max(0.5, h)) > C.up) return { ok: false, why: 'looking up at it' };
   // (what is behind matters where the subject is far: a close subject fills the picture)
   if (sh.kind !== 'track') return { ok: true, why: '' };
@@ -374,7 +376,7 @@ function recipe(story, tier, m, tape) {
     // whole arc from high at long-on / long-off (or behind the keeper), the view going on to the people beside it)
     const behind = six && Math.abs(subj.x) < SCREEN.half + 2.5 && Math.abs(subj.z - CZ) > SCREEN.dist - 2;
     const k2 = shot(behind
-      ? { kind: 'track', canon: 'fixed', cands: FIXED.filter((c) => /^long|keeperHigh|screenSide/.test(c.name)), stand: stands[0], stands, lookMax: 50, far: 75, fov: DIRECTOR.fov.wide, subj, dists: [0], heights: [0], endDist: [15, 50] }
+      ? { kind: 'track', canon: 'fixed', cands: FIXED.filter((c) => /^long|keeperHigh|screenSide/.test(c.name)), stand: { ...stands[0], t: key - 0.7 }, stands: stands.map((a) => ({ ...a, t: key - 0.7 })), lookMax: 50, far: 75, offMax: 45, fov: DIRECTOR.fov.wide, subj, dists: [0], heights: [0], endDist: [15, 50] }
       : six
       ? { kind: 'track', canon: 'crowd', rope: true, seats: true, stand: stands[0], stands, fov: DIRECTOR.fov.track, subj, dists: [8, 10, 12], heights: [2.5], endDist: [8, 13], rimMax: Math.max(63.5, Math.min(re + (screened ? 5 : -4), 80)), kMax: screened ? 18 : 8 }
       : fielder
@@ -597,7 +599,7 @@ export function chooseSpot(samples, sh, bodies, lim) {
     }
   }
   if (best && best.A) sh.stand = best.A;
-  if (!best) best = { c: { x: E.x * 0.7, y: sh.heights[0], z: CZ + (E.z - CZ) * 0.7 } };
+  if (!best) best = { c: sh.cands && sh.cands.length ? { ...sh.cands[0] } : { x: E.x * 0.7, y: sh.heights[0], z: CZ + (E.z - CZ) * 0.7 } };
   if (best.c.name) sh.canon = best.c.name;
   keepClear(best.c, bodies);
   return { x: best.c.x, y: best.c.y, z: best.c.z };
