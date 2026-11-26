@@ -31,7 +31,7 @@ import { decisionPending } from './quickSkip.js';
 import { SQUADS } from './squad.js';
 import { PITCH } from '../physics/pitch.js';
 import { makeRng, hypot2 } from '../physics/math.js';
-import { EYE_CLEAR, FIELD_CLEAR, bendAround } from './playerSpace.js';
+import { EYE_CLEAR, FIELD_CLEAR, FAST_CLEAR, bendAround } from './playerSpace.js';
 
 export const CEREMONIES = ['on', 'short', 'off'];
 export const CEREMONY_NAMES = { on: 'full', short: 'cards only', off: 'off' };
@@ -85,7 +85,7 @@ export function winnersFocus(L, bw, out = { x: 0, z: 0 }) {
 // the next three jog in from a few strides out, each from his own distance, to their own places in a
 // loose ring (high fives); the last two come from further and stop a step outside it, clapping -- so
 // they arrive one after another, not in step, and do not all do the same thing. you: your eye, that
-// nobody is put or ends up within FIELD_CLEAR of. Made once a result.
+// nobody is put or ends up within FAST_CLEAR of (they jog in). Made once a result.
 const GATHER_N = 6, GATHER_OUT = 3.0, GATHER_R = [0, 1.15, 1.35, 1.25, 2.3, 2.6];
 export function gatherAt(L, focus, t, you = null) {
   const F = L.fielders.filter((f) => !f.bowler).sort((a, b) => hypot2(a.pos.x - focus.x, a.pos.z - focus.z) - hypot2(b.pos.x - focus.x, b.pos.z - focus.z)).slice(0, GATHER_N);
@@ -96,7 +96,7 @@ export function gatherAt(L, focus, t, you = null) {
     (f.target = f.target || f.pos.clone()).set(focus.x + Math.sin(a) * GATHER_R[i], 0, focus.z + Math.cos(a) * GATHER_R[i]);
     if (you) for (const p of [f.pos, f.target]) {
       const dx = p.x - you.x, dz = p.z - you.z, dd = hypot2(dx, dz);
-      if (dd < FIELD_CLEAR + 0.2) { const k = (FIELD_CLEAR + 0.2) / (dd || 1); p.x = you.x + dx * k; p.z = you.z + dz * k; }
+      if (dd < FAST_CLEAR + 0.2) { const k = (FAST_CLEAR + 0.2) / (dd || 1); p.x = you.x + dx * k; p.z = you.z + dz * k; }     // (they jog in: fast)
     }
     f.vel.set(0, 0, 0); f.speed = 0; f.action = null; f.huddleMood = null; f.huddleUntil = t + 60;
     (f.huddleAt = f.huddleAt || f.pos.clone()).set(focus.x, 0, focus.z);

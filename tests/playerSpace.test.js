@@ -104,7 +104,7 @@ test('the wicket huddle: round the bowler with you at the striker\'s end, round 
   // you bowled it: they come round you, at the edge of your space
   f = field(BOWLER, 11, false);
   assert.ok(f.celebrateWicket(100, BOWLER, -1, HUDDLE_YOU, 11.5) >= 3);
-  clearHuddle(f, BOWLER, HUDDLE_YOU);
+  clearHuddle(f, BOWLER, HUDDLE_YOU, true);
   d = nearest(f, BOWLER);
   assert.ok(d >= FAST_CLEAR - 0.02, `the huddle round you came ${d.toFixed(2)} m from you: its jumps are fast`);
   assert.ok(nearest.fast >= FAST_CLEAR - 0.05, `a fielder ran in ${nearest.fast.toFixed(2)} m from you at the bowler's end`);
