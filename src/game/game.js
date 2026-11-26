@@ -92,7 +92,7 @@ export class Game {
     for (const s of Object.values(this.stumps)) for (const p of s.pieces) if (p.kind === 'stump') ShadowPool.track(p.mesh, 'stump');   // (sun shadows)
     this.machine = new MachineView(this.env.pitchGroup);
     this.pitchMark = new PitchMark(scene);
-    this.aimMarker = buildRingMarker(0x1e8bff, 0.38, 0xffffff, 1.1);   // blue, so it stands out on the pitch and the grass
+    this.aimMarker = buildRingMarker(0x1e8bff, 0.38, 0xffffff, 0.5);   // (0.5 m: its top stays below the batter's feet as seen from the crease)   // blue, so it stands out on the pitch and the grass
     this.aimMarker.visible = false;
     scene.add(this.aimMarker);
     this.batterView = new BatterView(scene, this.aiBatter);
