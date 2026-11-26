@@ -406,7 +406,7 @@ function recipe(story, tier, m, tape) {
     if (!six) {
       const fielder = nearestFigure(tape, key, subj, DIRECTOR.fourChase);
       if (!fielder) return { story, tier, shots, segs, takes, key: hit, focus: key };
-      const k2 = shot({ kind: 'track', canon: 'rope', rope: true, fov: DIRECTOR.fov.track, subj, fielder, pair: fielder.k, dists: [8, 10, 12], heights: [1.8], endDist: [7, 13], rimMax: 60 });
+      const k2 = shot({ kind: 'track', canon: 'rope', rope: true, fov: DIRECTOR.fov.track, subj, fielder, pair: fielder.k, dists: [8, 10, 12], heights: [1.8], endDist: [5, 18], rimMax: 60 });
       takeTwo(k2, 'THE CHASE', key, Math.max(hit + 0.1, key - DIRECTOR.t2.lead), Math.min(last, key + 0.3));
       return { story, tier, shots, segs, takes, key: hit, focus: key };
     }
@@ -608,12 +608,14 @@ export function chooseSpot(samples, sh, bodies, lim) {
     }
     // Inside the rope, `dists` m from the subject (further if it came down deep in the stand), on bearings
     // up to 80° either side of straight in from it.
-    const re = hypot2(E.x, E.z - CZ) || 1, ix = -E.x / re, iz = -(E.z - CZ) / re, rim = sh.rimMax ?? DIRECTOR.rim + 2.5, kMax = sh.kMax ?? 8;
+    // (a four's chase: round the fielder, `dists` m from him)
+    const O = sh.pair != null && sh.fielder ? sh.fielder : E;
+    const re = hypot2(O.x, O.z - CZ) || 1, ix = -O.x / re, iz = -(O.z - CZ) / re, rim = sh.rimMax ?? DIRECTOR.rim + 2.5, kMax = sh.kMax ?? 8;
     for (const d0 of sh.dists) for (let k = -kMax; k <= kMax; k++) {
       const c = Math.cos(k * 10 * D2R), sn = Math.sin(k * 10 * D2R), ux = ix * c - iz * sn, uz = ix * sn + iz * c;
       let d = d0;
-      while (d < d0 + 20 && hypot2(E.x + ux * d, E.z + uz * d - CZ) > rim) d += 1;     // (no nearer the boards than the shot allows)
-      for (const y of sh.heights) cands.push({ x: E.x + ux * d, y, z: E.z + uz * d });
+      while (d < d0 + 20 && hypot2(O.x + ux * d, O.z + uz * d - CZ) > rim) d += 1;     // (no nearer the boards than the shot allows)
+      for (const y of sh.heights) cands.push({ x: O.x + ux * d, y, z: O.z + uz * d });
     }
   }
   const endBodies = bodies.filter((b) => b.t === bodies.end);
