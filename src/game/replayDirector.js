@@ -256,8 +256,8 @@ function subjectAt(p, sh, tape, i, end) {
   const off = (x, z) => Math.abs(wrap(Math.atan2(x - c.x, z - c.z) - yaw));
   const figFar = C.figH > 0 ? 1.8 / (2 * Math.tan(C.figH * C.vfov / 2)) : Infinity, ballFar = C.ballR / Math.tan(C.ballPx / C.pxPerRad / 2);
   if (sh.stand && end) {
-    // (a six's people: the middle of the picture is them)
-    const v = viewShares(c, yaw, 0, { hfov: 40, vfov: 30, n: 16, nv: 12 });
+    // (a six's people: the middle of the picture is them, the head a little down as it rests)
+    const v = viewShares(c, yaw, -0.08, { hfov: 40, vfov: 30, n: 16, nv: 12 });
     return v.stand >= C.crowd ? { ok: true } : { ok: false, why: `the people ${(v.stand * 100).toFixed(0)}% of the middle` };
   }
   let x, y, z, size;

@@ -372,6 +372,9 @@ test('a six: the subject is the crowd where it lands, the ball coming down into 
     const sh = p.shots[p.S[p.n - 1]], F = walk(p, tape), e = F[F.length - 1], land = p.focus;
     // (one that comes down behind a sightscreen, among its braces: no spot beside it sees the ball land and
     // the people, so there is no crowd take; the bowler's end shows it go)
+    // (no spot where the people fill the picture: the arc, else none, never a doubtful one)
+    if (p.takes.length < 2) { assert.ok(p.leftOut.length, `${name}: no take 2 and no reason`); continue; }
+    if (sh.arc) { assert.ok(takeOK(p, 1, tape).ok, `${name}: the arc ${takeOK(p, 1, tape).why}`); continue; }
     if (behindScreen(tape, land)) {
       // (behind a sightscreen: the whole arc from high at long-on / long-off or behind the keeper)
       assert.ok(p.takes.length === 2 && /^long|keeperHigh|screenSide/.test(sh.canon), `${name}: behind the sightscreen, take 2 from ${sh.canon}`);
