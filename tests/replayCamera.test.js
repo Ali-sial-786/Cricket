@@ -181,7 +181,7 @@ test('the angles: fixed spots (no flying), level, turning within the comfort lim
       assert.equal(cuts, p.cuts.length, at);
       assert.ok(p.cuts.length <= 1, `${at}: ${p.cuts.length} cuts (one dip at most a replay)`);
       for (const sh of p.shots) if (sh.i0 >= 0) {
-        assert.ok(Math.hypot(sh.pos.x, sh.pos.z - CZ) <= DIRECTOR.rim + (sh.rope ? 2.5 : 0) + 1e-6, `${at}: ${sh.kind} outside the rim`);
+        assert.ok(Math.hypot(sh.pos.x, sh.pos.z - CZ) <= (sh.seats ? 80 : DIRECTOR.rim + (sh.rope ? 3.7 : 0)) + 1e-6, `${at}: ${sh.kind} outside the rim (or, a six coming down behind the boards, the apron in front of the seats)`);
         assert.ok(sh.pos.y >= 1.3 && sh.pos.y <= 6.5, `${at}: ${sh.kind} at ${sh.pos.y} m`);
       }
       if (!xr) for (const f of F) assert.ok(Math.abs(f.pitch) <= 50 * D2R + 1e-6, `${at}: tilted ${f.pitch / D2R}°`);
@@ -244,33 +244,35 @@ test('a run-out is judged side-on at the popping crease, on the side the throw c
   for (let t = T0 + 2.8; t <= T0 + 4.2; t += 0.02) { tape.ball(t, o); assert.ok(Math.hypot(o.x - sh.pos.x, o.y - sh.pos.y, o.z - sh.pos.z) >= 3.9, `the throw ${Math.hypot(o.x - sh.pos.x, o.y - sh.pos.y, o.z - sh.pos.z).toFixed(1)} m from the camera`); }
 });
 
-// The last picture of a boundary replay, as the viewer sees it looking at its subject: the central
-// 40° x 30° of the view (the subject area), what fills it (replayFraming.js viewShares).
-function lastPicture(p, tape, at) {
-  const F = walk(p, tape), e = F[F.length - 1], sh = p.shots[p.S[p.n - 1]];
-  const pitch = Math.atan2(at.y - sh.pos.y, Math.max(0.5, hypot2(at.x - sh.pos.x, at.z - sh.pos.z)));
-  return { e, sh, s: viewShares(sh.pos, e.yaw, pitch, { hfov: 40, vfov: 30, n: 60 }) };
-}
+// The last picture of a boundary replay, looked at level (a headset viewer's head): the middle 40° x 30°
+// (replayFraming.js viewShares), and the ball's size there at the headset's ~20 px a degree.
+const PXDEG = 20, BALL_R = 0.036;
+const ballPx = (d) => 2 * Math.atan(BALL_R / Math.max(0.1, d)) / D2R * PXDEG;
+const NONE = (s) => s.screen + s.bigscreen + s.pavilion;     // what a picture must never be made of
 
-test('a six: a crane in front of the stand where it comes down, the view settling on the crowd; never a board', () => {
-  for (const [name, v, extra] of [['over mid-wicket', [-17, 17, -14]], ['straight', [1, 18, -24]], ['into the seats (recorded land)', [-18, 19, -14], { landAt: 1 }]]) {
+test('a six: the subject is the crowd where it lands, the ball coming down into the picture; never a sightscreen, the big screen or the pavilion', () => {
+  for (const [name, v, extra] of [['over mid-wicket', [-17, 17, -14]], ['straight', [1, 18, -24]], ['square (off side, by the pavilion)', [19, 16, -8]], ['square (leg side)', [-19, 16, -8]],
+    ['into the seats (recorded land)', [-18, 19, -14], { landAt: 1 }]]) {
     const pts = shot(v), tape0 = tapeOf(pts);
     // (another branch lets a six fly on into the seats: the tape's own landing time, if the marks carry one, is used)
     const ex = extra && extra.landAt ? { land: tape0.crossAt() + 0.45 } : {};
     const { p, tape } = plan('six', 'boundary', pts, ex);
-    const sh = p.shots[p.S[p.n - 1]], F = walk(p, tape), e = F[F.length - 1];
+    const sh = p.shots[p.S[p.n - 1]], F = walk(p, tape), e = F[F.length - 1], land = p.focus;
     assert.equal(sh.kind, 'track', name);
-    assert.ok(sh.pos.y >= 4, `${name}: ${sh.pos.y} m up`);
-    assert.ok(hypot2(sh.pos.x, sh.pos.z - CZ) <= 52 + 1e-6, `${name}: ${hypot2(sh.pos.x, sh.pos.z - CZ).toFixed(1)} m out (too near the boards)`);
-    // looking level (the headset's view), the middle of the last picture is the stand, not the boards
+    assert.ok(sh.pos.y >= 2 && sh.pos.y <= 3, `${name}: ${sh.pos.y} m up`);
+    const dl = hypot2(sh.subj.x - sh.pos.x, sh.subj.z - sh.pos.z);
+    // (8-12 m; one that comes down up in the seats a little further, or the ball's last half second is
+    // more than 40° above a camera at 2-3 m)
+    assert.ok(dl >= 7.5 && dl <= 14 + Math.max(0, sh.subj.y - 3) * 1.2, `${name}: ${dl.toFixed(1)} m from where it comes down (${sh.subj.y.toFixed(1)} m up)`);
+    // the last picture: the people at least half of the middle, none of the things nobody watches
     const s = viewShares(sh.pos, e.yaw, 0, { hfov: 40, vfov: 30, n: 60 });
-    assert.ok(s.stand >= 0.5 && s.boards + s.screen <= 0.1, `${name}: stand ${(s.stand * 100).toFixed(0)}%, boards ${(s.boards * 100).toFixed(0)}%, sightscreen ${(s.screen * 100).toFixed(0)}%`);
-    const c = viewShares(sh.pos, e.yaw, 0, { hfov: 2, vfov: 2, n: 4 });
-    assert.ok(c.stand === 1, `${name}: the middle of the view is not the crowd`);
-    // the arc comes down in view: within the comfort cone while it is followed
-    let n = 0, k = 0;
-    for (const f of F) if (f.shot === p.S[p.n - 1] && f.t <= p.focus + 0.05) { n++; if (offOf(f) <= 25 * D2R) k++; }
-    assert.ok(!n || k / n >= 0.85, `${name}: the ball in view ${(k / Math.max(1, n) * 100).toFixed(0)}%`);
+    assert.ok(s.stand >= 0.5, `${name}: crowd ${(s.stand * 100).toFixed(0)}% of the middle of the last picture`);
+    assert.ok(NONE(s) <= 0.1 && s.sky <= 0.1, `${name}: sightscreen ${(s.screen * 100).toFixed(0)}%, big screen ${(s.bigscreen * 100).toFixed(0)}%, pavilion ${(s.pavilion * 100).toFixed(0)}%, sky ${(s.sky * 100).toFixed(0)}%`);
+    // the ball's last half second before it lands inside the headset's picture (±45° across, ±40° up)
+    for (const f of F) if (f.t >= land - 0.5 && f.t <= land) {
+      const across = offOf(f), up = Math.atan2(f.by - f.y, Math.max(0.5, hypot2(f.bx - f.x, f.bz - f.z)));
+      assert.ok(across <= 45 * D2R && Math.abs(up) <= 40 * D2R, `${name}: the ball out of the picture ${(land - f.t).toFixed(2)} s before it lands (${(across / D2R).toFixed(0)}° across, ${(up / D2R).toFixed(0)}° up)`);
+    }
   }
   // the catch: the last angle is near the catcher, nobody too close to the camera
   const { pts: cp, catcher } = caughtAt([-12, 14, -10], 2.4);
@@ -329,32 +331,31 @@ test('a catch: 5-8 m from the catcher, chest high, three-quarter on, there befor
   }
 });
 
-test('a four: ends on the ball crossing the rope, turf and rope the picture, the boards a band behind; the fielder chasing in shot, or a crane', () => {
-  for (const [name, v, chaser] of [['straight', [3, 1.5, -29]], ['straight, lofted', [0.5, 7, -30]], ['straight behind', [0.5, 1.5, 30]], ['cover', [24, 3, -14]], ['square', [30, 2, 0]], ['fine leg', [-12, 1.5, 24]], ['cover, chased', [24, 3, -14], true], ['fine, chased', [-12, 1.5, 24], true]]) {
+test('a four: ends on the ball into the rope with a subject: the fielder chasing it, or the ball itself close and in the middle; never a sightscreen, the big screen or the pavilion', () => {
+  for (const [name, v, chaser] of [['straight', [3, 1.5, -29]], ['straight, lofted', [0.5, 7, -30]], ['straight behind', [0.5, 1.5, 30]], ['cover', [24, 3, -14]],
+    ['square', [30, 2, 0]], ['fine', [-12, 1.5, 24]], ['fine (finer)', [-6, 1, 30]], ['cover, chased', [24, 3, -14], true], ['fine, chased', [-12, 1.5, 24], true]]) {
     const pts = shot(v), t0 = tapeOf(pts), cross = t0.crossAt(), C = { x: 0, y: 0, z: 0 }; t0.ball(cross, C);
     // a fielder chasing: 5 m inside the rope, beside the ball's line
     const ppl = [person(-0.4, -1.1), person(0.4, -21.6)];
     if (chaser) { const r = hypot2(C.x, C.z - CZ); ppl.push(person(C.x - C.x / r * 5 + 2, C.z - (C.z - CZ) / r * 5)); }
     const { p, tape } = plan('four', 'boundary', pts, {}, true, ppl);
-    assert.ok(p.end <= cross + 0.15, `${name}: runs ${(p.end - cross).toFixed(2)} s (tape) past the crossing`);
-    const { e, sh, s } = lastPicture(p, tape, { x: C.x, y: 0.1, z: C.z });
-    assert.ok(hypot2(sh.pos.x, sh.pos.z - CZ) <= 56 + 1e-6, `${name}: ${hypot2(sh.pos.x, sh.pos.z - CZ).toFixed(1)} m out (too near the boards)`);
-    // (a ball over the rope straight in front of a sightscreen has it behind: that is what is there; it is never a wall beside the view)
-    const inFront = Math.abs(C.x) < 16, scr = inFront ? 0 : s.screen;
-    assert.ok(s.boards + scr <= 0.14, `${name}: boards ${(s.boards * 100).toFixed(0)}%, sightscreen ${(s.screen * 100).toFixed(0)}% of the subject area`);
-    // looking level (a headset viewer before he looks down): the middle no board close-up, the whole view no sightscreen wall
-    const lv = viewShares(sh.pos, e.yaw, 0, { hfov: 40, vfov: 30, n: 60 }), wide = viewShares(sh.pos, e.yaw, 0, { hfov: 100, vfov: 90, n: 60 });
-    assert.ok(lv.boards <= 0.16 && (inFront || lv.screen <= 0.04), `${name}: level, boards ${(lv.boards * 100).toFixed(0)}%, sightscreen ${(lv.screen * 100).toFixed(0)}%`);
-    assert.ok(wide.screen <= (inFront ? 0.15 : 0.06), `${name}: a sightscreen fills ${(wide.screen * 100).toFixed(0)}% of the view`);
-    if (inFront) assert.ok(hypot2(sh.pos.x, sh.pos.z - CZ) <= 50 + 1e-6 && sh.pos.y >= 5, `${name}: in front of a sightscreen: from high and well back`);
-    assert.ok(s.turf >= 0.35, `${name}: turf ${(s.turf * 100).toFixed(0)}% of the subject area`);
-    // the ball at the crossing near the middle of the view
-    assert.ok(offOf(e) < DIRECTOR.cone, `${name}: ${(offOf(e) / D2R).toFixed(0)}° off the ball at the end`);
+    assert.ok(p.end <= cross + 0.25, `${name}: runs ${(p.end - cross).toFixed(2)} s (tape) past the crossing`);
+    const F = walk(p, tape), e = F[F.length - 1], sh = p.shots[p.S[p.n - 1]];
+    const s = viewShares(sh.pos, e.yaw, 0, { hfov: 40, vfov: 30, n: 60 });
+    assert.ok(NONE(s) <= 0.1, `${name}: sightscreen ${(s.screen * 100).toFixed(0)}%, big screen ${(s.bigscreen * 100).toFixed(0)}%, pavilion ${(s.pavilion * 100).toFixed(0)}% of the middle of the last picture`);
+    // the ball as it crosses the rope: near the middle of the view, and big enough to see
+    let at = F[0]; for (const f of F) if (Math.abs(f.t - cross) < Math.abs(at.t - cross)) at = f;
+    const dB = Math.hypot(at.bx - at.x, at.by - at.y, at.bz - at.z);
+    assert.ok(offOf(at) < DIRECTOR.cone, `${name}: ${(offOf(at) / D2R).toFixed(0)}° off the ball as it crosses`);
     if (chaser) {
-      const F = ppl[2].c, off = Math.abs(wrap(Math.atan2(F.x - sh.pos.x, F.z - sh.pos.z) - e.yaw));
-      assert.ok(off < 35 * D2R, `${name}: the fielder ${(off / D2R).toFixed(0)}° off the middle`);
-      assert.ok(sh.pos.y <= 2.2, `${name}: ${sh.pos.y} m up`);
-    } else assert.ok(sh.pos.y >= 3 && sh.pos.y <= (inFront ? 6 : 5), `${name}: no fielder near: a crane, not ${sh.pos.y} m`);
+      const Fd = ppl[2].c, off = Math.abs(wrap(Math.atan2(Fd.x - sh.pos.x, Fd.z - sh.pos.z) - e.yaw)), dF = hypot2(Fd.x - sh.pos.x, Fd.z - sh.pos.z);
+      assert.ok(off < 30 * D2R, `${name}: the fielder ${(off / D2R).toFixed(0)}° off the middle`);
+      assert.ok(2 * Math.atan(0.9 / dF) / D2R * PXDEG >= 100, `${name}: the fielder ${dF.toFixed(1)} m away`);
+    } else {
+      assert.ok(ballPx(dB) >= 6, `${name}: the ball ${ballPx(dB).toFixed(1)} px (${dB.toFixed(1)} m) as it crosses`);
+      assert.ok(sh.pos.y >= 1.4 && sh.pos.y <= 1.8, `${name}: a low camera by the rope, not ${sh.pos.y} m up`);
+      assert.ok(hypot2(sh.pos.x, sh.pos.z - CZ) >= 61.5, `${name}: just inside the rope, not ${hypot2(sh.pos.x, sh.pos.z - CZ).toFixed(1)} m out`);
+    }
   }
 });
 
