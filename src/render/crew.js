@@ -18,6 +18,7 @@ import { steerAmong, STUMP_CLEAR } from '../game/fielding.js';
 import { PITCH } from '../physics/pitch.js';
 import { CONFIG } from '../config.js';
 import { sstep, clamp, hyp } from './anim.js';
+import { EYE_CLEAR } from '../game/playerSpace.js';
 
 const TAU = Math.PI * 2;
 const angDiff = (a, b) => { let d = b - a; while (d > Math.PI) d -= TAU; while (d < -Math.PI) d += TAU; return d; };
@@ -25,13 +26,13 @@ const angDiff = (a, b) => { let d = b - a; while (d > Math.PI) d -= TAU; while (
 // The pavilion gate in the boundary boards (off side, square of the pitch).
 export const GATE = { x: CONFIG.field.boundaryRadius - 1.5, z: PITCH.centerZ + 2.5 };
 export const STRIKER_SPOT = { x: -0.33, z: -1.19 };      // the middle of the AI striker's stance (actors.js STANCE)
-// Nobody walks or runs through your head: your runner goes round it at
-// HEAD_CLEAR (people.js), and the man who is about to become you walks round to
-// out to your side and a little back (MERGE_BACK m) and fades there, out of your view. The fade by
-// distance is only the last resort (you stepped into him): solid beyond
-// FADE_FAR of your head, gone within FADE_NEAR -- a short range, so a dithered
-// figure is hardly ever seen.
-export const HEAD_CLEAR = 0.95, MERGE_BACK = 1.55, MERGE_PATH = 1.3;
+// The player's space: one rule for every figure (game/playerSpace.js). Here: walk tasks steer round
+// you (stepWalk among obstacles()), and the man about to become you walks round to out to your side and
+// a little back (MERGE_BACK m) and fades there, out of your view. The fade by distance is only the last
+// resort (you stepped into him): solid beyond FADE_FAR of your head, gone within FADE_NEAR -- a short
+// range, so a dithered figure is hardly ever seen.
+export { EYE_CLEAR, BODY_REACH, FIELD_CLEAR, bendAround } from '../game/playerSpace.js';
+export const MERGE_BACK = 1.7;
 export const FADE_NEAR = 0.5, FADE_FAR = 0.8;
 export const fadeNearHead = (d) => sstep(FADE_NEAR, FADE_FAR, d);
 
@@ -203,7 +204,7 @@ export class BatterCrew {
     this.ob(0, PITCH.battingStumpsZ, STUMP_CLEAR + 0.1); this.ob(0, PITCH.bowlingStumpsZ, STUMP_CLEAR + 0.1);
     for (const a of this.pool) if (a !== self && a.visible && (a.h.fade ?? 1) > 0.5) this.ob(a.pos.x, a.pos.z, 0.85);
     const hp = g.batterView.avoid;
-    if (hp) this.ob(hp.x, hp.z, self && self.task && self.task.kind === 'merge' ? MERGE_PATH : 1.5);     // (the man becoming you too: round you, well wide, to behind you)
+    if (hp) this.ob(hp.x, hp.z, EYE_CLEAR);     // (the man becoming you too: round you, well wide, to behind you)
     return obs;
   }
   // (the circles are this crew's own, set afresh each call: none made a frame)
