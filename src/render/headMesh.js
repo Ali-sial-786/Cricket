@@ -51,14 +51,16 @@ export function headField(H, eyes = true) {
     const tw = 1 - 0.1 * sstep(cran.c[2], cran.c[2] + cran.r[2], z) * sstep(E + 0.07, E + 0.0, y);
     let d = ell(ax / tw, y, z, cran.c, cran.r);
     // midface, muzzle, the soft tissue under the jaw
-    d = smin(d, ell(ax, y, z, [0, E - 0.03, zE - 0.052], [0.062, 0.05, 0.065]), 0.02);
-    d = smin(d, ell(ax, y, z, [0, mouth, zE - 0.03], [0.031, 0.027, 0.045]), 0.014);
+    d = smin(d, ell(ax, y, z, [0, E - 0.03, zE - 0.052], [0.056, 0.05, 0.065]), 0.02);
+    d = smin(d, ell(ax, y, z, [0, mouth + 0.003, zE - 0.041], [0.044, 0.034, 0.045]), 0.024);   // (broad and flat: no snout, no creases at its sides)
+    // full cheeks: a smooth convex surface from the cheekbone down to the jaw
+    d = smin(d, ell(ax, y, z, [0.034, mouth + 0.012, zE - 0.03], [0.023, 0.032, 0.03]), 0.024);
     d = smin(d, ell(ax, y, z, [0, C + 0.013, zE - 0.045], [0.044, 0.014, 0.05]), 0.016);
     // the mandible: chin to angle, angle up the ramus
-    const go = [0.051, C + 0.034, zE - 0.088];
-    d = smin(d, cone(ax, y, z, [0.015, C + 0.011, zF - 0.007], go, 0.0115, 0.013), 0.014);
+    const go = [0.048, C + 0.034, zE - 0.088];
+    d = smin(d, cone(ax, y, z, [0.015, C + 0.012, zF - 0.02], go, 0.012, 0.013), 0.018);
     d = smin(d, cone(ax, y, z, go, [0.05, E - 0.028, zE - 0.098], 0.013, 0.011), 0.012);
-    d = smin(d, ell(ax, y, z, [0, C + 0.013, zF - 0.006], [0.02, 0.015, 0.012]), 0.01);   // the chin
+    d = smin(d, ell(ax, y, z, [0, C + 0.014, zF - 0.021], [0.028, 0.017, 0.013]), 0.02);   // the chin
     // neck (to below the collar), the sternomastoids
     const nx = ax / 0.053, nz = (z - czN) / 0.056;
     let n = Math.sqrt(nx * nx + nz * nz) * 0.053 - 0.053;
@@ -67,21 +69,21 @@ export function headField(H, eyes = true) {
     d = smin(d, cone(ax, y, z, [0.044, E - 0.045, zE - 0.128], [0.013, 1.45, zE - 0.058], 0.011, 0.012), 0.012);
     if (z < zE - 0.045 || y > brow + 0.03 || y < C - 0.01) return d;   // (the features below are all on the face)
     // brow ridge, cheekbones
-    d = smin(d, ell(ax, y, z, [0, brow - 0.002, zF - 0.005], [0.052, 0.0095, 0.013]), 0.016);
-    d = smin(d, ell(ax, y, z, [0.049, E - 0.022, zE - 0.018], [0.02, 0.012, 0.016]), 0.022);
+    d = smin(d, ell(ax, y, z, [0, brow - 0.002, zF - 0.009], [0.052, 0.0095, 0.012]), 0.018);
+    d = smin(d, ell(ax, y, z, [0.047, E - 0.024, zE - 0.017], [0.022, 0.014, 0.017]), 0.026);
     // nose: nasion to tip, the base, the wings
-    d = smin(d, cone(ax, y, z, [0, E + 0.006, zF - 0.0005], [0, nose + 0.011, zF + 0.025], 0.0058, 0.0092), 0.006);
-    d = smin(d, ell(ax, y, z, [0, nose + 0.004, zF + 0.015], [0.0075, 0.0055, 0.008]), 0.005);
-    d = smin(d, ell(ax, y, z, [0.0135, nose + 0.0045, zF + 0.004], [0.0085, 0.0075, 0.0085]), 0.006);
+    d = smin(d, cone(ax, y, z, [0, E + 0.004, zF - 0.003], [0, nose + 0.01, zF + 0.0155], 0.0062, 0.0102), 0.009);
+    d = smin(d, ell(ax, y, z, [0, nose + 0.0045, zF + 0.009], [0.0085, 0.0062, 0.0085]), 0.008);
+    d = smin(d, ell(ax, y, z, [0.0115, nose + 0.0045, zF + 0.001], [0.0078, 0.0072, 0.008]), 0.009);
     // lips, the line between them
-    d = smin(d, ell(ax, y, z, [0, mouth + 0.0055, zF + 0.001], [0.023, 0.0058, 0.0095]), 0.004);
-    d = smin(d, ell(ax, y, z, [0, mouth - 0.006, zF - 0.0005], [0.021, 0.0062, 0.0095]), 0.004);
-    d = smax(d, -ell(ax, y, z, [0, mouth - 0.0002, zF + 0.006], [0.025, 0.0011, 0.009]), 0.002);
+    d = smin(d, ell(ax, y, z, [0, mouth + 0.005, zF - 0.008], [0.022, 0.005, 0.0075]), 0.008);
+    d = smin(d, ell(ax, y, z, [0, mouth - 0.0055, zF - 0.009], [0.02, 0.0056, 0.0075]), 0.008);
+    d = smax(d, -ell(ax, y, z, [0, mouth - 0.0002, zF - 0.002], [0.024, 0.0009, 0.008]), 0.0025);
     if (eyes) {
       // sockets carved in front of each eyeball, lids over it with an almond opening
-      d = smax(d, -ell(ax, y, z, [ex, E + 0.001, zE + 0.006], [0.0185, 0.0125, 0.016]), 0.006);
+      d = smax(d, -ell(ax, y, z, [ex, E + 0.001, zE + 0.01], [0.017, 0.0115, 0.009]), 0.008);
       const dx = ax - ex, dy = y - E;
-      const ox = dx / 0.0145, oy = (dy - 0.12 * dx) / (dy > 0 ? 0.0046 : 0.0052), open = Math.sqrt(ox * ox + oy * oy) - 1;   // < 0 in the almond
+      const ox = dx / 0.0152, oy = (dy - 0.08 * dx) / (dy > 0 ? 0.0051 : 0.0058), open = Math.sqrt(ox * ox + oy * oy) - 1;   // < 0 in the almond
       let lid = Math.sqrt(dx * dx + dy * dy + (z - zE) * (z - zE)) - (re + 0.0017);
       if (open < 0 && z > zE - 0.002) lid = Math.max(lid, -open * 0.005);                         // (the opening)
       d = smin(d, lid, 0.003);
@@ -131,10 +133,10 @@ function ear(H, s, lod, f) {
   let lo = 0, hi = 0.12;
   for (let k = 0; k < 24; k++) { const m = (lo + hi) / 2; if (f(s * m, cy, cz) < 0) lo = m; else hi = m; }
   const rx = lo;
-  const N = new THREE.Vector3(s, 0, -0.42).normalize();                 // out of the head, angled back
+  const N = new THREE.Vector3(s, 0, -0.22).normalize();                 // out of the head, angled a little back
   const U = new THREE.Vector3(0, 1, 0.12).normalize(), V = new THREE.Vector3().crossVectors(N, U).multiplyScalar(s).normalize();   // up, back
   if (V.z > 0) V.negate();
-  const A = new THREE.Vector3(s * (rx - 0.002), cy, cz);
+  const A = new THREE.Vector3(s * (rx - 0.004), cy, cz);
   const na = lod ? 8 : 16, radial = lod ? [0.5, 1] : [0.25, 0.5, 0.72, 0.86, 0.95, 1];
   const pos = [], idx = [];
   const pt = (sr, al, h, shrink = 1) => {
@@ -196,7 +198,7 @@ export function buildHead(H, lod, bones, neckY) {
       col.push(1, p.ear, 1);                                       // (colour.g: an ear, no hair on it)
       // baked occlusion: the sockets, under the nose and the jaw, the ear's hollow, the neck under the chin
       const ax = Math.abs(x);
-      let ao = 1 - 0.28 * Math.exp(-(((ax - H.ex) / 0.016) ** 2) - (((y - H.E) / 0.011) ** 2)) * sstep(H.zE - 0.01, H.zE + 0.01, z)
+      let ao = 1 - 0.08 * Math.exp(-(((ax - H.ex) / 0.016) ** 2) - (((y - H.E) / 0.011) ** 2)) * sstep(H.zE - 0.01, H.zE + 0.01, z)
         - 0.25 * Math.exp(-((ax / 0.016) ** 2) - (((y - H.nose) / 0.004) ** 2)) * sstep(H.zF, H.zF + 0.012, z)
         - 0.3 * sstep(H.C + 0.006, H.C - 0.012, y) * sstep(H.zE - 0.07, H.zE - 0.02, z);
       if (p.ear) ao = 0.75 + 0.25 * sstep(0.003, 0.008, Math.abs(x) - 0.06);
@@ -261,7 +263,8 @@ export function replaceHead(lods, J, meta) {
     const P = p.geo.attributes.position; let y0 = 0, z1 = -9, x1 = 0;
     for (let v = 0; v < P.count; v++) { y0 += P.getY(v); z1 = Math.max(z1, P.getZ(v)); x1 = Math.max(x1, Math.abs(P.getX(v))); }
     y0 /= P.count;
-    for (let v = 0; v < P.count; v++) P.setXYZ(v, P.getX(v) * 0.019 / x1, H.mouth + (P.getY(v) - y0), H.zF - 0.005 + (P.getZ(v) - z1));
+    // (small and well back: the lips are closed, it only darkens the line between them)
+    for (let v = 0; v < P.count; v++) P.setXYZ(v, P.getX(v) * 0.013 / x1, H.mouth + (P.getY(v) - y0) * 0.4, H.zF - 0.0155 + (P.getZ(v) - z1) * 0.5);
   }
   // drop the source's head: every triangle of the body above the collar on the head / neck bones
   for (const L of lods) for (const p of L) {
