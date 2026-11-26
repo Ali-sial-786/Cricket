@@ -32,9 +32,13 @@
 //               everybody, its subject in the middle and near, never looking up
 //               into the sky, never ending on a sightscreen, the big screen or
 //               the pavilion) or it is left out.
-// 3. The tempo: real speed for the build-up, slow motion (0.3x) through the
-//    key moment. Take 1 at most 5 s (a routine ball, "every ball", 2.5 s and
-//    take 1 only), each later take at most 4 s.
+// 3. The tempo: take 1 from the last stride (0.35 s before the release) at
+//    real speed, 0.6 s (real) of slow motion (0.3x) round the key moment, 0.3 s
+//    after; a later take from about 1 s before its moment, a short slow beat on
+//    it. About 4 s for a boundary, 5 s for a wicket, 3.5 s for a close call.
+// 4. How often (replayTakes): the whole replay for a wicket, a six, a drop, a
+//    run-out / stumping decision and the last ball; a four's second take for
+//    the first four of an over only; other close calls take 1, one an over.
 // Everything is laid out once, when the replay starts (~1-3 ms), from the tape.
 import { keepClear, blocksSight, nearestOnBody, viewShares, CLEAR, SCREEN } from './replayFraming.js';
 import { hypot2, hypot3 } from '../physics/math.js';

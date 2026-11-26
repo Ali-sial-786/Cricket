@@ -558,7 +558,7 @@ export class Replay {
     this.moveCamera(dt);
     // A six: the ground goes up again as it lands in the stands (the look and the swell; no sound is played twice).
     const m = this.marks;
-    if (P.story === 'six' && !this.cheered && m.cross != null && this.rt >= m.cross && P.shots[_cam.shot] && P.shots[_cam.shot].seats) {   // (in the crowd's take)
+    if (P.story === 'six' && !this.cheered && m.cross != null && this.rt >= m.cross && P.shots[_cam.shot] && P.shots[_cam.shot].stand) {   // (in the crowd's take, or the arc)
       this.cheered = true;
       try { g.env && g.env.crowdReact && g.env.crowdReact('six', 1, g.ballView.mesh.position); } catch { /* (the stands are optional) */ }
       try { if (g.cheer) g.cheer(0.9); } catch { /* (the crowd's swell is optional) */ }
