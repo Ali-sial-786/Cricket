@@ -293,6 +293,8 @@ src/render/           env (stadium), objects (bat/ball/stumps/machine), humanoid
                       actors + people + anim, clips (authored animation clips), umpires, drsView (review board + ball tracking;
                       snicko / hotspot draw its screen),
                       viewModes (helmet grille, your bowling body, hiding bodies inside your head)
+                      headMesh (every figure's head: a signed-distance sculpt meshed at load; the hair, six cuts,
+                      is drawn on the scalp in humanoid's shader; per-player look: 19 of 24 texels in the bone texture)
 src/ui/               canvas-texture panels: menus, HUD, scoreboard, laser pointer
 src/xr/               session.js (VR/MR, frame rate, foveation), input.js (controllers + desktop emulation), mr.js
 src/audio/            sfx.js (synthesised), samples.js (recorded effects), commentary.js (two-voice engine),
