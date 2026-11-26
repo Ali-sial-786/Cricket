@@ -51,6 +51,7 @@ const TOWERS = [45, 135, 225, 315];
 const TV = [160, 200, 340, 270];                       // camera platforms on the upper tier front
 const bayType = (b) => (b >= 2 && b <= 4 ? 'bank' : b >= 8 && b <= 9 ? 'pav' : 'stand');
 const AISLE = 0.8;                                      // degrees
+const _mix = [0, 0, 0];                                 // (blendMix's answer, reused)
 // A cross gangway in each tier (two rows with no seats, dark painted): far off, where a fan is 1-2 px, the
 // tiers read as blocks of 6-8 rows split by dark bands, not as an even speckle.
 const GW_LOW = 7, GW_UP = 6;                                  // (the first of two rows)
@@ -584,18 +585,39 @@ export function buildStadium(root, lights) {
       if (nearTV && TV.some((t) => Math.abs(a / D - t) < 1.4)) continue;
       const x = Math.sin(a) * rr, z = Math.cos(a) * rr;
       const sh = shadeAt(x, y + 1.0, z, -Math.sin(a) * 0.6, 0.8, -Math.cos(a) * 0.6);
-      const mix = blendMix(block, a / D);
-      spots.push({ x, y, z, nx: -Math.sin(a), nz: -Math.cos(a), sun: sh[0], sky: sh[1], block, row, i: Math.round(a / D * 20 + k), type, home: mix[0], away: mix[1] });
+      const mix = blendMix(block, a / D, row, rr);
+      spots.push({ x, y, z, nx: -Math.sin(a), nz: -Math.cos(a), sun: sh[0], sky: sh[1], block, row, i: Math.round(a / D * 20 + k), type, home: mix[0], away: mix[1], end: mix[2] });
     }
   }
   // Team shares fade into the next block over the outer quarter of each
   // (so a red end next to a blue one is a gradient of mixed shirts, not a line).
-  function blendMix(block, aDeg) {
+  // A seat's team mix. The two team ends (the home end behind the batter, 320-20 deg; the away
+  // section, 200-240 deg) feather out over ~12 deg either side instead of stopping at a bay line,
+  // thin a little up the rows and in the upper tier (cheaper seats, more of everyone), and are
+  // broken up by stray clusters (~5 m x 3 rows): a few neutral or rival patches inside an end, a
+  // few patches of team colours scattered round the rest. [home, away, end weight 0..1]
+  function blendMix(block, aDeg, row = 0, r = 90) {
     const bay = Math.floor(block / 3), tier = block % 3, Bk = blocks.get(block);
     const t = ((((aDeg - bay * 10) % 360) + 360) % 360) / 10;
-    const nb = t < 0.5 ? blocks.get(((bay + 35) % 36) * 3 + tier) : blocks.get(((bay + 1) % 36) * 3 + tier);
-    const w = nb ? 0.5 * smooth(0.25, 0, Math.min(t, 1 - t)) : 0;
-    return [Bk.home * (1 - w) + (nb ? nb.home : 0) * w, Bk.away * (1 - w) + (nb ? nb.away : 0) * w];
+    if (Bk.ultras) {
+      const nb = t < 0.5 ? blocks.get(((bay + 35) % 36) * 3 + tier) : blocks.get(((bay + 1) % 36) * 3 + tier);
+      const w = nb ? 0.5 * smooth(0.25, 0, Math.min(t, 1 - t)) : 0;
+      _mix[0] = Bk.home * (1 - w) + (nb ? nb.home : 0) * w; _mix[1] = Bk.away * (1 - w) + (nb ? nb.away : 0) * w; _mix[2] = 0;
+      return _mix;
+    }
+    const a = ((aDeg % 360) + 360) % 360;
+    const arcW = (a0, a1) => { const d0 = ((a - a0 + 540) % 360) - 180, d1 = ((a1 - a + 540) % 360) - 180; return smooth(-6, 6, d0) * smooth(-6, 6, d1); };
+    const thin = (tier === 1 ? 0.86 : 1) * (1 - 0.12 * Math.min(1, row / 14));
+    let hw = arcW(320, 20) * thin, aw = arcW(200, 240) * thin;
+    const hv = Math.sin(bay * 7.13 + tier * 19.7 + Math.floor((a * D * r) / 5) * 3.31 + Math.floor(row / 3) * 11.9) * 43758.5453, h = hv - Math.floor(hv);
+    if (hw + aw > 0.5 && h < 0.12) { const sw = hw; hw = aw * 0.3 + (h < 0.04 ? 0 : 0.15); aw = sw * (h < 0.04 ? 0.8 : 0.1); }   // a stray patch inside an end
+    else if (hw + aw < 0.15 && h > 0.95) { if (Math.abs(((a - 220 + 540) % 360) - 180) < 50) aw = 0.7; else hw = 0.7; }   // team colours dotted round the rest
+    // The rest of the ground: the bay's own mixed share (the ends' blocks get a typical mix).
+    const mh = Bk.strong ? 0.27 : Bk.home, ma = Bk.strong ? 0.1 : Bk.away;
+    _mix[0] = mh * (1 - hw - aw) + 0.8 * hw + 0.07 * aw;
+    _mix[1] = ma * (1 - hw - aw) + 0.02 * hw + 0.84 * aw;
+    _mix[2] = Math.min(1, hw + aw);
+    return _mix;
   }
   // Now and then someone on the stairs, going for a drink or back to their seat.
   function aisleWalker(a0, a1, rowR, rowY, T, tier) {
