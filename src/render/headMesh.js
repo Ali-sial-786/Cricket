@@ -72,8 +72,8 @@ export function headField(H, eyes = true) {
     d = smin(d, ell(ax, y, z, [0, brow - 0.002, zF - 0.009], [0.052, 0.0095, 0.012]), 0.018);
     d = smin(d, ell(ax, y, z, [0.047, E - 0.024, zE - 0.017], [0.022, 0.014, 0.017]), 0.026);
     // nose: nasion to tip, the base, the wings
-    d = smin(d, cone(ax, y, z, [0, E + 0.004, zF - 0.003], [0, nose + 0.01, zF + 0.0155], 0.0062, 0.0102), 0.009);
-    d = smin(d, ell(ax, y, z, [0, nose + 0.0045, zF + 0.009], [0.0085, 0.0062, 0.0085]), 0.008);
+    d = smin(d, cone(ax, y, z, [0, E + 0.004, zF - 0.003], [0, nose + 0.01, zF + 0.0125], 0.0062, 0.0102), 0.009);
+    d = smin(d, ell(ax, y, z, [0, nose + 0.0045, zF + 0.0065], [0.0088, 0.0064, 0.0085]), 0.008);
     d = smin(d, ell(ax, y, z, [0.0115, nose + 0.0045, zF + 0.001], [0.0078, 0.0072, 0.008]), 0.009);
     // lips, the line between them
     d = smin(d, ell(ax, y, z, [0, mouth + 0.005, zF - 0.008], [0.022, 0.005, 0.0075]), 0.008);

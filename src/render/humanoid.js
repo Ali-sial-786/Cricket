@@ -871,7 +871,7 @@ function kitMaterial(fig = null) {
           // his expression (FIG(18).x): a slight smile lifts the mouth's corners and the cheeks
           float ex = FIG(18).x;
           if (ex > 1.5 || ex < 0.5) {      // (relaxed: a third of the smile, so a resting face reads friendly)
-            float sm = ex > 1.5 ? 1.0 : 0.35;
+            float sm = ex > 1.5 ? 1.0 : 0.5;
             float dm = position.y - uFaceMisc.w;
             float corner = exp(-pow((ax - 0.026) / 0.012, 2.0) - dm * dm / 0.00008) * sm;
             transformed.y += 0.0028 * corner; transformed.z -= 0.0012 * corner; transformed.x += sign(position.x) * 0.0012 * corner;
@@ -1164,7 +1164,7 @@ function kitMaterial(fig = null) {
         // (a light shadow: at 1.5 m a heavy one boxes the lower face in)
         // (its own soft mask, not the beard's field: that one's moustache and goatee shapes box the mouth in)
         float stub = uLook2.y * smoothstep(uFaceMisc.y - 0.004, uFaceMisc.y - 0.026, yy) * smoothstep(0.07, 0.042, ax) * (1.0 - f.a);
-        c = mix(c, c * 0.82 + hc * 0.12, stub * 0.55);
+        c = mix(c, c * 0.82 + hc * 0.12, stub * 0.4);
         float b0 = 1.0 - uLook2.x, beard = smoothstep(b0 - 0.08, b0 + 0.3, bf) * step(0.01, uLook2.x);
         float bph = vBind.x * 1900.0 + sin(vBind.y * 700.0) * 3.0, bph2 = vBind.x * 1500.0 + vBind.y * 900.0;
         float strands = 0.93 + 0.07 * sin(bph) * (1.0 - smoothstep(0.3, 0.8, fwidth(bph)));
