@@ -735,6 +735,7 @@ export class Ceremony {
   // and it) while it is up.
   clearForMenu() {
     const g = this.g, s = g.session, F = s && s.field, L = F && F.logic;
+    if (this.hudOff) { this.hudOff = false; if (g.ui && g.ui.showHud) g.ui.showHud(true); }
     if (L && L.settleAll) { L.settleAll(); if (g.fieldView && g.fieldView.placeAll) g.fieldView.placeAll(L.states()); }
     if (g.umpires && g.umpires.settleNow) g.umpires.settleNow();
     if (g.batterView && g.batterView.shown && !g.batterView.runnerOnly) { g.batterView.actor.task = null; g.batterView.show(false); }
@@ -851,6 +852,12 @@ export class Ceremony {
     _f.set(0, 0, -1).applyQuaternion(_q); _f.y = 0; if (_f.lengthSq() < 1e-6) _f.set(0, 0, -1); _f.normalize();
     const P = resultPaths(how, e, _f.x, _f.z);
     S.tasks = [];
+    // (the match is over: the dead ball and the score panel by the pitch are not part of the scene -- the
+    // strap and the big screen carry the score; a wicket left broken by a ball that did not decide it --
+    // the side batting won -- stands again: its pieces drawn as one, not six)
+    if (g.ballView && g.ballView.setVisible) g.ballView.setVisible(false);
+    if (g.ui && g.ui.showHud) { g.ui.showHud(false); this.hudOff = true; }
+    if (how !== 'huddle' && g.stumps) for (const w of [g.stumps.batting, g.stumps.bowling]) if (w && w.broken && w.reset) w.reset();
     if (how === 'line' || how === 'meet') {
       if (how === 'line') {
         // your partner, from 8 m down the pitch, to beside you
