@@ -718,7 +718,8 @@ function figureValues() {
     uPanel: { value: new THREE.Color(0x173f8c) }, uIris: { value: new THREE.Color(0x3b2414) },
     uLook: { value: new THREE.Vector4(0, 0, 0, 0) }, uLook2: { value: new THREE.Vector4(0, 0, 1, 0) },
     uLook3: { value: new THREE.Vector4(0, 0, 0, 0) },    // age, nose, brow, jaw (FIG(17))
-    uLook4: { value: new THREE.Vector4(0, 0, 0, 0) },    // expression: 1 focused, 2 smile (FIG(18).x); haircut 0..5 (.y)
+    uLook4: { value: new THREE.Vector4(0, 0, 0, 0) },
+    uLook5: { value: new THREE.Vector4(0, 0, 0, 0) },    // face length, face width, cheek fullness, lips (FIG(19))    // expression: 1 focused, 2 smile (FIG(18).x); haircut 0..5 (.y)
     uCrestUV: { value: new THREE.Vector4() }, uSponsorUV: { value: new THREE.Vector4() },
     uTeamIx: { value: 0 },         // 0/1 the teams (sponsor, name, number), 2 officials (crest only)
     uNum: { value: new THREE.Vector2(-1, -1) },        // back number: glyphs of the tens and units (-1 none)
@@ -911,6 +912,27 @@ function kitMaterial(fig = null) {
           transformed.z += 0.0028 * L3.z * brow;
           float jaw = smoothstep(uFaceMisc.w + 0.006, uFaceMisc.w - 0.02, position.y) * smoothstep(1.47, 1.5, position.y) * smoothstep(0.02, 0.06, ax);
           transformed.x += position.x * 0.06 * L3.w * jaw;
+          // (FIG(19): face length and width, cheek fullness, lips; and from hashes of FIG(17) the nose's width
+          // and bridge, the jaw's shape (square / tapered), so no two men share a structure)
+          if (color.g < 0.5) {
+            vec4 L5 = FIG(19);
+            float fr = smoothstep(0.03, 0.08, position.z);
+            float lo = smoothstep(uEye.y + 0.005, uEye.y - 0.03, position.y);
+            transformed.y += (position.y - uEye.y) * 0.05 * L5.x * lo * fr;
+            transformed.x += position.x * 0.05 * L5.y * smoothstep(uEye.y + 0.035, uEye.y + 0.005, position.y) * fr;
+            float chk = exp(-pow((ax - 0.04) / 0.016, 2.0) - pow((position.y - uFaceMisc.w - 0.016) / 0.018, 2.0)) * fr;
+            transformed += objectNormal * 0.0026 * L5.z * chk;
+            float lipM = exp(-pow(ax / 0.016, 2.0) - pow((position.y - uFaceMisc.w) / 0.0075, 2.0)) * smoothstep(0.125, 0.14, position.z);
+            transformed += objectNormal * 0.0012 * L5.w * lipM;
+            float nw = fract(sin(L3.y * 91.7 + 0.3) * 437.5) * 2.0 - 1.0, nbr = fract(sin(L3.y * 53.1 + 1.7) * 251.3) * 2.0 - 1.0;
+            float wing = exp(-pow((position.y - uFaceMisc.y + 0.002) / 0.008, 2.0)) * smoothstep(0.024, 0.008, ax) * smoothstep(0.13, 0.145, position.z);
+            transformed.x += position.x * 0.13 * nw * wing;
+            float bridge = smoothstep(0.009, 0.0, ax) * smoothstep(uEye.y + 0.006, uEye.y - 0.004, position.y) * smoothstep(uFaceMisc.y + 0.004, uFaceMisc.y + 0.016, position.y) * smoothstep(0.135, 0.15, position.z);
+            transformed.z += 0.0016 * nbr * bridge;
+            float js = fract(sin(L3.w * 77.3 + 2.1) * 311.7) * 2.0 - 1.0;
+            float gon = exp(-pow((ax - 0.046) / 0.012, 2.0) - pow((position.y - uFaceMisc.w + 0.03) / 0.016, 2.0)) * smoothstep(0.02, 0.06, position.z);
+            transformed.x += sign(position.x) * 0.0035 * js * gon;
+          }
           // his expression (FIG(18).x): a slight smile lifts the mouth's corners and the cheeks
           float ex = FIG(18).x;
           if (ex > 1.5 || ex < 0.5) {      // (relaxed: a third of the smile, so a resting face reads friendly)
@@ -920,6 +942,11 @@ function kitMaterial(fig = null) {
             transformed.y += 0.0028 * corner; transformed.z -= 0.0012 * corner; transformed.x += sign(position.x) * 0.0012 * corner;
             transformed.y += 0.0015 * sm * exp(-pow((ax - 0.045) / 0.015, 2.0) - pow((position.y - uEye.y + 0.028) / 0.012, 2.0));
           }
+        }
+        if (k > 4.5 && k < 5.5 && color.g > 0.5) {
+          float es = fract(sin(FIG(17).z * 61.3 + 0.7) * 173.1) * 2.0 - 1.0;
+          vec3 ec = vec3(sign(position.x) * 0.072, uEye.y - 0.0085, uEye.w - 0.1148);
+          transformed += (position - ec) * 0.1 * es;
         }
         // a focused man's brows come down and in (the brow hair, slot 6 in front of the face)
         if (k > 5.5 && k < 6.5 && position.z > uEye.w - 0.012 && FIG(18).x > 0.5 && FIG(18).x < 1.5) {
@@ -1478,6 +1505,7 @@ export class Humanoid {
     u.uLook2.value.set(look.beard, look.stubble, look.hairCut, look.zinc);
     u.uLook3.value.set(look.age, look.nose, look.brow, look.jaw);
     u.uLook4.value.set(look.expr || 0, look.hairStyle || 0, headgear === 'cap' || headgear === 'hat' || headgear === 'helmet' ? 1 : 0, 0);
+    u.uLook5.value.set(look.faceLen || 0, look.faceWid || 0, look.cheek || 0, look.lips || 0);
     if (vary) scale *= look.scale;
     u.uSeed.value = rnd(9);
     u.uShades.value = this.opts.shades ? 1 : 0;
@@ -1619,7 +1647,7 @@ export class Humanoid {
   // Look like another figure (skin, hair, face, build, shirt name and number): the two figures that draw the same man.
   copyLook(o) {
     const u = this.u, v = o.u;
-    for (const k of ['uSkin', 'uHair', 'uIris', 'uLook', 'uLook2', 'uLook3', 'uLook4']) u[k].value.copy(v[k].value);
+    for (const k of ['uSkin', 'uHair', 'uIris', 'uLook', 'uLook2', 'uLook3', 'uLook4', 'uLook5']) u[k].value.copy(v[k].value);
     this.lookChanged();
     this.setNumber(o.number);
     this.setName(o.name);
@@ -1890,7 +1918,7 @@ export class Humanoid {
     const v4 = (i, v) => { const k = o + i * 4; M[k] = v.x; M[k + 1] = v.y; M[k + 2] = v.z; M[k + 3] = v.w; };
     c3(0, u.uKit1.value, u.uSeed.value); c3(1, u.uKit2.value, u.uLod.value); c3(2, u.uKit3.value, u.uTeamIx.value); c3(3, u.uKit4.value, u.uNoHead.value);
     c3(4, u.uSkin.value, u.uGloved.value); c3(5, u.uHair.value, u.uHideHand.value); c3(6, u.uPanel.value, u.uShades.value); c3(7, u.uIris.value, u.uNameLen.value);
-    v4(8, u.uLook.value); v4(9, u.uLook2.value); v4(10, u.uCrestUV.value); v4(11, u.uSponsorUV.value); v4(17, u.uLook3.value); v4(18, u.uLook4.value);
+    v4(8, u.uLook.value); v4(9, u.uLook2.value); v4(10, u.uCrestUV.value); v4(11, u.uSponsorUV.value); v4(17, u.uLook3.value); v4(18, u.uLook4.value); v4(19, u.uLook5.value);
     { const k = o + 48, b = u.uBrim.value; M[k] = b.x; M[k + 1] = b.y; M[k + 2] = b.z; M[k + 3] = u.uNum.value.x; }
     for (let i = 0; i < 12; i++) M[o + 52 + i] = u.uName.value[i];
     M[o + 64] = u.uNum.value.y;

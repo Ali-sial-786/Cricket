@@ -75,6 +75,12 @@ export function lookFor(seed, team, role = 'player') {
   { const e = r(); L.expr = e < 0.5 ? 0 : e < 0.78 ? 1 : 2; }   // relaxed / focused (narrowed eyes, lowered brows) / a slight smile
   // the haircut: 0 a short crop, 1 a fade at the sides, 2 a side part, 3 receding, 4 longer on top, 5 shaved
   { const h = r(); L.hairStyle = L.age > 0.55 && h < 0.45 ? 3 : h < 0.25 ? 0 : h < 0.47 ? 1 : h < 0.65 ? 2 : h < 0.75 ? (L.age > 0.4 ? 3 : 2) : h < 0.955 ? 4 : 5; }   // (shaved: one in twenty or so)
+  // the face's structure (after the rest, so every earlier draw is as it was): length, width, cheeks,
+  // lips; never the gaunt (long, hollow-cheeked) or the jowly (wide, full, older) combinations
+  L.faceLen = r() * 2 - 1; L.faceWid = r() * 2 - 1; L.cheek = r() * 2 - 1; L.lips = r() * 2 - 1;
+  if (L.faceLen > 0.3) L.cheek = Math.max(L.cheek, -0.3);
+  L.cheek = Math.max(L.cheek, -0.6);
+  if (L.faceWid > 0.3 || L.age > 0.55) L.cheek = Math.min(L.cheek, 0.45);
   if (role === 'self') { L.sweatband = 0; L.sleeves = 0; L.build = 0; }
   return L;
 }
