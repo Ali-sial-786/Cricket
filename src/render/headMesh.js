@@ -51,16 +51,16 @@ export function headField(H, eyes = true) {
     const tw = 1 - 0.1 * sstep(cran.c[2], cran.c[2] + cran.r[2], z) * sstep(E + 0.07, E + 0.0, y);
     let d = ell(ax / tw, y, z, cran.c, cran.r);
     // midface, muzzle, the soft tissue under the jaw
-    d = smin(d, ell(ax, y, z, [0, E - 0.03, zE - 0.052], [0.053, 0.05, 0.066]), 0.02);   // (the cheeks turning back toward the ears)
-    d = smin(d, ell(ax, y, z, [0, mouth + 0.003, zE - 0.038], [0.043, 0.034, 0.045]), 0.024);   // (broad and flat: no snout, no creases at its sides)
+    d = smin(d, ell(ax, y, z, [0, E - 0.03, zE - 0.054], [0.052, 0.05, 0.066]), 0.028);   // (the cheeks turning back toward the ears)
+    d = smin(d, ell(ax, y, z, [0, mouth + 0.003, zE - 0.042], [0.042, 0.034, 0.045]), 0.03);   // (broad and flat: no snout, no creases at its sides)
     // full cheeks: a smooth convex surface from the cheekbone down to the jaw
-    d = smin(d, ell(ax, y, z, [0.034, mouth + 0.014, zE - 0.03], [0.023, 0.027, 0.03]), 0.024);   // (no sag under the jaw line)
+    d = smin(d, ell(ax, y, z, [0.034, mouth + 0.014, zE - 0.033], [0.022, 0.027, 0.03]), 0.03);   // (no sag under the jaw line)
     d = smin(d, ell(ax, y, z, [0, C + 0.014, zE - 0.048], [0.042, 0.012, 0.044]), 0.016);
     // the mandible: chin to angle, angle up the ramus
     const go = [0.048, C + 0.034, zE - 0.088];
-    d = smin(d, cone(ax, y, z, [0.015, C + 0.012, zF - 0.017], go, 0.012, 0.013), 0.018);
+    d = smin(d, cone(ax, y, z, [0.015, C + 0.012, zF - 0.021], go, 0.012, 0.013), 0.024);
     d = smin(d, cone(ax, y, z, go, [0.05, E - 0.028, zE - 0.098], 0.013, 0.011), 0.012);
-    d = smin(d, ell(ax, y, z, [0, C + 0.014, zF - 0.017], [0.027, 0.017, 0.013]), 0.02);   // the chin
+    d = smin(d, ell(ax, y, z, [0, C + 0.014, zF - 0.02], [0.027, 0.017, 0.013]), 0.026);   // the chin
     // neck (to below the collar), the sternomastoids
     // (about 15% narrower than the head at mid-neck, sloping out into the shoulders under the collar)
     const nf = 0.02 * sstep(E - 0.16, E - 0.225, y), nrx = 0.046 + nf, nrz = 0.049 + nf;
@@ -74,12 +74,15 @@ export function headField(H, eyes = true) {
     d = smin(d, ell(ax, y, z, [0, brow - 0.002, zF - 0.009], [0.052, 0.0095, 0.012]), 0.018);
     d = smin(d, ell(ax, y, z, [0.047, E - 0.024, zE - 0.017], [0.022, 0.014, 0.017]), 0.026);
     // nose: nasion to tip, the base, the wings
-    d = smin(d, cone(ax, y, z, [0, E + 0.004, zF - 0.003], [0, nose + 0.01, zF + 0.0125], 0.0062, 0.0102), 0.009);
-    d = smin(d, ell(ax, y, z, [0, nose + 0.0045, zF + 0.0065], [0.0088, 0.0064, 0.0085]), 0.008);
-    d = smin(d, ell(ax, y, z, [0.0115, nose + 0.0045, zF + 0.001], [0.0078, 0.0072, 0.008]), 0.009);
+    const nm = [0, (E + nose) / 2 + 0.004, zF + 0.0035];
+    d = smin(d, cone(ax, y, z, [0, E + 0.004, zF - 0.003], nm, 0.0064, 0.0057), 0.011);            // (nasion to a narrow bridge)
+    d = smin(d, cone(ax, y, z, nm, [0, nose + 0.01, zF + 0.0115], 0.0057, 0.0092), 0.01);         // (the bridge to the tip)
+    d = smin(d, ell(ax, y, z, [0, nose + 0.0068, zF + 0.0105], [0.0074, 0.0066, 0.0066]), 0.006);  // (a rounded tip)
+    d = smin(d, ell(ax, y, z, [0, nose + 0.0045, zF + 0.0065], [0.0088, 0.0064, 0.0085]), 0.01);
+    d = smin(d, ell(ax, y, z, [0.0115, nose + 0.0045, zF + 0.001], [0.0078, 0.0072, 0.008]), 0.011);
     // lips, the line between them
     d = smin(d, ell(ax, y, z, [0, mouth + 0.005, zF - 0.008], [0.0195, 0.005, 0.0075]), 0.008);
-    d = smin(d, ell(ax, y, z, [0, mouth - 0.0055, zF - 0.009], [0.0175, 0.0056, 0.0075]), 0.008);
+    d = smin(d, ell(ax, y, z, [0, mouth - 0.006, zF - 0.0085], [0.0175, 0.0064, 0.0078]), 0.008);
     d = smax(d, -ell(ax, y, z, [0, mouth - 0.0002, zF - 0.002], [0.021, 0.0009, 0.008]), 0.0025);
     if (eyes) {
       // sockets carved in front of each eyeball, lids over it with an almond opening
@@ -90,6 +93,7 @@ export function headField(H, eyes = true) {
       let lid = Math.sqrt(dx * dx + dy * dy + (z - zE) * (z - zE)) - (re + 0.0017);
       if (open < 0 && z > zE - 0.002) lid = Math.max(lid, -open * 0.005);                         // (the opening)
       d = smin(d, lid, 0.003);
+      d = smin(d, ell(ax, y, z, [ex + 0.001, E + 0.0072, zE + 0.0085], [0.0135, 0.0024, 0.0055]), 0.0025);   // (the upper lid's fold)
     }
     return d;
   };
@@ -115,7 +119,7 @@ function rays(f, O, rows, n, thMax, dens) {
   for (let r = 1; r <= rows; r++) {
     const th = thAt(r / rows);
     for (let j = 0; j < n; j++) {
-      const t = 2 * j / n - 1, ph = Math.PI * (0.42 * t + 0.58 * t * t * t);
+      const t = 2 * j / n - 1, ph = Math.PI * (0.34 * t + 0.66 * t * t * t);   // (columns crowd to the face, thin round the back)
       hit(Math.sin(th) * Math.sin(ph), Math.cos(th), Math.sin(th) * Math.cos(ph));
     }
   }
@@ -150,7 +154,7 @@ function ear(H, s, lod, f) {
     return p.addScaledVector(N, h).toArray();
   };
   // front: concha deep at the centre, the antihelix ridge, the helix rim rolled forward
-  const hF = (sr) => 0.003 + 0.007 * sstep(0.35, 0.72, sr) - 0.002 * Math.exp(-(((sr - 0.86) / 0.06) ** 2)) + 0.003 * sstep(0.9, 1, sr);
+  const hF = (sr) => 0.0015 + 0.0085 * sstep(0.3, 0.72, sr) - 0.0028 * Math.exp(-(((sr - 0.86) / 0.06) ** 2)) + 0.0042 * sstep(0.9, 1, sr);
   pos.push(pt(0, 0, hF(0)));
   for (const sr of radial) for (let k = 0; k < na; k++) pos.push(pt(sr, (k / na) * Math.PI * 2, hF(sr), sr > 0.97 ? 0.985 : 1));
   for (let k = 0; k < na; k++) idx.push(0, 1 + k, 1 + (k + 1) % na);
@@ -183,7 +187,8 @@ export function buildHead(H, lod, bones, neckY) {
   const f = headField(H, !lod);
   const O = [0, H.E - 0.01, H.zE - 0.07];
   const rows = lod ? 13 : 38, n = lod ? 22 : 64;
-  const dens = (th) => 1 + 1.9 * Math.exp(-(((th - 1.85) / 0.42) ** 2)) + 0.6 * Math.exp(-(((th - 1.45) / 0.2) ** 2));
+  // (rows crowd to the eyes (theta ~1.45) and the mouth (~2.2), thin over the crown)
+  const dens = (th) => 0.7 + 1.2 * Math.exp(-(((th - 1.85) / 0.45) ** 2)) + 2.0 * Math.exp(-(((th - 1.45) / 0.12) ** 2)) + 1.3 * Math.exp(-(((th - 2.2) / 0.15) ** 2));
   const G = rays(f, O, rows, n, 2.86, dens);
   const parts = [{ P: G.P, I: G.I, ear: 0 }];
   for (const s of [1, -1]) { const e = ear(H, s, lod, f); parts.push({ P: e.P, I: e.I, ear: 1 }); }
