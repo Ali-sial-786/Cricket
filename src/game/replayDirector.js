@@ -796,7 +796,11 @@ function layout(R, tape, lim, xr) {
         if (tape.figure && tape.figure(sh.pair, T[i], o2)) { hx += (o2.x - hx) * 0.65; hz += (o2.z - hz) * 0.65; }   // (nearer him: he is the subject)
       }
       else if (sh.stand && T[i] >= sh.stand.t) { const u = clamp((T[i] - sh.stand.t) / 0.5, 0, 1); hx += (sh.look.x - hx) * u; hy += (sh.look.y - hy) * u; hz += (sh.look.z - hz) * u; }   // (a six: on to the stand going up)
-      else if (follow && tape.ball(T[i], o)) { hx = o.x; hy = o.y; hz = o.z; seen = true; }
+      else if (follow && tape.ball(T[i], o)) {
+        // (the bowler's-end take holds its last direction once the ball is beyond its turn limit or behind it)
+        const out = sh.yawLim && sh.face && (o.z < sh.pos.z + 1 || Math.abs(wrap(Math.atan2(o.x - sh.pos.x, o.z - sh.pos.z) - Math.atan2(sh.face.x - sh.pos.x, sh.face.z - sh.pos.z))) > sh.yawLim);
+        if (!out) { hx = o.x; hy = o.y; hz = o.z; seen = true; }
+      }
       else if (follow && !seen && sh.kind === 'track') { const j = firstVisible(tape, T, i, sh.i1, o); if (j) { hx = o.x; hy = o.y; hz = o.z; } }
       bx[i] = hx; by[i] = hy; bz[i] = hz;
       X[i] = sh.pos.x; Y[i] = sh.pos.y; Z[i] = sh.pos.z;
