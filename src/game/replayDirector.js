@@ -243,7 +243,8 @@ export function takeOK(p, j, tape) {
   // boards, rope and empty turf no more than half of the middle (the subject is in it: checked above)
   if (sh.kind !== 'track') return { ok: true, why: '' };
   const v = viewShares(c, p.W[i1], 0, { hfov: 40, vfov: 30, n: 16, nv: 12 });
-  if (v.screen + v.bigscreen + v.pavilion > C.none) return { ok: false, why: 'ends on a sightscreen, the big screen or the pavilion' };
+  // (from high at an end the pavilion is a building across the ground, not a wall in front: it may be there)
+  if (v.screen + v.bigscreen + (sh.high ? 0 : v.pavilion) > C.none) return { ok: false, why: 'ends on a sightscreen, the big screen or the pavilion' };
   // (nor the big screen, which shows REPLAY, looming over the top of the headset's view)
   const w = viewShares(c, p.W[i1], 0, { hfov: 100, vfov: 90, n: 20, nv: 18 });
   if (w.bigscreen > C.bigWide) return { ok: false, why: `the big screen ${(w.bigscreen * 100).toFixed(0)}% of the view` };
