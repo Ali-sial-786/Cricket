@@ -217,7 +217,7 @@ function paintFace(F) {
   const ss = (a, b, v) => { const t = sat((v - a) / (b - a)); return t * t * (3 - 2 * t); };
   const ell = (x, y, cx, cy2, ax, ay) => Math.sqrt(sq((x - cx) / ax) + sq((y - cy2) / ay));
   // the lid opening: headMesh.js's almond (30 mm across, the upper lid over the top of the iris)
-  const ow = 0.0152, oh = 0.0053;
+  const ow = 0.0152, oh = 0.0048;
   // (symmetric: the +x half is painted and mirrored; each feature only where it can reach)
   for (let j = 0; j < M; j++) {
     const y = y0 + (j + 0.5) / M * h;
@@ -286,10 +286,10 @@ function paintFace(F) {
           const up = (y - my) > 0;
           const top = 0.0048 * Math.pow(Math.max(0, 1 - ux * ux), 0.7) + bow * 0.5, bot = -0.0056 * Math.pow(Math.max(0, 1 - ux * ux), 0.7);   // (thin, tapering into the corners)
           const inLip = up ? ss(top + 0.0011, top - 0.0011, y - my) : ss(bot - 0.0013, bot + 0.0013, y - my);
-          lips = Math.max(lips, inLip * (up ? 1 : 0.8));
-          shade -= 0.3 * Math.exp(-sq((y - my - 0.0014 * ux * ux) / 0.0008)) * ss(1.02, 0.65, ux);        // the parting
+          lips = Math.max(lips, inLip * (up ? 1 : 0.62));      // (the upper lip darker than the lower)
+          shade -= 0.17 * Math.exp(-sq((y - my - 0.0014 * ux * ux) / 0.0007)) * ss(1.02, 0.6, ux);   // (a soft closed line, not a slot)        // the parting
           shade -= 0.1 * ss(0.0022, 0, Math.abs(ux - 1)) * Math.exp(-sq((y - my) / 0.003));                  // corners
-          shade -= 0.05 * up * inLip;
+          shade -= 0.07 * up * inLip;
           shade += 0.06 * (1 - up ? 1 : 0) * Math.exp(-sq((y - my + 0.0045) / 0.002)) * ss(0.8, 0.2, ux);   // lower lip highlight
         }
         shade -= 0.07 * Math.exp(-sq(ax / 0.0035)) * ss(my + 0.006, my + 0.009, y) * ss(ny - 0.006, ny - 0.011, y);   // philtrum groove

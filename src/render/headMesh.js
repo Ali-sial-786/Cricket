@@ -90,7 +90,7 @@ export function headField(H, eyes = true) {
       d = smax(d, -ell(ax, y, z, [ex, E + 0.001, zE + 0.01], [0.017, 0.0115, 0.009]), 0.008);
       d = smax(d, -ell(ax, y, z, [ex - 0.002, E + 0.009, zE + 0.009], [0.016, 0.0065, 0.0075]), 0.008);   // (under the brow: brow, socket, cheekbone one soft S)
       const dx = ax - ex, dy = y - E;
-      const ox = dx / 0.0152, oy = (dy - 0.08 * dx) / (dy > 0 ? 0.0053 : 0.006), open = Math.sqrt(ox * ox + oy * oy) - 1;   // < 0 in the almond
+      const ox = dx / 0.0152, oy = (dy - 0.08 * dx) / (dy > 0 ? 0.0048 : 0.006), open = Math.sqrt(ox * ox + oy * oy) - 1;   // < 0 in the almond
       let lid = Math.sqrt(dx * dx + dy * dy + (z - zE) * (z - zE)) - (re + 0.0017);
       if (open < 0 && z > zE - 0.002) lid = Math.max(lid, -open * 0.005);                         // (the opening)
       d = smin(d, lid, 0.003);
