@@ -458,15 +458,18 @@ function ringMarkerTexture(color, dotColor, beam = false) {
   g.fillStyle = 'rgba(10,14,20,0.55)'; g.beginPath(); g.arc(m, m, m * 0.24, 0, Math.PI * 2); g.fill();
   g.fillStyle = css(dotColor); g.beginPath(); g.arc(m, m, m * 0.17, 0, Math.PI * 2); g.fill();
   if (beam) {
-    // a soft column of the marker's colour with a pale core: strongest at the ground, gone at the top
+    // a column of the marker's own colour inside a dark rim, strongest at the ground, gone at the top
+    // (a pale one vanished against the cream pitch and the batter's pads)
     const col = new THREE.Color(color), r = Math.round(col.r * 255), gr = Math.round(col.g * 255), bl = Math.round(col.b * 255);
     const img = g.createImageData(S, S), d = img.data;
     for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
       const u = Math.abs(x - m) / m, up = 1 - y / (S - 1);                 // up: 0 at the ground (the canvas's bottom row), 1 at the top
-      const side = Math.max(0, 1 - u * u * 2.2), core = Math.max(0, 1 - u * 5);
-      const a = side * Math.pow(1 - up, 1.6) * 0.62, w = core * 0.75;
+      const fall = Math.pow(1 - up, 1.2);
+      const core = 1 - Math.min(1, Math.max(0, (u - 0.42) / 0.1)), rim = (1 - core) * (1 - Math.min(1, Math.max(0, (u - 0.78) / 0.2)));
+      const w = Math.max(0, 1 - u * 4) * 0.55;                             // a paler line down the middle
       const i = (y * S + x) * 4;
-      d[i] = r + (255 - r) * w; d[i + 1] = gr + (255 - gr) * w; d[i + 2] = bl + (255 - bl) * w; d[i + 3] = Math.round(255 * Math.min(1, a + core * (1 - up) * 0.3));
+      d[i] = (r + (255 - r) * w) * core + 10 * rim; d[i + 1] = (gr + (255 - gr) * w) * core + 14 * rim; d[i + 2] = (bl + (255 - bl) * w) * core + 20 * rim;
+      d[i + 3] = Math.round(255 * fall * (0.92 * core + 0.6 * rim));
     }
     g.putImageData(img, 0, S);
   }
@@ -490,7 +493,35 @@ export function buildRingMarker(color = 0xffe14d, radius = 0.22, dotColor = colo
     for (let i = 0; i < fu.count; i++) fu.setY(i, 0.5 + fu.getY(i) * 0.5);   // (the ring: the texture's upper half)
     for (let i = 0; i < uu.count; i++) uu.setY(i, uu.getY(i) * 0.5);         // (the beam: its lower half)
     mat.side = THREE.DoubleSide;
+    const part = (geo, v) => geo.setAttribute('aPart', new THREE.BufferAttribute(new Float32Array(geo.attributes.position.count).fill(v), 1));
+    part(flat, 0); part(up, 1);
+    // From the top of a run-up (25-30 m) a flat ring is two pixels tall and a fixed column a sliver that thins
+    // to nothing off its axis. So, in the vertex shader: the column always faces the eye and is never less
+    // than half a degree wide; the ring tips up toward the eye beyond 9 m (25 degrees by 24 m) and lies flat
+    // again as you run in. Nothing per frame on the CPU; the marker never rotates or scales.
+    const R = (radius * 1.1).toFixed(4), W = (radius * 0.42).toFixed(4);
+    mat.onBeforeCompile = (sh) => {
+      sh.vertexShader = sh.vertexShader
+        .replace('#include <common>', '#include <common>\nattribute float aPart;')
+        .replace('#include <begin_vertex>', `#include <begin_vertex>
+        {
+          vec3 mo = modelMatrix[3].xyz;
+          vec2 tc = cameraPosition.xz - mo.xz; float md = length(tc);
+          vec2 dir = md > 1e-3 ? tc / md : vec2(0.0, -1.0), sd = vec2(dir.y, -dir.x);
+          float tip = 0.436 * smoothstep(9.0, 24.0, md);
+          if (aPart > 0.5) {
+            vec2 xz = sd * transformed.x * max(1.0, md * 0.0087 / ${W});
+            transformed = vec3(xz.x, transformed.y + ${R} * sin(tip), xz.y);
+          } else {
+            float al = dot(transformed.xz, -dir) + ${R}, ac = dot(transformed.xz, sd);
+            vec2 xz = -dir * (al * cos(tip) - ${R}) + sd * ac;
+            transformed = vec3(xz.x, transformed.y + al * sin(tip), xz.y);
+          }
+        }`);
+    };
+    mat.customProgramCacheKey = () => 'aimMarker:' + R + ':' + W;
     q = new THREE.Mesh(mergeGeometries([flat, up]), mat);
+    q.frustumCulled = false;                 // (its bounds do not know about the tip; one small mesh)
   } else {
     q = new THREE.Mesh(new THREE.PlaneGeometry(radius * 2.2, radius * 2.2), mat);
     q.rotation.x = -Math.PI / 2;
