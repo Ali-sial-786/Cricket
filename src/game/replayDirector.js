@@ -54,22 +54,23 @@ const NO_CROWD = [[0, 10], [180, 10], [90, 12]], ONE = [null];
 export const MODES = ['highlights', 'every', 'off'];
 // Real seconds at most: a replay is a sequence of whole takes, each one continuous shot (DIRECTOR.takes); the
 // whole: take 1 and one more; a routine ball ("every ball") take 1 only, short.
-export const BUDGET = { wicket: 5.2, boundary: 4.4, close: 4.2, routine: 2.2 };
+export const BUDGET = { wicket: 5.2, boundary: 5.6, close: 4.2, routine: 2.2 };
 export const DIRECTOR = {
   du: 1 / 90,                  // s: the plan's samples (real time)
   slow: 0.3,                   // slow motion through the key moment
   cutOut: 0.03, cutIn: 0.05,   // s: a cut is a quick dip: down to dark and back in (one cut at most a replay)
   endOut: 0.04,                // s: the last moments fade down before you are put back
   inOut: 0.08,                 // s: the view comes in from dark as the replay starts, and as it puts you back
-  takes: { first: 2.4, later: 2.6 },   // s: take 1 (the bowler's end) at most, each later take at most
+  takes: { first: 2.4, firstWide: 3.0, later: 2.6 },   // (firstWide: a boundary's take 1, which follows the ball away)   // s: take 1 (the bowler's end) at most, each later take at most
   t1: { pre: 0.35, slowReal: 0.6, post: 0.3 },   // take 1: from the last stride; 0.6 s (real) of slow motion round the key moment; 0.3 s after
   t2: { lead: 1.0, slowReal: 0.6 },              // a later take: from 1 s before its moment, a short slow beat on it
   // how many takes a ball gets in highlights (replayTakes): a four's second take only for the first four of
   // an over; one close-call replay an over (take 1 only), a review aside
   freq: { foursFull: 1, closePerOver: 1 },
+  highY: 14,                                     // m: the high camera behind an end (a four nobody chases, a six's last choice)
   fourChase: 15,                                 // m: a four's second take needs a fielder this near where it crosses
-  arm: { back: 3.0, y: 2.5, side: 2.0, yawLim: 25 * D2R },  // m behind the bowler's stumps, m up, m to the bowling arm's side; it turns no more than this off the pitch
-  line: { z: -7.0, y: 1.65, gap: 3.0 },  // on the stumps' line, z; eye height; joins once the ball is this far past it
+  arm: { back: 3.0, y: 2.5, side: 2.0, yawLim: 25 * D2R, yawWide: 70 * D2R, wideFor: 1.2 },   // (a boundary: it turns up to yawWide, following the ball wideFor s past contact)  // m behind the bowler's stumps, m up, m to the bowling arm's side; it turns no more than this off the pitch
+  line: { z: -5.5, y: 1.2, gap: 2.9, back: 3.2 },  // on the stumps' line, z (4.3 m in front of the batter); 1.2 m up (pad and stumps fill it); joins once the ball is this far past it
   crease: { d: 8.5, y: 1.4 },  // m square of the popping crease, m up
   cone: 20 * D2R,              // the middle of the view the ball is kept inside
   lead: 0.18,                  // s (real): the turn leads the ball by this much
@@ -99,7 +100,7 @@ export const DIRECTOR = {
 export const CANON = {
   arm: 'behind the bowler\'s arm (take 1)', line: 'on the line of the stumps in front of the batter', square: 'side-on at the popping crease, either side',
   catch: 'three-quarter on from the fielder\'s front, 5-8 m, chest high', rope: 'inside the rope by where a four goes over', crowd: 'in front of the seats where a six comes down',
-  keeperHigh: 'high behind the keeper', cover: 'cover, inside the rope', midwicket: 'mid-wicket, inside the rope', longOff: 'long-off, high', longOn: 'long-on, high',
+  highEnd: 'high behind an end, looking down the ground', keeperHigh: 'high behind the keeper', cover: 'cover, inside the rope', midwicket: 'mid-wicket, inside the rope', longOff: 'long-off, high', longOn: 'long-on, high',
   squareOffHigh: 'square on the off side, high', squareLegHigh: 'square on the leg side, high', screenSide: 'beside a sightscreen, inside the rope',
 };
 const ringAt = (name, az, r, y) => ({ name, x: Math.sin(az * D2R) * r, y, z: CZ + Math.cos(az * D2R) * r });
@@ -185,7 +186,7 @@ export function direct({ story, tier, m, tape, xr = true, check = true, maxTakes
   // (a take whose camera fails tries the next of its broadcast positions, then its second choice (alt):
   // laid out again each time, a few times at most)
   const tried = [];
-  for (let round = 0; check && round < 4; round++) {
+  for (let round = 0; check && round < 7; round++) {
     let again = false;
     for (let j = 1; j < p.takes.length; j++) {
       const sh = p.shots[p.takes[j].shot], r = takeOK(p, j, tape);
@@ -271,7 +272,7 @@ function subjectAt(p, sh, tape, i, end) {
     // (a catch: his hands, the ball in them, count as him)
     if (sh.kind === 'catch' && tape.ball(t, o) && hypot2(o.x - x, o.z - z) < 2 && off(o.x, o.z) < off(x, z)) { x = o.x; z = o.z; }
   } else if (sh.kind === 'crease' || sh.kind === 'line') { x = sh.face.x; y = sh.face.y; z = sh.face.z; size = 'figure'; }
-  else { if (!tape.ball(t, o)) return { ok: false, why: 'no ball' }; x = o.x; y = o.y; z = o.z; size = sh.arc || sh.seats ? 'arc' : 'ball'; }   // (a six: the ball and its trail dropping in, the people the subject)
+  else { if (!tape.ball(t, o)) return { ok: false, why: 'no ball' }; x = o.x; y = o.y; z = o.z; size = sh.arc || sh.seats || sh.high ? 'arc' : 'ball'; }   // (a six: the ball and its trail dropping in, the people the subject)
   const h = hypot2(x - c.x, z - c.z), d = hypot3(x - c.x, y - c.y, z - c.z);
   if (sh.kind !== 'crease' && h > 1 && off(x, z) > (sh.arc ? C.offArc : C.off)) return { ok: false, why: `the subject ${(off(x, z) / D2R).toFixed(0)}° off the middle` };
   if (Math.atan2(y - c.y, Math.max(0.5, h)) > C.up) return { ok: false, why: 'looking up at it' };
@@ -305,7 +306,10 @@ export function prewarm() {
 // dropped catch, a run-out / stumping / direct-hit decision, the last ball: the whole replay; a four: the
 // whole replay for the first DIRECTOR.freq.foursFull of the over, take 1 for the rest; any other close call
 // (an appeal turned down, an edge, a beaten bat, a bouncer, a stop, a lofted shot down safe, a misfield):
-// take 1, DIRECTOR.freq.closePerOver of them an over (a review always). Every ball: at least take 1.
+// take 1, DIRECTOR.freq.closePerOver of them an over. An appeal that went up for a decision (the umpire's
+// review, DRS, the third umpire: m.review) is exempt from that cap and gets the whole replay: it is a
+// decision, like a wicket. A later four still gets its take 1, which follows the ball away. Every ball:
+// at least take 1.
 export function replayTakes(mode, story, tier, review, over) {
   if (mode === 'off') return 0;
   const F = DIRECTOR.freq, every = mode === 'every';
@@ -335,11 +339,11 @@ function recipe(story, tier, m, tape) {
   const lenFrom = (i0) => segsLength(segs.slice(i0));
   const fit = (i0, B, cuts) => { for (const c of cuts) { if (lenFrom(i0) <= B + 1e-6) return; c(); } };
   const armPos = armSpot(tape, rel);
-  const arm = () => shot({ kind: 'arm', canon: 'arm', pos: { ...armPos }, face: { x: 0, y: 0.9, z: Z_BAT - POP }, follow: arr, yawLim: DIRECTOR.arm.yawLim });
+  const arm = (yawLim = DIRECTOR.arm.yawLim) => shot({ kind: 'arm', canon: 'arm', pos: { ...armPos }, face: { x: 0, y: 0.9, z: Z_BAT - POP }, follow: arr, yawLim });
   const line = () => shot({ kind: 'line', canon: 'line', pos: { x: 0, y: DIRECTOR.line.y, z: DIRECTOR.line.z }, face: { x: 0, y: 0.6, z: Z_BAT - 0.6 }, follow: arr });
   // the line camera joins once the ball is past it (it is never whipped past your head)
   // (crossing that point on its way down: before the release the tape may hold the ball anywhere)
-  const lineFrom = () => { let was = false; return clamp(firstWhen(tape, rel, arr, (p) => { const past = p.z > DIRECTOR.line.z + DIRECTOR.line.gap; if (!past) was = true; return past && was; }) ?? arr - 0.22, rel + 0.15, arr - 0.1); };
+  const lineFrom = () => { let was = false; return clamp(firstWhen(tape, rel, arr, (p) => { const past = p.z > DIRECTOR.line.z + DIRECTOR.line.gap; if (!past) was = true; return past && was; }) ?? arr - 0.1, rel + 0.15, arr - 0.03); };
   // …and leaves before a ball hit back down the pitch gets near it
   const lineUntil = (t1) => { const L = DIRECTOR.line, t = hit != null ? firstWhen(tape, hit, t1, (p) => hypot3(p.x, p.y - L.y, p.z - L.z) < L.gap) : null; return t != null ? Math.max(hit + 0.04, t - 0.03) : t1; };
   const begin = (name, key) => { takes.push({ seg: segs.length, name, key }); return segs.length; };
@@ -349,11 +353,13 @@ function recipe(story, tier, m, tape) {
   // the camera's gentle reach (it turns at most DIRECTOR.arm.yawLim either way): a shot behind square or a
   // straight hit over the camera ends the take on the batter's follow-through instead of whipping round.
   const T1 = DIRECTOR.t1, half = T1.slowReal * S / 2;
-  const takeOne = (key, post = T1.post) => {
-    k0 = arm();
-    const i0 = begin("REPLAY · BOWLER'S END", key), B = tier === 'routine' ? BUDGET.routine : TK.first, routine = tier === 'routine';
+  // (wide: a boundary's take 1 follows the ball away for DIRECTOR.arm.wideFor s, turning up to yawWide and
+  // holding there if the ball goes further round or behind it: it never whips)
+  const takeOne = (key, post = T1.post, wide = false) => {
+    k0 = arm(wide ? DIRECTOR.arm.yawWide : DIRECTOR.arm.yawLim);
+    const i0 = begin("REPLAY · BOWLER'S END", key), B = tier === 'routine' ? BUDGET.routine : wide ? TK.firstWide : TK.first, routine = tier === 'routine';
     const s0 = key - half, s1 = key + half;
-    const gone = hit != null ? leavesArm(tape, armPos, hit, s1 + post) : null;
+    const gone = hit != null && !wide ? leavesArm(tape, armPos, hit, s1 + post) : null;
     let end = Math.min(last, dead + 0.6, s1 + post, gone != null ? Math.max(s1 + 0.1, gone + 0.3) : Infinity);
     end = Math.max(end, Math.min(last, s1 + 0.1));
     let pre = T1.pre;
@@ -389,7 +395,7 @@ function recipe(story, tier, m, tape) {
     const k1 = line(), tB = lineFrom();
     let after = key + 0.5;
     // (a ball knocked back off the stumps or the pad does not come at your head: it ends first)
-    const L = DIRECTOR.line, back = firstWhen(tape, key, after, (p) => hypot3(p.x, p.y - L.y, p.z - L.z) < L.gap);
+    const L = DIRECTOR.line, back = firstWhen(tape, key, after, (p) => hypot3(p.x, p.y - L.y, p.z - L.z) < L.back);
     if (back != null) after = Math.max(key + 0.15, back - 0.03);
     takeTwo(k1, 'FROM THE FRONT', key, tB, after);
     return { story, tier, shots, segs, takes, key };
@@ -406,11 +412,18 @@ function recipe(story, tier, m, tape) {
     const six = story === 'six', cross = m.cross ?? dead;
     const land = six ? Math.min(last, m.land ?? landingAfter(tape, cross, last)) : cross;
     const key = six ? land : cross;
-    takeOne(hit);
+    takeOne(hit, Math.max(T1.post, DIRECTOR.arm.wideFor - half), true);
     const subj = ballAt(tape, key), re = hypot2(subj.x, subj.z - CZ) || 1;
+    // (high behind the far end from where it goes: the field, the fielders and the ball's line, down the ground)
+    const hz = subj.z < CZ ? CZ + 58 : CZ - 58;
+    const high = { kind: 'track', canon: 'highEnd', high: true, title: 'FROM HIGH', cands: [{ name: 'highEnd', x: 0, y: DIRECTOR.highY, z: hz }], far: 150, fov: DIRECTOR.fov.wide, subj, dists: [0], heights: [0], endDist: [0, 200] };
     if (!six) {
       const fielder = nearestFigure(tape, key, subj, DIRECTOR.fourChase);
-      if (!fielder) return { story, tier, shots, segs, takes, key: hit, focus: key };
+      if (!fielder) {
+        const kh = shot(high);
+        takeTwo(kh, 'FROM HIGH', key, Math.max(hit + 0.2, key - 2.0), Math.min(last, key + 0.4));
+        return { story, tier, shots, segs, takes, key: hit, focus: key };
+      }
       const k2 = shot({ kind: 'track', canon: 'rope', rope: true, fov: DIRECTOR.fov.track, subj, fielder, pair: fielder.k, dists: [8, 10, 12], heights: [1.8], endDist: [5, 18], rimMax: 60 });
       takeTwo(k2, 'THE CHASE', key, Math.max(hit + 0.1, key - DIRECTOR.t2.lead), Math.min(last, key + 0.3));
       return { story, tier, shots, segs, takes, key: hit, focus: key };
@@ -425,7 +438,7 @@ function recipe(story, tier, m, tape) {
     }
     const sr = Math.max(re, SEATS) + 4;
     const stands = sas.map((sa) => ({ t: key + 0.1, x: Math.sin(sa) * sr, y: Math.max(subj.y, 2) + 3, z: CZ + Math.cos(sa) * sr }));
-    const arc = { kind: 'track', canon: 'fixed', arc: true, title: 'THE ARC', cands: FIXED.filter((c) => /^long|keeperHigh|screenSide/.test(c.name)), stand: { ...stands[0], t: key - 0.7 }, stands: stands.map((a) => ({ ...a, t: key - 0.7 })), lookMax: 50, far: 75, fov: DIRECTOR.fov.wide, subj, dists: [0], heights: [0], endDist: [15, 50] };
+    const arc = { kind: 'track', canon: 'fixed', arc: true, title: 'THE ARC', alt: high, cands: FIXED.filter((c) => /^long|keeperHigh/.test(c.name)), stand: { ...stands[0], t: key - 0.7 }, stands: stands.map((a) => ({ ...a, t: key - 0.7 })), lookMax: 50, far: 75, fov: DIRECTOR.fov.wide, subj, dists: [0], heights: [0], endDist: [15, 50] };
     const behind = Math.abs(subj.x) < SCREEN.half + 2.5 && Math.abs(subj.z - CZ) > SCREEN.dist - 2;
     const k2 = shot(behind ? arc : { kind: 'track', canon: 'crowd', rope: true, seats: true, stand: stands[0], stands, fov: DIRECTOR.fov.track, subj, dists: [10, 12.5, 15], heights: [2.5], endDist: [10, 15], rimMax: Math.max(63.5, Math.min(re + (screened ? 5 : 2), 82)), kMax: screened ? 18 : 8, alt: arc });
     takeTwo(k2, behind ? 'THE ARC' : 'IN THE CROWD', key, Math.max(hit + 0.1, key - DIRECTOR.t2.lead), Math.min(last, key + 0.9));
