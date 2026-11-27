@@ -970,7 +970,8 @@ function kitMaterial(fig = null) {
           float lit = 1.0 - gShade;
           vec3 irr = directLight.color * max( 0.0, ( nl + w ) / ( ( 1.0 + w ) * ( 1.0 + w ) ) );
           // skin: light scattered under the surface reddens the terminator
-          irr += directLight.color * gSSS * vec3( 0.2, 0.06, 0.025 ) * max( 0.0, 1.0 - abs( nl * 2.2 - 0.25 ) );
+          // skin: light scattered under the surface: a wrapped falloff, tinted red, in the terminator's band only
+          irr += directLight.color * gSSS * vec3( 0.42, 0.13, 0.05 ) * max( 0.0, max( 0.0, ( nl + 0.5 ) / 1.5 ) - max( nl, 0.0 ) );
           reflectedLight.directDiffuse += irr * lit * BRDF_Lambert( material.diffuseColor );
           vec3 H = normalize( directLight.direction + geometryViewDir );
           float nh = max( dot( geometryNormal, H ), 0.0 );
@@ -1134,6 +1135,7 @@ function kitMaterial(fig = null) {
       }
       // ---- the hair (headMesh.js: the scalp is skin): the haircut's cover in the hair's colour, its
       // strands faded out by their own screen rate before they can alias, a soft broad sheen
+      if (vHeadW > 0.5 && vTro.x > 0.5) c *= vec3(1.08, 0.93, 0.9);      // (the ears a little ruddier)
       if (vHeadW > 0.5 && vTro.x < 0.5) {
         float hv, hcv = hairCover(vBind, FIG(18).y, hv);
         if (hcv > 0.003) {
@@ -1170,10 +1172,14 @@ function kitMaterial(fig = null) {
         float ax = abs(vBind.x), yy = vBind.y;
         float cheek = exp(-pow(length(vec2(ax - uEye.x - 0.006, yy - uEye.y + 0.03) / vec2(0.022, 0.018)), 2.0));
         float nose = exp(-pow(length(vec2(ax, yy - uFaceMisc.y) / vec2(0.012, 0.02)), 2.0));
-        c *= mix(vec3(1.0), vec3(1.07, 0.93, 0.9), clamp(cheek * 0.8 + nose * 0.6, 0.0, 1.0));
+        c *= mix(vec3(1.0), vec3(1.1, 0.91, 0.87), clamp(cheek * 0.85 + nose * 0.65, 0.0, 1.0));
+        // (cooler, a little darker round the eyes; broad, soft blotches a few centimetres across)
+        float ering = exp(-pow(length(vec2(ax - uEye.x, yy - uEye.y + 0.001) / vec2(0.022, 0.014)), 2.0));
+        c *= mix(vec3(1.0), vec3(0.94, 0.93, 0.97), ering);
+        c *= 1.0 + 0.03 * sin(vBind.x * 140.0 + vBind.y * 90.0 + 1.3) * sin(vBind.y * 170.0 - vBind.x * 60.0);
         float jaw = smoothstep(uFaceMisc.y - 0.012, uFaceMisc.w - 0.004, yy) * smoothstep(uFaceMisc.w - 0.045, uFaceMisc.w - 0.02, yy) * smoothstep(0.075, 0.03, ax);
         c *= mix(vec3(1.0), vec3(0.95, 0.95, 0.97), jaw * (0.3 + 0.7 * uLook2.y));
-        c *= 1.0 + 0.05 * smoothstep(uEye.y + 0.02, uEye.y + 0.05, yy);
+        c *= 1.0 + 0.06 * smoothstep(uEye.y + 0.02, uEye.y + 0.05, yy);
         float pf = 1.0 - smoothstep(0.0004, 0.0009, fw);
         float pore = sin(vBind.x * 3100.0 + sin(vBind.y * 2300.0)) * sin(vBind.y * 2900.0 + sin(vBind.x * 2700.0));
         kitH += pf * 0.000015 * pore;
@@ -1226,7 +1232,14 @@ function kitMaterial(fig = null) {
         c = mix(c, uHair * 0.35, liner * 0.92);
         c = mix(c, vec3(0.78, 0.76, 0.72), white);
         // forehead, nose and cheekbones are a little shinier
-        gSpec *= 1.0 + 0.2 * smoothstep(0.03, 0.0, abs(vBind.y - uFaceMisc.y - 0.035)) * smoothstep(0.035, 0.0, abs(vBind.x));
+        // a low, rough shine; a faint sheen only on the forehead, the nose and the cheekbones; warm on dark
+        // skin (a white highlight on dark brown reads grey)
+        { float fh = smoothstep(uEye.y + 0.02, uEye.y + 0.045, yy) * smoothstep(0.05, 0.02, ax);
+          float nb = exp(-pow(length(vec2(ax / 0.01, (yy - uFaceMisc.y - 0.012) / 0.022)), 2.0));
+          float cb = exp(-pow(length(vec2((ax - 0.045) / 0.014, (yy - uEye.y + 0.02) / 0.008)), 2.0));
+          float sh = clamp(fh + nb + 0.7 * cb, 0.0, 1.0);
+          gSpec = mix(gSpec, 0.022 + 0.04 * sh, 1.0 - clamp(beard + lip, 0.0, 1.0)); gShin = mix(gShin, 4.5 + 3.0 * sh, 1.0 - lip);
+          gSpecC = mix(vec3(1.0), vec3(1.0, 0.82, 0.66), dk); }
         // zinc cream (now and then): a thin, worn stripe down the bridge of the nose, not a blob
         float zx = abs(vBind.x) / 0.0055, zy = (vBind.y - uFaceMisc.y - 0.004) / 0.019;
         float zc = uLook2.w * 0.45 * smoothstep(1.0, 0.6, zx) * smoothstep(1.0, 0.7, abs(zy)) * step(uFaceMisc.z - 0.006, vBind.z);
