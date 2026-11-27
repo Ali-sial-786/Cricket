@@ -192,13 +192,15 @@ view also faces forward by itself before each ball, on recenter, catches and rep
   ball that wins the match or ends an innings. A replay is one or two whole takes, each one continuous shot from a
   fixed spot that turns gently to follow the ball. **Take 1, always**, is from the bowler's end, just behind the
   stumps on the bowling arm's side: from the last stride at real speed, 0.6 s of slow motion round the moment at
-  the bat (or the stumps, the pad), and a beat after. **Take 2** only when there is something to see in it, and
+  the bat (or the stumps, the pad), and a beat after; for a boundary it follows the ball away for 1.2 s more,
+  turning up to 70° and holding its direction rather than swinging after a ball hit back past it. **Take 2** only when there is something to see in it, and
   only from a short list of broadcast positions: the line of the stumps in front of the batter (bowled, lbw, a
   review), side-on at the crease with a freeze as the stumps break (run-out, stumping), the catcher three-quarter
-  on and close (a catch, a drop, a stop), the fielder chasing a four to the rope (a four nobody chases has take 1
-  only), the people where a six comes down going up (or the whole arc from high at long-on / long-off). A take
-  whose subject would be small, off the middle or missing is left out. About 4 s for a boundary, 5 s for a wicket.
-  So that an over is not mostly replays: a four's second take only for the first four of an over, and one other
+  on and close (a catch, a drop, a stop), the fielder chasing a four to the rope (a four nobody chases: from high behind an end, the field and the
+  ball's line to the rope), the people where a six comes down going up (or the whole arc from high at long-on / long-off, or from high behind an end). A take
+  whose subject would be small, off the middle or missing is left out. About 5 s for a boundary, 3-4 s for a wicket.
+  So that an over is not mostly replays: a four's second take only for the first four of an over (later fours get take 1,
+  which still follows the ball away), an appeal that went to a decision always in full, and one other
   close call an over (take 1 only), reviews aside. *Every ball* gives every ball at least take 1. Between takes
   the view dips to dark and back (0.08 s); skipping skips the whole replay. After an appeal, a DRS review or the third umpire, the
   replay comes after the verdict; the result banner comes back once the replay is over. In the headset the play is
