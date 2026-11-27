@@ -64,7 +64,7 @@ test('easy AI is beaten more often than hard AI by seam movement', () => {
   assert.ok(easy > hard, `easy beaten ${easy} vs hard ${hard}`);
 });
 
-test('short ball on the body gets pulled/defended off the back foot; full ball driven', () => {
+test('short ball on the body gets pulled/defended off the back foot; full ball driven when he goes for it, else blocked', () => {
   const skill = CONFIG.ai.medium;
   const st = (settings) => {
     const d = machineDelivery(settings);
@@ -76,7 +76,11 @@ test('short ball on the body gets pulled/defended off the back foot; full ball d
   const s1 = chooseShot(shortInfo, skill, 1.0, () => 0.3);
   assert.ok(['pull', 'backdef'].includes(s1.type), s1.type);
   const fullInfo = st({ paceKmh: 130, length: 3.0, line: 0.05 });
-  assert.equal(chooseShot(fullInfo, skill, 0.5, () => 0.9).type, 'drive');
+  // (full and straight: driven when he means to go for it, otherwise a push in the line of the stumps)
+  assert.equal(chooseShot(fullInfo, skill, 0.5, () => 0.1).type, 'drive');
+  assert.equal(chooseShot(fullInfo, skill, 0.5, () => 0.9).type, 'defend');
+  // (full and wide of off stump: the cover drive either way)
+  assert.equal(chooseShot(st({ paceKmh: 130, length: 3.0, line: 0.4 }), skill, 0.5, () => 0.9).type, 'drive');
 });
 
 test('a ball he cannot reach is left alone: no bat thrown at a very wide one (any length, any mood)', () => {

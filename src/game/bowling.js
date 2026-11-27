@@ -21,7 +21,7 @@ import { Innings, runsText } from './scoring.js';
 import { batProfile } from './squad.js';
 import { playerBowler, seamFromWrist, stepDelivery, deliveryInfo, PLAYER_BOWLER_ORDER } from './bowlerTypes.js';
 import { RunUp } from './runup.js';
-import { AI_HOME, padX } from './aiBatter.js';
+import { AI_HOME } from './aiBatter.js';
 import { HINTS } from '../ui/controllerHint.js';
 
 const _palm = new Vec3();
@@ -612,8 +612,8 @@ export class BowlingSession {
     if (!b.batted && plan && plan.adv && plan.C && b.pos.z > plan.C.z + 0.35) g.aiBatter.retreat(t);
     // Beaten the bat and struck the pad: appeal.
     if (!this.hit && !b.thrown && plan && plan.shot.type !== 'pull' && plan.shot.type !== 'cut') {
-      const body = g.aiBatter.bodyAt(t);
-      if (padHit(b, padX(plan), body.z - 0.2, undefined, this.path.length > 1 ? this.path[this.path.length - 2] : null)) {
+      const pad = g.aiBatter.padAt(t, _pad);
+      if (padHit(b, pad.x, pad.z, padBox(pad), this.path.length > 1 ? this.path[this.path.length - 2] : null)) {
         const impact = b.clone();
         deflectOffPad(b, g.rng);
         this.wide = false;                                   // it hit him: not a wide (Law 22.3)
@@ -633,8 +633,8 @@ export class BowlingSession {
     }
     // An edge onto the pad (lbwFlow.js batPad): an LBW shout (the review finds the bat first), or still in play.
     if (this.hit && this.hit.edge && plan && plan.C && !this.noBall && !this.freeHit && !b.padded) {
-      const body = g.aiBatter.bodyAt(t);
-      const bp = this.lbw.batPad(b, { x: padX(plan), z: body.z - 0.2 }, undefined, { path: this.path.slice(), shotOffered: plan.shot.type !== 'leave', playerIsBatter: false, since: t - this.hit.t, field: this.field, t });
+      const pad = g.aiBatter.padAt(t, _pad);
+      const bp = this.lbw.batPad(b, { x: pad.x, z: pad.z }, padBox(pad), { path: this.path.slice(), shotOffered: plan.shot.type !== 'leave', playerIsBatter: false, since: t - this.hit.t, field: this.field, t });
       if (bp === 'appeal') { this.state = 'review'; this.reviewFlow = null; return; }
     }
     if (this.field && (b.batted || this.byes)) {
@@ -917,4 +917,7 @@ function stumpLine(c) {
   return `${cm} cm outside ${c.x > 0 ? 'off' : 'leg'}`;
 }
 
+// The AI batter's pads (AIBatter.padAt), and as padHit's box (its default height).
+const _pad = { x: 0, z: 0, halfX: 0.2, front: 0.24, back: 0.24 }, _box = { halfX: 0.2, front: 0.24, back: 0.24 };
+function padBox(p) { _box.halfX = p.halfX; _box.front = p.front; _box.back = p.back; return _box; }
 function plan0(g) { const p = g.aiBatter.plan; return p ? p.shot.type : 'drive'; }
