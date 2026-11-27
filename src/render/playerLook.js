@@ -253,9 +253,10 @@ function paintFace(F) {
         const t = (ax - (ex - ow * 1.15)) / (ow * 2.5);              // 0 inner .. 1 outer
         if (t > -0.1 && t < 1.1) {
           const arcY = by + 0.004 * Math.sin(Math.PI * sat(t) * 0.9) - 0.003 * t;
-          const thick = 0.0036 * (1 - 0.55 * sat(t)) + 0.001;
+          // (thickest a third of the way out, tapering to both ends, the outer one most)
+          const thick = 0.001 + 0.0027 * Math.pow(Math.sin(Math.PI * Math.min(1, Math.max(0, t * 0.82 + 0.14))), 0.7);
           const d = Math.abs(y - arcY) / thick;
-          liner = Math.max(liner, 0.95 * ss(1.15, 0.55, d) * ss(-0.1, 0.06, t) * ss(1.1, 0.9, t));
+          liner = Math.max(liner, 0.95 * ss(1.4, 0.35, d) * ss(-0.12, 0.12, t) * ss(1.08, 0.78, t));     // (soft edges and ends)
           shade -= 0.05 * Math.exp(-sq((y - arcY + 0.008) / 0.006)) * ss(-0.1, 0.2, t) * ss(1.2, 0.8, t);  // brow ridge shadow under it
         }
       }

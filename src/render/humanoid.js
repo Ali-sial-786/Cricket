@@ -1256,7 +1256,15 @@ function kitMaterial(fig = null) {
         { float bs = exp(-pow(length(vec2(ax - uEye.x + 0.002, yy - uEye.y - 0.009) / vec2(0.016, 0.0055)), 2.0));
           float ic = exp(-pow(length(vec2(ax - uEye.x + 0.0155, yy - uEye.y + 0.0005) / vec2(0.004, 0.0045)), 2.0));
           c *= 1.0 - (0.1 * bs + 0.1 * ic) * shk; }
-        c = mix(c, uHair * 0.35, liner * 0.92);
+        // (the brows: hair-coloured, their width each man's own (FIG(17).z), a fine grain of strokes running
+        // out along them; the lash line as it was)
+        if (yy > uEye.y + 0.011) {
+          float bh = FIG(17).z;
+          float bl = smoothstep(0.32 - 0.16 * bh, 0.8 - 0.16 * bh, liner);
+          float sph = ax * 1100.0 - yy * 1500.0;
+          vec3 bc = uHair * (0.45 + 0.1 * sin(sph) * (1.0 - smoothstep(0.4, 1.0, fwidth(sph)))) + 0.008;
+          c = mix(c, bc, bl * 0.9); gSpec *= 1.0 - 0.6 * bl;
+        } else c = mix(c, uHair * 0.35, liner * 0.92);
         c = mix(c, vec3(0.78, 0.76, 0.72), white);
         // forehead, nose and cheekbones are a little shinier
         // a low, rough shine; a faint sheen only on the forehead, the nose and the cheekbones; warm on dark
