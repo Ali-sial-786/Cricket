@@ -799,8 +799,9 @@ function layout(R, tape, lim, xr) {
       }
       else if (sh.stand && T[i] >= sh.stand.t) { const u = clamp((T[i] - sh.stand.t) / 0.5, 0, 1); hx += (sh.look.x - hx) * u; hy += (sh.look.y - hy) * u; hz += (sh.look.z - hz) * u; }   // (a six: on to the stand going up)
       else if (follow && tape.ball(T[i], o)) {
-        // (the bowler's-end take holds its last direction once the ball is beyond its turn limit or behind it)
-        const out = sh.yawLim && sh.face && (o.z < sh.pos.z + 1 || Math.abs(wrap(Math.atan2(o.x - sh.pos.x, o.z - sh.pos.z) - Math.atan2(sh.face.x - sh.pos.x, sh.face.z - sh.pos.z))) > sh.yawLim);
+        // (the bowler's-end take holds its last direction once the ball is beyond its turn limit, within 12 m of it
+        // (hit back past it) or behind it)
+        const out = sh.yawLim && sh.face && (o.z < sh.pos.z + 1 || hypot2(o.x - sh.pos.x, o.z - sh.pos.z) < 12 || Math.abs(wrap(Math.atan2(o.x - sh.pos.x, o.z - sh.pos.z) - Math.atan2(sh.face.x - sh.pos.x, sh.face.z - sh.pos.z))) > sh.yawLim);
         if (!out) { hx = o.x; hy = o.y; hz = o.z; seen = true; }
       }
       else if (follow && !seen && sh.kind === 'track') { const j = firstVisible(tape, T, i, sh.i1, o); if (j) { hx = o.x; hy = o.y; hz = o.z; } }
