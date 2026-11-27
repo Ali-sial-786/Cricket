@@ -29,6 +29,12 @@ export const canReach = (x, y, type) => x <= offReach(type) && x >= REACH.leg &&
 // front leg by the ball, but never further to leg than his stance (a ball down
 // the leg side goes past his legs, not into them).
 export const padX = (plan) => Math.max(plan && plan.C ? plan.C.x - 0.14 : BASE.x, BASE.x);
+// The front pad's box playing forward (AIBatter.padAt), for the ball's centre: the pad (16 cm across) and
+// the ball's radius either side of the shin (`off` m to the off side of the foot); its middle `ahead` m
+// behind the foot, reaching `front` toward the bowler (its face 2 cm ahead of the foot) and `back` behind.
+const PAD = { off: 0.02, halfX: 0.12, ahead: 0.08, front: 0.1, back: 0.2 };
+const DEF_POS = 0.6;          // a defensive shot's placement error, x the swing's (skill.posSigma)
+const HALF_VOLLEY_POS = 0.75; // a drive at a half-volley's
 
 // Rotation whose +Y = y and +Z = z (orthonormalised, right-handed).
 export function basisQuat(y, z) {
@@ -100,11 +106,17 @@ export function chooseShot(info, skill, aggression, rng = Math.random) {
     else if (xb < -0.12) type = attack ? 'pull' : 'backdef';
     else type = hitsStumps ? (attack && yb > 0.95 ? 'pull' : 'backdef') : (attack ? 'pull' : 'leave');
   } else if (L < 4.2) {                                     // full / half-volley / yorker
+    // On the stumps he gets his bat (and pad) in line: a push or a block,
+    // driven only when he means to go for it -- a half-volley, not a yorker;
+    // off the pads (leg stump and outside it) a flick, unless it is hitting
+    // and he is not going for it: then the straight bat.
     if (xb > 0.55) type = attack || mistake ? 'drive' : 'leave';
-    else if (xb < -0.25) type = 'flick';
-    else type = L < 1.4 ? (attack ? 'drive' : 'defend') : 'drive';
+    else if (xb < -0.25) type = hitsStumps && !attack ? 'defend' : 'flick';
+    else if (L < 1.4) type = attack ? 'drive' : 'defend';
+    else if (hitsStumps || xb < 0.15) type = attack && L > 2.2 ? 'drive' : 'defend';
+    else type = 'drive';                                    // full outside off: the cover drive
   } else {                                                  // good length
-    if (hitsStumps) type = attack && L < 6.2 ? 'drive' : 'defend';
+    if (hitsStumps) type = xb < -0.2 && attack ? 'flick' : attack && L < 6.2 ? 'drive' : 'defend';
     else if (xb > 0.22) type = mistake ? 'defend' : attack && xb > 0.45 && L < 6 ? 'drive' : 'leave';
     else if (xb < -0.2) type = 'flick';
     else type = attack ? 'drive' : 'defend';
@@ -195,7 +207,10 @@ export class AIBatter {
       plan.shot = { type: 'leave', duck, ang: 0, loft: 0 }; plan.adv = 0; plan.leavePose = duck ? DUCK_POSE : LEAVE_POSE;
       plan.tSwingStart = plan.tSwingEnd = plan.tCommit + (c ? 0.25 : 0); this.plan = plan; return plan;
     }
-    const C = new Vec3(clamp(c.x + gauss() * this.skill.posSigma, REACH.leg, offReach(shot.type)), clamp(c.y + gauss() * this.skill.posSigma * 0.7, 0.06, REACH.high), c.z);
+    // (a block is played late, under the eyes, with the hands by the ball: placed a good deal better than a swing)
+    // (and a drive at a half-volley -- pitched up, nothing to read after it lands -- better than one at a good length)
+    const ps = this.skill.posSigma * (shot.type === 'defend' || shot.type === 'backdef' ? DEF_POS : shot.type === 'drive' && !plan.adv && info.length >= 1.4 && info.length < 4.2 ? HALF_VOLLEY_POS : 1);
+    const C = new Vec3(clamp(c.x + gauss() * ps, REACH.leg, offReach(shot.type)), clamp(c.y + gauss() * ps * 0.7, 0.06, REACH.high), c.z);
     const Tc = t0 + c.t + gauss() * this.skill.timingSigma;
     this.buildSwing(plan, T, shot, C, Tc);
     this.plan = plan;
@@ -411,6 +426,29 @@ export class AIBatter {
     out.z = AI_HOME.z + (front ? -0.45 : 0.15) * k - out.adv;
     out.x = AI_HOME.x + clamp(p.C.x * 0.6, -0.1, 0.45) * k;       // (across to off; not off to leg after one down the leg side)
     out.lean = (front ? 0.25 : -0.05) * k;
+    return out;
+  }
+
+  // His pads as the ball meets them (bowling.js padHit): the box { x, z,
+  // halfX, front, back } on the ground plan, into `out`. Playing forward
+  // (drive, defend, flick) it is the front pad, where his front foot goes
+  // (plan.feet.L, reached as the stride lands, as bodyAt's): just inside the
+  // line of the bat and a little behind where it meets the ball, as a
+  // batter's front pad is -- a ball that beats the inside edge hits it, one
+  // he plays meets the bat first, one that beats the outside edge (or goes
+  // through the gate) does not. Otherwise (a back-foot shot, a leave, the
+  // stance) both pads, round his body as ever.
+  padAt(t, out) {
+    const p = this.plan;
+    if (p && p.feet && p.foot === 'front' && p.shot.type !== 'leave' && t >= p.tCommit) {
+      const k = smoothstep(p.tCommit, p.tCommit + 0.25, t);
+      const fx = STANCE_FEET.L[0] + (p.feet.L[0] - STANCE_FEET.L[0]) * k;
+      const fz = STANCE_FEET.L[1] + (p.feet.L[1] - STANCE_FEET.L[1]) * k - this.advanceAt(t);
+      out.x = fx + PAD.off; out.z = fz + PAD.ahead; out.halfX = PAD.halfX; out.front = PAD.front; out.back = PAD.back;
+      return out;
+    }
+    const b = this.bodyAt(t);
+    out.x = padX(p); out.z = b.z - 0.2; out.halfX = 0.2; out.front = 0.24; out.back = 0.24;
     return out;
   }
 
