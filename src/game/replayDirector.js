@@ -414,9 +414,9 @@ function recipe(story, tier, m, tape) {
     const key = six ? land : cross;
     takeOne(hit, Math.max(T1.post, DIRECTOR.arm.wideFor - half), true);
     const subj = ballAt(tape, key), re = hypot2(subj.x, subj.z - CZ) || 1;
-    // (high behind the far end from where it goes: the field, the fielders and the ball's line, down the ground)
+    // (high behind an end, the far one from where it goes first: the field, the fielders and the ball's line)
     const hz = subj.z < CZ ? CZ + 58 : CZ - 58;
-    const high = { kind: 'track', canon: 'highEnd', high: true, title: 'FROM HIGH', cands: [{ name: 'highEnd', x: 0, y: DIRECTOR.highY, z: hz }], far: 150, fov: DIRECTOR.fov.wide, subj, dists: [0], heights: [0], endDist: [0, 200] };
+    const high = { kind: 'track', canon: 'highEnd', high: true, title: 'FROM HIGH', cands: [{ name: 'highEnd', x: 0, y: DIRECTOR.highY, z: hz }, { name: 'highEnd', x: 0, y: DIRECTOR.highY, z: 2 * CZ - hz }], far: 150, fov: DIRECTOR.fov.wide, subj, dists: [0], heights: [0], endDist: [0, 200] };
     if (!six) {
       const fielder = nearestFigure(tape, key, subj, DIRECTOR.fourChase);
       if (!fielder) {
