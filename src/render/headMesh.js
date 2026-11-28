@@ -273,7 +273,7 @@ export function replaceHead(lods, J, meta) {
     for (let v = 0; v < P.count; v++) { y0 += P.getY(v); z1 = Math.max(z1, P.getZ(v)); x1 = Math.max(x1, Math.abs(P.getX(v))); }
     y0 /= P.count;
     // (small and well back: the lips are closed, it only darkens the line between them)
-    for (let v = 0; v < P.count; v++) P.setXYZ(v, P.getX(v) * 0.013 / x1, H.mouth + (P.getY(v) - y0) * 0.4, H.zF - 0.0155 + (P.getZ(v) - z1) * 0.5);
+    for (let v = 0; v < P.count; v++) P.setXYZ(v, P.getX(v) * 0.013 / x1, H.mouth + (P.getY(v) - y0) * 0.4, H.zF - 0.019 + (P.getZ(v) - z1) * 0.5);
   }
   // drop the source's head: every triangle of the body above the collar on the head / neck bones
   for (const L of lods) for (const p of L) {

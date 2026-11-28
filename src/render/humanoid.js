@@ -867,7 +867,11 @@ function kitMaterial(fig = null) {
         else if (k < 8.5) { kc = FIG(4).rgb * vec3(0.82, 0.66, 0.64); mt = vec4(0.45, 0.12, 16.0, 1.0); }
         else if (k > 23.5 && k < 24.5) mt = vec4(0.3, 1.0, 220.0, 4.0);       // (a small, sharp highlight of the sun: the catch-light)
         else if (k < 25.5) { kc = FIG(7).rgb; mt = vec4(0.3, 1.0, 220.0, 4.0); }
-        else if (k < 26.5) mt = vec4(0.2, 0.5, 60.0, 4.0);
+        else if (k < 26.5) {
+          mt = vec4(0.2, 0.5, 60.0, 4.0);
+          // the mouth's inside (below the eyes): dark and matte, so wherever it shows at the lips it is a shadow, not a pale glint
+          if (position.y < uEye.y - 0.03) { kc = FIG(4).rgb * vec3(0.22, 0.12, 0.11); mt = vec4(0.2, 0.0, 4.0, 5.0); }
+        }
         else if (k > 29.5 && k < 30.5) mt = vec4(0.0, 0.6, 70.0, 2.0);
         else if (k < 31.5) mt = vec4(0.12, 0.06, 12.0, 5.0);
         else if (k < 32.5) mt = vec4(0.0, 1.4, 140.0, 6.0);
@@ -942,6 +946,11 @@ function kitMaterial(fig = null) {
             transformed.y += 0.0028 * corner; transformed.z -= 0.0012 * corner; transformed.x += sign(position.x) * 0.0012 * corner;
             transformed.y += 0.0015 * sm * exp(-pow((ax - 0.045) / 0.015, 2.0) - pow((position.y - uEye.y + 0.028) / 0.012, 2.0));
           }
+        }
+        if (k > 25.5 && k < 26.5 && position.y < uEye.y - 0.03) {
+          vec4 L5m = FIG(19);
+          transformed.y += (position.y - uEye.y) * 0.05 * L5m.x;
+          transformed.x += position.x * 0.05 * L5m.y;
         }
         if (k > 4.5 && k < 5.5 && color.g > 0.5) {
           float es = fract(sin(FIG(17).z * 61.3 + 0.7) * 173.1) * 2.0 - 1.0;
