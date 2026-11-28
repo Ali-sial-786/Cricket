@@ -69,7 +69,7 @@ export const DIRECTOR = {
   freq: { foursFull: 1, closePerOver: 1 },
   highY: 11, highBack: 55,                       // m: the high camera behind an end (a four nobody chases, a six's last choice): up, from the middle
   highSide: { y: 10, r: [42], spread: 12 },  // a six's high camera on its side of the ground: m up, m from the middle, ° either side of its line
-  findBall: { px: 5, trailPx: 4, maxScale: 8 },  // a far take's ball and trail drawn at least this many headset pixels (replay.js)
+  findBall: { px: 5, trailPx: 4, maxScale: 10 },  // a far take's ball and trail drawn at least this many headset pixels (replay.js)
   fourChase: 15,                                 // m: a four's second take needs a fielder this near where it crosses
   arm: { back: 3.0, y: 2.5, side: 2.0, yawLim: 25 * D2R, yawWide: 70 * D2R, wideFor: 1.2 },   // (a boundary: it turns up to yawWide, following the ball wideFor s past contact)  // m behind the bowler's stumps, m up, m to the bowling arm's side; it turns no more than this off the pitch
   line: { z: -5.5, y: 1.2, gap: 2.9, back: 3.2 },  // on the stumps' line, z (4.3 m in front of the batter); 1.2 m up (pad and stumps fill it); joins once the ball is this far past it
