@@ -1,5 +1,6 @@
-// Nobody goes through your head (review 5, bug B): your runner runs past it at
-// HEAD_CLEAR and pulls up further off; the man who then becomes you walks round
+// Nobody goes through your head (review 5 bug B, review 7 N2: the one rule, game/playerSpace.js):
+// your runner's lane bends round it, never within EYE_CLEAR, and he pulls up as far off; the man who
+// then becomes you walks round
 // you (well wide) to behind you and fades there -- the fade by distance is only
 // a last resort, so the dithered figure is hardly ever drawn in front of you.
 // The figure tests need three.js (npm install); skipped without it.
@@ -35,7 +36,7 @@ async function load() {
 const head = { x: -0.4, z: -1.05 };
 const dist = (a) => Math.hypot(a.pos.x - head.x, a.pos.z - head.z);
 
-test('your runner coming home along his lane passes round your head, never within HEAD_CLEAR, and pulls up further off', { skip }, async () => {
+test('your runner coming home along his lane passes round your head, never within EYE_CLEAR, and pulls up as far off', { skip }, async () => {
   const { people, crew, scene } = await load();
   const bv = new people.BatterView(scene, { poseAt() {}, plan: null, advanceAt: () => 0 });
   bv.runnerOnly = true; bv.show(true); bv.avoid = head; bv.avoidFwd = { x: 0, z: -1 };
@@ -49,21 +50,21 @@ test('your runner coming home along his lane passes round your head, never withi
     if ((bv.actor.h.fade ?? 1) < 0.99 && k > 40) faded++;
     if (speed < 0.1) stoppedAt = dist(bv.actor);
   }
-  assert.ok(near >= crew.HEAD_CLEAR - 0.01, `came within ${near.toFixed(2)} m of your head`);
+  assert.ok(near >= crew.EYE_CLEAR - 0.01, `came within ${near.toFixed(2)} m of your head`);
   assert.equal(faded, 0, 'never faded on the way in');
-  assert.ok(stoppedAt >= crew.MERGE_PATH - 0.02, `pulled up ${stoppedAt.toFixed(2)} m from you`);
+  assert.ok(stoppedAt >= crew.EYE_CLEAR - 0.02, `pulled up ${stoppedAt.toFixed(2)} m from you`);
 });
 
 test('the man becoming you walks round you to behind you, wide, and fades there; the last-resort fade is short', { skip }, async () => {
   const { people, crew, scene } = await load();
-  assert.ok(crew.FADE_FAR - crew.FADE_NEAR <= 0.4 && crew.FADE_FAR < crew.HEAD_CLEAR, 'the distance fade is short and inside the clearance');
+  assert.ok(crew.FADE_FAR - crew.FADE_NEAR <= 0.4 && crew.FADE_FAR < crew.EYE_CLEAR, 'the distance fade is short and inside the clearance');
   const bv = new people.BatterView(scene, { poseAt() {}, plan: null, advanceAt: () => 0 });
   bv.runnerOnly = true; bv.show(true); bv.avoid = head; bv.avoidFwd = { x: 0, z: -1 };
   const a = bv.actor;
-  a.place(head.x + 0.3, head.z - 1.3, Math.PI);           // pulled up in front of you, a little to the off side
+  a.place(head.x + 0.3, head.z - 1.6, Math.PI);           // pulled up in front of you, a little to the off side
   a.h.setFade(1);
   a.task = crew.walkTask(head, null, { kind: 'merge', speed: 3.6, tol: 0.25 });
-  bv.crew = { obstacles: () => [{ x: head.x, z: head.z, r: crew.MERGE_PATH }] };
+  bv.crew = { obstacles: () => [{ x: head.x, z: head.z, r: crew.EYE_CLEAR }] };
   let t = 20, near = Infinity, seenFadingInFront = 0, gone = null;
   for (let k = 0; k < 72 * 8 && bv.shown; k++) {
     t += 1 / 72;
@@ -74,6 +75,6 @@ test('the man becoming you walks round you to behind you, wide, and fades there;
     if (!bv.shown) gone = k / 72;
   }
   assert.ok(gone != null && gone < 6, `gone after ${gone} s`);
-  assert.ok(near > crew.MERGE_PATH - 0.15, `came within ${near.toFixed(2)} m`);
+  assert.ok(near > crew.EYE_CLEAR - 0.1, `came within ${near.toFixed(2)} m`);
   assert.equal(seenFadingInFront, 0, 'he only fades behind you');
 });

@@ -19,6 +19,7 @@
 //
 // No per-frame buffer writes: per frame only a handful of uniforms change.
 import * as THREE from 'three';
+import { SUN_BLOCKERS } from './stadium.js';     // (a cycle: read only at build time, both modules loaded by then)
 
 const CW = 64, CH = 128, COLS = 16, ROWS = 8;
 const PPM = CH / 1.7;                         // cell = 0.85 m x 1.7 m (75 px/m)
@@ -48,7 +49,7 @@ export const NPEOPLE = PEOPLE.length;
 // Poses (rows). 0-4 seated, 5-7 standing.
 const P = { SIT: 0, SIT2: 1, CLAPA: 2, CLAPB: 3, HEAD: 4, STAND: 5, UP: 6, CLAPS: 7 };
 // Specials (column 15), by row.
-const SPECIAL = { FLAG_A: 0, FLAG_B: 1, PHOTO: 2, STEWARD: 3, POLE_A: 4, POLE_B: 5 };
+const SPECIAL = { FLAG_A: 0, FLAG_B: 1, PHOTO: 2, STEWARD: 3, POLE_A: 4, POLE_B: 5, PHONE: 6, BANNER: 7 };
 export const KIND = { FAN: 0, FLAG: 1, POLEFLAG: 2, PHOTO: 3, STEWARD: 4 };
 export const TEAM = { NEUTRAL: 0, HOME: 1, AWAY: 2 };
 // Reaction modes (uMode: per team, mode + share of people joining in).
@@ -229,6 +230,36 @@ function crowdAtlasData() {
       void sp;
       return;
     }
+    if (row === SPECIAL.PHONE) {
+      // A fan up on their feet with a phone held high to film the moment (anyone's colours).
+      base = -CARD.stand;
+      for (const sx of [-1, 1]) limb(sx * 0.085, 0.9, sx * 0.095, 0.12, 0.12, shade('dark', -0.1, 0.9, 0.1, 0, 0.75, 0.5));
+      poly([[-0.2, 1.43], [0.2, 1.43], [0.17, 0.9], [-0.17, 0.9]], shade('shirt', -0.2, 1.43, 0.2, 0.9, 1, 0.62));
+      for (const sx of [-1, 1]) {
+        limb(sx * 0.18, 1.4, sx * 0.17, 1.62, 0.085, shade('shirt', -0.2, 1.6, 0.2, 1.4, 0.9, 0.6));
+        limb(sx * 0.17, 1.62, sx * 0.045, 1.8, 0.07, shade('skin', -0.2, 1.8, 0.2, 1.6, 0.95, 0.65));
+      }
+      rrect(-0.04, 1.42, 0.04, 1.5, 0.02, col('skin', 0.72));
+      ellipse(0, 1.6, 0.088, 0.102, shade('skin', -0.09, 1.7, 0.09, 1.5, 1, 0.66));
+      ellipse(0, 1.64, 0.082, 0.07, shade('dark', -0.09, 1.7, 0.09, 1.6, 0.95, 0.55), Math.PI, Math.PI * 2);
+      rrect(-0.05, 1.74, 0.05, 1.88, 0.012, col('dark', outline ? 0 : 0.12));      // the phone, back on
+      if (!outline) rrect(-0.032, 1.84, -0.012, 1.865, 0.004, col('dark', 0.45));   // its lens
+      return;
+    }
+    if (row === SPECIAL.BANNER) {
+      // A home-made banner held up flat over the heads: two sticks, a sheet in the fan's colours
+      // with blocks of lettering (unreadable at the distance anyone sees it).
+      if (outline) return;
+      for (const sx of [-1, 1]) limb(sx * 0.4, 0.05, sx * 0.4, 1.65, 0.03, col('dark', 0.5));
+      poly([[-0.4, 0.55], [0.4, 0.55], [0.4, 1.6], [-0.4, 1.6]], shade('accent', -0.4, 1.6, 0.4, 0.55, 1, 0.8));
+      rrect(-0.37, 0.6, 0.37, 1.55, 0.01, shade('shirt', -0.4, 1.6, 0.4, 0.55, 1, 0.82));
+      for (let ln = 0; ln < 2; ln++) for (let i = 0; i < 5; i++) {
+        const x0 = -0.32 + i * 0.13 + (ln ? 0.06 : 0), y0 = ln ? 0.72 : 1.12;
+        if (ln && i > 3) continue;
+        rrect(x0, y0, x0 + 0.09 + (i % 2) * 0.02, y0 + 0.26, 0.01, col('accent', 0.95));
+      }
+      return;
+    }
     if (row === SPECIAL.STEWARD) {
       // A steward facing the crowd: you see a hi-vis back.
       base = -CARD.stand;
@@ -275,7 +306,7 @@ const VERT = /* glsl */`
   attribute vec4 aInfo;   // body type, team, kind, rnd           (bytes)
   attribute vec4 aLight;  // baked light (rgb / 1.6), rnd2        (bytes)
   attribute vec4 aC0; attribute vec4 aC1; attribute vec4 aC2; attribute vec4 aC3;   // dark, shirt, skin, accent (sRGB) + idle data in alpha
-  varying vec2 vUv; varying vec3 vC0; varying vec3 vC1; varying vec3 vC2; varying vec3 vC3; varying vec3 vLight;
+  varying vec2 vUv; varying vec3 vC0; varying vec3 vC1; varying vec3 vC2; varying vec3 vC3; varying vec3 vLight; varying float vCy;
   float h1(float n) { return fract(sin(n) * 43758.5453); }
   void main() {
     int corner = gl_VertexID & 3;
@@ -287,7 +318,7 @@ const VERT = /* glsl */`
     float t = uTime;
     // Not in today: a fan (and his flag, which shares his rnd) is dropped; stewards, photographers and
     // pole flags stay. (On top of the governor's density, which draws whole quarters.)
-    if (kind < 1.5 && rnd >= uOcc) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); vUv = vec2(0.0); vC0 = vec3(0.0); vC1 = vC0; vC2 = vC0; vC3 = vC0; vLight = vC0; return; }
+    if (kind < 1.5 && rnd >= uOcc) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); vUv = vec2(0.0); vC0 = vec3(0.0); vC1 = vC0; vC2 = vC0; vC3 = vC0; vLight = vC0; vCy = 1.0; return; }
     float quiet = step(0.5, uOcc);    // a sparse crowd neither rises with the ball nor does the wave
 
     // ---- what this fan is doing
@@ -303,6 +334,7 @@ const VERT = /* glsl */`
       else if (act < 0.72) pose = pose > 4.5 ? 5.0 : 1.0 - idlePose;
       else if (act < 0.8) { pose = 6.0; flagUp = 1.0; }
       else if (act < 0.86) flagUp = 1.0;
+      else if (act < 0.89 && rnd2 < 0.35) pose = 8.0;          // a photo of the ground
     }
     }
     // The event: each team its own mode; it reaches you after travelling round from where it started.
@@ -314,10 +346,10 @@ const VERT = /* glsl */`
     if (on > 0.5) {
       float jf = fract(t * 1.7 + ph);
       if (mode == 1.0) pose = pose > 4.5 ? 7.0 - 2.0 * clap : 2.0 + clap;
-      else if (mode == 2.0) { pose = jf < 0.75 ? 6.0 : 7.0; lift = 0.14 * max(0.0, sin(jf * PI2)) * (0.5 + rnd); flagUp = 1.0; }
+      else if (mode == 2.0) { pose = jf < 0.75 ? 6.0 : 7.0; lift = 0.14 * max(0.0, sin(jf * PI2)) * (0.5 + rnd); flagUp = 1.0; if (rnd2 < 0.09) { pose = 8.0; lift = 0.0; } }
       else if (mode == 3.0) pose = te < uEvt.w * 0.45 ? 4.0 : 0.0;
       else if (mode == 4.0) pose = te < 1.6 ? 4.0 : pose;
-      else if (mode == 5.0) { pose = 7.0 - 2.0 * clap; flagUp = 1.0; }
+      else if (mode == 5.0) { pose = rnd2 < 0.08 ? 8.0 : 7.0 - 2.0 * clap; flagUp = 1.0; }
       else if (mode == 6.0) pose = 5.0;
     }
     // The ground rising with a big hit, and the Mexican wave.
@@ -335,6 +367,10 @@ const VERT = /* glsl */`
     vec2 n2 = normalize(n + toEye * max(dot(n, toEye), 0.0) * 0.8);
     vec3 right = vec3(n2.y, 0.0, -n2.x);
     float col = body, row = pose;
+    if (pose > 7.5) { col = 15.0; row = 6.0; }               // the phone held up (a standing card of its own)
+    // (standing, a fan rises out of the row in front's shade: the lap band slides down off the card, so
+    // a section on its feet turns visibly lighter and more colourful from across the ground)
+    vCy = kind < 0.5 ? cy + standing * 0.3 : 1.0;
     vec3 p = seat.xyz;
     float sway = uAnim * (sin(t * 0.8 + ph) * 0.018 + sin(t * 2.3 + ph * 3.0) * 0.006);
     float far = smoothstep(45.0, 100.0, length(cameraPosition - seat.xyz));
@@ -343,13 +379,15 @@ const VERT = /* glsl */`
       p.y += (cy * 1.7 + standing * 0.4) * scale + lift + 0.006 * sin(t * 1.3 + ph);
     } else if (kind < 1.5) {
       // A flag held up beside its owner: swings about the hands, the free corner flaps.
-      col = 15.0; row = mod(body, 2.0);
-      float sw = (sin(t * 2.4 + ph) * 0.5 + sin(t * 1.1 + ph * 2.0) * 0.25);
-      vec2 q = vec2(cx * 0.425 + 0.37, cy * 1.7 - 0.45);
-      q += vec2(0.0, (cx * 0.5 + 0.5) * cy * 0.09 * sin(t * 9.0 + ph));
+      col = 15.0; row = body < 1.5 ? body : 7.0;
+      float banner = step(1.5, body);
+      // A banner stays up, held flat over the owner's head, bobbing a little; a flag swings about the hands.
+      float sw = (sin(t * 2.4 + ph) * 0.5 + sin(t * 1.1 + ph * 2.0) * 0.25) * (1.0 - banner * 0.92);
+      vec2 q = banner > 0.5 ? vec2(cx * 0.6, cy * 1.0 + 0.35 + 0.03 * sin(t * 1.7 + ph)) : vec2(cx * 0.425 + 0.37, cy * 1.7 - 0.45);
+      q += vec2(0.0, (cx * 0.5 + 0.5) * cy * 0.09 * (1.0 - banner) * sin(t * 9.0 + ph));
       float c = cos(sw), s = sin(sw);
       q = vec2(c * q.x - s * q.y, s * q.x + c * q.y);
-      p += (right * (q.x + 0.18) + vec3(0.0, q.y + 1.05 + lift / max(scale, 0.1), 0.0)) * scale * flagUp;
+      p += (right * (q.x + 0.18 * (1.0 - banner)) + vec3(0.0, q.y + 1.05 + lift / max(scale, 0.1), 0.0)) * scale * max(flagUp, banner);
     } else if (kind < 2.5) {
       // A flag on a pole round the top of the stands: streams with the wind.
       col = 15.0; row = 4.0 + mod(body, 2.0);
@@ -374,11 +412,14 @@ const FRAG = /* glsl */`
   #include <common>
   #include <fog_pars_fragment>
   uniform sampler2D map;
-  varying vec2 vUv; varying vec3 vC0; varying vec3 vC1; varying vec3 vC2; varying vec3 vC3; varying vec3 vLight;
+  varying vec2 vUv; varying vec3 vC0; varying vec3 vC1; varying vec3 vC2; varying vec3 vC3; varying vec3 vLight; varying float vCy;
   void main() {
     vec4 tx = texture2D(map, vUv);
     vec3 m = tx.rgb / max(tx.a, 0.004);
     vec3 c = mix(mix(vC0, vC2, m.b), mix(vC1, vC3, m.b), m.g) * (m.r * vLight);
+    // Rows: each fan's lap and legs sit in the shade of the row in front, so every row ends in a
+    // darker band under the next row's heads; far off that is what reads as tiers of people.
+    c *= 0.55 + 0.45 * smoothstep(0.12, 0.5, vCy);
     float texels = max(fwidth(vUv.x) * 1024.0, fwidth(vUv.y) * 1024.0);
     float th = mix(0.32, 0.2, smoothstep(1.5, 6.0, texels));    // far: mips average a figure with its holes
     float a = smoothstep(th, th + max(fwidth(tx.a), 0.02), tx.a);
@@ -402,6 +443,16 @@ const SKINS = [0xf6d7bd, 0xefc6a3, 0xe3b48c, 0xd09c70, 0xb8825a, 0x9a6844, 0x7c5
 const HAIRS = [0x16110d, 0x241912, 0x3a2a1d, 0x56402c, 0x7a5a3a, 0xa98252, 0xcfae70, 0x8f8f8f, 0xc9c6c0, 0x5c2a18];
 const TROUSERS = [0x2a3446, 0x1d2430, 0x3b4f6e, 0x4a4a4a, 0x8c7a5a, 0x22252a, 0x52606e];
 const HATS = [0xf4f1e8, 0xe7dcc0, 0xd9c58f, 0x2b3550, 0xffffff, 0x9a3b30, 0x3f5a3a, 0x1c1c1c];
+
+// Under a roof the sky (and the field's bounce) reaches a fan only through the gap between the roof
+// lip and the tier in front: the deeper under the cantilever, the darker, so the covered rows read as
+// a shaded band from across the ground (the direct sun is the stand's own test: spot.sun).
+function roofShade(x, y, z) {
+  const R = SUN_BLOCKERS.roof, r = Math.hypot(x, z);
+  if (r < R.rF - 0.5 || y > R.yB || !SUN_BLOCKERS.roofed((Math.atan2(x, z) * 180) / Math.PI)) return 1;
+  const el = Math.atan2(R.yF - y, Math.max(0.1, r - R.rF));          // how much sky shows under the lip
+  return 0.35 + 0.65 * Math.pow(Math.sin(Math.min(Math.PI / 2, Math.max(0, el))), 2.2);
+}
 
 // lights: [{ dir: Vector3 toward the light, color: Color (x intensity) }], hemi: HemisphereLight
 function makeLighting(dirs, hemi) {
@@ -445,9 +496,22 @@ export function buildCrowd(spots, { blocks, lights, maxCount = 26000, sectors = 
     const s = spots[i];
     if (s.kind !== undefined && s.kind !== KIND.FAN) { fans.push(s); continue; }
     const B = blocks.get(s.block) || { home: 0.4, away: 0.1, occ: 0.85 };
-    if (hole(s.block, s.row || 0, s.i || i) > B.occ + (rand() - 0.5) * 0.12) continue;
+    if (s.type === 'seat') {
+      // Empty seats come in patches of ~3 rows x 12 seats (20-40 seats: a coach party that never
+      // came, a block held for members), so the seat colour shows through at 80 m where a fan is
+      // 1-2 px; more toward the back of each tier and in the corners of the ground, fewer behind the
+      // bowler's arm and square of the wicket. Plus a few single empty seats.
+      const a = Math.atan2(s.x, s.z), r = Math.hypot(s.x, s.z), row = s.row || 0;
+      const u = Math.floor((a * r) / 6), v = Math.floor(row / 3);
+      const hv = Math.sin(s.block * 12.7 + u * 3.1 + v * 7.91 + holeSeed) * 43758.5453, h = hv - Math.floor(hv);
+      const dc = Math.abs(((((a * 180) / Math.PI + 360) % 90) + 90) % 90 - 45) / 45;   // 0 at a corner (45, 135, ...), 1 square / straight
+      const pPatch = (1 - B.occ) * 0.75 + 0.1 * Math.min(1, row / 14) + 0.1 * (1 - dc) * (1 - dc) - 0.03;
+      if (h < pPatch) continue;
+      if (rand() < 0.03) continue;
+    } else if (hole(s.block, s.row || 0, s.i || i) > B.occ + (rand() - 0.5) * 0.12) continue;
     fans.push(s);
   }
+  const B_ULTRA = new Set(); for (const [id, B] of blocks) if (B.ultras) B_ULTRA.add(id);
   const stride = Math.max(1, fans.length / maxCount);
   const pick = (arr) => arr[Math.floor(rand() * arr.length)];
   const N = Math.floor(fans.length / stride);
@@ -493,7 +557,7 @@ export function buildCrowd(spots, { blocks, lights, maxCount = 26000, sectors = 
       if (kind === KIND.FLAG) {
         // Same timing bytes as its owner, so it goes up when they do.
         ({ team, rnd, rnd2, ph, idle } = prev.d);
-        body = Math.floor(rand() * 2); scale = prev.d.scale;
+        body = Math.floor(rand() * (B_ULTRA.has(prev.s.block) ? 3 : 2.3)); scale = prev.d.scale;     // (2: a banner, mostly in the ultras' block)
         const kit = team === 2 ? KIT.away : KIT.home;
         cols = [hex(0x3a3a3a), hex(kit.a[0]), hex(0xffffff), hex(kit.b[0])];
       } else if (kind === KIND.POLEFLAG) {
@@ -514,7 +578,7 @@ export function buildCrowd(spots, { blocks, lights, maxCount = 26000, sectors = 
         const sp = PEOPLE[body];
         const kit = team === 1 ? KIT.home : team === 2 ? KIT.away : null;
         // Team fans mostly wear the shirt (a few just a cap or scarf); everyone else dresses for a day out.
-        const inKit = kit && rand() < (B.ultras ? 0.9 : 0.7);
+        const inKit = kit && rand() < (B.ultras ? 0.9 : 0.7 + 0.18 * (s.end ?? (B.strong ? 1 : 0)));
         const shirt = inKit ? pick(kit.a) : s.type === 'members' ? pick([0xf2efe6, 0x2b3550, 0xe8e2d0, 0x1f2a44, 0x9bb7d4, 0xffffff]) : pick(CASUAL);
         let accent;
         if (sp.jersey) accent = inKit ? pick(kit.b) : pick(CASUAL);
@@ -532,10 +596,10 @@ export function buildCrowd(spots, { blocks, lights, maxCount = 26000, sectors = 
       }
       // Baked light: a person is roughly a cylinder facing the pitch, lit from above too.
       const nx = s.nx * 0.78, nz = s.nz * 0.78, ny = 0.62;
-      light(nx, ny, nz, s.sun ?? 1, s.sky ?? 1, L);
+      light(nx, ny, nz, s.sun ?? 1, (s.sky ?? 1) * roofShade(s.x, s.y, s.z), L);
       const ang = (Math.atan2(s.x, s.z) + Math.PI * 2) % (Math.PI * 2);
       const d = { team, rnd, rnd2, ph, idle, scale };
-      if (kind !== KIND.FLAG) prev = { d };
+      if (kind !== KIND.FLAG) prev = { d, s };
       for (let c = 0; c < 4; c++) {
         const v = ci * 4 + c;
         pos[v * 3] = s.x; pos[v * 3 + 1] = s.y; pos[v * 3 + 2] = s.z;

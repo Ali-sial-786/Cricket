@@ -51,6 +51,10 @@ const TOWERS = [45, 135, 225, 315];
 const TV = [160, 200, 340, 270];                       // camera platforms on the upper tier front
 const bayType = (b) => (b >= 2 && b <= 4 ? 'bank' : b >= 8 && b <= 9 ? 'pav' : 'stand');
 const AISLE = 0.8;                                      // degrees
+const _mix = [0, 0, 0];                                 // (blendMix's answer, reused)
+// A cross gangway in each tier (two rows with no seats, dark painted): far off, where a fan is 1-2 px, the
+// tiers read as blocks of 6-8 rows split by dark bands, not as an even speckle.
+const GW_LOW = 7, GW_UP = 6;                                  // (the first of two rows)
 
 // ------------------------------------------------------------------ atlas
 // Bands stacked down the texture (u repeats round the ground), multiplied by
@@ -367,7 +371,7 @@ function makeShade(sunDir) {
   const skyVis = (x, y, z) => {
     const r = Math.hypot(x, z), a = angOf(x, z);
     let k = 1;
-    if (r > ROOF.rF - 0.5 && y < ROOF.yB && roofed(a)) { const el = Math.atan2(roofY(ROOF.rF) - y, Math.max(0.1, r - ROOF.rF)); k = 0.7 + 0.3 * Math.sin(clamp(el, 0, Math.PI / 2)); }      // the sunlit field bounces a lot back in
+    if (r > ROOF.rF - 0.5 && y < ROOF.yB && roofed(a)) { const el = Math.atan2(roofY(ROOF.rF) - y, Math.max(0.1, r - ROOF.rF)); k = 0.3 + 0.7 * Math.pow(Math.sin(clamp(el, 0, Math.PI / 2)), 2.2); }      // (the field's bounce still reaches in, but the back rows only see the roof)
     if (typeAt(a) === 'stand' && r > lowEndR - 0.1 && r < BOWL.concourseR + 0.1 && y > lowEndY - 0.1 && y < BOWL.boxTop + 0.05) k *= 0.8;
     return k;
   };
@@ -428,7 +432,7 @@ export function buildStadium(root, lights) {
   const coneGeo = new THREE.ConeGeometry(1, 1, 9, 1, true);
   const T = (h) => B.tint(h);
   const C = {
-    concrete: T(0xb9b5ad), wall: T(0x24333f), seatLow: T(0x2f5266), seatUp: T(0x3b6276), seatAlt: T(0xc9ced4), cover: T(0x272d36),
+    concrete: T(0xb9b5ad), wall: T(0x24333f), seatLow: T(0x2f5266), seatUp: T(0x3b6276), seatAlt: T(0xc9ced4), cover: T(0x272d36), gangway: T(0x1d2024),
     members: T(0x2f5a3c), fascia: T(0x18222d), roofUnder: T(0xbcc5d2), roofTop: T(0xdfe3e6), steel: T(0xe9ecee), dark: T(0x14181d),
     grass: T(0x5e8f3e), cream: T(0xece3cf), green: T(0x3f6b55), white: T(0xf4f2ec), tower: T(0xa8afb6), tarp: T(0x47554e),
   };
@@ -488,10 +492,12 @@ export function buildStadium(root, lights) {
   for (let bay = 0; bay < 36; bay++) {
     const type = bayType(bay);
     for (let tier = 0; tier < 3; tier++) {
-      const away = bay >= 20 && bay <= 22, ultras = (bay === 14 || bay === 15) && tier === 0;
+      // Team ends that read from across the ground: the away section (200-240 deg, both tiers) and the
+      // home end behind the batter (320-20 deg) are each dominated by their colours; the rest is mixed.
+      const away = bay >= 20 && bay <= 23, homeEnd = bay >= 32 || bay <= 1, ultras = (bay === 14 || bay === 15) && tier === 0;
       const thin = tier === 1 && (bay === 26 || bay === 27 || bay === 31 || bay === 5);
       blocks.set(blockOf(bay, tier), {
-        home: away ? 0.1 : ultras ? 0.88 : 0.26 + rand() * 0.2, away: away ? 0.72 : ultras ? 0.02 : 0.05 + rand() * 0.08, ultras,
+        home: away ? 0.07 : ultras ? 0.88 : homeEnd ? 0.8 : 0.2 + rand() * 0.15, away: away ? 0.84 : ultras || homeEnd ? 0.02 : 0.06 + rand() * 0.08, ultras, strong: away || homeEnd,
         occ: tier === 2 ? 0.3 : type === 'bank' ? 0.5 : thin ? 0.55 : tier === 0 ? 0.86 + rand() * 0.1 : 0.74 + rand() * 0.16,
       });
     }
@@ -516,16 +522,16 @@ export function buildStadium(root, lights) {
       // Lower tier (behind a sightscreen: under a tarpaulin).
       if (covered) tarp(a0, a1, L, lowRowR, lowRowY, lowEndR, lowEndY);
       else for (let i = 0; i < L.rows; i++) {
-        const inVom = kind === 'vom' && i >= 3 && i <= 9;
+        const inVom = kind === 'vom' && i >= 3 && i <= 9, gw = i === GW_LOW || i === GW_LOW + 1;
         const yb = i ? lowRowY(i - 1) : L.y0 - 0.001, yt = lowRowY(i), r = lowRowR(i);
         if (inVom) {
           if (i === 3) sweep(a0, a1, r, yb, r, yt, 'ROW', TREAD, 1, {});
           continue;
         }
-        const band = kind === 'aisle' ? 'STEPS' : covered ? 'PLAIN' : 'ROW', ct = covered ? { tint: C.cover } : {};
+        const band = kind === 'aisle' ? 'STEPS' : covered ? 'PLAIN' : 'ROW', ct = covered ? { tint: C.cover } : gw && kind !== 'aisle' ? { tint: C.gangway } : {};
         if (i > 0) sweep(a0, a1, r, yb, r, yt, band, TREAD, 1, { sky: 0.85, ...ct });
         sweep(a0, a1, r, yt, r + L.depth, yt, band, TREAD, 0, ct);
-        if (kind !== 'aisle') {
+        if (kind !== 'aisle' && !gw) {
           const rs = r + L.depth - 0.14;
           sweep(a0, a1, rs, yt + 0.36, rs + 0.07, yt + 0.8, 'SEATS', 1, 0, { tint: seatTintLow });
           if (!covered && !(type === 'pav' && i > 11)) addSeats(a0, a1, r + L.depth - 0.36, yt, i, blockOf(bay, 0), type === 'pav' ? 'members' : 'seat', 0.5);
@@ -548,11 +554,11 @@ export function buildStadium(root, lights) {
       if (covered && inArc(mid, MEDIA[0], MEDIA[1])) mediaCentre(a0, a1);
       else if (covered) tarp(a0, a1, U, upRowR, upRowY, BOWL.backR, upEndY);
       else for (let j = 0; j < U.rows; j++) {
-        const yb = j ? upRowY(j - 1) : U.y0 - 0.001, yt = upRowY(j), r = upRowR(j);
-        const band = kind === 'aisle' ? 'STEPS' : covered ? 'PLAIN' : 'ROW', ct = covered ? { tint: C.cover } : {};
+        const yb = j ? upRowY(j - 1) : U.y0 - 0.001, yt = upRowY(j), r = upRowR(j), gw = j === GW_UP || j === GW_UP + 1;
+        const band = kind === 'aisle' ? 'STEPS' : covered ? 'PLAIN' : 'ROW', ct = covered ? { tint: C.cover } : gw && kind !== 'aisle' ? { tint: C.gangway } : {};
         if (j > 0) sweep(a0, a1, r, yb, r, yt, band, TREAD, 1, { sky: 0.85, ...ct });
         sweep(a0, a1, r, yt, r + U.depth, yt, band, TREAD, 0, ct);
-        if (kind !== 'aisle') {
+        if (kind !== 'aisle' && !gw) {
           const rs = r + U.depth - 0.14;
           sweep(a0, a1, rs, yt + 0.36, rs + 0.07, yt + 0.8, 'SEATS', 1, 0, { tint: seatTintUp });
           if (!covered) addSeats(a0, a1, r + U.depth - 0.36, yt, j, blockOf(bay, 1), 'seat', 0.5, j < 4);
@@ -579,18 +585,39 @@ export function buildStadium(root, lights) {
       if (nearTV && TV.some((t) => Math.abs(a / D - t) < 1.4)) continue;
       const x = Math.sin(a) * rr, z = Math.cos(a) * rr;
       const sh = shadeAt(x, y + 1.0, z, -Math.sin(a) * 0.6, 0.8, -Math.cos(a) * 0.6);
-      const mix = blendMix(block, a / D);
-      spots.push({ x, y, z, nx: -Math.sin(a), nz: -Math.cos(a), sun: sh[0], sky: sh[1], block, row, i: Math.round(a / D * 20 + k), type, home: mix[0], away: mix[1] });
+      const mix = blendMix(block, a / D, row, rr);
+      spots.push({ x, y, z, nx: -Math.sin(a), nz: -Math.cos(a), sun: sh[0], sky: sh[1], block, row, i: Math.round(a / D * 20 + k), type, home: mix[0], away: mix[1], end: mix[2] });
     }
   }
   // Team shares fade into the next block over the outer quarter of each
   // (so a red end next to a blue one is a gradient of mixed shirts, not a line).
-  function blendMix(block, aDeg) {
+  // A seat's team mix. The two team ends (the home end behind the batter, 320-20 deg; the away
+  // section, 200-240 deg) feather out over ~12 deg either side instead of stopping at a bay line,
+  // thin a little up the rows and in the upper tier (cheaper seats, more of everyone), and are
+  // broken up by stray clusters (~5 m x 3 rows): a few neutral or rival patches inside an end, a
+  // few patches of team colours scattered round the rest. [home, away, end weight 0..1]
+  function blendMix(block, aDeg, row = 0, r = 90) {
     const bay = Math.floor(block / 3), tier = block % 3, Bk = blocks.get(block);
     const t = ((((aDeg - bay * 10) % 360) + 360) % 360) / 10;
-    const nb = t < 0.5 ? blocks.get(((bay + 35) % 36) * 3 + tier) : blocks.get(((bay + 1) % 36) * 3 + tier);
-    const w = nb ? 0.5 * smooth(0.25, 0, Math.min(t, 1 - t)) : 0;
-    return [Bk.home * (1 - w) + (nb ? nb.home : 0) * w, Bk.away * (1 - w) + (nb ? nb.away : 0) * w];
+    if (Bk.ultras) {
+      const nb = t < 0.5 ? blocks.get(((bay + 35) % 36) * 3 + tier) : blocks.get(((bay + 1) % 36) * 3 + tier);
+      const w = nb ? 0.5 * smooth(0.25, 0, Math.min(t, 1 - t)) : 0;
+      _mix[0] = Bk.home * (1 - w) + (nb ? nb.home : 0) * w; _mix[1] = Bk.away * (1 - w) + (nb ? nb.away : 0) * w; _mix[2] = 0;
+      return _mix;
+    }
+    const a = ((aDeg % 360) + 360) % 360;
+    const arcW = (a0, a1) => { const d0 = ((a - a0 + 540) % 360) - 180, d1 = ((a1 - a + 540) % 360) - 180; return smooth(-6, 6, d0) * smooth(-6, 6, d1); };
+    const thin = (tier === 1 ? 0.86 : 1) * (1 - 0.12 * Math.min(1, row / 14));
+    let hw = arcW(320, 20) * thin, aw = arcW(200, 240) * thin;
+    const hv = Math.sin(bay * 7.13 + tier * 19.7 + Math.floor((a * D * r) / 5) * 3.31 + Math.floor(row / 3) * 11.9) * 43758.5453, h = hv - Math.floor(hv);
+    if (hw + aw > 0.5 && h < 0.12) { const sw = hw; hw = aw * 0.3 + (h < 0.04 ? 0 : 0.15); aw = sw * (h < 0.04 ? 0.8 : 0.1); }   // a stray patch inside an end
+    else if (hw + aw < 0.15 && h > 0.95) { if (Math.abs(((a - 220 + 540) % 360) - 180) < 50) aw = 0.7; else hw = 0.7; }   // team colours dotted round the rest
+    // The rest of the ground: the bay's own mixed share (the ends' blocks get a typical mix).
+    const mh = Bk.strong ? 0.27 : Bk.home, ma = Bk.strong ? 0.1 : Bk.away;
+    _mix[0] = mh * (1 - hw - aw) + 0.8 * hw + 0.07 * aw;
+    _mix[1] = ma * (1 - hw - aw) + 0.02 * hw + 0.84 * aw;
+    _mix[2] = Math.min(1, hw + aw);
+    return _mix;
   }
   // Now and then someone on the stairs, going for a drink or back to their seat.
   function aisleWalker(a0, a1, rowR, rowY, T, tier) {

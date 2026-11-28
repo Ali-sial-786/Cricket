@@ -64,7 +64,7 @@ test('easy AI is beaten more often than hard AI by seam movement', () => {
   assert.ok(easy > hard, `easy beaten ${easy} vs hard ${hard}`);
 });
 
-test('short ball on the body gets pulled/defended off the back foot; full ball driven', () => {
+test('short ball on the body gets pulled/defended off the back foot; a half-volley driven, a good length not', () => {
   const skill = CONFIG.ai.medium;
   const st = (settings) => {
     const d = machineDelivery(settings);
@@ -75,8 +75,19 @@ test('short ball on the body gets pulled/defended off the back foot; full ball d
   const shortInfo = st({ paceKmh: 135, length: 10.5, line: -0.05 });
   const s1 = chooseShot(shortInfo, skill, 1.0, () => 0.3);
   assert.ok(['pull', 'backdef'].includes(s1.type), s1.type);
+  // (a half-volley on the stumps: driven, all but certainly when he is going for his shots; when he
+  // is not, often enough blocked or pushed)
   const fullInfo = st({ paceKmh: 130, length: 3.0, line: 0.05 });
+  assert.equal(chooseShot(fullInfo, skill, 0.5, () => 0.1).type, 'drive');
   assert.equal(chooseShot(fullInfo, skill, 0.5, () => 0.9).type, 'drive');
+  assert.equal(chooseShot(fullInfo, skill, 0.0, () => 0.9).type, 'defend');
+  assert.equal(chooseShot(st({ paceKmh: 130, length: 3.0, line: 0.4 }), skill, 0.5, () => 0.9).type, 'drive');
+  // (a good length on the stumps: blocked or pushed for one, never driven, unless he has to score)
+  const goodInfo = st({ paceKmh: 130, length: 6.5, line: 0.05 });
+  for (const u of [0.02, 0.1, 0.3, 0.5, 0.7, 0.9, 0.98]) {
+    const s = chooseShot(goodInfo, skill, 0.35, () => u);
+    assert.equal(s.type, 'defend', `rng ${u}: ${s.type}`);
+  }
 });
 
 test('a ball he cannot reach is left alone: no bat thrown at a very wide one (any length, any mood)', () => {

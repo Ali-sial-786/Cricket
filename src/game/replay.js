@@ -32,10 +32,11 @@ import { Vec3, hypot2, hypot3 } from '../physics/math.js';
 import { PITCH } from '../physics/pitch.js';
 import { CONFIG } from '../config.js';
 import { pathStats, replayAt, tailFor, TAIL } from './replayFraming.js';
-import { classify, direct, planAt, replayMode, wants, missBy, DIRECTOR } from './replayDirector.js';
+import { classify, direct, planAt, replayMode, replayTakes, missBy, prewarm, DIRECTOR } from './replayDirector.js';
 import { decisionPending } from './quickSkip.js';
 export { TAIL, tailFor };
 
+const PITCH_CZ = (PITCH.battingStumpsZ + PITCH.bowlingStumpsZ) / 2;   // the middle of the ground (z)
 const RATE = 90;                 // recorded frames per second (max): every frame at 72 and 90 Hz
 const SECONDS = 24;              // ring buffer length (a ball can be live for 20 s)
 const CAP = RATE * SECONDS;
@@ -65,6 +66,9 @@ export class Replay {
     game.scene.add(this.label);
     this.slowTag = buildSlowTag();
     game.scene.add(this.slowTag);
+    // (the planner compiled once while the game loads, not in the first replay's frame)
+    const idle = globalThis.requestIdleCallback || ((f) => setTimeout(f, 1500));
+    idle(() => { try { prewarm(); } catch { /* (only a warm-up) */ } });
   }
 
   // ---------------------------------------------------------------- layout
@@ -203,15 +207,96 @@ export class Replay {
 
   // ---------------------------------------------------------------- the story and the cut
   // What happened to the ball just finished (replayDirector.js classify).
+  // (Read off the tape once, when the ball is dead: how near the ball came to the stumps, the bat's edge
+  // and the batter's head; a lofted shot down by a fielder; a hard hit stopped before the rope.)
   whatHappened() {
     const m = this.marks, r = m.res || {}, o = m.out || {};
-    let nearMiss = null, behind = false;
+    let nearMiss = null, behind = false, batGap = null, headGap = null, safe = false, saved = false;
     if (this.count && m.release != null) {
       if (m.hit == null && !r.padded) nearMiss = missBy(this.passAt(m.release));
       if (m.edge && m.hit != null) for (let t = m.hit; t < m.hit + 1.5; t += 0.05) { if (this.tapeBall(t, _o) && _o.z > 1.5) { behind = true; break; } }
+      const arr = this.arrival(m.release);
+      if (arr != null && m.hit == null) { batGap = this.batGap(arr); headGap = this.headGap(arr, !!m.playerBatting); }
+      if (m.hit != null && m.caught == null && m.dropT == null && !o.boundary && !o.wicket) {
+        const f = this.flight(m.hit, m.dead ?? m.hit + 4);
+        if (f.safeT != null) { safe = true; m.safeT = f.safeT; }
+        if (f.savedT != null) { saved = true; m.savedT = f.savedT; }
+      }
     }
-    return classify({ res: r, wicket: o.wicket, boundary: o.boundary, review: m.review != null, edge: !!m.edge, behind, nearMiss,
+    // (the ball that ends an innings or the match: the winning runs, the last wicket, the last ball)
+    const ses = this.g && this.g.session, last = !!(ses && ses.innings && ses.innings.complete);
+    return classify({ res: r, wicket: o.wicket, boundary: o.boundary, review: m.review != null, edge: !!m.edge, behind, nearMiss, batGap, headGap, safe, saved, last,
       dropped: m.dropT != null, dive: m.diveT != null, direct: !!m.direct, overthrow: m.overthrow != null, brk: m.break != null });
+  }
+
+  // How near (m) the ball passed the bat's blade (your bat as recorded) as it got to the batter; null: no bat.
+  batGap(arr) {
+    const C = CONFIG.bat, sh = -(C.handleLength - C.gripFromHandleTop), toe = sh - C.bladeLength, B = this.buf;
+    let best = null;
+    for (let t = arr - 0.12; t <= arr + 0.12; t += 1 / 90) {
+      const i = this.find(t), a = this.slotAt(i) * this.stride + 16;
+      if (B[a + 7] < 0.5 || !this.tapeBall(t, _o)) continue;
+      _q.set(B[a + 3], B[a + 4], B[a + 5], B[a + 6]);
+      const px = B[a], py = B[a + 1], pz = B[a + 2];
+      _v.set(0, 1, 0).applyQuaternion(_q);
+      // the ball onto the blade's axis (shoulder to toe), clamped
+      const k = clamp((_o.x - px) * _v.x + (_o.y - py) * _v.y + (_o.z - pz) * _v.z, toe, sh);
+      const d = hypot3(_o.x - (px + _v.x * k), _o.y - (py + _v.y * k), _o.z - (pz + _v.z * k)) - C.bladeWidth / 2 - CONFIG.ball.radius;
+      best = best == null ? d : Math.min(best, d);
+    }
+    return best == null ? null : Math.max(0, best);
+  }
+
+  // How near (m) the ball passed the batter's head: yours (as recorded) when you bat, else the striker's.
+  headGap(arr, mine) {
+    let best = null;
+    for (let t = arr - 0.1; t <= arr + 0.25; t += 1 / 90) {
+      if (!this.tapeBall(t, _o)) continue;
+      let hx, hy, hz;
+      if (mine) { const a = this.slotAt(this.find(t)) * this.stride, B = this.buf; hx = B[a]; hy = B[a + 1]; hz = B[a + 2]; }
+      else {
+        let bd = 2.5, h = null;
+        for (const b of this.bodiesAt(t)) { const d = hypot2(b.c.x, b.c.z + 0.6); if (d < bd) { bd = d; h = b; } }
+        if (!h) continue;
+        hx = h.a.x; hy = h.a.y - 0.12; hz = h.a.z;
+      }
+      const d = hypot3(_o.x - hx, _o.y - hy, _o.z - hz) - 0.12 - CONFIG.ball.radius;
+      best = best == null ? d : Math.min(best, d);
+    }
+    return best == null ? null : Math.max(0, best);
+  }
+
+  // A fielder had the ball in his hand at tape time t (the play's own mark).
+  heldAt(t) { const h = this.marks.held; return h != null && t >= h; }
+
+  // The hit ball's flight (tape s hit..end): a lofted one (DIRECTOR.safeHigh m up) that came down within
+  // DIRECTOR.safeNear m of a fielder (safeT: when it landed); one hit hard (DIRECTOR.savedSpeed) stopped
+  // within a few metres of the rope (savedT: when it stopped).
+  flight(hit, end) {
+    const D = DIRECTOR, o = { x: 0, y: 0, z: 0 };
+    let top = 0, v0 = 0, safeT = null, savedT = null, up = false, px = null, pz = 0, py = 0;
+    for (let t = hit + 1 / 60; t <= Math.min(end, hit + 6); t += 1 / 60) {
+      const seen = this.tapeBall(t, o), far = hypot2(o.x, o.z - PITCH_CZ) >= D.savedR - 8;
+      // (stopped out there: it slows to a walk, or a fielder has it in his hand)
+      if (savedT == null && v0 >= D.savedSpeed && far && (!seen || this.heldAt(t))) savedT = t;
+      if (!seen) { px = null; continue; }
+      if (px != null) {
+        const v = hypot3(o.x - px, o.y - py, o.z - pz) * 60;
+        if (t < hit + 0.2) v0 = Math.max(v0, v);
+        if (savedT == null && v0 >= D.savedSpeed && far && v < 6) savedT = t;
+      }
+      top = Math.max(top, o.y);
+      if (o.y > 0.3) up = true;
+      if (safeT == null && up && top >= D.safeHigh && o.y < 0.08) {
+        for (const b of this.bodiesAt(t)) {
+          if (Math.abs(b.c.x) < 3 && b.c.z > -23 && b.c.z < 3) continue;          // (the batters, the bowler, the umpire)
+          if (hypot2(b.c.x - o.x, b.c.z - o.z) <= D.safeNear) { safeT = t; break; }
+        }
+        if (safeT == null) up = false;                                          // (down in a gap: not near anyone)
+      }
+      px = o.x; py = o.y; pz = o.z;
+    }
+    return { safeT, savedT };
   }
 
   // The ball as it passed the batter's stumps (x, y), or null.
@@ -229,7 +314,7 @@ export class Replay {
   }
 
   // The cut for the ball just finished (replayDirector.js direct), or null.
-  plan() {
+  plan(again = false) {
     const m = this.marks;
     if (m.release == null || !this.count) return null;
     const first = this.timeAt(0), last = this.timeAt(this.count - 1);
@@ -237,9 +322,9 @@ export class Replay {
     if (!m.story) { const s = this.whatHappened(); m.story = s.story; m.tier = s.tier; }
     const arrive = this.arrival(m.release);
     const M = { release: m.release, arrive, hit: m.hit, pad: m.pad, wicket: m.wicket, brk: m.break, brkEnd: m.breakEnd, caught: m.caught, held: m.held,
-      dropT: m.dropT, diveT: m.diveT, throwAt: m.throwAt, cross: m.cross, dead: m.dead };
+      dropT: m.dropT, diveT: m.diveT, throwAt: m.throwAt, cross: m.cross, land: m.land, dead: m.dead, safeT: m.safeT, savedT: m.savedT, overthrow: m.overthrow };   // (land: where a six came down, if play marked it)
     const tape = { first, last, ball: (t, o) => this.tapeBall(t, o), bodies: (t) => this.bodiesAt(t), figure: (k, t, o) => this.figureAt(k, t, o) };
-    const p = direct({ story: m.story, tier: m.tier, m: M, tape, xr: !!this.g.input.xr });
+    const p = direct({ story: m.story, tier: m.tier, m: M, tape, xr: !!this.g.input.xr, maxTakes: again ? 0 : m.maxTakes || 0 });
     if (p) p.arrive = arrive;
     return p;
   }
@@ -286,9 +371,22 @@ export class Replay {
     if (m.dead == null) m.dead = t;
     const s = this.whatHappened();
     m.story = s.story; m.tier = s.tier;
-    if (!wants(replayMode(this.g.settings), s.tier)) return false;
+    // (how many takes: by what happened and what this over has had already: replayDirector.js replayTakes)
+    m.maxTakes = replayTakes(replayMode(this.g.settings), s.story, s.tier, m.review != null, this.overNow());
+    if (!m.maxTakes) return false;
     this.pending = { at: replayAt(m, t) };
     return true;
+  }
+
+  // This over's tally of replays ({ fours, close }): a fresh one when the over (or the session) changes.
+  // The over: the innings' legal balls so far, else this session's balls counted here.
+  overNow() {
+    const ses = this.g.session, inn = ses && ses.innings;
+    if (this.tallySes !== ses) { this.tallySes = ses; this.tallyBalls = 0; this.tally = null; }
+    this.tallyBalls++;
+    const idx = inn && Number.isFinite(inn.legal) ? Math.floor(Math.max(0, inn.legal - 1) / 6) : Math.floor((this.tallyBalls - 1) / 6);
+    if (!this.tally || this.tally.idx !== idx) this.tally = { idx, fours: 0, close: 0 };
+    return this.tally;
   }
 
   // When the pending replay is due (game s; Infinity if none): its tail of
@@ -357,7 +455,8 @@ export class Replay {
     ui.clearHints?.();
     ui.prompt('', 0);
     if ('boardSting' in ui) ui.boardSting = null;
-    setLabel(this.label, 'REPLAY', xr ? `off-hand (${this.skipHand().hand}) trigger: next ball` : 'Space skips · N: next ball');
+    this.labelSub = xr ? `off-hand (${this.skipHand().hand}) trigger: next ball` : 'Space skips · N: next ball';
+    setLabel(this.label, (plan.takes && plan.takes[0] && plan.takes[0].name) || 'REPLAY', this.labelSub);
     this.label.visible = true; this.label.material.opacity = 1; this.labelT = 0;
     this.slowTag.visible = false; this.slowTag.material.opacity = 0;
     if (g.ballView.trail) g.ballView.clearTrail?.();
@@ -372,6 +471,7 @@ export class Replay {
     this.fade.cut(DIRECTOR.inOut);
     g.sample?.('cam_whoosh', { gain: 0.45 });          // (a soft whoosh in: the game's own sounds are not played again)
     planAt(plan, 0, _cam);
+    this.findBall(plan.S[0]);
     this.apply(this.rt);
     this.moveCamera(0);
   }
@@ -387,6 +487,7 @@ export class Replay {
     g.ballView.setVisible(s.ball.v); g.ballView.mesh.position.copy(s.ball.p); g.ballView.mesh.quaternion.copy(s.ball.q); g.ballView.mesh.scale.setScalar(s.ball.s);
     this.pieces.forEach((m, i) => { m.position.copy(s.pieces[i][0]); m.quaternion.copy(s.pieces[i][1]); });
     this.vignette.visible = false;
+    this.findBall(-1);                                  // (the trail and the ball as play draws them)
     this.label.visible = false;
     this.slowTag.visible = false;
     if (!g.input.xr && s.fov != null && g.camera.fov !== s.fov) { g.camera.fov = s.fov; g.camera.updateProjectionMatrix(); }
@@ -412,7 +513,7 @@ export class Replay {
     if (!this.active) {
       if (this.againReady()) {
         const b = g.input.right.buttons.b;
-        if (b.down) { if (b.swallow) b.swallow(); const p = this.plan(); if (p) { this.start(p, true); return; } }
+        if (b.down) { if (b.swallow) b.swallow(); const p = this.plan(true); if (p) { this.start(p, true); return; } }
         // (a card for it, once a game, on a later ball than the skip card's)
         const cs = g.coachSeen;
         if (g.coach && cs && !cs.has('again') && g.session.state === 'settle') {
@@ -444,7 +545,7 @@ export class Replay {
     // A cut: down to dark over its last moments, back in on the new angle; the end goes down to dark too.
     if (!busy) {
       const c = P.cuts[this.nextCut];
-      if (c != null && this.u >= c * P.du) { fade.cut(DIRECTOR.cutIn); this.nextCut++; this.camPrev = null; }
+      if (c != null && this.u >= c * P.du) { fade.cut(DIRECTOR.cutIn); this.nextCut++; this.camPrev = null; this.strap(c); }
       // (dark a frame before the cut: the last frame on the old angle is black, not 95%)
       else if (c != null && c * P.du - this.u <= DIRECTOR.cutOut) { if (!fade.fadingOut) fade.fadeOut(Math.max(0.014, c * P.du - this.u - 0.014)); }
       else if (c == null && P.len - this.u <= DIRECTOR.endOut && !fade.fadingOut) fade.fadeOut(Math.max(0.02, P.len - this.u));
@@ -461,11 +562,28 @@ export class Replay {
     this.moveCamera(dt);
     // A six: the ground goes up again as it lands in the stands (the look and the swell; no sound is played twice).
     const m = this.marks;
-    if (P.story === 'six' && !this.cheered && m.cross != null && this.rt >= m.cross) {
+    if (P.story === 'six' && !this.cheered && m.cross != null && this.rt >= m.cross && P.shots[_cam.shot] && P.shots[_cam.shot].stand) {   // (in the crowd's take, or the arc)
       this.cheered = true;
       try { g.env && g.env.crowdReact && g.env.crowdReact('six', 1, g.ballView.mesh.position); } catch { /* (the stands are optional) */ }
       try { if (g.cheer) g.cheer(0.9); } catch { /* (the crowd's swell is optional) */ }
     }
+  }
+
+  // A new take (at the cut into it): its name on the label ("ANOTHER ANGLE", "THE CATCH", "SIDE-ON"...),
+  // up again for its moment. (Drawn once a take.)
+  strap(i) {
+    const T = this.path.takes;
+    if (!T) return;
+    for (let j = 1; j < T.length; j++) if (T[j].i === i) { setLabel(this.label, T[j].name, this.labelSub); this.label.visible = true; this.label.material.opacity = 1; this.labelT = 0; this.findBall(T[j].shot); return; }
+  }
+
+  // A take whose subject is a ball far off (the shot's `findBall`: from high, the arc): the ball drawn at
+  // least DIRECTOR.findBall.px and its trail at least .trailPx wide while it plays; back to play's own as
+  // the take ends (stop() on every way out, a skip included). Set once a take.
+  findBall(k) {
+    const sh = this.path && this.path.shots[k], on = !!(sh && sh.findBall), tr = this.g.ballView.trail;
+    this.farBall = on;
+    if (tr && 'minPx' in tr) tr.minPx = on ? DIRECTOR.findBall.trailPx : 0;
   }
 
   // Your figure's shot, a few poses a frame (always ahead of what is on screen;
@@ -600,9 +718,12 @@ export class Replay {
       g.camera.updateMatrixWorld(true);
     }
     // The ball is drawn at least a minimum size from where the camera is (as it is live from where you stand).
-    if (g.settings.ballBoost && g.ballView.visible) {
-      const d = hypot3(bm.x - c.x, bm.y - c.y, bm.z - c.z);
-      g.ballView.mesh.scale.setScalar(clamp(d * Math.tan((CONFIG.render.ballMinAngleDeg * Math.PI) / 360) / CONFIG.ball.radius, 1, 2.2));
+    if ((g.settings.ballBoost || this.farBall) && g.ballView.visible) {
+      const d = hypot3(bm.x - c.x, bm.y - c.y, bm.z - c.z), F = DIRECTOR.findBall;
+      let k = g.settings.ballBoost ? clamp(d * Math.tan((CONFIG.render.ballMinAngleDeg * Math.PI) / 360) / CONFIG.ball.radius, 1, 2.2) : 1;
+      // (a far take: at least F.px at the headset's 20 px a degree, whatever the distance)
+      if (this.farBall) k = Math.max(k, clamp(d * Math.tan((F.px / 20) * Math.PI / 360) / CONFIG.ball.radius, 1, F.maxScale));
+      g.ballView.mesh.scale.setScalar(k);
     }
     // What the camera did (for the harness and the tests): real time, tape time, the shot.
     // (only when asked for: an object a frame otherwise)
@@ -756,7 +877,9 @@ function setLabel(m, title, sub) {
   x.clearRect(0, 0, W, H);
   x.fillStyle = 'rgba(8,14,26,0.66)';
   rr(x, 0, 0, W, H, 18); x.fill();
-  x.font = font(900, 38);
+  let fs = 38;
+  x.font = font(900, fs);
+  while (fs > 24 && x.measureText(title).width > W - 110) x.font = font(900, fs -= 2);   // (a long take name fits the tag)
   const tw = x.measureText(title).width + 64;
   x.save(); rr(x, 0, 0, W, H, 18); x.clip();
   x.beginPath(); x.moveTo(0, 0); x.lineTo(tw + 14, 0); x.lineTo(tw, 52); x.lineTo(0, 52); x.closePath();

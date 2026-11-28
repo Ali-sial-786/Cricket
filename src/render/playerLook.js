@@ -48,7 +48,7 @@ export function lookFor(seed, team, role = 'player') {
   const pick = (a) => a[Math.floor(r() * a.length)];
   const skinIx = Math.floor(r() * SKIN_TONES.length);
   // (fair-skinned men more often have lighter hair; most hair is dark)
-  const hair = skinIx <= 1 && r() < 0.45 ? pick([0x45311f, 0x6b4a2c, 0x8f6a3e, 0x2b1e15]) : pick([0x17110d, 0x2b1e15, 0x0b0b0b, 0x17110d, 0x45311f]);
+  const hair = skinIx <= 1 && r() < 0.45 ? pick([0x45311f, 0x6b4a2c, 0x8f6a3e, 0x2b1e15, 0xa8834f, 0x6a3420]) : pick([0x17110d, 0x2b1e15, 0x0b0b0b, 0x17110d, 0x45311f]);
   const older = role === 'umpire' && r() < 0.6;
   const beardRoll = r();
   const L = {
@@ -72,6 +72,15 @@ export function lookFor(seed, team, role = 'player') {
   L.nose = r() * 2 - 1;                            // shorter / flatter .. longer / more prominent
   L.brow = r() * 2 - 1;                            // a flat brow .. a heavy brow ridge
   L.jaw = r() * 2 - 1;                             // narrow .. square
+  { const e = r(); L.expr = e < 0.5 ? 0 : e < 0.78 ? 1 : 2; }   // relaxed / focused (narrowed eyes, lowered brows) / a slight smile
+  // the haircut: 0 a short crop, 1 a fade at the sides, 2 a side part, 3 receding, 4 longer on top, 5 shaved
+  { const h = r(); L.hairStyle = L.age > 0.55 && h < 0.45 ? 3 : h < 0.25 ? 0 : h < 0.47 ? 1 : h < 0.65 ? 2 : h < 0.75 ? (L.age > 0.4 ? 3 : 2) : h < 0.955 ? 4 : 5; }   // (shaved: one in twenty or so)
+  // the face's structure (after the rest, so every earlier draw is as it was): length, width, cheeks,
+  // lips; never the gaunt (long, hollow-cheeked) or the jowly (wide, full, older) combinations
+  L.faceLen = r() * 2 - 1; L.faceWid = r() * 2 - 1; L.cheek = r() * 2 - 1; L.lips = r() * 2 - 1;
+  if (L.faceLen > 0.3) L.cheek = Math.max(L.cheek, -0.3);
+  L.cheek = Math.max(L.cheek, -0.6);
+  if (L.faceWid > 0.3 || L.age > 0.55) L.cheek = Math.min(L.cheek, 0.45);
   if (role === 'self') { L.sweatband = 0; L.sleeves = 0; L.build = 0; }
   return L;
 }
@@ -207,8 +216,8 @@ function paintFace(F) {
   const sq = (v) => v * v, sat = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
   const ss = (a, b, v) => { const t = sat((v - a) / (b - a)); return t * t * (3 - 2 * t); };
   const ell = (x, y, cx, cy2, ax, ay) => Math.sqrt(sq((x - cx) / ax) + sq((y - cy2) / ay));
-  // the lid opening: an almond, wider at the outer corner
-  const ow = er * 1.75, oh = er * 0.82;
+  // the lid opening: headMesh.js's almond (30 mm across, the upper lid over the top of the iris)
+  const ow = 0.0152, oh = 0.0048;
   // (symmetric: the +x half is painted and mirrored; each feature only where it can reach)
   for (let j = 0; j < M; j++) {
     const y = y0 + (j + 0.5) / M * h;
@@ -222,16 +231,16 @@ function paintFace(F) {
       // --- eyes: socket shadow, upper lid crease, lash line, lower lid
       const dxE = ax - ex, dyE = y - ey;
       if (Math.abs(dxE) < ow * 2.2 && Math.abs(dyE) < oh * 5) {
-      const tilt = dyE - dxE * 0.12;                                  // outer corners slightly up
-      const open = Math.sqrt(sq(dxE / ow) + sq(tilt / (oh * (dxE > 0 ? 0.95 : 1.05))));
-      shade -= 0.16 * Math.exp(-sq(ell(ax, y, ex - 0.002, ey + 0.002, ow * 1.55, oh * 2.6) / 1.0) * 1.2);      // socket
+      const tilt = dyE - dxE * 0.08;                                  // outer corners slightly up
+      const open = Math.sqrt(sq(dxE / ow) + sq(tilt / (tilt > 0 ? oh : 0.006)));
+      shade -= 0.05 * Math.exp(-sq(ell(ax, y, ex - 0.002, ey + 0.002, ow * 1.2, oh * 2.6) / 1.0) * 1.2);      // socket
       // upper lid: a dark lash band just above the opening, thicker toward the outer corner
       const upper = tilt > 0 ? 1 : 0;
       const lashW = 0.0011 + 0.0011 * ss(-ow, ow, dxE);
       liner = Math.max(liner, upper * Math.exp(-sq((open - 1) * oh / lashW)) * ss(1.25, 0.6, Math.abs(dxE) / ow));
-      liner = Math.max(liner, (1 - upper) * 0.45 * Math.exp(-sq((open - 1) * oh / 0.0007)) * ss(1.1, 0.5, Math.abs(dxE) / ow));
+      liner = Math.max(liner, (1 - upper) * 0.1 * Math.exp(-sq((open - 1) * oh / 0.0007)) * ss(1.1, 0.5, Math.abs(dxE) / ow));
       // lid crease above
-      shade -= 0.12 * upper * Math.exp(-sq(((open - 1.75) * oh) / 0.0016)) * ss(1.3, 0.6, Math.abs(dxE) / ow);
+      shade -= 0.05 * upper * Math.exp(-sq(((open - 1.75) * oh) / 0.0016)) * ss(1.3, 0.6, Math.abs(dxE) / ow);
       // inside the opening: eye white with a painted iris (only seen on the eyeball-less far model)
       if (open < 1) {
         const ir = Math.hypot(dxE, dyE) / er;
@@ -244,9 +253,10 @@ function paintFace(F) {
         const t = (ax - (ex - ow * 1.15)) / (ow * 2.5);              // 0 inner .. 1 outer
         if (t > -0.1 && t < 1.1) {
           const arcY = by + 0.004 * Math.sin(Math.PI * sat(t) * 0.9) - 0.003 * t;
-          const thick = 0.0034 * (1 - 0.55 * sat(t)) + 0.0008;
+          // (thickest a third of the way out, tapering to both ends, the outer one most)
+          const thick = 0.001 + 0.0027 * Math.pow(Math.sin(Math.PI * Math.min(1, Math.max(0, t * 0.82 + 0.14))), 0.7);
           const d = Math.abs(y - arcY) / thick;
-          liner = Math.max(liner, 0.85 * ss(1.15, 0.55, d) * ss(-0.1, 0.06, t) * ss(1.1, 0.9, t));
+          liner = Math.max(liner, 0.95 * ss(1.4, 0.35, d) * ss(-0.12, 0.12, t) * ss(1.08, 0.78, t));     // (soft edges and ends)
           shade -= 0.05 * Math.exp(-sq((y - arcY + 0.008) / 0.006)) * ss(-0.1, 0.2, t) * ss(1.2, 0.8, t);  // brow ridge shadow under it
         }
       }
@@ -256,9 +266,9 @@ function paintFace(F) {
         shade -= 0.1 * Math.exp(-sq((ax - nw) / 0.0035)) * ss(ey + 0.004, ey - 0.012, y) * ss(ny - 0.012, ny + 0.002, y);
         shade += 0.07 * Math.exp(-sq(ax / 0.0045)) * ss(ey - 0.004, ny + 0.01, y) * ss(ny - 0.004, ny + 0.012, y);
         const nost = ell(ax, y, 0.0085, ny - 0.0045, 0.0042, 0.0022);
-        shade -= 0.4 * ss(1.2, 0.5, nost);
+        shade -= 0.2 * ss(1.4, 0.25, nost);     // (a soft dark oval, not a hole)
         // wing crease round the nostril
-        shade -= 0.14 * Math.exp(-sq((ell(ax, y, 0.011, ny - 0.002, 0.0085, 0.0065) - 1) / 0.25));
+        shade -= 0.07 * Math.exp(-sq((ell(ax, y, 0.011, ny - 0.002, 0.0085, 0.0065) - 1) / 0.25));
         // under the nose
         shade -= 0.08 * Math.exp(-sq((y - (ny - 0.0095)) / 0.003)) * Math.exp(-sq(ax / 0.012));
       }
@@ -266,7 +276,7 @@ function paintFace(F) {
       if (ax < mw + 0.03 && y < ny + 0.004 && y > my - 0.02) {
         const t = sat((ny - 0.004 - y) / (ny - my + 0.008));
         const lx = 0.016 + (mw + 0.008 - 0.016) * t + 0.004 * Math.sin(Math.PI * t);
-        shade -= 0.1 * Math.exp(-sq((ax - lx) / 0.0028)) * ss(0, 0.15, t) * ss(1.15, 0.8, t);
+        shade -= 0.04 * Math.exp(-sq((ax - lx) / 0.0035)) * ss(0, 0.15, t) * ss(0.95, 0.6, t);     // (faint, and ending above the mouth's corners)
       }
       // --- mouth: lips (upper darker, lower fuller), the parting line, philtrum, chin dimple
       if (Math.abs(y - my) < 0.03 && ax < mw * 1.6) {
@@ -274,16 +284,16 @@ function paintFace(F) {
         if (ux < 1.15) {
           const bow = 0.0012 * Math.cos(Math.min(1, ux) * Math.PI * 1.6) ;   // cupid's bow
           const up = (y - my) > 0;
-          const top = 0.0062 * Math.sqrt(Math.max(0, 1 - ux * ux)) + bow * 0.6, bot = -0.0078 * Math.sqrt(Math.max(0, 1 - ux * ux));
-          const inLip = up ? ss(top + 0.0008, top - 0.0008, y - my) : ss(bot - 0.0009, bot + 0.0009, y - my);
-          lips = Math.max(lips, inLip * (up ? 1 : 0.8));
-          shade -= 0.38 * Math.exp(-sq((y - my - 0.0004 * ux * ux) / 0.0009)) * ss(1.05, 0.7, ux);        // the parting
-          shade -= 0.12 * ss(0.0018, 0, Math.abs(ux - 1)) * Math.exp(-sq((y - my) / 0.003));                  // corners
-          shade -= 0.05 * up * inLip;
+          const top = 0.0048 * Math.pow(Math.max(0, 1 - ux * ux), 0.7) + bow * 0.5, bot = -0.0056 * Math.pow(Math.max(0, 1 - ux * ux), 0.7);   // (thin, tapering into the corners)
+          const inLip = up ? ss(top + 0.0011, top - 0.0011, y - my) : ss(bot - 0.0013, bot + 0.0013, y - my);
+          lips = Math.max(lips, inLip * (up ? 1 : 0.62));      // (the upper lip darker than the lower)
+          shade -= 0.17 * Math.exp(-sq((y - my - 0.0014 * ux * ux) / 0.0007)) * ss(1.02, 0.6, ux);   // (a soft closed line, not a slot)        // the parting
+          shade -= 0.1 * ss(0.0022, 0, Math.abs(ux - 1)) * Math.exp(-sq((y - my) / 0.003));                  // corners
+          shade -= 0.07 * up * inLip;
           shade += 0.06 * (1 - up ? 1 : 0) * Math.exp(-sq((y - my + 0.0045) / 0.002)) * ss(0.8, 0.2, ux);   // lower lip highlight
         }
-        shade -= 0.06 * Math.exp(-sq(ax / 0.0035)) * ss(my + 0.006, my + 0.009, y) * ss(ny - 0.006, ny - 0.011, y);   // philtrum groove
-        shade -= 0.1 * Math.exp(-sq((y - (my - 0.0125)) / 0.004)) * Math.exp(-sq(ax / 0.016));                       // under the lower lip
+        shade -= 0.07 * Math.exp(-sq(ax / 0.0035)) * ss(my + 0.006, my + 0.009, y) * ss(ny - 0.006, ny - 0.011, y);   // philtrum groove
+        shade -= 0.07 * Math.exp(-sq((y - (my - 0.0105)) / 0.0045)) * Math.exp(-sq(ax / 0.014));     // (the soft cleft of shadow under the lip)                       // under the lower lip
       }
       // --- cheekbones catch light; temples and jaw sides fall off
       if (Math.abs(y - ey + 0.024) < 0.05) shade += 0.05 * Math.exp(-sq(ell(ax, y, ex + 0.008, ey - 0.024, 0.02, 0.014)));

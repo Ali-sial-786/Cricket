@@ -138,7 +138,8 @@ export const CONFIG = {
     fullTossHeight: [0.35, 1.25], // m at the batter for a full toss (waist-high no-balls not allowed)
     spinnerPaceKmh: 105,     // below this, wrist action gives a spin delivery; above, a cutter
     palmDot: 0.15,           // palm toward the batter above this, back of the hand below -this
-    assistStrength: 0.8,     // 0..1, how strongly the aim marker pulls deliveries (the marker is where the ball goes; your release nudges it)
+    assistStrength: 0.97,    // 0..1, how strongly the aim marker pulls deliveries (the marker is where the ball goes; a wild release
+                             // moves it a hand's width, no more: at 0.8 a 15 degree arm error was 0.6 m, which read as "still physical")
     spinMultiplier: 4.0,     // wrist roll rad/s × this = ball spin rad/s
     spinDeadzone: 2.5,       // rad/s of wrist roll ignored
     swingAmount: 0.75,       // swing value when inswing/outswing is chosen
@@ -239,11 +240,13 @@ export const CONFIG = {
   },
 
   ai: {
-    // AI batter skill (when you bowl). Lower sigma = better timing.
-    easy:   { timingSigma: 0.030, posSigma: 0.07, readFactor: 0.25, adjust: 0.35, mistakeRate: 0.22, catchSkill: 0.55 },
-    medium: { timingSigma: 0.018, posSigma: 0.045, readFactor: 0.55, adjust: 0.6, mistakeRate: 0.12, catchSkill: 0.72 },
-    hard:   { timingSigma: 0.010, posSigma: 0.028, readFactor: 0.8, adjust: 0.85, mistakeRate: 0.05, catchSkill: 0.88 },
-    charge: { easy: 0.5, medium: 0.42, hard: 0.34 },   // chance (scaled by aggression) of coming down the pitch to a slow ball
+    // AI batter skill (when you bowl). Lower sigma = better timing. err: the chance (x how hard the
+    // ball is, aiBatter.js misplay) that he plays it wrong: across the line, late, an edge, the gate.
+    // intent: added to his aggression in choosing his shots (a better batter goes after the ball he can hit).
+    easy:   { timingSigma: 0.024, posSigma: 0.052, readFactor: 0.35, adjust: 0.45, mistakeRate: 0.2, err: 0.42, catchSkill: 0.55 },
+    medium: { timingSigma: 0.018, posSigma: 0.045, readFactor: 0.55, adjust: 0.6, mistakeRate: 0.12, err: 0.18, catchSkill: 0.72 },
+    hard:   { timingSigma: 0.010, posSigma: 0.028, readFactor: 0.8, adjust: 0.85, mistakeRate: 0.05, err: 0.075, intent: 0.15, catchSkill: 0.88 },
+    charge: { easy: 0.35, medium: 0.28, hard: 0.22 },   // chance (scaled by aggression) of coming down the pitch to a slow ball
     reactionTime: 0.20,      // s after release before the batter commits
     bounceReaction: 0.09,    // s after the bounce before it can adjust
   },

@@ -40,11 +40,18 @@ function shadowMaterial() {
       varying vec2 vP;
       void main() {
         vAnk = aAnk; vKnee = aKnee; vHip = aHip; vBody = aBody; vHead = aHead; vHand = aHand; vFoot = aFoot; vRad = aRad; vMisc = aMisc;
+        // Far away (15 -> 45 m from the eye) a figure's shadow and contact pool grow a little and
+        // darken, so a fielder at 40 m still stands on the turf at headset resolution (a 7 cm shin
+        // shadow is a fraction of a pixel there).
+        float far = smoothstep(15.0, 45.0, length(cameraPosition.xz - 0.5 * (aAnk.xy + aAnk.zw)));
+        vRad = aRad * (1.0 + 0.5 * far);
+        vMisc.z = aMisc.z * (1.0 + 1.4 * far);
+        vMisc.y = aMisc.y * (1.0 + 0.3 * far);
         vec2 lo = min(min(min(aAnk.xy, aAnk.zw), min(aKnee.xy, aKnee.zw)), min(min(aHip.xy, aHip.zw), min(aBody.xy, aBody.zw)));
         lo = min(lo, min(min(aHead.xy, aHead.zw), aHand.xy));
         vec2 hi = max(max(max(aAnk.xy, aAnk.zw), max(aKnee.xy, aKnee.zw)), max(max(aHip.xy, aHip.zw), max(aBody.xy, aBody.zw)));
         hi = max(hi, max(max(aHead.xy, aHead.zw), aHand.xy));
-        float m = max(max(aRad.x, aRad.y), max(aRad.z, aRad.w)) + aMisc.z + 0.08;
+        float m = max(max(vRad.x, vRad.y), max(vRad.z, vRad.w)) + vMisc.z + 0.08;
         vP = mix(lo - m, hi + m, position.xz);
         gl_Position = max(aMisc.x, aMisc.y) <= 0.0 ? vec4(2.0, 2.0, 2.0, 1.0) : projectionMatrix * viewMatrix * vec4(vP.x, uY, vP.y, 1.0);
       }`,
@@ -79,7 +86,7 @@ function shadowMaterial() {
         float r = max(vMisc.z, 1e-3);
         vec2 q0 = (p - vFoot.xy) / r, q1 = (p - vFoot.zw) / r;
         float c0 = max(1.0 - dot(q0, q0), 0.0), c1 = max(1.0 - dot(q1, q1), 0.0);
-        float ao = max(c0 * c0 * vHand.z, c1 * c1 * vHand.w) * vMisc.y;
+        float ao = min(max(c0 * c0 * vHand.z, c1 * c1 * vHand.w) * vMisc.y, 1.0);
         gl_FragColor = vec4(mix(vec3(1.0), uShade, sun) * mix(vec3(1.0), uShade * 0.6, ao * 0.85), 1.0);
       }`,
   });

@@ -17,6 +17,7 @@ import { clipsReady, applyClip, applyLocomotion, strideAt, clipInfo, settle, MAS
 import { shotFor, poseShot } from './shots.js';
 import { steadyKnees, legsNow, legsBlend, kneeWay, footYaw } from './legs.js';
 import { CONFIG } from '../config.js';
+import { FAST_CLEAR } from '../game/playerSpace.js';
 import { BatGeometry } from '../physics/bat.js';
 import { PITCH } from '../physics/pitch.js';
 import { steerAmong } from '../game/fielding.js';
@@ -286,6 +287,7 @@ export class FielderActor extends Actor {
   // made (the pose's own rates); fdt: this frame's (what is walked off a lunge).
   pose(dt, s, ctx, fdt) {
     const h = this.h, t = ctx.t;
+    this._cam = ctx.cam || null;
     // A dive carries the body off its spot (offX / offZ). When the dive is over
     // the body is not put back: what is left of the offset is walked off.
     let offX = 0, offZ = 0, lunging = false, gest = false, idleOK = false;
@@ -444,8 +446,16 @@ export class FielderActor extends Actor {
     } else if (this.speed > 0.25) {
       this.poseKey = 'move';
       this.locomote(t, this.keeper ? 0.05 : 0);
+      // (a ceremony's walk -- out to the toss, past you at the result: a stroll, not a fielder's
+      // business-like walk: tall, head up, the arms swinging freely)
+      if ((s.ceremony || this.ceremonyWalk) && this.speed < 2.6) {
+        const sw = 0.2 * Math.sin(this.phase) * sstep(0.3, 1.0, this.speed);
+        h.addRot('shoulderL', sw, 0, 0); h.addRot('shoulderR', -sw, 0, 0);
+        h.addRot('elbowL', -0.12, 0, 0); h.addRot('elbowR', -0.12, 0, 0);
+        h.addRot('spine', -0.05, 0, 0); h.addRot('neck', -0.04, 0, 0);
+      }
       this.apply();
-      gest = !act;
+      gest = !act && !s.ceremony;
     } else if (clips && !this.keeper) {
       // Standing at his mark; as the bowler runs in, down into a low, wide set.
       this.poseKey = 'stand';
@@ -521,6 +531,17 @@ export class FielderActor extends Actor {
     const tx = lunging ? offX : 0, tz = lunging ? offZ : 0;
     const ex = tx - O.x, ez = tz - O.z, d = Math.sqrt(ex * ex + ez * ez), st = (lunging ? LUNGE_RATE : 1.6) * dt;
     if (d <= st) { O.x = tx; O.z = tz; } else { O.x += ex / d * st; O.z += ez / d * st; }
+    // (a dive or a lunge -- fast -- never carries the body within FAST_CLEAR of your eye: playerSpace.js; a
+    // man already that near dives where he stands; not the keeper, who stands behind you and must reach the ball)
+    const e = this.keeper ? null : this._cam;
+    if (e && (O.x !== 0 || O.z !== 0)) {
+      const bx = this.pos.x - e.x, bz = this.pos.z - e.z, b2 = bx * bx + bz * bz, R2 = FAST_CLEAR * FAST_CLEAR;
+      if (b2 < R2) { O.x = O.z = 0; }
+      else {
+        const a = O.x * O.x + O.z * O.z, bo = 2 * (bx * O.x + bz * O.z), c = b2 - R2, disc = bo * bo - 4 * a * c;
+        if (bo < 0 && disc > 0) { const k = (-bo - Math.sqrt(disc)) / (2 * a); if (k < 1) { O.x *= k; O.z *= k; } }
+      }
+    }
     r.x += O.x - offX; r.z += O.z - offZ;
   }
   // Calm enough for the pose LOD: nothing to do with the ball, no reaction, standing or on his way at a jog.
@@ -1203,7 +1224,7 @@ function pinBack(foot, crease) {
   if (!crease || crease.z == null || !(crease.pin > 0)) return;
   foot.z = mix(foot.z, crease.z, Math.min(1, crease.pin));
 }
-const STANCE = { footL: [-0.31, -1.43], footR: [-0.35, -0.95] };
+const STANCE = { footL: [-0.31, -1.40], footR: [-0.34, -0.99] };
 const STANCE_MID = [(STANCE.footL[0] + STANCE.footR[0]) / 2, (STANCE.footL[1] + STANCE.footR[1]) / 2];
 const _mi = new THREE.Matrix4(), _yq = new THREE.Vector3(), _zAxis = new THREE.Vector3(0, 0, 1);
 // Heading of a rotation's +Z about the vertical.
@@ -1217,7 +1238,9 @@ const PALM = 0.075;                 // wrist to the middle of the palm (where a 
 const HAND_GAP = 0.105;
 // The batting stance (a crouch with the head out over the toes, cf. the classic side-on stance).
 const ELBOW_FWD = 0.2;               // elbows out in front of the shoulders, over the hands
-const STANCE_LEAN = 0.52, STANCE_KNEES = 0.05, STANCE_DROP = 0.18, FRONT_OPEN = 0.3;
+// (feet about shoulder width, knees softly flexed over the toes, the front toe opened a little down
+// the pitch: a deep, wide crouch splayed the pads like wings from behind -- review 5 #10)
+const STANCE_LEAN = 0.38, STANCE_KNEES = 0.04, STANCE_DROP = 0.18, FRONT_OPEN = 0.42;
 const FOOT_FRONT = 0.2, FOOT_BACK = 0.26;      // your feet: front foot ahead of your head, back foot behind it             // bottom hand to top hand, up the handle
 const GRIP_ROLL = 0.8;              // how far a hand may roll round the handle from the textbook grip (rad)
 const POLE_RATE = 10;              // rad/s: your figure's elbow bend direction turns at most this fast (steadyPole)

@@ -186,20 +186,24 @@ view also faces forward by itself before each ball, on recenter, catches and rep
   flips with / without). It costs GPU time: lower *Area* or *Quality* if the frame rate drops. Prescription
   lens inserts remain the way to see sharply.
 * **Settings → Replays** (*highlights* / *every ball* / *off*): by default the balls worth seeing again get a
-  replay, cut like a broadcast: wickets, fours and sixes, and close calls (a run-out or stumping that went the
-  batter's way, a dropped catch, an edge past the stumps, a ball that just missed them, an lbw shout, a direct hit,
-  a diving stop, overthrows). Leaves, dots and singles do not (*every ball* gives them a short one, 2.5 s at most).
-  The angle comes from what happened: high behind the bowler's arm for the run-up, down the line of the stumps
-  (7 m in front of the batter, at eye height) for a bowled, an lbw, a near miss or an edge, side-on at the
-  popping crease for a run-out or a stumping (frozen for a moment as the stumps break), and a tracking spot picked
-  from the ball's own flight (the ball kept near the middle of the view): a four or six is bat on ball down the line,
-  then a low spot 6-10 m inside the rope from where the ball goes over (a six: 7-11 m from where it comes down),
-  looking out across the rope, the ball coming to you, ending on it crossing (a six: on the stand going up); a catch
-  or a drop is the shot, then a camera 5-8 m in front of the catcher at chest height, there before the ball, slowed
-  through the hands closing and holding on him for a beat. Real speed for the
-  build-up, slow motion through the key moment (a small *SLOW MOTION* tag). At most 6 s for a wicket, 5 s for a
-  boundary or a close call. Each angle is a fixed spot that turns to follow the ball; there is one cut at most, a
-  quick dip to dark and back (0.08 s), and the replay comes in and goes out in about a tenth of a second. After an appeal, a DRS review or the third umpire, the
+  replay: every wicket and boundary, every catch held or put down, every appeal given or not, every run-out or
+  stumping chance, edges anywhere, a play-and-miss within 25 cm of the stumps or 10 cm of the edge, a bouncer past
+  the helmet, a lofted shot that comes down near a fielder, a hard hit stopped in the deep, overthrows, and the
+  ball that wins the match or ends an innings. A replay is one or two whole takes, each one continuous shot from a
+  fixed spot that turns gently to follow the ball. **Take 1, always**, is from the bowler's end, just behind the
+  stumps on the bowling arm's side: from the last stride at real speed, 0.6 s of slow motion round the moment at
+  the bat (or the stumps, the pad), and a beat after; for a boundary it follows the ball away for 1.2 s more,
+  turning up to 70° and holding its direction rather than swinging after a ball hit back past it. **Take 2** only when there is something to see in it, and
+  only from a short list of broadcast positions: the line of the stumps in front of the batter (bowled, lbw, a
+  review), side-on at the crease with a freeze as the stumps break (run-out, stumping), the catcher three-quarter
+  on and close (a catch, a drop, a stop), the fielder chasing a four to the rope (a four nobody chases: from high behind an end, the field and the
+  ball's line to the rope), the people where a six comes down going up (or the whole arc from high at long-on / long-off, or from high on its side of the ground or behind an end; from
+  high the ball and its trail are drawn a few pixels bigger so you can follow them). A take
+  whose subject would be small, off the middle or missing is left out. About 5 s for a boundary, 3-4 s for a wicket.
+  So that an over is not mostly replays: a four's second take only for the first four of an over (later fours get take 1,
+  which still follows the ball away), an appeal that went to a decision always in full, and one other
+  close call an over (take 1 only), reviews aside. *Every ball* gives every ball at least take 1. Between takes
+  the view dips to dark and back (0.08 s); skipping skips the whole replay. After an appeal, a DRS review or the third umpire, the
   replay comes after the verdict; the result banner comes back once the replay is over. In the headset the play is
   where you face when you bat, wherever you happened to be looking when it started. A small *REPLAY* label shows
   for the first 1.5 s. Your **off-hand trigger** (the hand without the bat or the ball: the left one) skips it at
@@ -281,12 +285,15 @@ src/game/             game.js (orchestrator + frame loop), batting.js / bowling.
                       lbw.js + lbwFlow.js (appeal, decision, review), edgeTrack.js (what the ball touched: Snicko,
                       Hot Spot), reviews.js, thirdUmpire.js, scoring.js, scorecard.js,
                       squad.js, bowlerTypes.js + bowlingInput.js (your bowlers and their deliveries),
-                      replay.js (recording and replays)
+                      replay.js (recording and replays), ceremony.js (the presentation beats and the result scene),
+                      playerSpace.js (the player's space: how near a figure may come, walking or fast)
                       calibration.js, settings.js
 src/render/           env (stadium), objects (bat/ball/stumps/machine), humanoid (skinned athlete + IK), gear (helmets, pads, gloves),
                       actors + people + anim, clips (authored animation clips), umpires, drsView (review board + ball tracking;
                       snicko / hotspot draw its screen),
                       viewModes (helmet grille, your bowling body, hiding bodies inside your head)
+                      headMesh (every figure's head: a signed-distance sculpt meshed at load; the hair, six cuts,
+                      is drawn on the scalp in humanoid's shader; per-player look: 19 of 24 texels in the bone texture)
 src/ui/               canvas-texture panels: menus, HUD, scoreboard, laser pointer
 src/xr/               session.js (VR/MR, frame rate, foveation), input.js (controllers + desktop emulation), mr.js
 src/audio/            sfx.js (synthesised), samples.js (recorded effects), commentary.js (two-voice engine),
