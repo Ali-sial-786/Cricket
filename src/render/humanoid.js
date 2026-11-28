@@ -968,7 +968,7 @@ function kitMaterial(fig = null) {
         uniform vec4 uMakerUV; uniform vec4 uGlyph;
         uniform float uDetail;
         ${KIT_GLSL_COMMON}
-        float gWrap = 0.25, gSpec = 0.04, gShin = 10.0, gKind = 0.0, gSSS = 0.0, gShade = 0.0; vec3 gSpecC = vec3(1.0);
+        float gWrap = 0.25, gSpec = 0.04, gShin = 10.0, gKind = 0.0, gSSS = 0.0, gShade = 0.0; vec3 gSpecC = vec3(1.0); float gBounce = 0.0;
         vec3 gBX, gBY;                     // screen derivatives of the bind position
         // a decal: r = centre, half size (bind metres), uvr = its atlas rect; flip: mirrored (read from behind)
         vec4 decalAt(vec2 p, vec4 r, vec4 uvr, float flip) {
@@ -1007,6 +1007,8 @@ function kitMaterial(fig = null) {
         }
         void RE_IndirectDiffuse_Lambert( const in vec3 irradiance, const in vec3 geometryPosition, const in vec3 geometryNormal, const in vec3 geometryViewDir, const in vec3 geometryClearcoatNormal, const in LambertMaterial material, inout ReflectedLight reflectedLight ) {
           reflectedLight.indirectDiffuse += irradiance * BRDF_Lambert( material.diffuseColor );
+          // (the face: light bounced up from the turf and the shirt, so its features read under a brim)
+          if ( gBounce > 0.0 ) { vec3 nW = inverseTransformDirection( geometryNormal, viewMatrix ); reflectedLight.indirectDiffuse += gBounce * vec3( 0.42, 0.4, 0.33 ) * clamp( 0.35 - 0.65 * nW.y, 0.0, 1.0 ) * BRDF_Lambert( material.diffuseColor ); }
         }
         #define RE_Direct RE_Direct_Kit
         #define RE_IndirectDiffuse RE_IndirectDiffuse_Lambert`)
@@ -1275,6 +1277,7 @@ function kitMaterial(fig = null) {
           float sh = clamp(fh + nb + 0.7 * cb, 0.0, 1.0);
           gSpec = mix(gSpec, 0.022 + 0.04 * sh, 1.0 - clamp(beard + lip, 0.0, 1.0)); gShin = mix(gShin, 4.5 + 3.0 * sh, 1.0 - lip);
           gSpecC = mix(vec3(1.0), vec3(1.0, 0.82, 0.66), dk); }
+        gBounce = 1.0 + 1.2 * dk;
         // zinc cream (now and then): a thin, worn stripe down the bridge of the nose, not a blob
         float zx = abs(vBind.x) / 0.0055, zy = (vBind.y - uFaceMisc.y - 0.004) / 0.019;
         float zc = uLook2.w * 0.45 * smoothstep(1.0, 0.6, zx) * smoothstep(1.0, 0.7, abs(zy)) * step(uFaceMisc.z - 0.006, vBind.z);
@@ -1315,13 +1318,14 @@ function kitMaterial(fig = null) {
       float ageE = FIG(17).x + (abs(FIG(18).x - 1.0) < 0.5 ? 0.55 : FIG(18).x > 1.5 ? 0.25 : 0.0);      // (an older man's lids sit lower; a focused man narrows his eyes, a smiling one a little)
       // (just inside the lids' own edges, so the lid's margin and the lash line are one line: the upper lid
       // over the top of the iris, white either side of it)
-      float up = r * (0.74 - 0.14 * ageE - 0.44 * u * u) + 0.17 * r * u, lo = -r * (0.84 - 0.08 * ageE - 0.48 * u * u) + 0.17 * r * u;
+      float up = r * (0.66 - 0.14 * ageE - 0.44 * u * u) + 0.17 * r * u, lo = -r * (0.84 - 0.08 * ageE - 0.48 * u * u) + 0.17 * r * u;
       // a blink every few seconds (each man on his own clock): the upper lid comes down for ~0.15 s
       // (quick and not often: about 0.1 s every 5..8 s)
       float bp = fract(uTime / (5.0 + 3.0 * uSeed) + uSeed * 7.3);
       up = mix(up, lo + 0.0006, smoothstep(0.0, 0.005, bp) * (1.0 - smoothstep(0.011, 0.019, bp)));
       float px = max(fw, 0.0003);
-      c *= vec3(0.94, 0.91, 0.87) * mix(1.0, 0.84, smoothstep(up - 0.003, up, e.y)) * mix(1.0, 0.9, smoothstep(lo + 0.002, lo, e.y));
+      gBounce = 0.8;
+      c *= vec3(0.97, 0.9, 0.82) * mix(1.0, 0.84, smoothstep(up - 0.003, up, e.y)) * mix(1.0, 0.9, smoothstep(lo + 0.002, lo, e.y));
       float lid = max(smoothstep(up - px, up + px, e.y), smoothstep(lo + px, lo - px, e.y));
       c = mix(c, uSkin * 0.95, lid);
       float lash = exp(-pow((e.y - up - 0.0003) / 0.0008, 2.0)) * (1.0 - smoothstep(0.8, 1.05, abs(u)));
@@ -1610,6 +1614,12 @@ export class Humanoid {
         v.y -= ey; v.z -= ez;
         const l = v.length();
         if (l > 1e-3 && v.z / l > 0.77) { ty = Math.max(-0.35, Math.min(0.35, Math.atan2(v.x, v.z))); tp = Math.max(-0.2, Math.min(0.2, Math.atan2(v.y, Math.hypot(v.x, v.z)))); }
+      }
+      if (i < 2) {
+        // (small saccades: every half second to two seconds the eyes jump a degree or two, and back)
+        const now = performance.now() / 1000, g = h._sac || (h._sac = { t: 0, y: 0, p: 0 });
+        if (now > g.t) { const r = Math.random(); g.t = now + 0.5 + 1.5 * r; const z = r < 0.4; g.y = z ? 0 : (Math.random() - 0.5) * 0.08; g.p = z ? 0 : (Math.random() - 0.5) * 0.05; }
+        ty += g.y; tp += g.p;
       }
       h._gazeTo(ty, tp, false);
     });

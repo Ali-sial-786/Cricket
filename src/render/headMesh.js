@@ -63,12 +63,13 @@ export function headField(H, eyes = true) {
     d = smin(d, ell(ax, y, z, [0, C + 0.014, zF - 0.02], [0.027, 0.017, 0.013]), 0.026);   // the chin
     // neck (to below the collar), the sternomastoids
     // (about 15% narrower than the head at mid-neck, sloping out into the shoulders under the collar)
-    const nf = 0.02 * sstep(E - 0.16, E - 0.225, y), nrx = 0.046 + nf, nrz = 0.049 + nf;
+    // (narrower only above the collar: as wide as the collar's opening at it, sloping out below it)
+    const nf = 0.007 * sstep(E - 0.14, E - 0.165, y) + 0.013 * sstep(E - 0.17, E - 0.225, y), nrx = 0.046 + nf, nrz = 0.049 + nf;
     const nx = ax / nrx, nz = (z - czN) / nrz;
     let n = Math.sqrt(nx * nx + nz * nz) * nrx - nrx;
     n = smax(n, y - (E - 0.01), 0.03);
     d = smin(d, n, 0.03);
-    d = smin(d, cone(ax, y, z, [0.044, E - 0.045, zE - 0.128], [0.013, 1.45, zE - 0.058], 0.011, 0.012), 0.012);
+    d = smin(d, cone(ax, y, z, [0.042, E - 0.045, zE - 0.126], [0.014, 1.45, zE - 0.06], 0.008, 0.009), 0.022);   // (the sternomastoids: soft forms, not ridges)
     if (z < zE - 0.045 || y > brow + 0.03 || y < C - 0.01) return d;   // (the features below are all on the face)
     // brow ridge, cheekbones
     d = smin(d, ell(ax, y, z, [0, brow - 0.002, zF - 0.009], [0.052, 0.0095, 0.012]), 0.018);
@@ -89,7 +90,7 @@ export function headField(H, eyes = true) {
       d = smax(d, -ell(ax, y, z, [ex, E + 0.001, zE + 0.01], [0.017, 0.0115, 0.009]), 0.008);
       d = smax(d, -ell(ax, y, z, [ex - 0.002, E + 0.009, zE + 0.009], [0.016, 0.0065, 0.0075]), 0.008);   // (under the brow: brow, socket, cheekbone one soft S)
       const dx = ax - ex, dy = y - E;
-      const ox = dx / 0.0152, oy = (dy - 0.08 * dx) / (dy > 0 ? 0.0053 : 0.006), open = Math.sqrt(ox * ox + oy * oy) - 1;   // < 0 in the almond
+      const ox = dx / 0.0152, oy = (dy - 0.08 * dx) / (dy > 0 ? 0.0048 : 0.006), open = Math.sqrt(ox * ox + oy * oy) - 1;   // < 0 in the almond
       let lid = Math.sqrt(dx * dx + dy * dy + (z - zE) * (z - zE)) - (re + 0.0017);
       if (open < 0 && z > zE - 0.002) lid = Math.max(lid, -open * 0.005);                         // (the opening)
       d = smin(d, lid, 0.003);
