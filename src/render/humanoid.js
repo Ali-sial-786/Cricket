@@ -867,7 +867,11 @@ function kitMaterial(fig = null) {
         else if (k < 8.5) { kc = FIG(4).rgb * vec3(0.82, 0.66, 0.64); mt = vec4(0.45, 0.12, 16.0, 1.0); }
         else if (k > 23.5 && k < 24.5) mt = vec4(0.3, 1.0, 220.0, 4.0);       // (a small, sharp highlight of the sun: the catch-light)
         else if (k < 25.5) { kc = FIG(7).rgb; mt = vec4(0.3, 1.0, 220.0, 4.0); }
-        else if (k < 26.5) mt = vec4(0.2, 0.5, 60.0, 4.0);
+        else if (k < 26.5) {
+          mt = vec4(0.2, 0.5, 60.0, 4.0);
+          // the mouth's inside (below the eyes): dark and matte, so wherever it shows at the lips it is a shadow, not a pale glint
+          if (position.y < uEye.y - 0.03) { kc = FIG(4).rgb * vec3(0.22, 0.12, 0.11); mt = vec4(0.2, 0.0, 4.0, 5.0); }
+        }
         else if (k > 29.5 && k < 30.5) mt = vec4(0.0, 0.6, 70.0, 2.0);
         else if (k < 31.5) mt = vec4(0.12, 0.06, 12.0, 5.0);
         else if (k < 32.5) mt = vec4(0.0, 1.4, 140.0, 6.0);
@@ -942,6 +946,11 @@ function kitMaterial(fig = null) {
             transformed.y += 0.0028 * corner; transformed.z -= 0.0012 * corner; transformed.x += sign(position.x) * 0.0012 * corner;
             transformed.y += 0.0015 * sm * exp(-pow((ax - 0.045) / 0.015, 2.0) - pow((position.y - uEye.y + 0.028) / 0.012, 2.0));
           }
+        }
+        if (k > 25.5 && k < 26.5 && position.y < uEye.y - 0.03) {
+          vec4 L5m = FIG(19);
+          transformed.y += (position.y - uEye.y) * 0.05 * L5m.x;
+          transformed.x += position.x * 0.05 * L5m.y;
         }
         if (k > 4.5 && k < 5.5 && color.g > 0.5) {
           float es = fract(sin(FIG(17).z * 61.3 + 0.7) * 173.1) * 2.0 - 1.0;
@@ -1274,7 +1283,7 @@ function kitMaterial(fig = null) {
         { float fh = smoothstep(uEye.y + 0.02, uEye.y + 0.045, yy) * smoothstep(0.05, 0.02, ax);
           float nb = exp(-pow(length(vec2(ax / 0.01, (yy - uFaceMisc.y - 0.012) / 0.022)), 2.0));
           float cb = exp(-pow(length(vec2((ax - 0.045) / 0.014, (yy - uEye.y + 0.02) / 0.008)), 2.0));
-          float sh = clamp(fh + nb + 0.7 * cb, 0.0, 1.0);
+          float sh = clamp(fh + nb * (1.0 - 0.7 * max(dk, clamp(beard * 2.0, 0.0, 1.0))) + 0.7 * cb, 0.0, 1.0);   // (no pale streak down a dark or bearded face's nose)
           gSpec = mix(gSpec, 0.022 + 0.04 * sh, 1.0 - clamp(beard + lip, 0.0, 1.0)); gShin = mix(gShin, 4.5 + 3.0 * sh, 1.0 - lip);
           gSpecC = mix(vec3(1.0), vec3(1.0, 0.82, 0.66), dk); }
         gBounce = 1.0 + 1.2 * dk;

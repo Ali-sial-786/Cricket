@@ -69,7 +69,7 @@ export function headField(H, eyes = true) {
     let n = Math.sqrt(nx * nx + nz * nz) * nrx - nrx;
     n = smax(n, y - (E - 0.01), 0.03);
     d = smin(d, n, 0.03);
-    d = smin(d, cone(ax, y, z, [0.042, E - 0.045, zE - 0.126], [0.014, 1.45, zE - 0.06], 0.008, 0.009), 0.022);   // (the sternomastoids: soft forms, not ridges)
+    d = smin(d, cone(ax, y, z, [0.042, E - 0.045, zE - 0.126], [0.014, 1.45, zE - 0.062], 0.007, 0.008), 0.03);   // (the sternomastoids: soft relief, not cords)
     if (z < zE - 0.045 || y > brow + 0.03 || y < C - 0.01) return d;   // (the features below are all on the face)
     // brow ridge, cheekbones
     d = smin(d, ell(ax, y, z, [0, brow - 0.002, zF - 0.009], [0.052, 0.0095, 0.012]), 0.018);
@@ -190,7 +190,7 @@ export function buildHead(H, lod, bones, neckY) {
   const rows = lod ? 13 : 38, n = lod ? 22 : 64;
   // (rows crowd to the eyes (theta ~1.45) and the mouth (~2.2), thin over the crown)
   const dens = (th) => 0.7 + 1.2 * Math.exp(-(((th - 1.85) / 0.45) ** 2)) + 2.0 * Math.exp(-(((th - 1.45) / 0.12) ** 2)) + 1.3 * Math.exp(-(((th - 2.2) / 0.15) ** 2));
-  const G = rays(f, O, rows, n, 2.86, dens);
+  const G = rays(f, O, rows, n, 3.0, dens);   // (down to the throat below the collar's V: skin fills the opening)
   const parts = [{ P: G.P, I: G.I, ear: 0 }];
   for (const s of [1, -1]) { const e = ear(H, s, lod, f); parts.push({ P: e.P, I: e.I, ear: 1 }); }
   const pos = [], nrm = [], col = [], kit = [], si = [], sw = [], idx = [];
@@ -273,7 +273,7 @@ export function replaceHead(lods, J, meta) {
     for (let v = 0; v < P.count; v++) { y0 += P.getY(v); z1 = Math.max(z1, P.getZ(v)); x1 = Math.max(x1, Math.abs(P.getX(v))); }
     y0 /= P.count;
     // (small and well back: the lips are closed, it only darkens the line between them)
-    for (let v = 0; v < P.count; v++) P.setXYZ(v, P.getX(v) * 0.013 / x1, H.mouth + (P.getY(v) - y0) * 0.4, H.zF - 0.0155 + (P.getZ(v) - z1) * 0.5);
+    for (let v = 0; v < P.count; v++) P.setXYZ(v, P.getX(v) * 0.013 / x1, H.mouth + (P.getY(v) - y0) * 0.4, H.zF - 0.019 + (P.getZ(v) - z1) * 0.5);
   }
   // drop the source's head: every triangle of the body above the collar on the head / neck bones
   for (const L of lods) for (const p of L) {
