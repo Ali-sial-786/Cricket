@@ -67,7 +67,9 @@ export const DIRECTOR = {
   // how many takes a ball gets in highlights (replayTakes): a four's second take only for the first four of
   // an over; one close-call replay an over (take 1 only), a review aside
   freq: { foursFull: 1, closePerOver: 1 },
-  highY: 14,                                     // m: the high camera behind an end (a four nobody chases, a six's last choice)
+  highY: 11, highBack: 55,                       // m: the high camera behind an end (a four nobody chases, a six's last choice): up, from the middle
+  highSide: { y: 10, r: [42], spread: 12 },  // a six's high camera on its side of the ground: m up, m from the middle, ° either side of its line
+  findBall: { px: 5, trailPx: 4, maxScale: 10 },  // a far take's ball and trail drawn at least this many headset pixels (replay.js)
   fourChase: 15,                                 // m: a four's second take needs a fielder this near where it crosses
   arm: { back: 3.0, y: 2.5, side: 2.0, yawLim: 25 * D2R, yawWide: 70 * D2R, wideFor: 1.2 },   // (a boundary: it turns up to yawWide, following the ball wideFor s past contact)  // m behind the bowler's stumps, m up, m to the bowling arm's side; it turns no more than this off the pitch
   line: { z: -5.5, y: 1.2, gap: 2.9, back: 3.2 },  // on the stumps' line, z (4.3 m in front of the batter); 1.2 m up (pad and stumps fill it); joins once the ball is this far past it
@@ -100,7 +102,7 @@ export const DIRECTOR = {
 export const CANON = {
   arm: 'behind the bowler\'s arm (take 1)', line: 'on the line of the stumps in front of the batter', square: 'side-on at the popping crease, either side',
   catch: 'three-quarter on from the fielder\'s front, 5-8 m, chest high', rope: 'inside the rope by where a four goes over', crowd: 'in front of the seats where a six comes down',
-  highEnd: 'high behind an end, looking down the ground', keeperHigh: 'high behind the keeper', cover: 'cover, inside the rope', midwicket: 'mid-wicket, inside the rope', longOff: 'long-off, high', longOn: 'long-on, high',
+  highEnd: 'high behind an end, looking down the ground', highSide: 'high on the side of the ground a six goes to, inside the rope', keeperHigh: 'high behind the keeper', cover: 'cover, inside the rope', midwicket: 'mid-wicket, inside the rope', longOff: 'long-off, high', longOn: 'long-on, high',
   squareOffHigh: 'square on the off side, high', squareLegHigh: 'square on the leg side, high', screenSide: 'beside a sightscreen, inside the rope',
 };
 const ringAt = (name, az, r, y) => ({ name, x: Math.sin(az * D2R) * r, y, z: CZ + Math.cos(az * D2R) * r });
@@ -186,7 +188,7 @@ export function direct({ story, tier, m, tape, xr = true, check = true, maxTakes
   // (a take whose camera fails tries the next of its broadcast positions, then its second choice (alt):
   // laid out again each time, a few times at most)
   const tried = [];
-  for (let round = 0; check && round < 7; round++) {
+  for (let round = 0; check && round < 10; round++) {
     let again = false;
     for (let j = 1; j < p.takes.length; j++) {
       const sh = p.shots[p.takes[j].shot], r = takeOK(p, j, tape);
@@ -264,7 +266,7 @@ function subjectAt(p, sh, tape, i, end) {
   if (sh.stand && end) {
     // (a six's people: the middle of the picture is them, the head a little down as it rests)
     const v = viewShares(c, yaw, -0.08, { hfov: 40, vfov: 30, n: 16, nv: 12 });
-    return v.stand >= C.crowd ? { ok: true } : { ok: false, why: `the people ${(v.stand * 100).toFixed(0)}% of the middle` };
+    return v.stand >= (sh.crowdMin ?? C.crowd) ? { ok: true } : { ok: false, why: `the people ${(v.stand * 100).toFixed(0)}% of the middle` };
   }
   let x, y, z, size;
   if (sh.kind === 'catch' || sh.pair != null) {
@@ -417,8 +419,8 @@ function recipe(story, tier, m, tape) {
     takeOne(hit, Math.max(T1.post, DIRECTOR.arm.wideFor - half), true);
     const subj = ballAt(tape, key), re = hypot2(subj.x, subj.z - CZ) || 1;
     // (high behind an end, the far one from where it goes first: the field, the fielders and the ball's line)
-    const hz = subj.z < CZ ? CZ + 58 : CZ - 58;
-    const high = { kind: 'track', canon: 'highEnd', high: true, title: 'FROM HIGH', cands: [{ name: 'highEnd', x: 0, y: DIRECTOR.highY, z: hz }, { name: 'highEnd', x: 0, y: DIRECTOR.highY, z: 2 * CZ - hz }], far: 150, fov: DIRECTOR.fov.wide, subj, dists: [0], heights: [0], endDist: [0, 200] };
+    const hz = subj.z < CZ ? CZ + DIRECTOR.highBack : CZ - DIRECTOR.highBack;
+    const high = { kind: 'track', canon: 'highEnd', high: true, findBall: true, title: 'FROM HIGH', cands: [{ name: 'highEnd', x: 0, y: DIRECTOR.highY, z: hz }, { name: 'highEnd', x: 0, y: DIRECTOR.highY, z: 2 * CZ - hz }], far: 150, fov: DIRECTOR.fov.wide, subj, dists: [0], heights: [0], endDist: [0, 200] };
     if (!six) {
       const fielder = nearestFigure(tape, key, subj, DIRECTOR.fourChase);
       if (!fielder) {
@@ -440,7 +442,12 @@ function recipe(story, tier, m, tape) {
     }
     const sr = Math.max(re, SEATS) + 4;
     const stands = sas.map((sa) => ({ t: key + 0.1, x: Math.sin(sa) * sr, y: Math.max(subj.y, 2) + 3, z: CZ + Math.cos(sa) * sr }));
-    const arc = { kind: 'track', canon: 'fixed', arc: true, title: 'THE ARC', alt: high, cands: FIXED.filter((c) => /^long|keeperHigh/.test(c.name)), stand: { ...stands[0], t: key - 0.7 }, stands: stands.map((a) => ({ ...a, t: key - 0.7 })), lookMax: 50, far: 75, fov: DIRECTOR.fov.wide, subj, dists: [0], heights: [0], endDist: [15, 50] };
+    // (a six's high camera on its own side of the ground, inside the rope, down the ball's line: the ball all
+    // the way down into the stand, the view ending on the people where it lands)
+    const sa0 = Math.atan2(subj.x, subj.z - CZ), HS = DIRECTOR.highSide, sideC = [];
+    for (const r of HS.r) for (const da of [0, -HS.spread, HS.spread]) { const a = sa0 + da * D2R; sideC.push({ name: 'highSide', x: Math.sin(a) * r, y: HS.y, z: CZ + Math.cos(a) * r }); }
+    const highSide = { kind: 'track', canon: 'highSide', crowdMin: 0.45, arc: true, findBall: true, title: 'FROM HIGH', alt: high, cands: sideC, stand: { ...stands[0], t: key - 0.4 }, stands: stands.map((a) => ({ ...a, t: key - 0.4 })), lookMax: 40, far: 75, fov: DIRECTOR.fov.wide, subj, dists: [0], heights: [0], endDist: [15, 50] };
+    const arc = { kind: 'track', canon: 'fixed', arc: true, findBall: true, title: 'THE ARC', alt: highSide, cands: FIXED.filter((c) => /^long|keeperHigh/.test(c.name)), stand: { ...stands[0], t: key - 0.7 }, stands: stands.map((a) => ({ ...a, t: key - 0.7 })), lookMax: 50, far: 75, fov: DIRECTOR.fov.wide, subj, dists: [0], heights: [0], endDist: [15, 50] };
     const behind = Math.abs(subj.x) < SCREEN.half + 2.5 && Math.abs(subj.z - CZ) > SCREEN.dist - 2;
     const k2 = shot(behind ? arc : { kind: 'track', canon: 'crowd', rope: true, seats: true, stand: stands[0], stands, fov: DIRECTOR.fov.track, subj, dists: [10, 12.5, 15], heights: [2.5], endDist: [10, 15], rimMax: Math.max(63.5, Math.min(re + (screened ? 5 : 2), 82)), kMax: screened ? 18 : 8, alt: arc });
     takeTwo(k2, behind ? 'THE ARC' : 'IN THE CROWD', key, Math.max(hit + 0.1, key - DIRECTOR.t2.lead), Math.min(last, key + 0.9));

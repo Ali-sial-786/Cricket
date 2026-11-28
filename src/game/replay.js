@@ -469,6 +469,7 @@ export class Replay {
     this.fade.cut(DIRECTOR.inOut);
     g.sample?.('cam_whoosh', { gain: 0.45 });          // (a soft whoosh in: the game's own sounds are not played again)
     planAt(plan, 0, _cam);
+    this.findBall(plan.S[0]);
     this.apply(this.rt);
     this.moveCamera(0);
   }
@@ -484,6 +485,7 @@ export class Replay {
     g.ballView.setVisible(s.ball.v); g.ballView.mesh.position.copy(s.ball.p); g.ballView.mesh.quaternion.copy(s.ball.q); g.ballView.mesh.scale.setScalar(s.ball.s);
     this.pieces.forEach((m, i) => { m.position.copy(s.pieces[i][0]); m.quaternion.copy(s.pieces[i][1]); });
     this.vignette.visible = false;
+    this.findBall(-1);                                  // (the trail and the ball as play draws them)
     this.label.visible = false;
     this.slowTag.visible = false;
     if (!g.input.xr && s.fov != null && g.camera.fov !== s.fov) { g.camera.fov = s.fov; g.camera.updateProjectionMatrix(); }
@@ -570,7 +572,16 @@ export class Replay {
   strap(i) {
     const T = this.path.takes;
     if (!T) return;
-    for (let j = 1; j < T.length; j++) if (T[j].i === i) { setLabel(this.label, T[j].name, this.labelSub); this.label.visible = true; this.label.material.opacity = 1; this.labelT = 0; return; }
+    for (let j = 1; j < T.length; j++) if (T[j].i === i) { setLabel(this.label, T[j].name, this.labelSub); this.label.visible = true; this.label.material.opacity = 1; this.labelT = 0; this.findBall(T[j].shot); return; }
+  }
+
+  // A take whose subject is a ball far off (the shot's `findBall`: from high, the arc): the ball drawn at
+  // least DIRECTOR.findBall.px and its trail at least .trailPx wide while it plays; back to play's own as
+  // the take ends (stop() on every way out, a skip included). Set once a take.
+  findBall(k) {
+    const sh = this.path && this.path.shots[k], on = !!(sh && sh.findBall), tr = this.g.ballView.trail;
+    this.farBall = on;
+    if (tr && 'minPx' in tr) tr.minPx = on ? DIRECTOR.findBall.trailPx : 0;
   }
 
   // Your figure's shot, a few poses a frame (always ahead of what is on screen;
@@ -705,9 +716,12 @@ export class Replay {
       g.camera.updateMatrixWorld(true);
     }
     // The ball is drawn at least a minimum size from where the camera is (as it is live from where you stand).
-    if (g.settings.ballBoost && g.ballView.visible) {
-      const d = hypot3(bm.x - c.x, bm.y - c.y, bm.z - c.z);
-      g.ballView.mesh.scale.setScalar(clamp(d * Math.tan((CONFIG.render.ballMinAngleDeg * Math.PI) / 360) / CONFIG.ball.radius, 1, 2.2));
+    if ((g.settings.ballBoost || this.farBall) && g.ballView.visible) {
+      const d = hypot3(bm.x - c.x, bm.y - c.y, bm.z - c.z), F = DIRECTOR.findBall;
+      let k = g.settings.ballBoost ? clamp(d * Math.tan((CONFIG.render.ballMinAngleDeg * Math.PI) / 360) / CONFIG.ball.radius, 1, 2.2) : 1;
+      // (a far take: at least F.px at the headset's 20 px a degree, whatever the distance)
+      if (this.farBall) k = Math.max(k, clamp(d * Math.tan((F.px / 20) * Math.PI / 360) / CONFIG.ball.radius, 1, F.maxScale));
+      g.ballView.mesh.scale.setScalar(k);
     }
     // What the camera did (for the harness and the tests): real time, tape time, the shot.
     // (only when asked for: an object a frame otherwise)

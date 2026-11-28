@@ -98,6 +98,7 @@ export class BallTrail {
     this.len = new Float32Array(max);      // path length from the bat to each point
     this.tim = new Float32Array(max);      // when the ball was there (the trail's own clock)
     this.count = 0; this.t = 0; this.still = 0; this.fade = 1;
+    this.minPx = 0;                        // (a replay's far take: the line never thinner than this many pixels; 0 in play)
     const geo = new THREE.BufferGeometry();
     this.pos = new THREE.BufferAttribute(new Float32Array(max * 2 * 3), 3).setUsage(THREE.DynamicDrawUsage);
     this.col = new THREE.BufferAttribute(new Float32Array(max * 2 * 4), 4).setUsage(THREE.DynamicDrawUsage);
@@ -170,7 +171,7 @@ export class BallTrail {
       // the head: 1 at the ball, 0 by `head` seconds back along the path
       const age = now - T[i], h = age < H ? 1 - age / H : 0, hh = h * h;
       // width as an angle: ~5 px at the head down to ~2 px for the old path (a ball-width line far away, never more)
-      const ang = Math.min((2.2 + 2.8 * hh) * PX, Math.max(2 * PX, 0.07 / Math.max(dist, 1)));
+      const ang = Math.max(this.minPx * PX, Math.min((2.2 + 2.8 * hh) * PX, Math.max(2 * PX, 0.07 / Math.max(dist, 1))));
       const k = 0.5 * dist * ang / sl;
       sx *= k; sy *= k; sz *= k;
       V[i * 6] = P[o] - sx; V[i * 6 + 1] = P[o + 1] - sy; V[i * 6 + 2] = P[o + 2] - sz;
