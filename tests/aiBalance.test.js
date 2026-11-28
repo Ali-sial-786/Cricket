@@ -1,40 +1,62 @@
-// The AI batter against accurate bowling (you bowl, the aim marker on: the
-// ball pitches where you aim it). Seeded balls, headless (tests/aiBalance.js:
-// the game's deliveries, the AI's plan and swing in the physics world, the
-// session's pad check and LBW judging, the field). A competent batter (medium)
-// is out about once in 20 balls or so, rarely LBW; full straight balls are
-// blocked or driven, not padded; the levels stay well apart.
+// The AI batter's balance when you bowl, the owner-facing numbers: seeded balls, headless
+// (tests/aiBalance.js: the game's deliveries as the auto run-up bowls them, the AI's plan and
+// swing in the physics world, the session's pad check and LBW judging, the field and the runs the
+// AI batters take). A sensible bowler's mix (60% good length on or just outside off, 20% full and
+// straight, 10% short, 10% yorkers) from the fast bowler, at the batting side's first-innings
+// intent (aggression 0.5, modes.js). At medium: a wicket every 10-14 balls or so, a boundary every
+// 5-8, about four balls in ten dots, caught the commonest way out, LBW a regular one (and the
+// likeliest off full straight balls and yorkers). The levels stay apart; chasing hard means more
+// runs and more wickets.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { bowlAt, AIMS } from './aiBalance.js';
+import { bowlAt } from './aiBalance.js';
 
 const outs = (c) => c.bowled + c.lbw + c.caught;
-const sum = (list, f) => list.reduce((a, c) => a + f(c), 0);
+const runs = (c) => c.r1 + 2 * c.r2 + 3 * c.r3 + 4 * c.r4 + 6 * c.r6;
+const mix = (difficulty, n, seed, aggression = 0.5) => {
+  const c = bowlAt({ aim: 'mix', kind: 'fast', difficulty, n, seed, aggression, auto: true });
+  const w = outs(c);
+  return { c, w, bpw: n / Math.max(1, w), rpo: 6 * runs(c) / n, bpb: n / Math.max(1, c.r4 + c.r6), dots: (c.r0 + c.beaten + c.left) / n };
+};
+const f1 = (x) => x.toFixed(1);
 
-test('medium: about a wicket in 20 balls at any accurate line and length, LBW a small share of them', () => {
-  const N = 200, all = [];
-  for (const kind of ['fast', 'spin']) for (const aim of Object.keys(AIMS)) {
-    const c = bowlAt({ aim, kind, difficulty: 'medium', n: N, seed: 21 });
-    all.push(c);
-    const o = outs(c);
-    assert.ok(o / N <= 0.16, `${kind} ${aim}: out ${o} of ${N}`);
-    // full and straight, or a yorker: blocked, dug out or driven -- hardly ever into the pads
-    if (aim === 'fullMiddle' || aim === 'yorker') assert.ok(c.lbw / N <= 0.03 && c.appeals / N <= 0.06, `${kind} ${aim}: lbw ${c.lbw}, pad hits ${c.appeals} of ${N}`);
-  }
-  const balls = all.length * N, w = sum(all, outs), lbw = sum(all, (c) => c.lbw);
-  assert.ok(balls / w >= 13 && balls / w <= 32, `a wicket every ${(balls / w).toFixed(1)} balls`);
-  assert.ok(lbw / w <= 0.25, `lbw ${lbw} of ${w} dismissals`);
+test('medium, a sensible mix: a wicket every 10-15 balls, 5.5-9 an over, a boundary every 4.5-8.5, dots 35-50%; caught the commonest dismissal, LBW 15-30%', () => {
+  const N = 1500, m = mix('medium', N, 21), { c, w } = m;
+  const say = `rpo ${f1(m.rpo)}, a wicket every ${f1(m.bpw)}, a boundary every ${f1(m.bpb)}, dots ${(100 * m.dots).toFixed(0)}%, out b/lbw/c ${c.bowled}/${c.lbw}/${c.caught}`;
+  assert.ok(m.bpw >= 10 && m.bpw <= 15, say);
+  assert.ok(m.rpo >= 5.5 && m.rpo <= 9, say);
+  assert.ok(m.bpb >= 4.5 && m.bpb <= 8.5, say);
+  assert.ok(m.dots >= 0.35 && m.dots <= 0.5, say);
+  assert.ok(c.lbw / w >= 0.15 && c.lbw / w <= 0.3, say);
+  assert.ok(c.bowled / w >= 0.1 && c.bowled / w <= 0.3, say);
+  assert.ok(c.caught > c.lbw && c.caught > c.bowled, say);
 });
 
-test('the levels stay apart: easy is out far more often than medium, medium than hard', () => {
-  const rate = (difficulty) => {
-    let w = 0, n = 0;
-    for (const [kind, aim] of [['fast', 'goodOff'], ['fast', 'fullMiddle'], ['spin', 'goodOff'], ['fast', 'yorker']]) {
-      const c = bowlAt({ aim, kind, difficulty, n: 150, seed: 33 });
-      w += outs(c); n += 150;
+test('full and straight, or a yorker on the stumps: a plumb LBW shout every 10-22 balls at medium, LBW the likeliest way out, close ones too; more at easy, fewer at hard', () => {
+  const N = 400;
+  const at = (difficulty) => {
+    const t = { n: 0, appeals: 0, plumb: 0, lbw: 0, bowled: 0, caught: 0 };
+    for (const aim of ['fullMiddle', 'yorker']) {
+      const c = bowlAt({ aim, kind: 'fast', difficulty, n: N, seed: 27, aggression: 0.5, auto: true });
+      t.n += N; t.appeals += c.appeals; t.plumb += c.plumb; t.lbw += c.lbw; t.bowled += c.bowled; t.caught += c.caught;
     }
-    return n / Math.max(1, w);
+    return t;
   };
-  const easy = rate('easy'), medium = rate('medium'), hard = rate('hard');
-  assert.ok(easy * 1.6 < medium && medium * 1.15 < hard, `balls a wicket: easy ${easy.toFixed(1)}, medium ${medium.toFixed(1)}, hard ${hard.toFixed(1)}`);
+  const e = at('easy'), m = at('medium'), h = at('hard');
+  const say = (t) => `a plumb shout every ${f1(t.n / Math.max(1, t.plumb))} balls (${t.appeals} appeals), out lbw/b/c ${t.lbw}/${t.bowled}/${t.caught}`;
+  assert.ok(m.n / m.plumb >= 10 && m.n / m.plumb <= 22, say(m));
+  assert.ok(m.appeals > m.plumb, `some close ones and not-outs as well: ${say(m)}`);
+  assert.ok(m.lbw >= m.caught && m.lbw >= m.bowled, say(m));
+  assert.ok(e.plumb > 1.5 * m.plumb && m.plumb > 1.5 * h.plumb, `easy: ${say(e)}; medium: ${say(m)}; hard: ${say(h)}`);
+});
+
+test('the levels stay apart (easy out every 5-9.5 balls, hard 15 or more; each scores faster than the one below) and chasing hard brings more runs and more wickets', () => {
+  const N = 1200, e = mix('easy', N, 33), m = mix('medium', N, 33), h = mix('hard', N, 33);
+  const say = `balls a wicket / an over: easy ${f1(e.bpw)} / ${f1(e.rpo)}, medium ${f1(m.bpw)} / ${f1(m.rpo)}, hard ${f1(h.bpw)} / ${f1(h.rpo)}`;
+  assert.ok(e.bpw >= 5 && e.bpw <= 9.5 && h.bpw >= 15, say);
+  assert.ok(e.bpw * 1.25 < m.bpw && m.bpw * 1.25 < h.bpw, say);
+  assert.ok(e.rpo < m.rpo && m.rpo < h.rpo, say);
+  // (aggressionNow in a chase: 0.85 needing well over a run a ball, 0.3 with time in hand)
+  const hot = mix('medium', N, 33, 0.85), calm = mix('medium', N, 33, 0.3);
+  assert.ok(hot.rpo > calm.rpo + 1.5 && hot.bpw < calm.bpw * 0.8, `chasing: ${f1(hot.rpo)} an over, out every ${f1(hot.bpw)}; in no hurry: ${f1(calm.rpo)}, every ${f1(calm.bpw)}`);
 });
