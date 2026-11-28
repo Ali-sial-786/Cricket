@@ -33,8 +33,9 @@ export const padX = (plan) => Math.max(plan && plan.C ? plan.C.x - 0.14 : BASE.x
 // the ball's radius either side of the shin (`off` m to the off side of the foot); its middle `ahead` m
 // behind the foot, reaching `front` toward the bowler (its face 2 cm ahead of the foot) and `back` behind.
 const PAD = { off: 0.02, halfX: 0.12, ahead: 0.08, front: 0.1, back: 0.2 };
+const NO_EX = { kind: null, dx: 0, dy: 0, dt: 0 };
 const DEF_POS = 0.6;          // a defensive shot's placement error, x the swing's (skill.posSigma)
-const HALF_VOLLEY_POS = 0.75; // a drive at a half-volley's
+const HALF_VOLLEY_POS = 0.5;  // a drive at a half-volley's
 
 // Rotation whose +Y = y and +Z = z (orthonormalised, right-handed).
 export function basisQuat(y, z) {
@@ -65,6 +66,9 @@ export const SHOTS = {
              top: [0.31, 1.08, 0.2], fin: ['C', -0.1, 1.4, 0.34], roll: [0.45, -0.75], drop: 0.14, weight: 0.7 },
   defend:  { zc: -1.8, hand: [0, 0.55, -0.22], speed: 2.0, th: [-0.85, 0.1], loft: -0.1, foot: 'front', handMove: -2.0, linW: 0.1,
              top: [0.29, 0.98, 0.12], topDir: [0.15, 0.62, 0.77], topFace: [0.9, -0.25, -0.1], fin: null, roll: [0.25, 0], drop: 0.15, weight: 0.66 },
+  // (the push: a forward defensive with soft hands, angled into a gap in front of square for a single -- played as a 'defend')
+  push:    { zc: -1.8, hand: [0, 0.55, -0.22], speed: 2.0, th: [-0.85, 0.1], loft: -0.1, foot: 'front', handMove: -3.7, give: 5.5, linW: 0.1, ang: [0.2, 0.34],
+             top: [0.29, 0.98, 0.12], topDir: [0.15, 0.62, 0.77], topFace: [0.9, -0.25, -0.1], fin: null, roll: [0.25, 0], drop: 0.15, weight: 0.66 },
   backdef: { zc: -1.2, hand: [0, 0.55, -0.18], speed: 2.0, th: [-0.75, 0.1], loft: -0.1, foot: 'back', handMove: -2.0, linW: 0.1,
              top: [0.29, 1.06, 0.3], topDir: [0.15, 0.62, 0.77], topFace: [0.9, -0.25, -0.1], fin: null, roll: [0.2, 0], drop: 0.04, weight: 0.36 },
   pull:    { zc: -1.7, hand: [-0.4, 0.06, 0.37], speed: 15, th: [-2.0, 2.6], loft: 0.1, foot: 'back', handMove: 0.12, linW: 0.5,
@@ -76,26 +80,41 @@ export const SHOTS = {
 };
 
 // What the batter perceives about a delivery.
-export function analyzeDelivery(state, readFactor = 1, cfg = CONFIG) {
+// (spinRead: how much of the spin he picks -- from the hand and the flight he reads turn better than
+// late movement off the seam)
+export function analyzeDelivery(state, readFactor = 1, cfg = CONFIG, spinRead = readFactor) {
   const s = state.clone();
   s.seamDeg *= readFactor;
   s.seamRandomScale = 0;
-  s.spin.scale(readFactor);
+  s.spin.scale(spinRead);
   const pred = predict(s, { cfg, maxTime: 2.5, sampleEvery: 1 / 240, wicket: true, stop: (b) => b.pos.z > 1.2 || b.bounces > 1 });
   const b0 = pred.bounces[0];
   const length = b0 ? -b0.pos.z : -1;
   const at = crossingAtZ(pred, -1.2) || { x: 0, y: 0.5, t: 0.5 };
-  return { pred, length, xb: at.x, yb: at.y, tb: at.t, hitsStumps: !!pred.wicketHit };
+  return { pred, length, xb: at.x, yb: at.y, tb: at.t, hitsStumps: !!pred.wicketHit, speed: state.vel.length(), state };
 }
 
+// How full a ball is for driving (1 = a half-volley, 0 = a good length): the length he can get
+// forward to and meet it as it lands, longer the slower it is.
+export const fullness = (L, speed = 33) => clamp((3.3 + 0.035 * speed - L) / 1.2, 0, 1);
+// The length that is hardest to play at this pace (neither forward nor back): about 6.5 m from a
+// fast bowler, 4.5 m from a spinner.
+export const goodLength = (speed = 33) => 1.0 + 0.15 * speed;
+
 // Shot selection. info from analyzeDelivery; skill = CONFIG.ai[difficulty];
-// aggression 0..1. Returns { type, ang, loft }.
+// aggression 0..1. Returns { type, ang, loft, push?, pow }.
+//   A half-volley he drives when he means to go for it (more readily the more he attacks); a
+//   good-length ball he defends, leaves outside off, or pushes into a gap for one -- driven only
+//   when he must score (aggression high), and then on the up, along the ground. pow scales the
+//   swing: a drive's power with how full the ball is.
 export function chooseShot(info, skill, aggression, rng = Math.random) {
   const r = typeof rng === 'function' ? rng : Math.random;
   const { length: L, xb, yb, hitsStumps } = info;
+  const sp = info.speed || 33;
+  const full = fullness(L, sp);
   const attack = r() < aggression;
   const mistake = r() < skill.mistakeRate;
-  let type;
+  let type, push = false, pow = 1, glance = false, dab = false;
   if (L < 0) type = 'drive';                                // full toss: hit it
   else if (yb > 1.3) {                                      // bouncer
     if (xb > 0.35 && attack) type = 'cut';
@@ -103,36 +122,53 @@ export function chooseShot(info, skill, aggression, rng = Math.random) {
     else type = 'duck';
   } else if (L > 8.0 && yb > 0.75) {                        // short of a length
     if (xb > 0.3) type = attack || mistake ? 'cut' : 'leave';
-    else if (xb < -0.12) type = attack ? 'pull' : 'backdef';
-    else type = hitsStumps ? (attack && yb > 0.95 ? 'pull' : 'backdef') : (attack ? 'pull' : 'leave');
-  } else if (L < 4.2) {                                     // full / half-volley / yorker
-    // On the stumps he gets his bat (and pad) in line: a push or a block,
-    // driven only when he means to go for it -- a half-volley, not a yorker;
-    // off the pads (leg stump and outside it) a flick, unless it is hitting
-    // and he is not going for it: then the straight bat.
-    if (xb > 0.55) type = attack || mistake ? 'drive' : 'leave';
-    else if (xb < -0.25) type = hitsStumps && !attack ? 'defend' : 'flick';
-    else if (L < 1.4) type = attack ? 'drive' : 'defend';
-    else if (hitsStumps || xb < 0.15) type = attack && L > 2.2 ? 'drive' : 'defend';
-    else type = 'drive';                                    // full outside off: the cover drive
+    else if (xb < -0.12) type = attack || r() < 0.5 ? 'pull' : 'backdef';
+    else type = hitsStumps ? ((attack || r() < 0.35) && yb > 0.95 ? 'pull' : 'backdef') : (attack || r() < 0.4 ? 'pull' : 'leave');
+  } else if (L < 1.5) {                                     // yorker: dig it out
+    if (xb < -0.25) type = 'flick';
+    else if (xb > 0.55) type = attack ? 'drive' : 'leave';
+    else type = attack && r() < 0.3 ? 'drive' : 'defend';
+    pow = 0.55;
+  } else if (full > 0) {                                    // pitched up: the half-volley is there to drive
+    const drive = r() < Math.min(0.95, (0.4 + 0.6 * full) * (0.6 + aggression));
+    if (xb > 0.55) type = drive || mistake ? 'drive' : 'leave';
+    else if (xb < -0.22) { type = 'flick'; pow = 0.6 + 0.4 * full; }
+    else if (drive) type = 'drive';
+    else { type = 'defend'; push = r() < 0.45 + 0.3 * aggression; }
+    if (type === 'drive') pow = 0.6 + 0.4 * full;
   } else {                                                  // good length
-    if (hitsStumps) type = xb < -0.2 && attack ? 'flick' : attack && L < 6.2 ? 'drive' : 'defend';
-    else if (xb > 0.22) type = mistake ? 'defend' : attack && xb > 0.45 && L < 6 ? 'drive' : 'leave';
-    else if (xb < -0.2) type = 'flick';
-    else type = attack ? 'drive' : 'defend';
+    if (xb < -0.2) { type = 'flick'; pow = 0.55; glance = true; }   // glanced off the pads, fine
+    else if (xb > 0.22 && !hitsStumps) {                    // outside off: leave it, or a push / run it down to third man
+      // (in the corridor he plays at it more often than not; a wide one he leaves unless he is after it)
+      type = xb > 0.45 && attack && L < 6 + 0.1 * (33 - sp) ? 'drive' : (xb < 0.45 && r() < 0.45 + 0.6 * aggression) || mistake ? 'defend' : 'leave';
+      if (type === 'defend') { push = r() < 0.6 + 0.3 * aggression; dab = push && r() < 0.4; }
+      if (type === 'drive') pow = 0.5;
+    } else if (aggression > 0.55 && r() < aggression - 0.45) { type = 'drive'; pow = 0.5; }   // on the up: he has to score
+    else { type = 'defend'; push = r() < 0.85 + 0.2 * aggression; }
   }
-  if (type === 'duck') return { type: 'leave', duck: true, ang: 0, loft: 0 };
-  if (type === 'leave') return { type: 'leave', ang: 0, loft: 0 };
-  const t = SHOTS[type];
+  // (to a spinner, with men round the bat, there is no soft single to be had: he plays the ball
+  // with a straight bat, under his eyes)
+  if (push && sp < 27.5) { push = false; dab = false; }
+  if (type === 'duck') return { type: 'leave', duck: true, ang: 0, loft: 0, pow: 1 };
+  if (type === 'leave') return { type: 'leave', ang: 0, loft: 0, pow: 1 };
+  const t = SHOTS[push ? 'push' : type];
   let ang = 0;
   if (type === 'drive') ang = clamp(xb * 2.2, -0.55, 0.8);
+  else if (dab) ang = 0.5 + 0.15 * r();                            // opened the face: down to third man
+  // into the gap in front of square: off the stumps to leg (into the bigger gap), outside off to the off side
+  else if (push) ang = (r() < clamp(0.75 - 3 * xb, 0.2, 0.85) ? -1 : 1) * (t.ang[0] + (t.ang[1] - t.ang[0]) * r()) + clamp(xb * 0.3, -0.06, 0.08);
   else if (type === 'defend' || type === 'backdef') ang = clamp(xb * 1.1, -0.3, 0.4);
   else if (type === 'pull') ang = -0.75 + (r() - 0.5) * 0.4;
   else if (type === 'cut') ang = 1.2 + (r() - 0.5) * 0.3;
+  else if (glance) ang = -0.95 - 0.25 * r();                       // helped round the corner to fine leg
   else if (type === 'flick') ang = -0.45 + (r() - 0.5) * 0.3;      // worked through midwicket, not swiped across the line
   let loft = t.loft;
-  if (type === 'drive' || type === 'pull') loft += aggression * 0.3 * r();
-  return { type, ang, loft };
+  // (in the air only off a ball he can get under: a half-volley, a full toss, a short one)
+  // (over the top only when he goes for it -- and then properly over the top, not a chip to the ring; otherwise kept down)
+  if (type === 'pull') loft += aggression * 0.3 * r();
+  else if (type === 'drive' && (L < 0 || full > 0.4)) loft = attack && r() < 0.3 + 0.5 * aggression ? 0.26 + 0.14 * r() : -0.12;   // (a half-volley comes up off the pitch: a face kept over it)
+  else if (type === 'drive') loft = -0.06;
+  return push ? { type, push, ang, loft, pow } : { type, ang, loft, pow };
 }
 
 const hermite = (p0, m0, p1, m1, s) => {
@@ -179,7 +215,8 @@ export class AIBatter {
     const gauss = () => { let u = 0, v = 0; while (!u) u = r(); while (!v) v = r(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); };
     if (this.tReady == null || this.tReady > t0 - 0.1) this.tReady = t0 - 0.1;
     const info = analyzeDelivery(state, this.skill.readFactor, this.cfg);
-    const shot = chooseShot(info, this.skill, this.aggression, r);
+    // (intent: a better batter backs himself to go after the ball he can hit)
+    const shot = chooseShot(info, this.skill, clamp(this.aggression + (this.skill.intent || 0), 0, 1), r);
     const plan = { shot, info, t0, tCommit: t0 + this.cfg.ai.reactionTime, adv: 0, tBack: Infinity, tPass: t0 + (info.tb || 0.5) };
     if (shot.type === 'leave') {
       plan.leavePose = shot.duck ? DUCK_POSE : LEAVE_POSE;
@@ -195,10 +232,12 @@ export class AIBatter {
       plan.adv = clamp(info.length - 2.0, 0.6, 1.5);
       shot.type = 'drive';
       shot.ang = clamp(info.xb * 1.6, -0.5, 0.6);
-      shot.loft = 0.12 + 0.3 * r();
+      shot.loft = 0.08 + 0.2 * r();
       shot.charge = true;
     }
-    const T = SHOTS[shot.type];
+    // What goes wrong (if anything) in playing it: decided now, carried through the late correction.
+    const ex = this.misplay(info, shot, speed, r, plan);
+    const T = SHOTS[shot.push ? 'push' : shot.type];
     let zc = T.zc - plan.adv;
     if (shot.type === 'drive' && !plan.adv && info.length >= 0 && info.length < 1.6) zc = -1.35; // dig out yorkers
     const c = crossingAtZ(info.pred, zc) || crossingAtZ(info.pred, -1.2);
@@ -208,16 +247,78 @@ export class AIBatter {
       plan.tSwingStart = plan.tSwingEnd = plan.tCommit + (c ? 0.25 : 0); this.plan = plan; return plan;
     }
     // (a block is played late, under the eyes, with the hands by the ball: placed a good deal better than a swing)
-    // (and a drive at a half-volley -- pitched up, nothing to read after it lands -- better than one at a good length)
-    const ps = this.skill.posSigma * (shot.type === 'defend' || shot.type === 'backdef' ? DEF_POS : shot.type === 'drive' && !plan.adv && info.length >= 1.4 && info.length < 4.2 ? HALF_VOLLEY_POS : 1);
-    const C = new Vec3(clamp(c.x + gauss() * ps, REACH.leg, offReach(shot.type)), clamp(c.y + gauss() * ps * 0.7, 0.06, REACH.high), c.z);
-    const Tc = t0 + c.t + gauss() * this.skill.timingSigma;
-    this.buildSwing(plan, T, shot, C, Tc);
+    // (and a drive at a half-volley -- pitched up, nothing to read after it lands -- better than one at a good length, and better timed)
+    const halfVolley = shot.type === 'drive' && !plan.adv && info.length >= 1.4 && info.length < 4.2;
+    const ps = this.skill.posSigma * (shot.type === 'defend' || shot.type === 'backdef' ? DEF_POS : halfVolley ? HALF_VOLLEY_POS : 1);
+    // (Cp: where he reads it -- his feet and pads go there; C: where the bat goes, with the misplay)
+    const Cp = new Vec3(clamp(c.x + gauss() * ps, REACH.leg, offReach(shot.type)), clamp(c.y + gauss() * ps * 0.7, 0.06, REACH.high), c.z);
+    const C = new Vec3(clamp(Cp.x + ex.dx, REACH.leg, offReach(shot.type)), clamp(Cp.y + ex.dy, 0.04, REACH.high), c.z);
+    const Tc = t0 + c.t + gauss() * this.skill.timingSigma * (halfVolley ? HALF_VOLLEY_POS : 1) + ex.dt;
+    this.buildSwing(plan, T, shot, C, Tc, Cp);
     this.plan = plan;
     return plan;
   }
 
-  buildSwing(plan, T, shot, C, Tc) {
+  // How hard a ball is to play (about 0.5 for a slow half-volley .. 1.5 for a quick yorker or one
+  // that moves late): its pace, the movement he did not pick (m at the stumps), the length (a
+  // good length is hardest to get forward or back to; a yorker hardest of all) and the line
+  // (at the stumps or in the corridor outside off he has to play).
+  static hardness(info, speed, misread) {
+    const L = info.length;
+    const pace = clamp((speed - 18) / 20, 0, 1.1);
+    const len = L < 0 ? 0 : Math.exp(-(((L - goodLength(speed)) / 1.5) ** 2)) + (L < 1.6 ? 0.8 : 0);
+    const move = clamp(misread / 0.06, 0, 1);
+    const line = info.xb > -0.15 && info.xb < 0.32 ? 1 : 0.6;
+    return (0.2 + 0.4 * pace + 0.5 * len * (0.3 + 0.7 * pace) + 0.2 * move) * line;
+  }
+
+  // The misplay on this ball, if any, as plan.ex = { kind, dx, dy, dt }: the bat's error from where
+  // he read the ball (dx across, + off side; dy up) and from when (dt, + late), which the late
+  // correction after the bounce does not take out. Its chance is the difficulty's skill.err times
+  // how hard the ball is (more when he is going for his shots); what it is depends on the ball:
+  //   full and straight / a yorker: playing across the line (a flick, the pad in line), late on it,
+  //     stuck on the crease to a yorker (back pad), under it (bowled) or outside the line (the gate);
+  //   a good length on the stumps: through the gate, the outside edge, late, early (the leading edge);
+  //   outside off: the outside edge (behind), early or late;  a drive: the edge, early (in the air), late;
+  //   the pull and cut: the top edge, under it, early, late.
+  // The shot may change ('across' plays the flick; 'crease' the back-foot block).
+  misplay(info, shot, speed, r, plan) {
+    const ex = plan.ex = { kind: null, dx: 0, dy: 0, dt: 0 };
+    if (shot.type === 'leave') return ex;
+    const tr = analyzeDelivery(info.state, 1, this.cfg);
+    const misread = Math.hypot(tr.xb - info.xb, 0.5 * (tr.yb - info.yb));
+    const H = AIBatter.hardness(info, speed, misread);
+    const attacking = shot.type === 'drive' || shot.type === 'pull' || shot.type === 'cut' || shot.charge;
+    const p = clamp(this.skill.err * H * (attacking ? 1.3 : 1) * (0.7 + 0.6 * this.aggression), 0, 0.85);
+    ex.p = p; ex.H = H;
+    if (!(r() < p)) return ex;
+    const u = r(), j = (a, b) => a + (b - a) * r(), L = info.length;
+    const straight = info.hitsStumps || Math.abs(info.xb) < 0.12;
+    let kind;
+    if (shot.type === 'pull' || shot.type === 'cut') kind = u < 0.45 ? 'top' : u < 0.6 ? 'under' : u < 0.8 ? 'early' : 'late';
+    else if (straight && L >= 0 && L < 1.6) kind = u < 0.35 ? 'crease' : u < 0.55 ? 'across' : u < 0.8 ? 'under' : 'late';
+    else if (straight && L >= 0 && fullness(L, speed) > 0 && !shot.charge) kind = u < 0.35 ? 'across' : u < 0.7 ? 'late' : u < 0.85 ? 'gate' : 'edge';
+    else if (shot.type === 'drive') kind = u < 0.4 ? 'edge' : u < 0.75 ? 'early' : u < 0.9 ? 'late' : 'gate';
+    else if (straight) kind = u < 0.3 ? 'gate' : u < 0.65 ? 'edge' : u < 0.85 ? 'late' : 'early';
+    else kind = u < 0.65 ? 'edge' : u < 0.85 ? 'early' : 'late';
+    ex.kind = kind;
+    switch (kind) {
+      // across the line: the flick at a straight ball, front pad planted in line with it
+      case 'across': shot.type = 'flick'; shot.push = false; shot.ang = -0.7 - 0.25 * r(); shot.loft = SHOTS.flick.loft; shot.pow = 0.8; ex.dx = -j(0.14, 0.24); ex.dt = j(0, 0.02); break;
+      // stuck on the crease to a yorker: the back-foot block, late and coming down over it (the back pad)
+      case 'crease': shot.type = 'backdef'; shot.push = false; shot.ang = 0; shot.loft = SHOTS.backdef.loft; ex.dt = j(0.08, 0.11); ex.dy = 0.04; break;
+      // late on it: the front pad gets there before the bat (more in line with a full straight one)
+      case 'late': ex.dt = j(0.05, 0.09); if (straight && L >= 0 && L < 4.2) ex.inside = 0.12; break;
+      case 'early': ex.dt = -j(0.03, 0.06); if (shot.type === 'drive') shot.loft += 0.1 + 0.15 * r(); break;
+      case 'gate': ex.dx = j(0.12, 0.16); break;       // outside the line: through the gate between bat and pad
+      case 'edge': ex.dx = -j(0.06, 0.1); break;       // inside the line: the outside edge
+      case 'under': ex.dt = j(0.09, 0.11); break;      // (late coming down on the yorker: under the bat)
+      case 'top': ex.dy = -j(0.06, 0.1); break;
+    }
+    return ex;
+  }
+
+  buildSwing(plan, T, shot, C, Tc, Cp = C) {
     const g = this.geom, R = this.R;
     const dir = new Vec3(Math.sin(shot.ang) * Math.cos(shot.loft), Math.sin(shot.loft), -Math.cos(shot.ang) * Math.cos(shot.loft)).normalize();
     const f = dir.clone();
@@ -232,15 +333,18 @@ export class AIBatter {
     const Hc = Sw.clone().sub(Sl.clone().applyQuat(qc));
     const r = Sw.clone().sub(Hc);
     const A = new Vec3().crossVectors(r, f).normalize();
-    const power = 0.85 + 0.3 * this.aggression;
+    const power = (0.85 + 0.3 * this.aggression) * (shot.pow ?? 1);
     const speed = T.speed * power;
     const omega = speed / Math.max(0.2, r.length());
     const adv = plan.adv || 0;
     plan.Tc = Tc; plan.TcFrom = Tc; plan.TcTo = Tc;
-    plan.C = C.clone(); plan.Cfrom = C.clone(); plan.Cto = C.clone();
+    plan.C = C.clone(); plan.Cfrom = C.clone(); plan.Cto = C.clone(); plan.Cp = Cp.clone();
     plan.blendStart = -1; plan.blendDur = 0.08;
     plan.qc = qc; plan.Hc = Hc; plan.A = A; plan.omega = omega;
     plan.handVel = f.clone().scale(speed * T.handMove);
+    // (soft hands for the push: the bat gives with the ball as much as its pace needs for it to come off
+    // at about T.give m/s -- the ball comes off at e (v - g) - g for a bat going back at g, e about 0.48)
+    if (T.give && plan.info) plan.handVel.copy(f).scale(-clamp((0.48 * (plan.info.speed || 33) - T.give) / 1.48, 0, 9));
     plan.lin = plan.handVel.clone().scale(1 / omega);          // hand travel per radian at contact
     plan.linW = T.linW;
     // Swing arc: a bigger backlift and a fuller finish when going hard.
@@ -281,7 +385,7 @@ export class AIBatter {
     // pitch is added) and where the weight goes.
     const feet = { L: [STANCE_FEET.L[0], STANCE_FEET.L[1]], R: [STANCE_FEET.R[0] + 0.06, STANCE_FEET.R[1] + 0.04] };
     const type = shot.type;
-    const Cz = C.z + adv, Hz = Hc.z + adv;
+    const Cz = Cp.z + adv, Hz = Hc.z + adv;
     if (type === 'pull' || type === 'cut') {
       const cx = type === 'pull' ? clamp(Hc.x + 0.12, -0.75, -0.05) : clamp(Hc.x - 0.4, -0.5, 0.25);
       const cz = type === 'pull' ? clamp(Hz + 0.42, -1.25, -0.6) : clamp(Hz + 0.3, -1.2, -0.62);
@@ -289,11 +393,11 @@ export class AIBatter {
       feet.L = type === 'pull' ? [cx - 0.2, cz - 0.36] : [cx + 0.06, cz - 0.34];
     } else if (T.foot === 'front') {
       const reach = type === 'defend' ? 0.12 : type === 'flick' ? 0.17 : 0.14;      // foot to the pitch of the ball
-      const inside = type === 'flick' ? 0.02 : 0.2;
-      feet.L = [clamp(C.x - inside, -0.6, 0.42), clamp(Cz + reach, -2.3, -1.4)];
+      const inside = plan.ex && plan.ex.inside != null ? plan.ex.inside : type === 'flick' ? 0.02 : 0.2;
+      feet.L = [clamp(Cp.x - inside, -0.6, 0.42), clamp(Cz + reach, -2.3, -1.4)];
       if (feet.L[1] - feet.R[1] < -1.05) feet.R[1] = feet.L[1] + 1.05;     // a long stride drags the back foot
     } else {
-      feet.R = [clamp(C.x - 0.36, -0.5, 0.05), -0.68];
+      feet.R = [clamp(Cp.x - 0.36, -0.5, 0.05), -0.68];
       feet.L = [feet.R[0] + 0.03, feet.R[1] - 0.44];
     }
     plan.feet = feet;
@@ -319,9 +423,10 @@ export class AIBatter {
     const k = this.skill.adjust;
     const cur = this.currentC(t);
     p.Cfrom = cur.clone();
-    p.Cto = cur.clone().lerp(new Vec3(clamp(c.x, REACH.leg, offReach(p.shot.type)), clamp(c.y, 0.06, REACH.high), c.z), k);   // (no further than he can reach)
+    const ex = p.ex || NO_EX;      // (the misplay stays in: he corrects his read of the ball, not his stroke)
+    p.Cto = cur.clone().lerp(new Vec3(clamp(c.x + ex.dx, REACH.leg, offReach(p.shot.type)), clamp(c.y + ex.dy, 0.04, REACH.high), c.z), k);   // (no further than he can reach)
     p.TcFrom = this.currentTc(t);
-    p.TcTo = p.TcFrom + ((tState + c.t) - p.TcFrom) * k;
+    p.TcTo = p.TcFrom + ((tState + c.t + ex.dt) - p.TcFrom) * k;
     p.blendStart = t;
   }
 
