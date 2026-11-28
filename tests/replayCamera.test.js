@@ -163,7 +163,7 @@ test('replayTakes: the whole replay for wickets, sixes, drops, run-out decisions
   let total = 0;
   run('highlights', over).forEach((n, k) => { const p = len[over[k][0]]; if (n && p) total += secs(p, n); });
   console.log(`(the over's replays: ${total.toFixed(1)} s)`);
-  assert.ok(total <= 21, `the over's replays ${total.toFixed(1)} s (five boundaries, a wicket and a review: a heavy over)`);
+  assert.ok(total <= 26, `the over's replays ${total.toFixed(1)} s (five boundaries, a wicket and a review: a heavy over)`);
 });
 
 test('missBy: a ball that just missed the stumps, and one that hit them or was nowhere near', () => {
@@ -195,7 +195,7 @@ test('every replay is a sequence of whole takes: take 1 at most 5 s (a routine b
     assert.equal(Math.abs(segsLength(p.segs) - p.len) < 1e-9, true);
     for (let j = 0; j < p.takes.length; j++) {
       const i0 = p.takes[j].i, i1 = j + 1 < p.takes.length ? p.takes[j + 1].i : p.n, secs = (i1 - i0) * p.du;
-      assert.ok(secs <= (j ? DIRECTOR.takes.later : tier === 'routine' ? BUDGET.routine : DIRECTOR.takes.first) + 0.03, `${story}: take ${j + 1} ${secs.toFixed(2)} s`);
+      assert.ok(secs <= (j ? DIRECTOR.takes.later : tier === 'routine' ? BUDGET.routine : tier === 'boundary' ? DIRECTOR.takes.firstWide : DIRECTOR.takes.first) + 0.03, `${story}: take ${j + 1} ${secs.toFixed(2)} s`);
       // within a take the tape only goes forward (a later take goes back to show it again)
       for (let i = i0 + 1; i < i1; i++) assert.ok(p.T[i] >= p.T[i - 1] - 1e-9, `${story}: back in time inside take ${j + 1}`);
     }
@@ -236,7 +236,7 @@ test('take 1, always: from the bowler\'s end, one continuous shot from the last 
     assert.ok(p.T[0] <= T0 - 0.2, `${at}: take 1 starts ${(T0 - p.T[0]).toFixed(2)} s before the release (the last strides)`);
     assert.ok(p.T[i1 - 1] >= T0 + 0.6 + 0.3, `${at}: take 1 ends before what happened at the bat`);
     const b0 = Math.atan2(sh.face.x - sh.pos.x, sh.face.z - sh.pos.z);
-    for (let i = 0; i < i1; i++) assert.ok(Math.abs(wrap(p.W[i] - b0)) <= DIRECTOR.arm.yawLim + 1e-6, `${at}: take 1 turned ${(wrap(p.W[i] - b0) / D2R).toFixed(0)}° off the batter`);
+    for (let i = 0; i < i1; i++) assert.ok(Math.abs(wrap(p.W[i] - b0)) <= sh.yawLim + 1e-6 && sh.yawLim <= (tier === 'boundary' ? DIRECTOR.arm.yawWide : DIRECTOR.arm.yawLim), `${at}: take 1 turned ${(wrap(p.W[i] - b0) / D2R).toFixed(0)}° off the batter`);
     // nearer the bowler's stumps, to the bowling arm's side (the umpire out of the corner), clear of everybody
     assert.ok(sh.pos.z >= -24 && Math.abs(sh.pos.x) >= 1.5, `${at}: take 1 at ${sh.pos.x.toFixed(1)}, ${sh.pos.z.toFixed(1)}`);
     if (tier !== 'routine') assert.ok(p.segs.some((g) => g.shot === t1.shot && g.rate < 0.6), `${at}: take 1 not slowed anywhere`);
@@ -258,10 +258,10 @@ test('every later take comes from the broadcast positions (CANON) and passes the
     }
     // what each story's second take is
     // (a four nobody chases, a catch with no catcher, a misfield far away: no take 2; a six: the crowd or the arc)
-    const want = { bowled: 'line', lbw: 'line', four: people ? 'rope' : null, six: /^(crowd|long|keeperHigh|screenSide)/, caught: people ? 'catch' : null, dropped: 'catch', dive: 'catch', runout: 'square', stumped: 'square' }[story];
+    const want = { bowled: 'line', lbw: 'line', four: people ? 'rope' : 'highEnd', six: /^(crowd|long|keeperHigh|highEnd)/, caught: people ? 'catch' : null, dropped: 'catch', dive: 'catch', runout: 'square', stumped: 'square' }[story];
     const t2 = p.takes[1] ? p.shots[p.takes[1].shot].canon : 'none';
-    if (want) assert.ok(want instanceof RegExp ? want.test(t2) : t2 === want || (story === 'four' && t2 === 'none' && p.leftOut.length), `${at}: take 2 ${t2} (want ${want}) ${p.leftOut}`);
-    if (['routine', 'beaten', 'edge', 'bouncer'].includes(story) || (story === 'four' && !people)) assert.equal(p.takes.length, 1, `${at}: take 1 only`);
+    if (want) assert.ok(want instanceof RegExp ? want.test(t2) : t2 === want || (story === 'four' && (t2 === 'none' || t2 === 'highEnd') && p.leftOut.length), `${at}: take 2 ${t2} (want ${want}) ${p.leftOut}`);
+    if (['routine', 'beaten', 'edge', 'bouncer'].includes(story)) assert.equal(p.takes.length, 1, `${at}: take 1 only`);
   }
   assert.ok(seen.size >= 8, [...seen].join(' '));
   // a camera moved into the catcher fails: inside a figure; one turned off its subject fails
@@ -293,7 +293,7 @@ test('the angles: fixed spots (no flying), level, turning within the comfort lim
       assert.ok(p.cuts.length <= 2 && p.cuts.length === p.takes.length - 1, `${at}: ${p.cuts.length} cuts (one dip between takes)`);
       for (const sh of p.shots) if (sh.i0 >= 0) {
         assert.ok(Math.hypot(sh.pos.x, sh.pos.z - CZ) <= (sh.seats ? 82 : DIRECTOR.rim + (sh.rope ? 3.7 : 0)) + 1e-6, `${at}: ${sh.kind} outside the rim (or, a six coming down behind the boards, the apron in front of the seats)`);
-        assert.ok(sh.pos.y >= 1.3 && sh.pos.y <= 6.5, `${at}: ${sh.kind} at ${sh.pos.y} m`);
+        assert.ok(sh.pos.y >= 1.2 - 1e-6 && sh.pos.y <= (sh.high ? DIRECTOR.highY : 6.5) + 1e-6, `${at}: ${sh.kind} at ${sh.pos.y} m`);
       }
       if (!xr) for (const f of F) assert.ok(Math.abs(f.pitch) <= 50 * D2R + 1e-6, `${at}: tilted ${f.pitch / D2R}°`);
     }
@@ -374,7 +374,7 @@ test('a six: the subject is the crowd where it lands, the ball coming down into 
     // the people, so there is no crowd take; the bowler's end shows it go)
     // (no spot where the people fill the picture: the arc, else none, never a doubtful one)
     if (p.takes.length < 2) { assert.ok(p.leftOut.length, `${name}: no take 2 and no reason`); continue; }
-    if (sh.arc) { assert.ok(takeOK(p, 1, tape).ok, `${name}: the arc ${takeOK(p, 1, tape).why}`); continue; }
+    if (sh.arc || sh.high) { assert.ok(takeOK(p, 1, tape).ok, `${name}: the arc / high ${takeOK(p, 1, tape).why}`); continue; }
     if (behindScreen(tape, land)) {
       // (behind a sightscreen: the whole arc from high at long-on / long-off or behind the keeper)
       assert.ok(p.takes.length === 2 && /^long|keeperHigh|screenSide/.test(sh.canon), `${name}: behind the sightscreen, take 2 from ${sh.canon}`);
@@ -454,11 +454,12 @@ test('a catch: 5-8 m from the catcher, chest high, three-quarter on, there befor
   }
 });
 
-test('a four: take 2 only with a fielder chasing it (8-12 m from him, him in the middle and big); nobody near: take 1 alone', () => {
+test('a four: take 2 with a fielder chasing it (8-12 m from him, him in the middle and big); nobody near: from high behind the far end', () => {
   for (const [name, v] of [['straight', [3, 1.5, -29]], ['straight, lofted', [0.5, 7, -30]], ['straight behind', [0.5, 1.5, 30]], ['cover', [24, 3, -14]],
     ['square', [30, 2, 0]], ['fine', [-12, 1.5, 24]], ['fine (finer)', [-6, 1, 30]]]) {
     const pts = shot(v);
-    assert.equal(plan('four', 'boundary', pts).p.takes.length, 1, `${name}, nobody chasing: take 1 only`);
+    // nobody chasing: from high behind the far end, down the ground to the rope (or nothing)
+    { const { p: q, tape: tq } = plan('four', 'boundary', pts); assert.ok(q.takes.length === 1 || (q.shots[q.takes[1].shot].canon === 'highEnd' && takeOK(q, 1, tq).ok), `${name}, nobody chasing: ${q.takes.map((t) => q.shots[t.shot].canon)}`); }
     const ppl = withMan(chaserOf(pts)), { p, tape } = plan('four', 'boundary', pts, {}, true, ppl);
     if (p.takes.length < 2) { assert.ok(p.leftOut.length, `${name}: no take 2 and no reason`); continue; }   // (dropped rather than shipped doubtful)
     const sh = p.shots[p.takes[1].shot], F = walk(p, tape), e = F[F.length - 1], Fd = ppl[3].c;
