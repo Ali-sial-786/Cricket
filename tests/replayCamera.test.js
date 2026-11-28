@@ -258,7 +258,7 @@ test('every later take comes from the broadcast positions (CANON) and passes the
     }
     // what each story's second take is
     // (a four nobody chases, a catch with no catcher, a misfield far away: no take 2; a six: the crowd or the arc)
-    const want = { bowled: 'line', lbw: 'line', four: people ? 'rope' : 'highEnd', six: /^(crowd|long|keeperHigh|highEnd)/, caught: people ? 'catch' : null, dropped: 'catch', dive: 'catch', runout: 'square', stumped: 'square' }[story];
+    const want = { bowled: 'line', lbw: 'line', four: people ? 'rope' : 'highEnd', six: /^(crowd|long|keeperHigh|highEnd|highSide)/, caught: people ? 'catch' : null, dropped: 'catch', dive: 'catch', runout: 'square', stumped: 'square' }[story];
     const t2 = p.takes[1] ? p.shots[p.takes[1].shot].canon : 'none';
     if (want) assert.ok(want instanceof RegExp ? want.test(t2) : t2 === want || (story === 'four' && (t2 === 'none' || t2 === 'highEnd') && p.leftOut.length), `${at}: take 2 ${t2} (want ${want}) ${p.leftOut}`);
     if (['routine', 'beaten', 'edge', 'bouncer'].includes(story)) assert.equal(p.takes.length, 1, `${at}: take 1 only`);
@@ -293,7 +293,7 @@ test('the angles: fixed spots (no flying), level, turning within the comfort lim
       assert.ok(p.cuts.length <= 2 && p.cuts.length === p.takes.length - 1, `${at}: ${p.cuts.length} cuts (one dip between takes)`);
       for (const sh of p.shots) if (sh.i0 >= 0) {
         assert.ok(Math.hypot(sh.pos.x, sh.pos.z - CZ) <= (sh.seats ? 82 : DIRECTOR.rim + (sh.rope ? 3.7 : 0)) + 1e-6, `${at}: ${sh.kind} outside the rim (or, a six coming down behind the boards, the apron in front of the seats)`);
-        assert.ok(sh.pos.y >= 1.2 - 1e-6 && sh.pos.y <= (sh.high ? DIRECTOR.highY : 6.5) + 1e-6, `${at}: ${sh.kind} at ${sh.pos.y} m`);
+        assert.ok(sh.pos.y >= 1.2 - 1e-6 && sh.pos.y <= (sh.high || sh.canon === "highSide" ? DIRECTOR.highY : 6.5) + 1e-6, `${at}: ${sh.kind} at ${sh.pos.y} m`);
       }
       if (!xr) for (const f of F) assert.ok(Math.abs(f.pitch) <= 50 * D2R + 1e-6, `${at}: tilted ${f.pitch / D2R}°`);
     }
