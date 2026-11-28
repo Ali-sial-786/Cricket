@@ -44,11 +44,17 @@ const PRESS_SECS = 0.14;       // a clicked button looks pressed this long
 // of the pitch, the ball's path and the HUD (which is up and to the right); the
 // prompt above the control hints, both above the helmet grille's top bar (~19° down).
 // Bowling: the delivery card low-left beside the run-up, the prompt and hints
-// low-right (the HUD is above them, beside the pitch).
+// low-right (the HUD is above them, beside the pitch); all outside the cone from
+// your eyes to the batter and the aim marker (MARK_CLEAR either side of the line).
 const LAYOUT = {
   batting: { prompt: [-28, -6, 1.6], hints: [-28, -15, 1.45] },
-  bowling: { prompt: [26, -14, 1.5], hints: [26, -24, 1.4], card: [-25, -9, 1.15] },
+  bowling: { prompt: [30, -14, 1.5], hints: [30, -24, 1.4], card: [-31, -12, 1.15] },
 };
+// At the bowler's mark: while you look down the pitch (within MARK_YAW of the line
+// to the batter, MARK_PITCH up or down) the delivery card and the score panel fade
+// to MARK_DIM, over MARK_TAU; they come back when you look or point at one, or for
+// MARK_WAKE after you change the delivery. Held to MARK_RUN once you start to run in.
+const MARK_YAW = 15, MARK_PITCH = 20, MARK_DIM = 0.28, MARK_RUN = 0.15, MARK_TAU = 0.08, MARK_WAKE = 1.5, MARK_GAZE = 4;
 // The panels stay put while you look around them, and follow (sliding) once you
 // turn more than this far: they keep their place to the side of your gaze and
 // are never dragged into the middle of the view (following the ball after a
@@ -139,6 +145,9 @@ export class UI {
     this.pendingPick = null;     // bowler page: the bowler just picked, confirmed before it closes
     this.pressUntil = 0;
     this.prevInnings = null;     // a match's other innings, for the final scorecard
+    this.markAlpha = 1;          // the bowler's-mark fade (see markFade)
+    this.cardWakeUntil = 0; this._cardSel = -1;
+    this._mf = new THREE.Vector3(); this._md = new THREE.Vector3(); this._mq = new THREE.Quaternion();
   }
 
   // The HUD panel beside the pitch: wanted or not (it is also hidden while a
@@ -219,6 +228,10 @@ export class UI {
 
   // The bowling delivery card (null hides it). See BowlingSession.updateCard().
   setBowlCard(d) {
+    // (a new card, or a new delivery picked on it: up at full strength for a moment)
+    const sel = d ? d.list.findIndex((it) => it.sel) : -1;
+    if (d && (!this.cardData || sel !== this._cardSel)) this.cardWakeUntil = this.clock + MARK_WAKE;
+    this._cardSel = sel;
     this.cardData = d;
     if (!d) return;
     const P = this.card, desktop = !this.game.input.xr;
@@ -323,9 +336,10 @@ export class UI {
     const m = this.hud.mesh;
     // Scaled up so ~30 px text subtends ~1° (readable on Quest 3S).
     if (end === 'bowling') {
-      // ~28° right of the line to the batter, just above eye level: beside the pitch, inside the view.
+      // ~32° right of the line to the batter, its bottom edge at eye level: beside the pitch, inside
+      // the view, and its near edge ~20° out (clear of the batter and the aim marker).
       m.scale.setScalar(1.9);
-      m.position.set(-2.0, 2.2, -14.4 + oz);
+      m.position.set(-2.37, 2.37, -14.6 + oz);
       m.lookAt(0.75, 1.65, -19.6 + oz);
     } else if (end === 'mr') {
       m.scale.setScalar(1.0);
@@ -878,6 +892,45 @@ export class UI {
     void g;
   }
 
+  // The bowler's mark: the card and the score panel step back while you look down
+  // the pitch (see MARK_*). A few dot products a frame on the two existing panels;
+  // the opacity goes through their materials (no redraw, no upload, no allocation).
+  markFade(dt) {
+    const g = this.game, ses = g.session;
+    const atMark = !!(ses && ses.isBowling && ses.state === 'ready' && g.state === 'play' && !this.menuOpen);
+    let target = 1;
+    if (atMark) {
+      if (ses.runStarted && ses.runStarted()) target = MARK_RUN;
+      else if (this.clock >= this.cardWakeUntil) {
+        const head = g.input.headPose, eye = g.eye ? g.eye.p : head.p, f = this._mf;
+        f.set(0, 0, -1).applyQuaternion(this._mq.set(head.q.x, head.q.y, head.q.z, head.q.w));
+        // down the pitch: the head's yaw near the line to the batter (at the origin), its pitch near level
+        const tx = -eye.x, tz = -eye.z, th = Math.hypot(tx, tz) || 1, fh = Math.hypot(f.x, f.z) || 1;
+        const down = (f.x * tx + f.z * tz) / (fh * th) > Math.cos(MARK_YAW * DEG) && Math.abs(f.y) < Math.sin(MARK_PITCH * DEG);
+        if (down && !this.markLooked(this.card, f, eye, g.input) && !this.markLooked(this.hud, f, eye, g.input)) target = MARK_DIM;
+      }
+    }
+    // (eased toward the target; snaps to full away from the mark)
+    this.markAlpha = atMark ? this.markAlpha + (target - this.markAlpha) * Math.min(1, dt / MARK_TAU) : 1;
+    this.card.mesh.material.opacity = this.markAlpha;
+    this.hud.mesh.material.opacity = this.markAlpha;
+  }
+
+  // (markFade's) Is the gaze, or a controller's ray, on this panel (its angular size plus MARK_GAZE)?
+  markLooked(panel, f, eye, input) {
+    const m = panel.mesh;
+    if (!m.visible) return false;
+    const half = Math.max(panel.w, panel.h) * 0.5 * m.scale.x;
+    if (rayOn(m.position, half, eye, f)) return true;
+    return !!input.xr && (this.rayOnPanel(input.left, m.position, half) || this.rayOnPanel(input.right, m.position, half));
+  }
+  rayOnPanel(c, p, half) {
+    if (!c.connected) return false;
+    const r = c.rayPose;
+    this._md.set(0, 0, -1).applyQuaternion(this._mq.set(r.q.x, r.q.y, r.q.z, r.q.w));
+    return rayOn(p, half, r.p, this._md);
+  }
+
   update() {
     CanvasPanel.tick();
     this.updatePrompt(this.game.realDt || 0.016);
@@ -886,6 +939,7 @@ export class UI {
     // The HUD panel: between balls only (not while a delivery is on, not in a replay).
     const g = this.game, replay = !!(g.replay && g.replay.active);
     this.hud.mesh.visible = this.hudOn && !this.quiet && !replay && !this.menuOpen;   // (not behind a menu or the result card)
+    this.markFade(this.game.realDt || 0.016);
     this.hud.update();
     // The screen: a sting ends, a replay starts or ends: one redraw each.
     if (this.boardSting && this.clock >= this.boardSting.until) { this.boardSting = null; this.drawBoard(); }
@@ -893,6 +947,12 @@ export class UI {
     if (replay !== this._boardReplay) { this._boardReplay = replay; this.drawBoard(); }
     this.board.update();
   }
+}
+
+// Does the ray from o along unit d pass within the angular radius of a panel (centre p, half size half)?
+function rayOn(p, half, o, d) {
+  const vx = p.x - o.x, vy = p.y - o.y, vz = p.z - o.z, dist = Math.hypot(vx, vy, vz) || 1;
+  return (d.x * vx + d.y * vy + d.z * vz) / dist > Math.cos(Math.atan(half / dist) + MARK_GAZE * DEG);
 }
 
 function sameRefs(a, b) {
