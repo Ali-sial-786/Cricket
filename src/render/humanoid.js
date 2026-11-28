@@ -1283,7 +1283,7 @@ function kitMaterial(fig = null) {
         { float fh = smoothstep(uEye.y + 0.02, uEye.y + 0.045, yy) * smoothstep(0.05, 0.02, ax);
           float nb = exp(-pow(length(vec2(ax / 0.01, (yy - uFaceMisc.y - 0.012) / 0.022)), 2.0));
           float cb = exp(-pow(length(vec2((ax - 0.045) / 0.014, (yy - uEye.y + 0.02) / 0.008)), 2.0));
-          float sh = clamp(fh + nb + 0.7 * cb, 0.0, 1.0);
+          float sh = clamp(fh + nb * (1.0 - 0.7 * max(dk, clamp(beard * 2.0, 0.0, 1.0))) + 0.7 * cb, 0.0, 1.0);   // (no pale streak down a dark or bearded face's nose)
           gSpec = mix(gSpec, 0.022 + 0.04 * sh, 1.0 - clamp(beard + lip, 0.0, 1.0)); gShin = mix(gShin, 4.5 + 3.0 * sh, 1.0 - lip);
           gSpecC = mix(vec3(1.0), vec3(1.0, 0.82, 0.66), dk); }
         gBounce = 1.0 + 1.2 * dk;
