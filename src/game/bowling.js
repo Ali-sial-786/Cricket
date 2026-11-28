@@ -291,8 +291,15 @@ export class BowlingSession {
 
   updateAim() {
     const g = this.game;
-    g.aimMarker.visible = g.settings.aimMarker && this.state !== 'live';
+    g.aimMarker.visible = this.aimShown();
     g.aimMarker.position.set(this.aim.x, 0, this.aim.z);
+  }
+  // The marker is there while you can aim: not with the ball in play or a decision pending, not once the
+  // innings is over, not through a ceremony or a replay (it sat beside the batters all through the result).
+  aimShown() {
+    const g = this.game;
+    return !!g.settings.aimMarker && !this.done && this.state !== 'live' && this.state !== 'review'
+      && !(g.ceremony && g.ceremony.active) && !(g.replay && g.replay.active);
   }
 
   // ------------------------------------------------------------- input
@@ -487,6 +494,7 @@ export class BowlingSession {
   // ------------------------------------------------------------- per frame
   update(dt, t) {
     const g = this.game;
+    g.aimMarker.visible = this.aimShown();
     if (this.done) return;
     const L = g.input.left;
     if (this.state !== 'live' && g.settings.aimMarker && (Math.abs(L.stick.x) > 0.15 || Math.abs(L.stick.y) > 0.15)) {
